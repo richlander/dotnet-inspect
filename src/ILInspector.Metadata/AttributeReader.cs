@@ -20,6 +20,13 @@ public readonly record struct RuntimeJsExportAttributeEvidence(
     public bool HasValidRow => ValidRowCount > 0;
 }
 
+internal enum AttributeTypeIdentityDisposition
+{
+    Match,
+    Different,
+    Unresolved,
+}
+
 /// <summary>
 /// Reads and checks custom attributes on types and members.
 /// </summary>
@@ -2400,9 +2407,30 @@ public static partial class AttributeReader
         Action<int>? beforeMaterialize,
         out EntityHandle declaringType)
     {
-        declaringType = default;
-        if (ExpectedTopLevelName(fullTypeName) is not { } expected)
-            return false;
+        return ClassifyTopLevelAttributeType(
+                reader,
+                constructor,
+                fullTypeName,
+                beforeMaterialize,
+                out declaringType)
+            == AttributeTypeIdentityDisposition.Match;
+    }
+
+    internal static AttributeTypeIdentityDisposition
+        ClassifyTopLevelAttributeType(
+            MetadataReader reader,
+            EntityHandle constructor,
+            string fullTypeName,
+            Action<int>? beforeMaterialize,
+            out EntityHandle declaringType)
+    {
+        MetadataTypeDefinitionName? expected =
+            ExpectedTopLevelName(fullTypeName);
+        if (expected is null)
+        {
+            declaringType = default;
+            return AttributeTypeIdentityDisposition.Unresolved;
+        }
 
         declaringType = constructor.Kind switch
         {
@@ -2416,7 +2444,7 @@ public static partial class AttributeReader
             _ => default,
         };
         if (declaringType.IsNil)
-            return false;
+            return AttributeTypeIdentityDisposition.Unresolved;
 
         // A locally defined attribute authenticates through either constructor
         // spelling. ECMA-335 lets a MemberRef name a member of a TypeDef in the
@@ -2425,21 +2453,34 @@ public static partial class AttributeReader
         // structured name, so a nested carrier stays rejected.
         if (declaringType.Kind == HandleKind.TypeDefinition)
         {
-            return MetadataTypeDefinitionNameReader.Read(
+            return Classify(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeDefinitionHandle)declaringType,
-                    beforeMaterialize)
-                is MetadataTypeDefinitionNameReadResult.Read defined
-                && defined.Name.Equals(expected);
+                    beforeMaterialize));
         }
 
         return declaringType.Kind == HandleKind.TypeReference
-            && MetadataTypeDefinitionNameReader.Read(
+            ? Classify(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeReferenceHandle)declaringType,
-                    beforeMaterialize)
-                is MetadataTypeDefinitionNameReadResult.Read referenced
-            && referenced.Name.Equals(expected);
+                    beforeMaterialize))
+            : AttributeTypeIdentityDisposition.Unresolved;
+
+        AttributeTypeIdentityDisposition Classify(
+            MetadataTypeDefinitionNameReadResult result)
+        {
+            if (result is not
+                MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return AttributeTypeIdentityDisposition.Unresolved;
+            }
+
+            return read.Name.Equals(expected)
+                ? AttributeTypeIdentityDisposition.Match
+                : AttributeTypeIdentityDisposition.Different;
+        }
     }
 
     /// <summary>

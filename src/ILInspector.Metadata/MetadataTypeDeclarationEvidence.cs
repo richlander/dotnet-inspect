@@ -345,6 +345,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         CustomAttributeHandleCollection attributes = Read(
             site,
             definition.GetCustomAttributes);
+        bool hasMarker = false;
         foreach (CustomAttributeHandle attributeHandle in attributes)
         {
             _token.ThrowIfCancellationRequested();
@@ -354,23 +355,30 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             CustomAttribute attribute = Read(
                 site with { Handle = attributeHandle },
                 () => _reader.GetCustomAttribute(attributeHandle));
-            string? attributeName = Read(
+            AttributeTypeIdentityDisposition disposition = Read(
                 site with { Handle = attribute.Constructor },
-                () => AttributeReader.GetAttributeTypeName(
+                () => AttributeReader.ClassifyTopLevelAttributeType(
                     _reader,
                     attribute.Constructor,
+                    KnownAttributeNames.IsByRefLikeAttribute,
                     beforeMaterialize: amount => Charge(
                         site,
                         MetadataOperationDimension.StructuredNodes,
-                        amount)));
-            if (attributeName
-                == KnownAttributeNames.IsByRefLikeAttribute)
+                        amount),
+                    out _));
+            if (disposition == AttributeTypeIdentityDisposition.Unresolved)
             {
-                return true;
+                throw Refuse(
+                    site with { Handle = attribute.Constructor },
+                    MetadataTypeDeclarationFailureReason.MalformedMetadata,
+                    "A custom-attribute constructor owner could not be resolved.");
             }
+
+            if (disposition == AttributeTypeIdentityDisposition.Match)
+                hasMarker = true;
         }
 
-        return false;
+        return hasMarker;
     }
 
     void ValidateRawTypeDefinitionRow(

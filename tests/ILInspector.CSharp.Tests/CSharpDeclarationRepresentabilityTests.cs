@@ -854,6 +854,51 @@ public sealed class CSharpDeclarationRepresentabilityTests
     }
 
     [Fact]
+    public void CDR005_NestedLookalikeDoesNotRequireCSharp13()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            refLikeMarker: RefLikeMarkerKind.NestedLookalike);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        MetadataTypeDeclarationEvidence containing = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(post.ContainingType)
+            .Evidence;
+        Assert.False(containing.IsByRefLike);
+
+        CSharpDeclarationRepresentabilityResult accepted =
+            CSharpDeclarationRepresentability.Decide(
+                post,
+                new(CSharpLanguageVersion.CSharp11));
+
+        Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Representable>(
+                accepted);
+    }
+
+    [Fact]
+    public void CDR005_UnresolvedAttributeOwnerIsUnavailable()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            refLikeMarker: RefLikeMarkerKind.UnresolvedOwner);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        Assert.IsType<MetadataTypeDeclarationResult.Rejected>(
+            post.ContainingType);
+
+        var unavailable = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unavailable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+
+        Assert.Equal(
+            CSharpDeclarationUnavailableReason.ContainingTypeRejected,
+            unavailable.Reason);
+    }
+
+    [Fact]
     public void CDR004_ParameterSpellingProducesUniqueIdentifiers()
     {
         MetadataParameterMarkerEvidence markers =
@@ -1302,6 +1347,13 @@ public sealed class CSharpDeclarationRepresentabilityTests
         NamespaceTypeQualifier,
     }
 
+    enum RefLikeMarkerKind
+    {
+        None,
+        NestedLookalike,
+        UnresolvedOwner,
+    }
+
     sealed class AuthoredFixture : IDisposable
     {
         readonly string _path;
@@ -1337,7 +1389,9 @@ public sealed class CSharpDeclarationRepresentabilityTests
             bool targetIsValueType = true,
             string? restrictedReturnType = null,
             SpellingCollisionKind spellingCollision =
-                SpellingCollisionKind.None)
+                SpellingCollisionKind.None,
+            RefLikeMarkerKind refLikeMarker =
+                RefLikeMarkerKind.None)
         {
             bool hasSpellingCollision =
                 spellingCollision != SpellingCollisionKind.None;
@@ -1600,6 +1654,61 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     default,
                     MetadataTokens.FieldDefinitionHandle(1),
                     declaration);
+            MemberReferenceHandle unresolvedAttributeConstructor =
+                default;
+            if (refLikeMarker != RefLikeMarkerKind.None)
+            {
+                EntityHandle constructorOwner;
+                if (refLikeMarker
+                    == RefLikeMarkerKind.NestedLookalike)
+                {
+                    TypeDefinitionHandle outer =
+                        metadata.AddTypeDefinition(
+                            TypeAttributes.Public,
+                            metadata.GetOrAddString(
+                                "System.Runtime"),
+                            metadata.GetOrAddString(
+                                "CompilerServices"),
+                            default,
+                            MetadataTokens.FieldDefinitionHandle(1),
+                            MetadataTokens.MethodDefinitionHandle(3));
+                    TypeDefinitionHandle nested =
+                        metadata.AddTypeDefinition(
+                            TypeAttributes.NestedPublic,
+                            default,
+                            metadata.GetOrAddString(
+                                "IsByRefLikeAttribute"),
+                            default,
+                            MetadataTokens.FieldDefinitionHandle(1),
+                            MetadataTokens.MethodDefinitionHandle(3));
+                    metadata.AddNestedType(nested, outer);
+                    constructorOwner = nested;
+                }
+                else
+                {
+                    constructorOwner = target;
+                }
+
+                var constructorSignature = new BlobBuilder();
+                constructorSignature.WriteByte(0x20);
+                constructorSignature.WriteCompressedInteger(0);
+                constructorSignature.WriteByte(0x01);
+                MemberReferenceHandle constructor =
+                    metadata.AddMemberReference(
+                        constructorOwner,
+                        metadata.GetOrAddString(".ctor"),
+                        metadata.GetOrAddBlob(
+                            constructorSignature));
+                metadata.AddCustomAttribute(
+                    target,
+                    constructor,
+                    AddBlob(metadata, 0x01, 0x00, 0x00, 0x00));
+                if (refLikeMarker
+                    == RefLikeMarkerKind.UnresolvedOwner)
+                {
+                    unresolvedAttributeConstructor = constructor;
+                }
+            }
             int effectiveInterfaceArity =
                 hasSpellingCollision
                     ? 1
@@ -1658,9 +1767,16 @@ public sealed class CSharpDeclarationRepresentabilityTests
             string path = Path.Combine(
                 Path.GetTempPath(),
                 $"csharp-declaration-{Guid.NewGuid():N}.dll");
+            byte[] image = Serialize(metadata, methodBodies);
+            if (!unresolvedAttributeConstructor.IsNil)
+            {
+                PatchMemberReferenceParentToNil(
+                    image,
+                    unresolvedAttributeConstructor);
+            }
             File.WriteAllBytes(
                 path,
-                Serialize(metadata, methodBodies));
+                image);
             using var stream = File.OpenRead(path);
             using var pe = new PEReader(stream);
             MetadataReader reader = pe.GetMetadataReader();
@@ -1790,6 +1906,33 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 flags: CorFlags.ILOnly)
                 .Serialize(image);
             return image.ToArray();
+        }
+
+        static void PatchMemberReferenceParentToNil(
+            byte[] image,
+            MemberReferenceHandle handle)
+        {
+            using var pe = new PEReader(
+                new MemoryStream(image, writable: false));
+            MetadataReader reader = pe.GetMetadataReader();
+            int offset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.MemberRef)
+                + ((MetadataTokens.GetRowNumber(handle) - 1)
+                    * reader.GetTableRowSize(TableIndex.MemberRef));
+            int maxParentRows = new[]
+            {
+                TableIndex.TypeDef,
+                TableIndex.TypeRef,
+                TableIndex.ModuleRef,
+                TableIndex.MethodDef,
+                TableIndex.TypeSpec,
+            }.Max(reader.GetTableRowCount);
+            int parentIndexSize =
+                maxParentRows < (1 << (16 - 3))
+                    ? sizeof(ushort)
+                    : sizeof(uint);
+            image.AsSpan(offset, parentIndexSize).Clear();
         }
     }
 }
