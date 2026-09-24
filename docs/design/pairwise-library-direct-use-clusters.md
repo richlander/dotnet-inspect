@@ -11,6 +11,8 @@ Tracking:
   focused owner and first CLI adopter;
 - [#8380](https://github.com/richlander/dotnet-inspect/issues/8380) —
   completed host-neutral inspection and CLI migration;
+- [#8412](https://github.com/richlander/dotnet-inspect/issues/8412) —
+  first-class pair discovery and focused-cluster CLI routes;
 - [#6313](https://github.com/richlander/dotnet-inspect/issues/6313) — broader
   semantic feature relationships and package or ecosystem rollups;
 - [#6601](https://github.com/richlander/dotnet-inspect/issues/6601) — public
@@ -24,13 +26,16 @@ roots, or assign semantic feature names.
 
 ## Consumer and production path
 
-The first consumer is the explicit CLI section:
+The first consumers are the pair-discovery and focused-cluster CLI routes:
 
 ```console
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
-  --library ./Provider.dll \
-  -S "Direct Use Clusters"
+  --library ./Provider.dll
+
+dotnet-inspect graph cluster 3 \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
 ```
 
 The Query projection and first CLI adoption are complete. The shared
@@ -225,36 +230,35 @@ detection, namespace heuristic, or producer-intent inference is introduced.
 
 ## CLI projection
 
-`Direct Use Clusters` is an explicit section. It does not enter the default
-call-site view or bare `-S`, preserving current output and cost expectations.
+`graph libraries` owns pair-wide discovery and defaults to `Direct Use
+Clusters`. `graph cluster N` owns focused detail and defaults to exact `Call
+Sites`. Both routes require exactly two distinct local Libraries and expose
+the same explicit section catalog. Bare `-S` retains the two summary
+projections.
 
 Each row exposes the directed pair, cluster ordinal and anchor tokens,
 structural footprint counts, and one-based `Call Site Rows` references into the
 unchanged exact call-site table. Exact section selection, after
 case-insensitive deduplication of repeated identical selectors, applies
-semantic Head/Tail and strict Window stages to the complete Query-issued cluster
-vector after optional `Cluster=N` scoping. Count, table, TSV, JSONL, JSON,
-Markdown, and plain-text lowering then consume the same selected cluster
-identities through the existing generated Markout context. Explicit Lines
-remains rendered-text selection.
+semantic Head/Tail and strict Window stages to the complete Query-issued
+cluster vector. Count, table, TSV, JSONL, JSON, Markdown, and plain-text
+lowering then consume the same selected cluster identities through the
+existing generated Markout context. Explicit Lines remains rendered-text
+selection.
 
-`--where "Cluster=N"` is the drill-down gesture for one pair-wide cluster
-ordinal. `Cluster` is a typed equality predicate over the logical pair
-occurrences, applied before section projection rather than parsed from rendered
-rows. It restricts every requested section to that cluster's retained
-occurrences; without `-S`, the result is the ordinary exact call-site table for
-that cluster. The selected cluster row remaps `Call Site Rows` to its scoped
-one-based call table, so the cluster summary and detail document agree. An
-unavailable ordinal fails visibly, and an unobserved ordinal in incomplete
-evidence is not reported as a proved absence.
+The positive ordinal in `graph cluster N` selects one pair-wide cluster before
+section projection. It restricts every requested section to that cluster's
+retained occurrences. The default result is the exact call-site table, titled
+with the selected cluster and accompanied by its compact footprint. The
+selected cluster row remaps `Call Site Rows` to its scoped one-based call
+table, so summary and detail agree. An unavailable ordinal fails visibly, and
+an unobserved ordinal in incomplete evidence is not reported as a proved
+absence.
 
-The predicate accepts exactly one positive integer ordinal and only the
-equality operator. A dedicated `--cluster` flag is intentionally not minted:
-the ordinal is existing typed row data, not a new coordinate currency. This
-follows [Output shapes](output-shapes.md#coordinate-carriers-sit-before-the-ladder),
-which prefers a section, category, or `--where` predicate before adding a
-carrier. `graph libraries -Q "Call Sites"` and the other four section names expose the
-same `Cluster` binding without inspecting the library pair.
+The ordinal is a route operand rather than a `--cluster` option or a
+user-facing `--where` predicate because it changes the inspection subject from
+the Library pair to one discovered component. It remains presentation
+convenience rather than durable identity.
 
 `AssemblyPairDirectUseClusterProjection.ScopeToObservedCluster` owns the
 host-neutral transformation from a complete-pair projection to that
@@ -262,26 +266,25 @@ occurrence-scoped pair and remapped cluster receipt. The CLI and future
 Browser/Wasm consumers share it rather than reconstructing selection from
 rendered row text.
 
-`GraphLibrariesQuery` owns the executable query registration above that
+`GraphLibrariesQuery` owns the executable operation registration above that
 transformation. It registers the Cluster binder once, resolves canonical
-portable intent into `GraphLibrariesQueryPlan`, and exposes one command route
-plus one route for each existing Graph Libraries row set. CLI `-Q` discovery
-and `--where` lowering consume those routes; the five sections do not maintain
-another facet inventory. This registration changes no cluster identity,
-assignment, scope transformation, output row, or failure behavior.
+portable intent into `GraphLibrariesQueryPlan`, and exposes one operation
+route plus one route for each existing Graph Libraries row set. The focused
+CLI route creates that canonical typed plan directly from its positional
+ordinal; the five sections do not maintain another selector implementation.
+This registration changes no cluster identity, assignment, scope
+transformation, output row, or failure behavior.
 
 The intended CLI journey is:
 
 ```console
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
-  --library ./Provider.dll \
-  -S "Direct Use Clusters"
+  --library ./Provider.dll
 
-dotnet-inspect graph libraries \
+dotnet-inspect graph cluster 3 \
   --library ./Consumer.dll \
-  --library ./Provider.dll \
-  --where "Cluster=3"
+  --library ./Provider.dll
 ```
 
 The second command exposes exact source and target members and tokens, call

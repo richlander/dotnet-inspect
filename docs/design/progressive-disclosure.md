@@ -169,9 +169,11 @@ or `Ecosystem Info`, while bare `-S` retains the complete route-specific
 composition.
 `graph libraries` uses `@Libraries` as its base category for the pair-wide
 `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, and `Provider API
-Types` projections. Ordinary output remains `Call Sites`, while bare `-S`
-retains the two summary projections. Coordinate-gated `Public Root Paths`
-remains exact-name-only and outside the category.
+Types` projections. Ordinary output is `Direct Use Clusters`.
+`graph cluster N` uses the same catalog for one focused component and ordinary
+output is `Call Sites`. Bare `-S` retains the two summary projections on both
+routes. Coordinate-gated `Public Root Paths` remains exact-name-only and
+outside the category.
 Package Query uses `@Query` as its base category for `Packages` and
 `Query Summary`. Ordinary output remains adaptive, while bare `-S` retains
 the non-adaptive `Packages` preset.
@@ -348,8 +350,7 @@ section scope; there is no `-S Section -Q` spelling. `--schema` and
 data. Query execution flags such as `--where`, `--order-by`, and `--top` are
 rejected rather than run against the metadata or silently discarded.
 
-The initial commands are `library`, `type`, `member`, `package`, `find`, and
-`graph libraries`.
+The initial commands are `library`, `type`, `member`, `package`, and `find`.
 Discovery describes command capabilities, including contexts requiring a
 selected type or member, rather than target-dependent applicability. A target
 may accompany the request, but it is not acquired or inspected. Commandless
