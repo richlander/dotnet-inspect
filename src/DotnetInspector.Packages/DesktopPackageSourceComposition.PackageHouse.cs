@@ -295,7 +295,8 @@ public sealed partial class DesktopPackageSourceComposition
             sourceResult?.NotFoundAuthorities,
             sourceResult?.ReportingAuthorities,
             settlement.SelectionUsesOriginalSources,
-            settlement);
+            settlement,
+            sourceResult?.Transfer);
     }
 
     private Task<PackageHouseSettlement> ExecuteHouseAsync(

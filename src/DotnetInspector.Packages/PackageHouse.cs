@@ -99,6 +99,15 @@ public abstract class PackageHouseSettlement
         }
 
         public AcquiredPackageSourcePayload Payload { get; }
+
+        /// <summary>
+        /// Creates a cold, single-use read of one exact entry in this acquired
+        /// package generation.
+        /// </summary>
+        public PackageHousePayloadRead OpenPayloadRead(
+            string relativePath,
+            long maxExpandedBytes) =>
+            new(this, relativePath, maxExpandedBytes);
     }
 }
 
@@ -702,7 +711,8 @@ public sealed class PackageHouse
                     payloadResult.Authority!,
                     payloadResult.Source!,
                     payload.Origin,
-                    payload.Content.GenerationIdentity);
+                    payload.Content.GenerationIdentity,
+                    payloadResult.Transfer!);
                 if (request.Operation.Profile
                     == PackageHouseOperationProfile.Acquire)
                 {

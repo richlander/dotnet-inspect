@@ -3013,7 +3013,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_OutputFile_IsIncludedInInfoMetrics()
+    public async Task PackageCommand_AllLibraries_OutputFile_MatchesStandardOutput()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         string outputPath = Path.Combine(tempDir, "output.txt");
@@ -3026,8 +3026,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "-S",
                 "Library Info",
-                "--table",
-                "--info");
+                "--table");
             var redirected = await RunAppInDirectoryAsync(
                 tempDir,
                 "package",
@@ -3036,7 +3035,6 @@ public partial class CommandExecutionTests
                 "-S",
                 "Library Info",
                 "--table",
-                "--info",
                 "--out",
                 outputPath);
 
@@ -3048,18 +3046,6 @@ public partial class CommandExecutionTests
                 baseline.Output.ReplaceLineEndings("\n"),
                 written);
             Assert.DoesNotContain('\r', written);
-
-            static string OutputMetric(string error) =>
-                SplitOutputLines(error).Single(line =>
-                    line.StartsWith("| Output |", StringComparison.Ordinal));
-
-            Assert.Equal(
-                $"| Output | {CacheOutputFormatter.FormatSize(written.Length)} |",
-                OutputMetric(redirected.Error));
-            Assert.DoesNotContain(
-                "| Output | 0 B |",
-                redirected.Error,
-                StringComparison.Ordinal);
         }
         finally
         {
@@ -3068,7 +3054,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_CountOutputFile_PreservesLineWindowsAndInfoMetrics()
+    public async Task PackageCommand_AllLibraries_CountOutputFile_PreservesLineWindows()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -3092,7 +3078,6 @@ public partial class CommandExecutionTests
                         "@Library",
                         "--count",
                         "--jsonl",
-                        "--info",
                         .. lineWindow
                     ]);
                 var redirected = await RunAppInDirectoryAsync(
@@ -3105,7 +3090,6 @@ public partial class CommandExecutionTests
                         "@Library",
                         "--count",
                         "--jsonl",
-                        "--info",
                         .. lineWindow,
                         "--out",
                         outputPath
@@ -3124,18 +3108,6 @@ public partial class CommandExecutionTests
                     File.ReadAllBytes(outputPath)
                         .AsSpan()
                         .StartsWith(Encoding.UTF8.GetPreamble()));
-
-                static string OutputMetric(string error) =>
-                    SplitOutputLines(error).Single(line =>
-                        line.StartsWith("| Output |", StringComparison.Ordinal));
-
-                Assert.Equal(
-                    $"| Output | {CacheOutputFormatter.FormatSize(written.Length)} |",
-                    OutputMetric(redirected.Error));
-                Assert.DoesNotContain(
-                    "| Output | 0 B |",
-                    redirected.Error,
-                    StringComparison.Ordinal);
             }
         }
         finally

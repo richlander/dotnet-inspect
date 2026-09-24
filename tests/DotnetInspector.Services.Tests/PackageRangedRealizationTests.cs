@@ -12,10 +12,9 @@ namespace DotnetInspector.Services.Tests;
 /// the package source model's ranged step, owned by
 /// <c>docs/design/package-source-model.md#ranged-payload-realization</c>.
 /// </summary>
-public sealed class PackageRangedRealizationTests
+public sealed partial class PackageRangedRealizationTests
 {
     private const string Feed = "https://ranged.example/v3/index.json";
-    private const string Flat = "https://ranged.example/flat2/";
     private const string PclStorage = "PCLStorage";
     private const string PclStorageVersion = "1.0.2";
 
@@ -189,6 +188,9 @@ public sealed class PackageRangedRealizationTests
         Assert.Equal(PackagePayloadOrigin.Cache, acquired.Payload.Origin);
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
         Assert.Equal(0, warm.RangedRequests + warm.FullRequests);
+        PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Cache);
+        Assert.Equal(PackageTransferPath.EntryCache, receipt.Path);
+        Assert.Empty(receipt.Requests);
         var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
         Assert.Equal(
             Net45Folder.Order(StringComparer.Ordinal),
@@ -222,6 +224,12 @@ public sealed class PackageRangedRealizationTests
         // The tail confirms the archive is unchanged, then the one missing
         // entry; the other three come from the entry cache.
         Assert.Equal(2, warm.RangedRequests);
+        // A cached directory spares the size probe: the receipt starts at the
+        // tail (docs/design/package-transfer-receipt.md).
+        PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Ranged);
+        Assert.Equal(
+            [PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestPurpose.EntrySpan],
+            receipt.Requests.Select(request => request.Purpose));
         Assert.Equal(
             Net45Folder.Order(StringComparer.Ordinal),
             Assert.IsType<RangedPackageContent>(acquired.Payload.Content)
@@ -612,12 +620,12 @@ public sealed class PackageRangedRealizationTests
 
     private sealed class RangedEnvironment : IAsyncDisposable
     {
-        private readonly IPackageSourceClient _client;
+        private readonly IDisposable _client;
 
         private RangedEnvironment(
             IPackageSourceAuthorization authorization,
             PackageSourceSettlementLease root,
-            IPackageSourceClient client)
+            IDisposable client)
         {
             Authorization = authorization;
             Root = root;
@@ -644,6 +652,32 @@ public sealed class PackageRangedRealizationTests
             PackageSourceSettlementLease root =
                 PackageSourceSettlementService.IssueLease(_ => client);
             return new(new Fixed(authorization), root, client);
+        }
+
+        /// <summary>
+        /// Authorizes one source per feed, in order, each served by its own
+        /// feed at that feed's <see cref="RangeFeed.FeedUrl"/>.
+        /// </summary>
+        public static RangedEnvironment Create(params RangeFeed[] feeds)
+        {
+            PackageSourceAuthorization authorization =
+                PackageSourceAuthorization.Authorize(
+                    [.. feeds.Select((feed, index) =>
+                        new PackageSource($"ranged{index}", feed.FeedUrl))]);
+            var clients = new Dictionary<ConfiguredPackageAuthority, IPackageSourceClient>(
+                ReferenceEqualityComparer.Instance);
+            for (int i = 0; i < feeds.Length; i++)
+            {
+                ConfiguredPackageAuthority authority = authorization.Authorities[i];
+                clients[authority] = PackageSourceClientFactory.Create(
+                    authority.Source,
+                    authority.Association,
+                    feeds[i]);
+            }
+            PackageSourceSettlementLease root =
+                PackageSourceSettlementService.IssueLease(
+                    authority => clients[authority]);
+            return new(new Fixed(authorization), root, new ClientSet(clients.Values));
         }
 
         public Task<PackageHouseSettlement> RealizeAsync(
@@ -681,6 +715,16 @@ public sealed class PackageRangedRealizationTests
             _client.Dispose();
         }
 
+        private sealed class ClientSet(IEnumerable<IPackageSourceClient> clients)
+            : IDisposable
+        {
+            public void Dispose()
+            {
+                foreach (IPackageSourceClient client in clients)
+                    client.Dispose();
+            }
+        }
+
         private sealed class Fixed(PackageSourceAuthorization authorization)
             : IPackageSourceAuthorization
         {
@@ -696,6 +740,13 @@ public sealed class PackageRangedRealizationTests
     private sealed class RangeFeed(string id, string version, byte[] archive)
         : HttpMessageHandler
     {
+        /// <summary>The host this feed answers as; distinct feeds are distinct sources.</summary>
+        public string Host { get; init; } = "ranged.example";
+
+        public string FeedUrl => $"https://{Host}/v3/index.json";
+
+        private string FlatUrl => $"https://{Host}/flat2/";
+
         private int _rangedRequests;
         private int _fullRequests;
 
@@ -722,17 +773,17 @@ public sealed class PackageRangedRealizationTests
         {
             string url = request.RequestUri!.AbsoluteUri;
             Requests.Enqueue($"{url} {request.Headers.Range}");
-            if (url == Feed)
+            if (url == FeedUrl)
             {
                 return Task.FromResult(Respond(request, HttpStatusCode.OK, new StringContent($$"""
                     {"version":"3.0.0","resources":[
-                      {"@id":"{{Flat}}","@type":"PackageBaseAddress/3.0.0"}
+                      {"@id":"{{FlatUrl}}","@type":"PackageBaseAddress/3.0.0"}
                     ]}
                     """)));
             }
 
             string lower = id.ToLowerInvariant();
-            if (url != $"{Flat}{lower}/{version}/{lower}.{version}.nupkg")
+            if (url != $"{FlatUrl}{lower}/{version}/{lower}.{version}.nupkg")
                 return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
 
             RangeItemHeaderValue? range = request.Headers.Range?.Ranges.SingleOrDefault();

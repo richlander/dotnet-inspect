@@ -176,6 +176,167 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
+    public async Task ExactByteDestination_PullsProgressivelyToAFile()
+    {
+        byte[] expected = new byte[1024 * 1024];
+        for (int index = 0; index < expected.Length; index++)
+            expected[index] = (byte)(index % 241);
+        var tempDirectory =
+            Directory.CreateTempSubdirectory("exact-byte-destination-");
+        try
+        {
+            string path = Path.Combine(
+                tempDirectory.FullName,
+                "payload.bin");
+            await using var input = new ObservedReadStream(expected);
+
+            await ProjectionDestinationWriter.WriteExactBytesAsync(
+                new ProjectionDestination(path, ExactTransfer: true),
+                input,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(expected, await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken));
+            Assert.InRange(
+                input.LargestReadRequest,
+                1,
+                64 * 1024);
+            Assert.True(input.ReadCalls > 1);
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExactByteDestination_PreservesExistingFileWhenPullFailsAtEof()
+    {
+        byte[] sentinel = "existing"u8.ToArray();
+        var tempDirectory =
+            Directory.CreateTempSubdirectory("exact-byte-destination-failure-");
+        try
+        {
+            string path = Path.Combine(
+                tempDirectory.FullName,
+                "payload.bin");
+            await File.WriteAllBytesAsync(
+                path,
+                sentinel,
+                TestContext.Current.CancellationToken);
+            await using var input = new ThrowAtEofStream("replacement"u8.ToArray());
+
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                ProjectionDestinationWriter.WriteExactBytesAsync(
+                    new ProjectionDestination(path, ExactTransfer: true),
+                    input,
+                    TestContext.Current.CancellationToken));
+
+            Assert.Equal(
+                sentinel,
+                await File.ReadAllBytesAsync(
+                    path,
+                    TestContext.Current.CancellationToken));
+            Assert.Single(
+                Directory.EnumerateFiles(tempDirectory.FullName));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    private sealed class ThrowAtEofStream(byte[] content) :
+        MemoryStream(content, writable: false)
+    {
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            if (Position == Length)
+            {
+                throw new InvalidDataException(
+                    "Payload validation failed at EOF.");
+            }
+
+            return base.Read(buffer, offset, count);
+        }
+    }
+
+    private sealed class ObservedReadStream(byte[] content) : Stream
+    {
+        private int _position;
+
+        public int LargestReadRequest { get; private set; }
+
+        public int ReadCalls { get; private set; }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => content.LongLength;
+
+        public override long Position
+        {
+            get => _position;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            return Read(buffer.AsSpan(offset, count));
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            LargestReadRequest =
+                Math.Max(LargestReadRequest, buffer.Length);
+            ReadCalls++;
+            int count = Math.Min(
+                buffer.Length,
+                content.Length - _position);
+            content.AsSpan(_position, count).CopyTo(buffer);
+            _position += count;
+            return count;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(Read(buffer.Span));
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    [Fact]
     public void LibraryInspectionTypedRows_CarryConcernProvenance()
     {
         const string hostile = "value\u202E\nINJECTED";

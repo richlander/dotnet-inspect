@@ -1,0 +1,37 @@
+    private void MeterEvent<TResult, TArgs>(in TelemetryEventArguments<TResult, TArgs> args, ResilienceEventSeverity severity)
+    {
+        var arguments = args.Arguments;
+
+        if (GetArgs<TArgs, PipelineExecutedArguments>(args.Arguments, out var executionFinished))
+        {
+            if (ExecutionDuration.Enabled)
+            {
+                var tags = TagsList.Get();
+                var context = new EnrichmentContext<TResult, TArgs>(in args, tags.Tags);
+                UpdateEnrichmentContext(in context, severity);
+                ExecutionDuration.Record(executionFinished.Duration.TotalMilliseconds, tags.TagsSpan);
+                TagsList.Return(tags);
+            }
+        }
+        else if (GetArgs<TArgs, ExecutionAttemptArguments>(args.Arguments, out var executionAttempt))
+        {
+            if (AttemptDuration.Enabled)
+            {
+                var tags = TagsList.Get();
+                var context = new EnrichmentContext<TResult, TArgs>(in args, tags.Tags);
+                UpdateEnrichmentContext(in context, severity);
+                context.Tags.Add(new(ResilienceTelemetryTags.AttemptNumber, executionAttempt.AttemptNumber.AsBoxedInt()));
+                context.Tags.Add(new(ResilienceTelemetryTags.AttemptHandled, executionAttempt.Handled.AsBoxedBool()));
+                AttemptDuration.Record(executionAttempt.Duration.TotalMilliseconds, tags.TagsSpan);
+                TagsList.Return(tags);
+            }
+        }
+        else if (Counter.Enabled)
+        {
+            var tags = TagsList.Get();
+            var context = new EnrichmentContext<TResult, TArgs>(in args, tags.Tags);
+            UpdateEnrichmentContext(in context, severity);
+            Counter.Add(1, tags.TagsSpan);
+            TagsList.Return(tags);
+        }
+    }

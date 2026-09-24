@@ -86,6 +86,19 @@ public class OperatorNamesTests
         bool expected)
         => Assert.Equal(expected, OperatorNames.IsMetadataOperatorName(input));
 
+    [Theory]
+    [InlineData("op_UnaryPlus", 1)]
+    [InlineData("op_Explicit", 1)]
+    [InlineData("op_Addition", 2)]
+    [InlineData("op_CheckedAddition", 2)]
+    [InlineData("op_SomeFutureOp", null)]
+    public void Declaration_parameter_count_preserves_operator_identity(
+        string input,
+        int? expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.GetDeclarationParameterCount(input));
+
     [Fact]
     public void Untreated_display_preserves_input_for_typed_presentation_boundary()
     {
