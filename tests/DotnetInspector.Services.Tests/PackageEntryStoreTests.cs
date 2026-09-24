@@ -68,4 +68,52 @@ public sealed class PackageEntryStoreTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    /// <summary>
+    /// An authority with a configured credential has no persistent key, so
+    /// it keeps no entries (docs/design/package-cache-policy.md, case 5d).
+    /// </summary>
+    [Fact]
+    public void EntryCache_AuthorityWithoutPersistentKey_KeepsNothing()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"entry-store-{Guid.NewGuid():N}");
+        NuGetCache.Initialize("dotnet-inspect-test", root, skipNuGetCache: true);
+        try
+        {
+            PackageSourceAuthorization authorization =
+                PackageSourceAuthorization.Authorize(
+                    [new PackageSource(
+                        "feed",
+                        "https://feed.example/v3/index.json",
+                        new PackageSourceCredential("user", "pass"))]);
+            ConfiguredPackageAuthority authority =
+                Assert.Single(authorization.Authorities);
+            Assert.Null(authority.PersistentCacheKey);
+            using IPackageSourceClient client = PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association);
+            IPackageEntryStore store = new AuthorityScopedFileSystemPackageStore(
+                authority,
+                client.Source.Producer,
+                () => Path.Combine(root, "temporary"));
+
+            Assert.False(store.KeepsEntries);
+            store.PublishDirectory("contoso", "1.0.0", new byte[] { 1 }, 1);
+            store.PublishEntry("contoso", "1.0.0", "lib/net8.0/Contoso.dll", new byte[] { 1 });
+
+            Assert.False(store.TryReadDirectory("contoso", "1.0.0", out _, out _));
+            Assert.False(store.TryReadEntry("contoso", "1.0.0", "lib/net8.0/Contoso.dll", out _));
+            Assert.Empty(Directory.Exists(root)
+                ? Directory.GetFiles(root, "*", SearchOption.AllDirectories)
+                : []);
+        }
+        finally
+        {
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }

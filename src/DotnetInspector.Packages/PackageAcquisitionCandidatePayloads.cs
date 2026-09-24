@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using DotnetInspector.Cache;
 using InertText;
 using NuGetFetch;
 using ZipFetch;
@@ -763,6 +764,12 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
 
         if (!complete)
             return new EntryCacheState(directory, cached);
+        // Only a read the entry cache answers alone counts as a hit; the
+        // complete-content lookup before it already recorded its own miss.
+        CacheTelemetry.Record(
+            "package-entries",
+            $"{coordinate.PackageId.ToLowerInvariant()}@{coordinate.Version.ToLowerInvariant()}",
+            CacheAccessResult.Hit);
         log?.Invoke(
             $"Read {coordinate.PackageId} {coordinate.Version} from the entry cache: "
             + $"{cached.Count} entries, no request.");

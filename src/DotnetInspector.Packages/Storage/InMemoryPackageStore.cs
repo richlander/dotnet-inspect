@@ -196,6 +196,11 @@ public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore,
             $"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}",
             out _);
 
+    /// <summary>Test seam: replaces the cached directory region, simulating on-disk corruption.</summary>
+    internal void CorruptDirectoryForTesting(string packageId, string version, byte[] region) =>
+        _directories[EntryKey(packageId, version)] =
+            (region, _directories[EntryKey(packageId, version)].Length);
+
     /// <summary>Test seam: replaces a cached entry's bytes, simulating on-disk corruption.</summary>
     internal void CorruptEntryForTesting(string packageId, string version, string entryPath, byte[] content) =>
         _entries[$"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}"] = content;

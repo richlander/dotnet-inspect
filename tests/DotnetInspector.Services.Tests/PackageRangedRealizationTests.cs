@@ -140,6 +140,29 @@ public sealed class PackageRangedRealizationTests
     }
 
     /// <summary>
+    /// Size first: a complete response that advertises no length cannot be
+    /// judged against the cut, so it is taken complete, not abandoned.
+    /// </summary>
+    [Fact]
+    public async Task SizeFirst_NoAdvertisedLength_IsAcquiredComplete()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive) { OmitLength = true };
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                new InMemoryPackageStore(),
+                PackagePayloadAccess.Ranged,
+                "net45",
+                sizeCut: 1));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.RangedRequests);
+    }
+
+    /// <summary>
     /// Entry cache: a second realization of the same selection reads the
     /// cached directory and entries and makes no request.
     /// </summary>
@@ -209,8 +232,10 @@ public sealed class PackageRangedRealizationTests
     /// Entry cache: a cached entry that fails its directory checks is kept and
     /// bypassed; the complete fetch answers.
     /// </summary>
-    [Fact]
-    public async Task EntryCache_InvalidEntry_TakesTheCompleteFetch()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EntryCache_InvalidItem_TakesTheCompleteFetch(bool directory)
     {
         byte[] archive = ReadPclStorage();
         var store = new InMemoryPackageStore();
@@ -220,8 +245,11 @@ public sealed class PackageRangedRealizationTests
             Assert.IsType<PackageHouseSettlement.Acquired>(
                 await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
         }
-        store.CorruptEntryForTesting(
-            PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", [1, 2, 3]);
+        if (directory)
+            store.CorruptDirectoryForTesting(PclStorage, PclStorageVersion, [1, 2, 3]);
+        else
+            store.CorruptEntryForTesting(
+                PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", [1, 2, 3]);
 
         var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
         await using RangedEnvironment environment = RangedEnvironment.Create(warm);
@@ -544,6 +572,8 @@ public sealed class PackageRangedRealizationTests
 
         public IPackageSourceAuthorization Authorization { get; }
 
+        public ConcurrentQueue<string> Log { get; } = new();
+
         public PackageSourceSettlementLease Root { get; }
 
         public static RangedEnvironment Create(RangeFeed feed)
@@ -575,6 +605,7 @@ public sealed class PackageRangedRealizationTests
                 new PackagePayloadAcquisitionPlan(
                     (_, _) => store,
                     access: access,
+                    log: Log.Enqueue,
                     rangedSizeCut: sizeCut));
             var request = new PackageHouseRequest(
                 new PackageHouseDemand.Exact(
@@ -615,6 +646,9 @@ public sealed class PackageRangedRealizationTests
         private int _fullRequests;
 
         public bool IgnoreRange { get; init; }
+
+        /// <summary>Answer complete requests without a Content-Length.</summary>
+        public bool OmitLength { get; init; }
 
         /// <summary>A status every ranged request is answered with instead of 206.</summary>
         public HttpStatusCode? RangedStatus { get; init; }
@@ -658,7 +692,9 @@ public sealed class PackageRangedRealizationTests
             {
                 Interlocked.Increment(ref _fullRequests);
                 HttpResponseMessage full = Respond(
-                    request, HttpStatusCode.OK, new ByteArrayContent(archive));
+                    request,
+                    HttpStatusCode.OK,
+                    OmitLength ? new UnknownLengthContent(archive) : new ByteArrayContent(archive));
                 full.Headers.ETag = new EntityTagHeaderValue("\"pcl\"");
                 return Task.FromResult(full);
             }
@@ -695,5 +731,25 @@ public sealed class PackageRangedRealizationTests
             HttpStatusCode status,
             HttpContent content) =>
             new(status) { Content = content, RequestMessage = request };
+    }
+
+    /// <summary>
+    /// A body with no Content-Length, as a chunked response has. The read
+    /// stream is created directly, because the base class would buffer the
+    /// body to create it and so learn its length.
+    /// </summary>
+    private sealed class UnknownLengthContent(byte[] bytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            stream.WriteAsync(bytes).AsTask();
+
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new MemoryStream(bytes, writable: false));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 }

@@ -11,8 +11,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 {
     /// <summary>
     /// The exact-package search Root is realized from a ranged read: the
-    /// archive directory and the selected compile assembly only, never the
-    /// large entry beside it, and nothing is committed to a cache.
+    /// archive directory and the selected compile folder only, never the
+    /// large entry beside it. The entries are kept in the entry cache, so a
+    /// second search makes no package request.
     /// </summary>
     [Fact]
     public async Task SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly()
@@ -80,7 +81,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// The real Avalonia 12.1.2 archive (10.1 MB: net8.0 and net10.0 reference
     /// and implementation assemblies, XML docs, analyzers, designer tools)
     /// searched for net10.0 transfers the directory and the ref/net10.0
-    /// folder only: about 2.2 MB, in two ranged requests.
+    /// folder only: about 2.2 MB, in the tail request and three spans.
     /// </summary>
     [Fact]
     public async Task SearchCommand_RangedRead_RealAvaloniaArchive()
