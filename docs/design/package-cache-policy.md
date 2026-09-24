@@ -209,9 +209,17 @@ converge on one copy without locks.
 
 A later ranged read of the coordinate consults the entry cache first. Each
 selected entry that is cached is read from disk and checked against the
-cached directory's declared length and CRC; a mismatch discards that entry
-and treats it as missing. When every selected entry is present, the read
-makes no request.
+cached directory's declared length and CRC. When every selected entry is
+present and valid, the read makes no request.
+
+An invalid item, meaning an entry that fails its length or CRC check or a
+cached directory that cannot be read, is never deleted or replaced, because
+[cache concurrency](cache-concurrency.md#crash-and-failure-boundaries)
+preserves invalid final entries rather than racing a concurrent winner.
+Instead the step reports it in verbose output and takes the complete fetch,
+the same rule as a changed archive below. The complete payload publishes to
+the authority-scoped store, which answers before the entry cache from then
+on, so the invalid item is never consulted again.
 
 When some are missing, the step makes an ordinary ranged read as the
 [range-access](package-archive-range-access.md#reading-the-directory) reader
@@ -314,7 +322,7 @@ All gates run in Release.
 | 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: no package request | CLI harness, two invocations |
 | 5a. A second query needing one more entry of the same archive | the tail request and one entry request; no abandoned request | CLI harness |
 | 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | contract suite |
-| 5b. A cached entry whose bytes no longer match the cached directory | discarded and read again | contract suite |
+| 5b. A cached entry whose bytes no longer match the cached directory, or a cached directory that cannot be read | one complete transfer answers the read; later reads are served from the complete store; the invalid item is left in place; a verbose diagnostic names it | contract suite |
 | 5c. The archive changed since the directory was cached | the fresh directory differs from the cached one; one complete transfer answers the read with the full selection and publishes to the complete store; later reads are served from the complete store; no entry-cache item is replaced | contract suite |
 | 5d. An authority without a persistent key | nothing published to the entry cache | contract suite |
 | 6. No advertised length | complete acquisition | contract suite |
@@ -335,7 +343,9 @@ The existing assertion that an HTTP extraction result carries no
    that #8415 put on the ranged path; gates 1 to 9. This step changes every
    consumer in the table above, and updates the comment in
    `AuthorityScopedFileSystemPackageStore` that says no durable HTTP
-   authority identity exists.
+   authority identity exists. The search Root's offline branch keeps its
+   local package cache path at this step; answering offline from the
+   authority-scoped store and the entry cache is a later step.
 3. The remaining search scopes adopt ranged access, and with it size first,
    in the second part of range-access adoption step 2.
 4. The [package-backed platform](package-backed-platform-realization.md)
