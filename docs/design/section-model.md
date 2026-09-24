@@ -790,14 +790,9 @@ An explicit section or category selection overrides automatic base scope and
 verbosity. It does not bypass capability requirements: a request for
 network-bound content must still authorize the relevant capability.
 
-Bare `-S` is the compact network-free overview:
-
-```text
-Base union AND Fixed AND NetworkFree AND Effective
-```
-
-It is a stable candidate rule, not a promise that every target renders the
-same sections. A package without a README legitimately omits that section.
+`-S`, `-s`, `--select`, and `--section` require exactly one section, category,
+or wildcard argument. Omitting that argument is a parse error rather than an
+implicit overview request.
 
 ## Verbosity
 
@@ -945,8 +940,8 @@ The vocabulary command's current authored ownership is:
 
 `@Vocabulary` is the base category and composes the complete product-owned
 vocabulary document. `@API` and `@Decompiler` are domain doors over the
-vocabularies consumed by those query families. Bare output and bare `-S`
-retain the self-describing `Vocabulary Sections` index.
+vocabularies consumed by those query families. Bare output retains the
+self-describing `Vocabulary Sections` index.
 
 ## Ecosystem category map
 
@@ -966,9 +961,8 @@ single-member `@Integrations` category. Focus remains the only operation that
 changes the available section set.
 
 Ordinary output remains the route's `Ecosystems` or `Ecosystem Info` identity
-section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
-set in alphabetical order. Select `Integrations` directly for configured
-bindings.
+section. Explicit `@Ecosystem` composes the route's full authored set in
+alphabetical order. Select `Integrations` directly for configured bindings.
 
 ## Graph libraries category map
 
@@ -980,8 +974,8 @@ The `graph libraries` command's authored ownership is:
 
 `@Libraries` is the base category and composes the four pair-wide projections
 in alphabetical section order. Ordinary output remains the exact `Call Sites`
-view. Bare `-S` remains the `Consumer Use Sites` and `Provider API Types`
-summary pair.
+view. Select `Consumer Use Sites;Provider API Types` explicitly for the summary
+pair.
 
 `Public Root Paths` remains uncategorized and exact-name-only because it
 requires one positive `Cluster` coordinate before acquisition. Wildcard and

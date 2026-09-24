@@ -24,11 +24,11 @@ The `member` command follows the same scale for member lists. A selected overloa
 
 Discovery (`-D`) lists available sections and category doors. Section
 selection (`-S`, with lowercase `-s` as an alias) filters to specific sections;
-bare `-S` requests the compact network-free overview. Tips are suppressed when
-sections are selected. `--count` with exactly one selected section returns a
-single integer count. One selected type/member source payload prints its
-content by default; use `--markdown` for document presentation. Mixed section
-selections remain Markdown documents.
+the option requires a section, category, or wildcard argument. Tips are
+suppressed when sections are selected. `--count` with exactly one selected
+section returns a single integer count. One selected type/member source payload
+prints its content by default; use `--markdown` for document presentation.
+Mixed section selections remain Markdown documents.
 
 ## Preconditions
 

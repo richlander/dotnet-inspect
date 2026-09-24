@@ -226,7 +226,7 @@ detection, namespace heuristic, or producer-intent inference is introduced.
 ## CLI projection
 
 `Direct Use Clusters` is an explicit section. It does not enter the default
-call-site view or bare `-S`, preserving current output and cost expectations.
+call-site view, preserving current output and cost expectations.
 
 Each row exposes the directed pair, cluster ordinal and anchor tokens,
 structural footprint counts, and one-based `Call Site Rows` references into the

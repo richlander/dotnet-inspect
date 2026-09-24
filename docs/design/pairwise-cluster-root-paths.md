@@ -137,9 +137,9 @@ validated before library acquisition so an omitted cluster cannot start an
 all-cluster path search. No `--cluster` flag is added.
 
 Omitting the new section preserves the current cluster-scoped exact call-site
-view. Bare `-S` also remains the existing two summary sections. The new section
-does not enter any automatic verbosity preset, and wildcard section selection
-does not opt into it; callers name `Public Root Paths` explicitly.
+view. The new section does not enter any automatic verbosity preset, and
+wildcard section selection does not opt into it; callers name
+`Public Root Paths` explicitly.
 
 Each retained witness lowers to one row containing:
 

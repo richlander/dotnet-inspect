@@ -1686,7 +1686,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_BareSelect_UsesSkillsOverview()
+    public async Task Project_SkillsSelection_UsesSkillsOverview()
     {
         var skill = CompliantProjectSkill("skills/default/SKILL.md", "default");
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -1701,7 +1701,8 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S");
+                "-S",
+                "Skills");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);

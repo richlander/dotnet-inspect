@@ -58,8 +58,8 @@ Automatic candidate selection intersects:
 - explicit-only policy.
 
 Exact section selection overrides automatic scope. Category selection expands
-to authored members before query demand is computed. Bare `-S` uses the
-fixed, network-free subset of the base union.
+to authored members before query demand is computed. Section selection always
+requires an explicit section, category, or wildcard argument.
 
 The library catalog calls `WithoutComputedPoles`; it does not expose computed
 `@All` or `@Hidden` selectors.

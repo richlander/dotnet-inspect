@@ -11,6 +11,26 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-s")]
+    [InlineData("--select")]
+    [InlineData("--section")]
+    public async Task SectionSelection_RequiresTarget(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            option);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Required argument missing for option",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Vocabulary_EnvironmentMermaidRejectsMultiSectionCount()
     {

@@ -739,7 +739,7 @@ columns, so a missing package (`Candidates=0`) remains distinct from an
 existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
 stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
 `Packages` retains its empty table or array when no package matched. Bare `-S`
-also requests the non-adaptive `Packages` preset. Select `@Query` to compose
+is invalid without a selector. Select `@Query` to compose
 `Packages` and `Query Summary` in Markdown or JSON; table, TSV, and JSONL remain
 one-section formats.
 
@@ -1067,7 +1067,7 @@ directory only locates that file; dotnet-inspect does not restore or build.
 The `project` command reads only valid package Skills and root `README.md`
 documents listed by the existing restore output. It does not interpret package
 `AGENTS.md` or `PROJECT.md` files. Select `@Project` to compose both document
-inventories; bare `-S` retains the focused `Skills` overview. With exactly one
+inventories, or select `Skills` for that focused view. With exactly one
 document section selected, `-n`, `--tail`, and `--rows A..B` select complete
 document rows before Count, structured output, projection, or print/bare
 lowering. Add `--lines` only to clip rendered text. Multi-section `@Project`
@@ -1601,8 +1601,8 @@ sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
 Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Exact
 `-S "Direct Use Clusters"` applies the same gestures to complete deterministic
 cluster rows after optional `--where "Cluster=N"` scoping. Use `--lines` for
-explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
-`Provider API Types`: the local
+explicit rendered-line clipping. Select
+`-S "Consumer Use Sites;Provider API Types"` for the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
@@ -1619,7 +1619,7 @@ its call-site references and separately counts source members, provider types,
 target members, extension methods, and physical sites. A one-extension-method
 row exposes a small direct-use footprint; it is not yet proof that the package
 is removable or that copying source is safe. The section remains outside the
-default and bare `-S` views.
+default view.
 
 Use the pair-wide cluster ordinal to reopen one component as exact calls:
 Run `dotnet-inspect graph libraries -Q "Call Sites"` to discover the predicate
@@ -1655,7 +1655,7 @@ to exhaustive public MethodDef roots in the consumer library. Each row reports
 one deterministic shortest local static path, its public root and destination
 tokens, and physical IL receipts for every logical step. The section must be
 named explicitly and requires exactly one `Cluster=N` predicate; it is excluded
-from defaults, bare `-S`, and wildcard section selection. A complete empty
+from defaults and wildcard section selection. A complete empty
 section means no public root has a local static path to the selected use sites.
 If pair, public-root, or path analysis is incomplete, retained positive paths
 are still rendered and the command exits nonzero instead of asserting absence.

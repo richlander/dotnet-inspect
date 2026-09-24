@@ -310,11 +310,11 @@ document or table view for the selected shape, but it does not construct a
 parallel list of rendered column labels. No host-specific rendering exception
 is approved for this command.
 
-Omitting `-S` preserves the exact call-site view. Bare `-S` selects the two
-summary sections; an exact section name selects one projection, and normal
-section discovery describes their schemas without acquiring the libraries.
-Tabular streams require one selected section, while Markdown and JSON may
-carry several.
+Omitting `-S` preserves the exact call-site view. Select
+`Consumer Use Sites;Provider API Types` explicitly for the two summary
+sections; an exact section name selects one projection, and normal section
+discovery describes their schemas without acquiring the libraries. Tabular
+streams require one selected section, while Markdown and JSON may carry several.
 
 The default and exact `Call Sites`, exact `Consumer Use Sites`, exact `Provider
 API Types`, and exact `Direct Use Clusters` views apply semantic row windows to
@@ -324,9 +324,9 @@ group; limiting summary rows does not change the group's underlying occurrence
 set. Summary `Call Site Rows` values are one-based references to the effective
 call-site output, matching `--rows`; the typed projection continues to retain
 zero-based indexes into the result array. `--count` counts selected rows after
-that window. Bare `-S`, `Public Root Paths`, wildcard, category, and
-multi-section selections retain rendered-line selection because they do not
-declare one row schema.
+that window. `Public Root Paths`, wildcard, category, and multi-section
+selections retain rendered-line selection because they do not declare one row
+schema.
 
 `GraphLibrariesQuery` owns one QuerySpace descriptor covering all five stable
 row-set identities. The four semantic row sets expose executable Head, Tail,

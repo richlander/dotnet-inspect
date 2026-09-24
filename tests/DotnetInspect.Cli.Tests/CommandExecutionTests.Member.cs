@@ -925,15 +925,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task MemberList_BareSelect_KeepsTheInfoSet()
+    public async Task MemberList_PropertiesSelection_DoesNotIncludeTypeInfo()
     {
-        // `type` and `member` share ApiCommand's preamble and both run in singleTypeMode, so the
-        // fixed overview is scoped by the options record and member view rather than by that flag.
-        // This is the negative case for the detail-view conversion: a broad member list retains its
-        // compact summary preset and must not pick up Type Info. See #3547.
         var (exit, output, _) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
-            "-S", "--tips", "q");
+            "-S", "Properties", "--tips", "q");
 
         Assert.Equal(0, exit);
 
@@ -3778,10 +3774,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_StringBareSelect_RendersLearnMemberOrder()
+    public async Task Member_StringMemberCategory_RendersLearnMemberOrder()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "String", "--platform", "System.Private.CoreLib", "-S", "--tips", "q", "--rows", "3");
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "-S", "@Member", "--tips", "q", "--rows", "3");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4023,13 +4020,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task MemberDetail_BareSelect_RendersFixedOverview()
+    public async Task MemberDetail_SignatureSelection_RendersBoundedSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.Text.Json.JsonSerializer.SerializeToNode:1", "-S");
+            "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
+            "-S", "Signature");
         var (countExit, countOutput, countError) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
-            "-S", "--count", "--tips", "q");
+            "-S", "Signature", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Equal([SectionNames.Signature], SectionHeadings(output));
@@ -4037,8 +4035,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("## IL", output);
         Assert.DoesNotContain("## PDB Source", output);
         Assert.True(
-            output.Split('\n').Length <= 8,
-            $"Member detail overview grew to {output.Split('\n').Length} lines.");
+            output.Split('\n').Length <= 10,
+            $"Signature section grew to {output.Split('\n').Length} lines.");
         Assert.DoesNotContain("Tip:", error);
         Assert.Equal(0, countExit);
         Assert.Equal("1", countOutput.Trim());
@@ -4046,10 +4044,10 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task MemberList_BareSelect_RendersCompactSummaryPreset()
+    public async Task MemberList_MemberCategory_RendersCompactSummary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.Text.Json.JsonSerializer", "-S");
+            "member", "System.Text.Json.JsonSerializer", "-S", "@Member");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Properties", output);
@@ -4062,11 +4060,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task MemberOverloadInventory_BareSelect_KeepsMethodsPreset()
+    public async Task MemberOverloadInventory_MethodsSelection_KeepsMethods()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer",
-            "-m", "SerializeToNode", "-S", "--tips", "q");
+            "-m", "SerializeToNode", "-S", "Methods", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Equal([SectionNames.Methods], SectionHeadings(output));

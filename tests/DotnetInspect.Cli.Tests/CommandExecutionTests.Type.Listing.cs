@@ -76,7 +76,7 @@ public partial class CommandExecutionTests
     {
         string[][] withoutTheLine =
         [
-            ["-v:m"], ["-v:n"], ["-v:d"], ["--all"], ["-S"], ["-S", "Classes"], ["-S", SectionNames.ApiInfo]
+            ["-v:m"], ["-v:n"], ["-v:d"], ["--all"], ["-S", "Classes"], ["-S", SectionNames.ApiInfo]
         ];
 
         var (quietExit, quietOutput, _) = await RunAppAsync(
@@ -251,10 +251,10 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// An unmatched <c>--fields</c> name with a section selected must fail by name, not render
-    /// nothing and exit 0. Bare <c>-S</c> now always selects a section here, and <c>API Info</c>
-    /// is a two-column fact table, so an unmatched field emptied it completely -- and markout
-    /// drops the document title once a projection leaves no renderable field, so the output was
-    /// not thin but ENTIRELY empty with a success exit code. See #3651.
+    /// nothing and exit 0. <c>API Info</c> is a two-column fact table, so an unmatched field
+    /// emptied it completely -- and markout drops the document title once a projection leaves no
+    /// renderable field, so the output was not thin but ENTIRELY empty with a success exit code.
+    /// See #3651.
     ///
     /// The gate is emptiness of the RENDER, deliberately not validation of the NAMES, which is
     /// why the false-positive half of this test matters as much as the failing half: two
@@ -266,7 +266,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing()
     {
         var (exit, output, error) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "--fields", "NoSuchField", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "NoSuchField", "--tips", "q"]);
 
         Assert.Equal(1, exit);
         Assert.Contains("NoSuchField", error, StringComparison.Ordinal);
@@ -371,7 +371,7 @@ public partial class CommandExecutionTests
         // Non-vacuity: the same projection with a REAL name must still succeed, or this would
         // pass on a build that rejected every projection.
         var (okExit, okOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "--fields", "Types", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Types", "--tips", "q"]);
 
         Assert.Equal(0, okExit);
         Assert.Contains("| Field | Value |", okOutput, StringComparison.Ordinal);
@@ -965,10 +965,6 @@ public partial class CommandExecutionTests
     [Fact]
     public void Type_FixedOverview_ContainsOwnedFixedSections()
     {
-        // Non-vacuity for the whole slice: every `type X -S` assertion below is only meaningful
-        // because this set is non-empty. An empty set is the state ApiCommand.HasNoBareSelectOverview
-        // rejects, so without this pin a future descriptor change could make bare -S error while the
-        // output tests kept passing for the wrong reason.
         var fixedOverview = ApiMemberSectionDescriptors.CreatePipeline().FixedOverviewSectionNames;
 
         Assert.Equal(
@@ -981,17 +977,23 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_BareSelect_StaysBoundedAtWorstCaseArity()
+    public async Task Type_ExplicitFixedSections_StayBoundedAtWorstCaseArity()
     {
         // The bounded claim is about how many LINES the overview has, not how wide they are.
         // Func`17 is the worst arity in the platform, and its `Type Parameters` cell reaches ~492
-        // characters. Baseclass adds one bounded row to the fixed overview; the long generic
-        // signature remains one row. See #3616.
-        var (exit, output, _) = await RunAppAsync("type", "System.Func`17", "-S", "--tips", "q");
+        // characters. Baseclass adds one bounded row; the long generic signature remains one row.
+        // See #3616.
+        var (exit, output, _) = await RunAppAsync(
+            "type",
+            "System.Func`17",
+            "-S",
+            "Type Info;Baseclass",
+            "--tips",
+            "q");
 
         Assert.Equal(0, exit);
         Assert.Equal(
-            [SectionNames.Baseclass, SectionNames.TypeInfo],
+            [SectionNames.TypeInfo, SectionNames.Baseclass],
             SectionHeadings(output));
         Assert.True(
             output.Split('\n').Length <= 22,

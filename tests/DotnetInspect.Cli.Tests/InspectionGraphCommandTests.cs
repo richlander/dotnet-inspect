@@ -569,7 +569,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_BareSelectProjectsBothSummarySections()
+    public async Task LibrariesCommand_ExplicitSummarySelectionProjectsBothSections()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
@@ -584,6 +584,7 @@ public sealed class InspectionGraphCommandTests
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
                         "-S",
+                        $"{LibraryCallUseCommand.ConsumerUseSitesSection};{LibraryCallUseCommand.ProviderApiTypesSection}",
                         "--json",
                     ])
                 .InvokeAsync());
@@ -1188,6 +1189,7 @@ public sealed class InspectionGraphCommandTests
                         "graph",
                         "libraries",
                         "-S",
+                        $"{LibraryCallUseCommand.ConsumerUseSitesSection};{LibraryCallUseCommand.ProviderApiTypesSection}",
                         "--table",
                     ])
                 .InvokeAsync());
@@ -1254,7 +1256,10 @@ public sealed class InspectionGraphCommandTests
             "Consumer Use Sites",
             "--rows",
             "1..2");
-        var multiple = await Execute("-S", "--json");
+        var multiple = await Execute(
+            "-S",
+            $"{LibraryCallUseCommand.ConsumerUseSitesSection};{LibraryCallUseCommand.ProviderApiTypesSection}",
+            "--json");
 
         Assert.Equal(0, single.ExitCode);
         Assert.Equal("2", single.Output.Trim());
@@ -2082,7 +2087,9 @@ public sealed class InspectionGraphCommandTests
                         .InvokeAsync());
 
             var defaultView = await Execute();
-            var selectedView = await Execute("-S");
+            var selectedView = await Execute(
+                "-S",
+                $"{LibraryCallUseCommand.ConsumerUseSitesSection};{LibraryCallUseCommand.ProviderApiTypesSection}");
 
             Assert.Equal(0, defaultView.ExitCode);
             Assert.Equal(0, selectedView.ExitCode);
@@ -2440,12 +2447,13 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_BareSummaryViewRetainsRenderedLineFallback()
+    public async Task LibrariesCommand_MultiSummarySelectionRetainsRenderedLineFallback()
     {
         var captured = await RunCliAsync(
             "graph",
             "libraries",
             "-S",
+            $"{LibraryCallUseCommand.ConsumerUseSitesSection};{LibraryCallUseCommand.ProviderApiTypesSection}",
             "-n",
             "1",
             "--json");

@@ -244,16 +244,15 @@ public partial class CommandExecutionTests
         Assert.Equal<string>([fullTsvLines[0], fullTsvLines[2], fullTsvLines[3]], tsvLines);
     }
 
-    /// <summary>
-    /// The package half of #3547 gap 6. The map reports a requested section that has no rows as
-    /// zero rather than omitting it, which is what makes it a cheap probe of the whole overview -
-    /// the same contract a category map already has.
-    /// </summary>
     [Fact]
-    public async Task Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections()
+    public async Task Package_ExplicitFixedOverviewCount_IncludesEmptySections()
     {
+        var sections =
+            PackageSectionDescriptors.CreatePipeline().FixedOverviewSectionNames;
+        string selection = string.Join(';', sections);
         var (renderExit, renderOutput, _) = await RunAppAsync(
-            "package", "NETStandard.Library@2.0.3", "-S", "--tips", "q");
+            "package", "NETStandard.Library@2.0.3",
+            "-S", selection, "--tips", "q");
         Assert.Equal(0, renderExit);
 
         // This package ships no README, so the section is requested but renders nothing. Without
@@ -261,14 +260,15 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("## Package README file", renderOutput);
 
         var (exit, output, error) = await RunAppAsync(
-            "package", "NETStandard.Library@2.0.3", "-S", "--count", "--tips", "q");
+            "package", "NETStandard.Library@2.0.3",
+            "-S", selection, "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("| Section | Count |", output);
         Assert.Contains("| Package README file | 0 |", output);
 
-        foreach (var section in PackageSectionDescriptors.CreatePipeline().BareSelectSectionNames)
+        foreach (var section in sections)
             Assert.Contains($"| {section} |", output);
     }
 
@@ -880,7 +880,9 @@ public partial class CommandExecutionTests
             Assert.Contains("net8.0", normalOutput);
 
             var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
-                "package", packagePath, "-S", "--columns", "Path", "--tips", "q");
+                "package", packagePath,
+                "-S", "Package README file",
+                "--columns", "Path", "--tips", "q");
 
             Assert.Equal(0, overviewExit);
             Assert.Empty(overviewError);
@@ -1574,22 +1576,20 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_StaticSchemaDiscovery_HonorsBareSelection()
+    public async Task Package_StaticSchemaDiscovery_HonorsExplicitSelection()
     {
+        const string Selection = "Package Info";
         var (exit, output, error) = await RunAppAsync(
-            "package", "-D", "--schema", "-S", "--tree", "--tips", "q");
+            "package", "-D", "--schema", "-S", Selection,
+            "--tree", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var bareSections =
-            PackageSectionDescriptors.CreatePipeline().BareSelectSectionNames;
-        Assert.All(
-            bareSections,
-            section => Assert.Contains(section, output));
-        Assert.DoesNotContain("Dependencies", output);
+        Assert.Contains(Selection, output);
+        Assert.DoesNotContain("Manifest (section", output);
 
         var synthesized = await RunAppAsync(
-            "package", "-D", "--schema", "-S",
+            "package", "-D", "--schema",
             "--path", "README.md", "--tree", "--tips", "q");
 
         Assert.Equal(0, synthesized.Exit);
@@ -2029,12 +2029,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_BareSelect_RendersInfoPreset()
+    public async Task Package_ExplicitFixedSections_RenderInfoSet()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S");
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package Info;Manifest");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package Info", output);
@@ -2071,8 +2072,6 @@ public partial class CommandExecutionTests
             Assert.Equal(1, allExit);
             Assert.Contains("'@All' not found", allError, StringComparison.Ordinal);
 
-            // @Default is gone everywhere, not just here: it restated what bare -S already means
-            // and had no spelling worth keeping (#3547).
             var (defaultExit, defaultOutput, defaultError) = await RunAppAsync("package", packagePath, "-S", "@Default");
             Assert.Equal(1, defaultExit);
             Assert.Contains("'@Default' not found", defaultError, StringComparison.Ordinal);
@@ -2081,11 +2080,6 @@ public partial class CommandExecutionTests
             var (comboExit, _, comboError) = await RunAppAsync("package", packagePath, "-S", "@Default,Manifest");
             Assert.Equal(0, comboExit);
             Assert.Contains("'@Default' not found", comboError, StringComparison.Ordinal);
-
-            var (bareExit, rawOutput, bareError) = await RunAppAsync("package", packagePath, "-S");
-            Assert.Equal(0, bareExit);
-            Assert.Contains("## Package Info", rawOutput);
-            Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
         }
         finally
         {
@@ -2093,22 +2087,14 @@ public partial class CommandExecutionTests
         }
     }
 
-    /// <summary>
-    /// Bare <c>-S</c> is a request for the command's default preset, not a selector value, so it
-    /// never appears in diagnostics. It used to travel as the literal string <c>"@Default"</c>,
-    /// which meant that combining it with anything that contributes its own selector — here the
-    /// <c>--path</c> sugar, which appends the Files section — pushed the internal encoding through
-    /// resolution and leaked it as "Select value '@Default' not found" (#3547). The explicit
-    /// selection wins, as it always did; only the spurious warning is gone.
-    /// </summary>
     [Fact]
-    public async Task Package_BareSelect_CombinedWithPathSugar_DoesNotLeakThePresetMarker()
+    public async Task Package_PathSugar_DoesNotLeakAnInternalPresetMarker()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "--path", "*.dll", "--paths");
+                "package", packagePath, "--path", "*.dll", "--paths");
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
@@ -2122,16 +2108,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_BareSelectWithDiscover_ListsSectionsRatherThanFailing()
+    public async Task Package_ExplicitSelectWithDiscover_ListsSection()
     {
-        // -S <name> -D has always listed the named section. Bare -S -D used to fail instead, but
-        // only because the marker was the string "@Default" and package drops the computed poles,
-        // so the discovery lookup missed. That is the same defect as gaps 2 and 3, so it clears
-        // with them rather than being a separate behavior decision.
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "-D");
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package Info", "-D");
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
@@ -2468,14 +2451,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiPackageBareCount_PopulatesSelectedFileSections()
+    public async Task Package_MultiPackageExplicitCount_PopulatesSelectedFileSections()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, packagePath,
-                "-S", "--skip-empty", "--count", "--json");
+                "-S", "Package nuspec file;Package README file",
+                "--skip-empty", "--count", "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
