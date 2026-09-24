@@ -317,7 +317,10 @@ Each change receives exactly one outcome:
 | `Moved` | The change is exactly one end of a move, as [Text move characterization](text-move-characterization.md) defines it. Movement is never whitespace. |
 
 A change whose texts are ordinal-equal is never issued alone. It joins a
-neighboring change, and the outcome of the joined change is recomputed.
+neighboring change, and the outcome of the joined change is recomputed. When
+both of its neighbors are move ends, it is split into its Before lines and its
+After lines, placed on opposite sides of an adjacent move end. A move end holds
+lines on one side only, so one part can always cross it.
 
 Each region first receives a deterministic *region outcome* from its own
 texts. It is `WhitespaceOnly` when the region texts differ whitespace-only and
@@ -328,7 +331,8 @@ otherwise. The partition then follows two rules:
 - A `Changed` region contains at least one `Changed` or `Moved` change, and
   adjacent changes in it always have different outcomes, so every change is
   maximal. `Moved` changes are exempt from that rule, as the move design
-  states.
+  states, and so are two adjacent changes whose merged texts would be
+  identical, which keeps a merge from re-forming an identical change.
   Where the owner can isolate a whitespace-only part, that part becomes its
   own `WhitespaceOnly` change.
 
@@ -464,7 +468,8 @@ or glyphs.
 
 ## Pathological demonstration
 
-Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`. Rows
+Each row is a Release test in `tests/Inspector.Text.Tests`: pair rows in
+`TextWhitespaceTests` and line-diff rows in `TextDiffCharacterizationTests`. Rows
 marked *doc* are observed at the document summary. The others are observed on
 their region's changes.
 
@@ -501,15 +506,22 @@ their region's changes.
 | Surrogate adjacency | `😀 x` → `😀x` | edit spans are valid UTF-16 boundaries |
 | Split budget | a region above the budget with one real edit | one `Changed` change; summary `Changed` |
 
-Soundness gates, planned in S1:
+Soundness gates (Release, in PR CI):
 
-- an independent validator runs over the fixtures and a pinned real-source
-  corpus. It checks the input preconditions, recomputes each region's
-  outcome, checks that a `WhitespaceOnly`
-  region is one change, checks that every region's changes form an ordered,
-  non-overlapping, complete, maximal partition of consecutive cuts, and
-  recomputes each change's outcome
-  from its own texts, as [Changes](#changes) requires.
+- `TextDiffCharacterizationValidator` in `tests/Inspector.Text.Tests` is an
+  independent validator. It checks the input preconditions, recomputes each
+  region's outcome, checks that a `WhitespaceOnly` region is one change, and
+  checks that every region's changes form an ordered, non-overlapping,
+  complete, maximal partition of consecutive cuts. It recomputes each change's
+  outcome from its own texts, as [Changes](#changes) requires, and replays
+  every whitespace-only change's edits to reproduce the After text.
+- `TextDiffCharacterizationTests` runs the validator over every line-diff
+  fixture row and over pinned real-source excerpts (Polly.Extensions
+  `MeterEvent` and Newtonsoft.Json `JsonConvert.ToString`, under
+  `tests/Inspector.Text.Tests/Assets`).
+- `SmallTextSweep_EveryCharacterizationValidates` runs it over every pair of
+  texts of up to three lines drawn from blank, content, indented-content, and
+  whitespace-only lines, with and without a final terminator.
 
 The Leading zero-line side, Mixed reflow, and Blank line after a rewritten
 line rows state quality

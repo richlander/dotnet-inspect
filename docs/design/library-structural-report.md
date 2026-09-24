@@ -43,7 +43,10 @@ multi-library population. Neither is inferred from one report.
 
 The report consumes one
 `LibraryImplementationProfileAnalysisResult` from the existing
-`LibraryBodyAnalysisService` execution. Its
+`LibraryBodyAnalysisService` execution. Relationship composition accepts the
+owning `LibraryBodyAnalysisExecution`, rather than independently supplied
+focused results, and uses that execution's `LibraryCallGraphAnalysisResult`
+only for the bounded relationship projection described below. Its
 `LibraryBodyAnalysisReceipt` establishes the exact module identity, source
 label, requested feature set, full-scope state, and Analysis diagnostics.
 The report must retain that receipt rather than reconstructing library identity
@@ -92,6 +95,9 @@ host-neutral boundary carries the document through an
   incomplete-reason counts;
 - one distribution for every selected numeric measure, with its own complete
   physical-body denominator;
+- deterministic per-declaring-type summaries over complete physical profiles;
+- a bounded set of cross-type relationships selected by distinct neighboring
+  type count, call-site volume, and qualified type identity; and
 - bounded extreme-body evidence for each distribution; and
 - the original Analysis diagnostics and profile incompleteness evidence.
 
@@ -164,6 +170,34 @@ row contains the metric value plus both the physical evidence and logical-owner
 identities. These rows are evidence for a stated maximum, not an outlier,
 severity, priority, or defect label.
 
+### Type and relationship evidence
+
+`TypeSummaries` groups complete physical profiles by the Analysis-issued
+`Method.DeclaringType`. Each row retains the type identity, body count, and
+summed instruction, normal-flow complexity, loop, direct-call, and allocation
+counts. It is a population summary over physical evidence; it does not merge
+compiler-generated bodies into one logical owner or infer authored-source
+ownership.
+
+When call-graph evidence is supplied, `EntangledRelationships` retains
+cross-type direct-call evidence whose caller body is complete, whose callee
+definition token resolves to an inspected declared method (including abstract
+and extern declarations), and whose source and target types differ. Only
+invocation kinds (`call`, `callvirt`, and `newobj`) are
+admitted; loading a method address with `ldftn` or `ldvirtftn` is not a call
+relationship. Relationships are aggregated by source type, target type, and
+call-site count. The report selects at most
+`MaximumEntangledTypeCount` types by distinct neighboring-type degree, then
+call-site volume, then qualified metadata type identity (including generic
+arity), and retains the relationships whose endpoints are both selected. The
+result is a bounded relationship
+projection, not a complete call graph and not a measure of bad design,
+severity, or refactoring priority. Without call-graph evidence, the report
+retains an empty relationship projection while preserving the available type
+summaries. Whole-library dependency communities require a separate Research
+contract over the complete admitted graph and are tracked by
+[#8406](https://github.com/richlander/dotnet-inspect/issues/8406).
+
 ## Interpretation boundary
 
 The report can say that a measure has a given value, that an exact number of
@@ -185,11 +219,13 @@ need its own explicit Analysis/Metadata population owner.
 
 ## Composition and rendering
 
-The report composes two owner-issued inputs: implementation profiles and the
-population coverage receipt from [#7989](https://github.com/richlander/dotnet-inspect/issues/7989).
-Analysis defines how both are constructed and qualified; Research defines how
-the report preserves them and derives report-local distributions. No host
-rebuilds coverage, completeness, or a statistic from display text.
+The report composes owner-issued implementation profiles, the optional
+same-execution call graph, and the population coverage receipt from
+[#7989](https://github.com/richlander/dotnet-inspect/issues/7989). Analysis
+defines how these inputs are constructed and qualified; Research defines how
+the report preserves them and derives report-local distributions, type
+summaries, and the bounded relationship projection. No host rebuilds
+coverage, completeness, or a statistic from display text.
 
 The resource-free Research document is the structured rendering input. The CLI
 adoption owns the exact-name-only `Library Metrics` section and its `Markout`
@@ -200,11 +236,20 @@ projected-JSON lowerings remain format mechanics; numeric measures and
 coverage states stay typed until that boundary.
 
 Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
-view. Its later host design serializes the same typed document through the
-existing managed boundary and renders the Library-level summary without
-recomputing any report fact. That host-specific path is necessary to preserve
-the settled Library-to-Type-to-Member journey; it does not add a Compare
-surface or a second report model.
+view. Its host-specific lowering serializes the same typed document through
+the existing managed boundary. The Browser DTO carries a module-local exact
+metadata type key separately from human display text, so same-name types with
+different generic arities remain distinct through relationship layout. It
+renders a `Complexity Explorer` treemap
+from type summaries plus a `Relationship Crossing` view from the bounded
+relationship projection, without recomputing any report fact. Area represents
+instruction volume, treemap color represents average normal-flow complexity, and
+relationship stroke width represents retained call-site count. These visuals
+render every endpoint and edge in Research's bounded relationship projection;
+the Browser performs no second topology selection. They are structural
+evidence and preserve the settled Library-to-Type-to-Member
+journey; they do not add a quality score, Compare surface, complete graph, or a
+second report model.
 
 ## Real-library probe
 
@@ -250,6 +295,10 @@ The implementation belongs in the Release
 - `LibraryStructuralReport_PreservesMultipleEvidenceBodiesPerLogicalOwner`:
   One logical async source with multiple physical bodies retains both bodies
   and the correct denominators.
+- `LibraryStructuralReport_ProjectsTypeAndEntangledRelationshipEvidence`:
+  Complete physical profiles produce deterministic type summaries, while the
+  same execution's resolved call evidence produces a bounded, ordered
+  cross-type relationship projection.
 - `LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies`: The
   fixed metric fixture proves percentile positions, exact maxima, deterministic
   ordering, and the additional-tie count.
@@ -276,9 +325,9 @@ hosts:
 5. Browser/Wasm adopts the same document through its settled Library detail
    path. Its managed Analysis facade runs the host-neutral
    `AssemblyContextLibraryMetricsQuery` over the exact implementation
-   participant, and its explicit `Metrics` lens presents the library summary
-   while preserving Type/Member drill-down rather than adding method rows to
-   Compare.
+   participant, and its explicit `Metrics` lens presents the `Complexity
+   Explorer` and `Relationship Crossing` views while preserving Type/Member
+   drill-down rather than adding method rows to Compare.
 
 The CLI path has four steps and the Browser/Wasm path has five steps; the first
 three are shared. The completed CLI adoption establishes the `Library Metrics`
