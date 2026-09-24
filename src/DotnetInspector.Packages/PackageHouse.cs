@@ -314,11 +314,12 @@ public sealed class PackageHouse
             }
             if (request.Operation.Profile
                     == PackageHouseOperationProfile.Acquire
+                && request.DocumentDemand is null
                 && _payloadAcquisition?.Access
                     == PackagePayloadAccess.Ranged)
             {
                 throw new InvalidOperationException(
-                    "Ranged payload access requires a Realize operation; an Acquire operation selects no assets to bound the read.");
+                    "Ranged payload access requires a Realize operation or a document demand; an Acquire operation without one selects nothing to bound the read.");
             }
             if (sourceOperation.RequestTimeout
                     != request.Operation.RequestTimeout
@@ -649,10 +650,14 @@ public sealed class PackageHouse
                 PackageRangedRead? rangedRead =
                     payloadAcquisition.Access == PackagePayloadAccess.Ranged
                         ? new PackageRangedRead(
-                            directory => SelectRangedEntries(
-                                request,
-                                rangedPackageId,
-                                directory),
+                            directory => request.DocumentDemand is { } documents
+                                ? new PackageRangedSelection(
+                                    documents.Select(
+                                        [.. directory.EnumerateEntries()]))
+                                : SelectRangedEntries(
+                                    request,
+                                    rangedPackageId,
+                                    directory),
                             payloadAcquisition.RangedSizeCut)
                         : null;
                 ConfiguredPackagePayloadResult payloadResult =
@@ -713,6 +718,37 @@ public sealed class PackageHouse
                     payload.Origin,
                     payload.Content.GenerationIdentity,
                     payloadResult.Transfer!);
+                if (request.DocumentDemand?.Unmatched(
+                        payload.Content.EnumerateEntries())
+                    is [_, ..] unmatchedDocuments)
+                {
+                    // A named document the archive does not list is a
+                    // visible failure, never an empty success
+                    // (docs/design/package-read-demand.md#document-demand).
+                    InertString reason = Reason(
+                        "The package does not contain "
+                        + string.Join(
+                            ", ",
+                            unmatchedDocuments.Select(
+                                static name => $"'{name}'"))
+                        + ".");
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            reason));
+                    return new PackageHouseSettlement.Acquired(
+                        new PackageHouseResult.NoMatch(
+                            new PackageHouseEvidence(
+                                request,
+                                decision,
+                                acquisition,
+                                failures: failures),
+                            reason),
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
+
                 if (request.Operation.Profile
                     == PackageHouseOperationProfile.Acquire)
                 {
