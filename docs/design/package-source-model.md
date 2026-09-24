@@ -1032,11 +1032,13 @@ The PackageHouse supplies the selection and bounds it. A host sets ranged
 access on its `PackagePayloadAcquisitionPlan`; ranged access requires a
 `Realize` operation, or an `Acquire` operation that carries a
 [document demand](package-read-demand.md#document-demand), and any other
-`Acquire` with it is refused before any source work. The selection is the assets that operation's realization
-selects over the directory for its asset demand, expanded to their folders,
-as [package read demand](package-read-demand.md) owns, so the realization
+`Acquire` with it is refused before any source work. For a `Realize`, the
+selection is the assets that operation's realization selects over the
+directory for its asset demand, expanded to their folders, so the realization
 receipt is evaluated over the same content and names only materialized
-entries.
+entries. For an `Acquire`, the selection is the entries and folders its
+document demand names. [Package read demand](package-read-demand.md) owns
+both.
 
 The desktop CLI's first consumer is the exact-package search Root used by
 `find` member search, `implements`, `extensions`, and `depends` with one
@@ -1064,7 +1066,8 @@ malformed partial response
 credential does not fall back
 (`RangedRealize_AuthenticationRefused_DoesNotFallBack`), an authorized cache
 still answers first,
-an `Acquire` with ranged access is refused, and the limits mapping. The CLI
+an `Acquire` with ranged access and no document demand is refused, and the
+limits mapping. The CLI
 consumer's gates are in `ConfiguredPayloadAcquisitionTests`: the real
 `Avalonia` 12.1.2 archive searched for `net10.0` transfers its directory and
 the 22 `net10.0` reference and implementation assemblies, 3.6 MB of 10.1 MB
