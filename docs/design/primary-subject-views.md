@@ -25,12 +25,12 @@ The pattern has five obligations. An adopting command meets all of them:
 2. **Children by default.** The default view and the `-v:m` view are the
    subject's children, drawn from the host-neutral population its owner issues.
    The children section is the command's single `-v:m` section.
-3. **Info is opt-in.** Facts about the subject are reached through bare `-S`,
-   owned by [Bare `-S` default view](info-view.md). Info must answer "what is
-   this subject?" and must not re-render the children population. The
-   existing `package`, `library`, and single-type presets already do; the
-   exact-member-name preset does not, and its adoption depends on the Info
-   owner issuing one (see [Adopter proposals](#adopter-proposals)).
+3. **Info is opt-in.** Facts about the subject are one explicitly named
+   subject-facts section, selected with `-S <section>`. It answers "what is
+   this subject?" and does not re-render the children population. The
+   primary behavior is the absence of `-S`, which renders the default
+   children section. This pattern never relies on bare `-S`; see
+   [Bare `-S` retirement](#bare--s-retirement).
 4. **Summaries are projections.** A presentation such as the CLI tree may add
    a grouped, decorated, or collapsed projection of the children. That
    projection is additional: it is never the unqualified inventory, it never
@@ -71,11 +71,11 @@ edge, that adoption must not present its rows as copyable arguments.
 - **Verbosity and section defaults:**
   [Progressive disclosure](progressive-disclosure.md#verbosity) owns which
   sections each verbosity level renders; it adopts obligation 2 per command.
-- **Info view:** [Bare `-S` default view](info-view.md) owns subject facts;
-  this pattern consumes the `package`, `library`, and single-type presets
-  unchanged. It asks the owner to retire presets for contexts an adoption
-  removes, and to issue an exact-member-name subject-facts preset before
-  `member` adopts.
+- **Subject-facts sections:** each command's section owner owns its facts
+  section: `Package Info`, `Library Info`, `Type Info`, and `Signature` for
+  one selected overload. This pattern consumes them unchanged by name. No
+  facts section exists yet for an exact member name, so `member` adoption
+  requests one.
 - **Default renderer:**
   [Rendering model](rendering-model.md#native-type-and-source-defaults) owns
   default presentation. The existing exact-type tree is the reference shape
@@ -103,12 +103,30 @@ This document does not own and does not decide:
 - package asset selection, role preference, or library scope;
 - the identity-line fields, RID disclosure, or tree layout of any command;
 - collapse thresholds;
-- type or member name resolution rules or overload addressing; or
+- type or member name resolution rules or overload addressing;
 - Info content or section names, including the proposed exact-member-name
-  preset, which remains the Info owner's decision.
+  facts section; or
+- bare `-S` behavior for any command, which the retirement effort below owns.
 
-Those remain with the owners named in the basis. The next section records
-proposals for them.
+Those remain with the owners named in the basis. The next sections record the
+separate bare `-S` retirement and proposals for the other owners.
+
+## Bare `-S` retirement
+
+The operator directed on 2026-09-24 that bare `-S` become illegal. The
+primary behavior of every command is the absence of `-S`, which renders that
+command's default section; `-S` always names what it selects. Bare `-S`
+currently has broader uses than these four commands, including Package
+Query's `Packages` preset and `graph libraries`' summary pair, so its
+retirement is a separate focused effort owned by
+[Progressive disclosure](progressive-disclosure.md#bare--s) and
+[Bare `-S` default view](info-view.md). That effort decides the failure
+message, the migration of each preset to a default section or a named
+section, and the documentation and shipped skills that change.
+
+This pattern is independent of that effort: its obligations use only the
+default view and explicitly named sections, so each adoption is correct
+whether or not bare `-S` has been retired yet.
 
 ## Adopter proposals
 
@@ -171,11 +189,11 @@ adopts it, in that owner's document, with its own gates.
 - **`member T` without a member name** fails with a tip for `type T`.
 - **Member tree:** an identity line with the overload count, then one
   signature per overload.
-- **Member Info:** today bare `-S` on `member T M` renders the overload rows,
-  which become the children. `member` adoption waits for the Info owner to
-  issue a subject-facts preset for an exact member name (for example member
-  kind, declaring type, overload count, and documentation summary). Info for
-  one selected overload, `M:<n>`, remains Signature.
+- **Member Info:** no named facts section exists for an exact member name;
+  the overload rows that bare `-S` renders today become the children.
+  `member` adoption waits for its section owner to issue one (for example
+  member kind, declaring type, overload count, and documentation summary).
+  Info for one selected overload, `M:<n>`, remains `Signature`.
 
 ## Evidence
 
@@ -191,7 +209,7 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | SkiaSharp.NativeAssets.Linux | 13 `runtimes/*/native` RIDs, no managed Libraries | Empty compile population must be stated |
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
-| `member JsonSerializer Serialize -S` | Bare `-S` renders the `Methods` overload rows | No exact-member-name Info preset exists yet |
+| `member JsonSerializer Serialize -S` | Bare `-S` renders the `Methods` overload rows | No exact-member-name facts section exists yet |
 | Microsoft.TestPlatform.ObjectModel 18.10.1 | Three Libraries for net8.0; `library` silently renders `Microsoft.TestPlatform.CoreUtilities.dll` | Obligation 1 requires Library subject resolution |
 
 The 97 and 1,447 figures come from the Library Type Count and Rows work in
@@ -213,12 +231,11 @@ presentation.
    `--namespace`, consuming the Library Type declaration population. Current
    listing paths remain.
 2. **Listing retirement:** after the positive CLI and Browser/Wasm gates in
-   the Library proposal, retire the `type` listing context and its bare `-S`
-   preset.
+   the Library proposal, retire the `type` listing context.
 3. **Package children:** rows addressed through the step 1 Library selector.
 4. **Exact `type` and `member`:** exact resolution, removal of `member T`
-   without a name, and the member tree. The `member` part waits for the Info
-   owner's exact-member-name preset.
+   without a name, and the member tree. The `member` part waits for the
+   exact-member-name facts section.
 
 ## Gates
 
@@ -228,8 +245,8 @@ against that adoption's motivating assets:
 - obligation 1: the platform `Timer` collision and
   Microsoft.TestPlatform.ObjectModel's three Libraries each fail with
   candidates;
-- obligations 2 and 3: default, `-v:m`, and bare `-S` output for each adopted
-  command;
+- obligations 2 and 3: output with no `-S`, `-v:m` output, and the explicitly
+  named facts section for each adopted command;
 - obligation 4: a tree's grouped or collapsed counts sum to the population
   Count, forwarders included, and the complete formats list every
   declaration, for System.Text.Json and System.Private.CoreLib;
