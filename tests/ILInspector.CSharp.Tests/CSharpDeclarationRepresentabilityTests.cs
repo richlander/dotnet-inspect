@@ -573,13 +573,17 @@ public sealed class CSharpDeclarationRepresentabilityTests
         }
     }
 
-    [Fact]
-    public void CDR002_DistinctAssemblyScopesCannotShareAcceptedSpelling()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CDR002_DistinctDefinitionsCannotShareAcceptedSpelling(
+        bool namespaceNestedCollision)
     {
         using AuthoredFixture fixture = AuthoredFixture.Create(
             methodImplementationCount: 1,
             interfaceImplementationCount: 1,
-            collidingAssemblyScopedTypes: true);
+            collidingAssemblyScopedTypes: true,
+            namespaceNestedCollision: namespaceNestedCollision);
         CSharpMethodDeclarationPost post = fixture.Capture();
         MetadataMethodSignatureIdentity signature = Assert.IsType<
             MetadataMethodDeclarationResult.Posted>(post.Method)
@@ -592,6 +596,25 @@ public sealed class CSharpDeclarationRepresentabilityTests
         Assert.NotEqual(
             returnType.Definition.Scope,
             secondOperand.Definition.Scope);
+        if (namespaceNestedCollision)
+        {
+            Assert.Equal(
+                "Collision",
+                MetadataDeclarationText.RenderNamespace(
+                    returnType.Definition));
+            Assert.Equal(
+                2,
+                MetadataDeclarationText.GetSegmentCount(
+                    returnType.Definition));
+            Assert.Equal(
+                "Collision.Outer",
+                MetadataDeclarationText.RenderNamespace(
+                    secondOperand.Definition));
+            Assert.Equal(
+                1,
+                MetadataDeclarationText.GetSegmentCount(
+                    secondOperand.Definition));
+        }
         Assert.True(
             CSharpDeclarationRepresentability.TrySpellType(
                 returnType,
@@ -1129,7 +1152,8 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 TypeAttributes.Public | TypeAttributes.Sealed,
             bool targetIsValueType = true,
             string? restrictedReturnType = null,
-            bool collidingAssemblyScopedTypes = false)
+            bool collidingAssemblyScopedTypes = false,
+            bool namespaceNestedCollision = false)
         {
             int selectedReturnShapes =
                 (returnsVoid ? 1 : 0)
@@ -1147,6 +1171,12 @@ public sealed class CSharpDeclarationRepresentabilityTests
             {
                 throw new ArgumentException(
                     "The scope-collision scenario owns its generic signature.");
+            }
+            if (namespaceNestedCollision
+                && !collidingAssemblyScopedTypes)
+            {
+                throw new ArgumentException(
+                    "Nested collision requires scoped collision types.");
             }
 
             Guid mvid = Guid.NewGuid();
@@ -1214,14 +1244,36 @@ public sealed class CSharpDeclarationRepresentabilityTests
                         default,
                         (AssemblyFlags)0,
                         default);
-                firstCollisionType = metadata.AddTypeReference(
-                    firstAssembly,
-                    metadata.GetOrAddString("Collision"),
-                    metadata.GetOrAddString("Widget"));
-                secondCollisionType = metadata.AddTypeReference(
-                    secondAssembly,
-                    metadata.GetOrAddString("Collision"),
-                    metadata.GetOrAddString("Widget"));
+                if (namespaceNestedCollision)
+                {
+                    firstCollisionType = metadata.AddTypeReference(
+                        firstAssembly,
+                        metadata.GetOrAddString(
+                            "Collision.Outer"),
+                        metadata.GetOrAddString("Widget"));
+                    TypeReferenceHandle outer =
+                        metadata.AddTypeReference(
+                            secondAssembly,
+                            metadata.GetOrAddString("Collision"),
+                            metadata.GetOrAddString("Outer"));
+                    secondCollisionType =
+                        metadata.AddTypeReference(
+                            outer,
+                            default,
+                            metadata.GetOrAddString("Widget"));
+                }
+                else
+                {
+                    firstCollisionType = metadata.AddTypeReference(
+                        firstAssembly,
+                        metadata.GetOrAddString("Collision"),
+                        metadata.GetOrAddString("Widget"));
+                    secondCollisionType =
+                        metadata.AddTypeReference(
+                            secondAssembly,
+                            metadata.GetOrAddString("Collision"),
+                            metadata.GetOrAddString("Widget"));
+                }
             }
 
             BlobHandle bodySignature;

@@ -279,8 +279,9 @@ does not misstate an unimplemented but potentially valid C# form as a language
 impossibility. In particular, an otherwise valid explicit-interface operator
 whose operands do not include the implementing containing type is outside this
 slice rather than a language refusal. Distinct named definitions that collapse
-to one qualified C# definition spelling are also unavailable until a later
-scope-aware alias plan can preserve their identities.
+to one qualified C# definition spelling, including through a namespace versus
+nested-type boundary, are also unavailable until a later scope-aware alias plan
+can preserve their identities.
 
 Ordinary methods, constructors, conversions, checked operators, generic
 method-like declarations, and broader explicit-interface methods remain later

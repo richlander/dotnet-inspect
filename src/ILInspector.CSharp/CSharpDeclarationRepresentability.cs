@@ -1024,28 +1024,54 @@ public static class CSharpDeclarationRepresentability
         var builder = new System.Text.StringBuilder();
         string namespaceName =
             MetadataDeclarationText.RenderNamespace(definition);
-        builder.Append(namespaceName.Length);
-        builder.Append(':');
-        builder.Append(namespaceName);
+        if (namespaceName.Length > 0)
+        {
+            foreach (string segment in namespaceName.Split('.'))
+            {
+                AppendSpellingComponent(
+                    builder,
+                    CSharpIdentifier.Escape(segment),
+                    genericArity: 0);
+            }
+        }
 
         int segmentCount =
             MetadataDeclarationText.GetSegmentCount(definition);
         for (int index = 0; index < segmentCount; index++)
         {
-            string segment =
+            string metadataName =
                 MetadataDeclarationText.RenderSegment(
                     definition,
                     index);
-            builder.Append('|');
-            builder.Append(segment.Length);
-            builder.Append(':');
-            builder.Append(segment);
-            builder.Append('#');
-            builder.Append(
-                definition.IntroducedGenericParameterCounts[index]);
+            int introduced =
+                definition.IntroducedGenericParameterCounts[index];
+            string suffix = $"`{introduced}";
+            string identifier = introduced > 0
+                && metadataName.EndsWith(
+                    suffix,
+                    StringComparison.Ordinal)
+                    ? metadataName[..^suffix.Length]
+                    : metadataName;
+            AppendSpellingComponent(
+                builder,
+                CSharpIdentifier.Escape(identifier),
+                introduced);
         }
 
         return builder.ToString();
+    }
+
+    static void AppendSpellingComponent(
+        System.Text.StringBuilder builder,
+        string identifier,
+        int genericArity)
+    {
+        builder.Append('|');
+        builder.Append(identifier.Length);
+        builder.Append(':');
+        builder.Append(identifier);
+        builder.Append('#');
+        builder.Append(genericArity);
     }
 
     static string? SpellPrimitive(
