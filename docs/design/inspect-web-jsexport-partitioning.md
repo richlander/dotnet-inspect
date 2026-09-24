@@ -597,16 +597,24 @@ All other managed calls use the closed ordinary-operation catalog in
 Its 47 entries are named at build time across Package (17), Metadata (8),
 Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
 module, facade, or member name. Arguments and results cross as inert JSON trees
-only, bounded to 16,777,216 characters, 64 nesting levels, and 524,288
+only, bounded to 33,554,432 characters, 64 nesting levels, and 1,310,720
 collection entries. The production projection for the immutable
 `Aspire.Hosting@13.5.4/net8.0` package measures 11,749,773 JSON characters and
 340,284 collection entries, crossing both former 8,388,608-character and
-262,144-entry bounds. The doubled finite envelope admits that complete
+262,144-entry bounds. The former doubled finite envelope admits that complete
 ordinary package surface with 43% character and 54% collection-entry headroom.
+The immutable `Avalonia@12.1.3/net8.0` production projection measures
+26,857,990 JSON characters and 998,725 collection entries, crossing both
+former limits. The current finite envelope admits this complete surface with
+about 25% character and 31% collection-entry headroom. The corresponding
+`Avalonia@12.1.2/net8.0` projection measures 26,847,746 characters and
+998,336 entries. Both measurements include the ordinary one-element result
+tuple. The published package-adoption gate acquires Avalonia 12.1.3 through
+the normal product path as the new pathological case.
 The neighboring immutable `AWSSDK.S3@4.0.103.3/net8.0` projection measures
 7,564,206 characters and 228,645 entries. The published package-adoption gate
-acquires Aspire.Hosting through the normal product path as the durable
-pathological case. The reader rejects accessors, symbols, prototype drift,
+also acquires Aspire.Hosting through the normal product path. The reader rejects
+accessors, symbols, prototype drift,
 sparse or extended arrays, cycles, functions, `undefined`, and non-finite
 numbers rather than converting malformed data into an empty or partial result.
 
