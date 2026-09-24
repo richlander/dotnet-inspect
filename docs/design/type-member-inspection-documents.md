@@ -1,8 +1,8 @@
-# Type, logical-Member, and Member inspection documents
+# Type, MemberGroup, and Member inspection documents
 
 ## Status and approved scope
 
-This document is the normative design for **Type, logical-Member, and Member
+This document is the normative design for **Type, MemberGroup, and Member
 inspection documents**, tracked by
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430).
 
@@ -12,8 +12,10 @@ operations, and host-neutral envelopes, but CLI and Inspect Web still compose
 parts of those results independently.
 
 The user explicitly approved specifying Type and Member inspection together
-and later approved referencing open work and prescribing requirements on it.
-This composition therefore states requirements that
+and later approved referencing related work and prescribing requirements on
+it. This composition therefore states requirements that
+[#7916](https://github.com/richlander/dotnet-inspect/issues/7916),
+[#8148](https://github.com/richlander/dotnet-inspect/issues/8148),
 [#8445](https://github.com/richlander/dotnet-inspect/issues/8445),
 [#8450](https://github.com/richlander/dotnet-inspect/issues/8450), and
 [#8455](https://github.com/richlander/dotnet-inspect/pull/8455) must satisfy
@@ -22,10 +24,10 @@ their own internal contracts.
 
 ## Owner and exact claim
 
-**Type, logical-Member, and Member inspection documents** owns this exact
+**Type, MemberGroup, and Member inspection documents** owns this exact
 claim:
 
-> Given one owner-resolved exact Type, logical Member, or exact Member, produce
+> Given one owner-resolved exact Type, MemberGroup, or exact Member, produce
 > one resource-free subject document whose requested child populations execute
 > through QuerySpace before row materialization, whose parent and realized-row
 > documentation or source attachments are independently requested, and whose
@@ -33,12 +35,12 @@ claim:
 
 This owner defines:
 
-- the `TypeDocument`, `LogicalMemberDocument`, and `MemberDocument` subject
+- the `TypeDocument`, `MemberGroupDocument`, and `MemberDocument` subject
   boundaries;
 - the exact-subject and population correspondence required to compose
   lower-owner outcomes;
-- the Type document's logical-Member populations;
-- the logical-Member document's exact-overload population;
+- the Type document's Member-group populations;
+- the Member-group document's exact Member population;
 - mixed hierarchical Rows and Count requests;
 - request-driven QuerySpace execution over those populations;
 - independently scoped parent and realized-row documentation and source
@@ -70,7 +72,7 @@ reconstructing or strengthening their claims.
 The three declaration documents answer:
 
 > What declaration and requested child-population information describes this
-> exact Type, logical Member, or exact Member?
+> exact Type, MemberGroup, or exact Member?
 
 They do not answer:
 
@@ -85,12 +87,12 @@ The subject, not the command or host, determines the document:
 exact Type
   -> TypeDocument
        Type declaration
-       logical-Member populations
+       Member-group populations
 
-logical Member
-  -> LogicalMemberDocument
-       logical-family binding
-       exact-overload population
+MemberGroup
+  -> MemberGroupDocument
+       Member-group binding
+       exact-Member population
 
 exact Member declaration
   -> MemberDocument
@@ -132,20 +134,20 @@ This is one mixed hierarchical request:
 ```text
 TypeDocument(JsonSerializer)
   Type documentation: not requested by default
-  Property logical-Member Rows: 1
-  Method logical-Member Rows: 10
-  nested overload Count for each returned logical Member
+  Property Member-group Rows: 1
+  Method Member-group Rows: 10
+  nested overload Count for each returned MemberGroup
   aggregate overload Count across those rows: 107
 ```
 
 The ten method Rows do not require 107 exact-overload Rows. Each nested Count
-is a terminal over that logical Member's exact-overload population and may be
+is a terminal over that MemberGroup's exact-Member population and may be
 computed during the same producer scan.
 
 Selecting `Deserialize` changes the subject:
 
 ```text
-LogicalMemberDocument(JsonSerializer.Deserialize)
+MemberGroupDocument(JsonSerializer.Deserialize)
   exact-overload Rows: 40
   documentation: not requested by default
   metrics: not requested by default
@@ -162,7 +164,7 @@ Microsoft Learn provides an analogous navigation model:
   is the Type page; and
 - [`JsonSerializer.Deserialize`](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer.deserialize)
   has wildcard UID `System.Text.Json.JsonSerializer.Deserialize*` and
-  represents the logical overload family.
+  represents the overload family.
 
 dotnet-inspect adopts the subject distinction, not Learn's page construction,
 documentation selection, URL scheme, or rendering.
@@ -174,7 +176,7 @@ The design composes established repository contracts:
 | Precedent | Adopted rule |
 | --- | --- |
 | [Library inspection documents and populations](library-inspection-document.md) | A request selects nested population terminals; a parent can return Rows with a child Count without materializing child Rows. |
-| [Primary subject views](primary-subject-views.md) | Type and logical-Member commands present their owner-issued child populations by default. |
+| [Primary subject views](primary-subject-views.md) | Type and Member-group views present their owner-issued child populations by default. |
 | [Section cardinality](section-cardinality.md) | Each inventory exposes Rows and Count as peer terminals over one owner-declared population. |
 | [Query Space Composition](query-space-composition.md) | Portable intent and terminal selection precede provider execution; source work may be delegated or specialized without changing semantics. |
 | [DocumentationHouse](documentation-house.md) | Each documentation outcome has one exact library-scoped subject; multi-subject execution is only a bounded optimization over independent exact requests. |
@@ -186,8 +188,17 @@ PR
 [#8411](https://github.com/richlander/dotnet-inspect/pull/8411)
 is the direct production precedent for request-driven population work. Its
 Library Type Count uses a compact census, and its bounded Rows enrich only
-selected declarations. Type and logical-Member inspection apply the same
-principle to logical-Member and exact-overload populations.
+selected declarations. Type and Member-group inspection apply the same
+principle to Member-group and exact Member populations.
+
+`MemberGroup` is deliberate repository vocabulary. Existing CLI and design
+surfaces use "member group" for a grouped-name view and distinguish it from a
+selected exact signature. `LogicalMember` is not used here because Analysis
+and clone-search paths already use "logical Member" for one API declaration
+contrasted with its accessor, generated, or other physical evidence bodies.
+This subject instead contains one or more exact Member declarations. Because
+the subject is not yet implemented, no `LogicalMember` compatibility alias is
+introduced.
 
 ## Core distinction: declaration documents and descriptive views
 
@@ -217,16 +228,16 @@ MemberDocument(exact Member declaration)
 Member metadata/metrics view(the same exact Member declaration)
 ```
 
-`LogicalMemberDocument` is intentionally a population/navigation document
+`MemberGroupDocument` is intentionally a population/navigation document
 between them. It represents an overload family and contains exact Member rows.
-It has no implied `LogicalMemberMetricsDocument`: a logical family has no
+It has no implied `MemberGroupMetricsDocument`: a MemberGroup has no
 single implementation body, body size, unsafe judgment, or source location.
 
 A metrics operation may accept several exact Members in one bounded request,
-and sibling-relationship analysis may require a complete logical-family
+and sibling-relationship analysis may require a complete Member-group
 population receipt. The metric subjects and relationship endpoints remain the
 exact Member declarations. The family receipt proves scope; it does not turn
-the synthetic logical Member into an implementation subject.
+the synthetic MemberGroup into an implementation subject.
 
 ## Owner map
 
@@ -234,7 +245,7 @@ the synthetic logical Member into an implementation subject.
 | --- | --- | --- |
 | Exact Library and content authority | [Library ownership and borrowing](library-ownership-and-borrowing.md) | Exact resource-free Library/content correspondence and operation authority |
 | Type and exact Member facts and identities | Metadata and [Type, member, and API representation](type-member-api-representation.md) | Exact Type or Member identity and the declaration binding/signature required by population documents |
-| Type and Member resolution | [Member inspection planning](member-inspection-planning-and-metadata-projection.md) and exact-Type query owners | Resolved subject, ambiguity, forwarding, logical grouping, and typed failure |
+| Type and Member resolution | [Member inspection planning](member-inspection-planning-and-metadata-projection.md) and exact-Type query owners | Resolved subject, ambiguity, forwarding, Member-group formation, and typed failure |
 | Primary subject and child roles | [Primary subject views](primary-subject-views.md) | Subject-child relationships and distinguished attached-extension rows |
 | Documentation settlement | [DocumentationHouse](documentation-house.md) | Independent exact-subject outcomes, provenance, conflicts, and completion |
 | Source settlement | [SourceHouse](source-house.md) | Exact-subject authored/decompiled attempts, provenance, and completion |
@@ -242,7 +253,7 @@ the synthetic logical Member into an implementation subject.
 | Type and Member metadata views | Existing focused Metadata owners | Requested descriptive metadata for a supplied exact Type or Member binding, without population work |
 | Type metrics | A future focused Type-metrics owner | Typed results for the same exact Type binding |
 | Exact Member metrics | [MemberMetricsInspect](member-metrics-inspect.md) and [Library Body Analysis Service](library-body-analysis-service.md) | Typed results and relationships for supplied exact Member bindings |
-| Subject explanation and reusable references | [Contextual Resource Explanation](contextual-resource-explanation.md) and #7916 | Terminal explanation of the already resolved Type, logical-Member, or exact-Member subject and reusable subject-kind-preserving identity |
+| Subject explanation and reusable references | [Contextual Resource Explanation](contextual-resource-explanation.md) and #7916 | Terminal explanation of the already resolved Type, MemberGroup, or exact-Member subject and reusable subject-kind-preserving identity |
 | Completed handoff | [Inspection envelope](inspection-envelope.md) | Content, Share, and diagnostics |
 | Presentation | CLI, Inspect Web, Markout, and focused output owners | Host gesture and rendering over unchanged typed content |
 
@@ -257,7 +268,7 @@ The document family is subject-shaped:
 PackageDocument
 LibraryDocument
 TypeDocument
-LogicalMemberDocument
+MemberGroupDocument
 MemberDocument
 ```
 
@@ -268,14 +279,14 @@ documents.
 ### TypeDocument
 
 A `TypeDocument` describes one exact resolved Type. Its child Rows are
-lightweight logical-Member shapes, not embedded `LogicalMemberDocument` or
+lightweight Member-group shapes, not embedded `MemberGroupDocument` or
 `MemberDocument` values.
 
-One logical-Member row binds a canonical name and member category to one
+One Member-group row binds a canonical name and member category to one
 non-empty exact declaration population. The grouping key must retain every
 owner-issued distinction needed for unambiguous drill-down. It must not merge
 ordinary declared Members with attached extensions merely because their
-display names match. Receiver classification is not part of logical-family
+display names match. Receiver classification is not part of Member-group
 identity: one declared family may contain both ordinary static and extension
 declarations.
 
@@ -283,18 +294,23 @@ The row may carry requested nested measurements such as exact-overload Count.
 Those measurements describe its child population without constructing child
 Rows.
 
-### LogicalMemberDocument
+### MemberGroupDocument
 
-A `LogicalMemberDocument` describes one owner-issued logical Member group
-within one exact Type context. Its child population contains exact Member
-declarations, conventionally called overloads.
+A `MemberGroupDocument` describes one owner-issued `MemberGroup` within one
+exact Type context. Its child population contains exact Member declarations,
+conventionally called overloads.
+
+`MemberGroup` is a semantic subject, not an arbitrary presentation grouping or
+a multi-filter `ResolvedMemberSet`. Its owner-issued identity binds exactly one
+Type context, canonical Member name, Member category, declared or attached
+role, and non-empty exact-Member population.
 
 The name `Overloads` describes the inspection role rather than only C# method
 overloading. Constructors, operators, indexers, or another owner-admitted
 Member kind may have several exact declarations. A non-overloadable group has
 one exact Member row.
 
-The logical subject retains:
+The MemberGroup subject retains:
 
 - the exact containing or receiver Type context;
 - canonical Member name and category;
@@ -304,19 +320,19 @@ The logical subject retains:
 - every exact Member identity required for drill-down.
 
 A no-match result is typed non-success, not a successful empty family. A
-singleton logical group remains a logical population unless the request
+singleton MemberGroup remains a group subject unless the request
 contains owner-issued exact-target intent.
 
 ### MemberDocument
 
 A `MemberDocument` describes one exact Member declaration selected from a
-logical-Member population or resolved directly through an owner-issued exact
+Member-group population or resolved directly through an owner-issued exact
 selector. Its API signature and exact documentation identity refer to the same
 declaration binding.
 
 `MemberDocument` does not rediscover siblings or own an overload population.
 Navigating back to or across siblings uses the containing
-`LogicalMemberDocument` and its population receipt.
+`MemberGroupDocument` and its population receipt.
 
 Pattern, prefix, glob, or multi-name search belongs to `find` or a Type
 population query rather than creating a multi-subject document.
@@ -328,8 +344,8 @@ explanation is produced:
 
 ```text
 member JsonSerializer DeserializeAsync
-  -> logical-name intent
-  -> LogicalMemberDocument(JsonSerializer.DeserializeAsync)
+  -> name-only group intent
+  -> MemberGroupDocument(JsonSerializer.DeserializeAsync)
 
 member JsonSerializer DeserializeAsync:1
   -> exact-overload intent
@@ -340,7 +356,7 @@ The command spellings are illustrative of the existing selector grammar. The
 contract is independent of whether the Type is supplied positionally, through
 `-m`, or through a package, Platform, project, or Workspace route.
 
-A bare name remains a logical-Member request even when the family currently
+A bare name remains a MemberGroup request even when the family currently
 contains one exact declaration. It does not silently become an exact
 `MemberDocument`. An ordinal or digest is exact-target intent and must resolve
 to one owner-issued exact Member identity or return typed non-success.
@@ -355,15 +371,15 @@ Command-local `--explain` uses the subject already resolved for the document:
 
 ```text
 member JsonSerializer DeserializeAsync --explain
-  -> explain one logical-Member subject
-  -> retain the overload-family identity and population binding
+  -> explain one MemberGroup subject
+  -> retain the MemberGroup identity and population binding
 
 member JsonSerializer DeserializeAsync:1 --explain
   -> explain one exact-Member subject
-  -> retain the resolved exact declaration and containing family
+  -> retain the resolved exact declaration and containing MemberGroup
 ```
 
-A logical family is exactly one explainable subject even though its population
+A MemberGroup is exactly one explainable subject even though its population
 contains several exact declarations. `--explain` must not reject it as
 multi-subject, choose its first overload, or promote a singleton family to an
 exact Member. Exact-selector explanation must not widen back to the family or
@@ -371,10 +387,16 @@ replay the selector against a different population.
 
 The standalone `explain` command preserves the same distinction when it
 consumes an owner-issued reusable reference. A reference projected from a
-logical-Member row explains that logical family; a reference projected from an
+Member-group row explains that MemberGroup; a reference projected from an
 exact-overload row explains that exact Member. Reference parsing and reopening
 cannot erase the subject-kind discriminator or substitute a displayed name,
 ordinal, signature, or digest for owner-issued identity.
+
+The typed discriminator distinguishes `MemberGroup` from exact `Member`. This
+design writes their semantic kinds as `member-group` and `member`; the
+reusable-reference owner retains authority over final wire syntax but must
+preserve that distinction and must not name the new group subject
+`logical-member`.
 
 ## Exact subject and population correspondence
 
@@ -391,7 +413,7 @@ One Type inspection retains:
 - the generation or population binding required by the producing owner.
 
 A forwarded Type retains the originating declaration and ordered forwarding
-evidence, but its declaration, documentation, source, and logical-Member
+evidence, but its declaration, documentation, source, and Member-group
 populations use only the exact defining Library and TypeDef issued by the
 resolution owner. The operation obtains independent authority for that
 defining Library before producer work.
@@ -400,19 +422,19 @@ When the defining Library, TypeDef, content authority, or forwarding
 correspondence cannot be established, Type resolution returns typed
 non-success and no attachment or population producer runs.
 
-### Logical Member subject
+### MemberGroup subject
 
-One logical-Member inspection begins with:
+One Member-group inspection begins with:
 
 - one exact Type or receiver context;
 - one canonical Member-name request;
 - one owner-issued member category and declaration/attachment role; and
 - one exact-overload population binding.
 
-An attached extension logical Member retains two relationships:
+An attached extension MemberGroup retains two relationships:
 
 - the receiver Type and evidence by which the family participates in that
-  Type's logical-Member population; and
+  Type's Member-group population; and
 - the exact declaring Library and Type that own its Member declarations.
 
 The receiver Type remains navigation context. Exact Member rows use declaring
@@ -422,7 +444,7 @@ identity for Metadata, DocumentationHouse, SourceHouse, and Analysis.
 
 One exact Member retains:
 
-- its containing logical-Member binding;
+- its containing Member-group binding;
 - exact declaring Library and Type identity;
 - exact Member definition identity;
 - canonical signature correspondence;
@@ -446,12 +468,12 @@ TypeDocumentRequest
   required Type declaration binding and signature
   subject documentation attachment request
   optional subject SourceHouse request
-  zero or more logical-Member population requests
+  zero or more Member-group population requests
   aggregate work bounds
 
-LogicalMemberDocumentRequest
-  logical Member subject
-  required logical-family binding
+MemberGroupDocumentRequest
+  MemberGroup subject
+  required Member-group binding
   optional family-level authored-document request, when an owner exists
   exact-overload population request
   realized-overload documentation attachment request
@@ -535,7 +557,7 @@ evidence.
 Count must preserve the same:
 
 - subject and base population;
-- admission and logical grouping;
+- admission and Member-group formation;
 - predicates and semantic selection;
 - completion and failure semantics; and
 - immutable population binding
@@ -556,7 +578,7 @@ A parent Rows request may ask for one exact child Count on each returned row.
 For example:
 
 ```text
-logical method Rows
+method-group Rows
   each row -> overload Count
 ```
 
@@ -565,16 +587,16 @@ full child-Rows operation per parent row or construct child rows solely to
 count them.
 
 The parent population binding and each child population binding remain
-explicit. An aggregate such as "107 overloads" states which returned logical
-rows it covers and does not substitute for any child's Count.
+explicit. An aggregate such as "107 overloads" states which returned
+Member-group rows it covers and does not substitute for any child's Count.
 
 ## Type Members row space
 
-`TypeDocument` may expose several declared logical-Member row sets, such as
+`TypeDocument` may expose several declared Member-group row sets, such as
 properties and method groups, under one document request. Each row set has an
-owner-defined logical row identity and its own Rows or Count terminal.
+owner-defined Member-group row identity and its own Rows or Count terminal.
 
-A logical-Member grouping key includes enough typed information to preserve:
+A Member-group key includes enough typed information to preserve:
 
 - canonical Member name;
 - Member category;
@@ -582,31 +604,31 @@ A logical-Member grouping key includes enough typed information to preserve:
 - declared versus attached-extension role; and
 - the exact child-population identity.
 
-Receiver classification belongs to the exact child declarations. A logical
-row publishes the non-empty set of receiver forms present in its current child
-population, but that set is not its identity. For example, the declared
-`JsonSerializer.Deserialize` family contains both `static` and `extension`
-overloads and remains one logical row.
+Receiver classification belongs to the exact child declarations. A
+Member-group row publishes the non-empty set of receiver forms present in its
+current child population, but that set is not its identity. For example, the
+declared `JsonSerializer.Deserialize` group contains both `static` and
+`extension` overloads and remains one Member-group row.
 
 The Type query binds `receiver` as a membership projection over exact child
-declarations before logical grouping:
+declarations before Member-group formation:
 
 - `receiver = extension` retains extension declarations, then emits each
-  non-empty logical family with its filtered nested Count;
+  non-empty MemberGroup with its filtered nested Count;
 - `receiver = static` or `receiver = this` behaves equivalently for that
   exact form; and
 - `receiver != extension` retains ordinary static and instance declarations.
 
-The same logical-family identity may therefore appear under several selected
+The same Member-group identity may therefore appear under several selected
 row intents with different child-population bindings and nested Counts.
 Unqualified `JsonSerializer.Deserialize` has 40 overloads;
 `receiver = extension` has 15, and `receiver != extension` has 25.
 
 Other distinctions needed for exact drill-down remain in the owner-issued
-logical grouping key. A renderer may visually group distinct logical rows only
-as an additional projection.
+Member-group key. A renderer may visually group distinct Member-group rows
+only as an additional projection.
 
-Attached extension logical rows:
+Attached extension Member-group rows:
 
 - count as children of the receiver Type;
 - retain a distinct owner-issued attached-extension role;
@@ -616,12 +638,12 @@ Attached extension logical rows:
 
 An attached-extension family may itself contain only extension declarations,
 but that follows from its exact children rather than from a special scalar
-receiver field on logical-family identity.
+receiver field on Member-group identity.
 
 ## Member Overloads row space
 
-`LogicalMemberDocument` exposes one natural exact-overload population. Its row
-unit is one exact Member declaration admitted by the logical group.
+`MemberGroupDocument` exposes one natural exact-overload population. Its row
+unit is one exact Member declaration admitted by the MemberGroup.
 
 Every exact row carries:
 
@@ -630,7 +652,7 @@ Every exact row carries:
 - declared or attached-extension role;
 - receiver classification;
 - stable baseline order; and
-- the parent logical-Member population binding.
+- the parent Member-group population binding.
 
 Receiver classification is exhaustive:
 
@@ -661,11 +683,11 @@ The common Type request is:
 
 ```text
 Type subject documentation: requested
-logical-Member row documentation: not requested
+Member-group row documentation: not requested
 nested overload Count documentation: structurally impossible
 ```
 
-The default Type and logical-Member views request no documentation.
+The default Type and Member-group views request no documentation.
 
 Documentation attaches only where the document contains an exact
 DocumentationHouse subject:
@@ -679,11 +701,11 @@ A Count result has no realized row identities and cannot request or carry row
 documentation. Count does not acquire documentation as an implementation
 detail.
 
-A logical Member is a synthetic population subject and does not automatically
+A MemberGroup is a synthetic population subject and does not automatically
 have one compiler documentation identity. This design does not choose one
 overload's documentation as family documentation or synthesize prose from
-several overloads. A later owner may define a true authored logical-family
-document; until then, documentation for a logical-Member view attaches only to
+several overloads. A later owner may define a true authored family-level
+document; until then, documentation for a Member-group view attaches only to
 realized exact-overload rows.
 
 DocumentationHouse multi-subject execution may batch those exact row requests
@@ -698,12 +720,12 @@ Source remains an explicit exact-subject attachment owned by SourceHouse.
 Returned exact-overload Rows may request independently settled source
 attachments under an explicit row-attachment policy.
 
-Type-level or logical-family source aggregation requires its own focused owner;
+Type-level or Member-group source aggregation requires its own focused owner;
 this design does not infer one source document from several declarations or
-physical bodies. A Type or logical-Member population may expose exact source
+physical bodies. A Type or Member-group population may expose exact source
 location fields only through an independently owned requested row projection.
 
-Source is not part of default Type, logical-Member, or Member completion.
+Source is not part of default Type, Member-group, or Member completion.
 
 ## Orthogonal Type and Member metadata and metrics
 
@@ -718,7 +740,7 @@ remain independent requests over the same exact Type or Member binding.
 
 A metadata view may expose tokens, attributes, flags, generic records, raw
 tables, or another owner-issued description. It does not enumerate, filter,
-order, or count logical Members or overloads. A host may render it beside the
+order, or count MemberGroups or overloads. A host may render it beside the
 population document without merging their execution contracts.
 
 ### Type metrics
@@ -726,7 +748,7 @@ population document without merging their execution contracts.
 A Type-metrics operation applies to the same exact Type as `TypeDocument`. It
 may consume the document's exact Type binding or resolve the same exact
 coordinate independently. It does not enumerate, filter, order, or count the
-Type's logical Members.
+Type's MemberGroups.
 
 ### Member metrics
 
@@ -734,8 +756,8 @@ A Member-metrics operation applies to one or more exact Member declarations.
 It may consume:
 
 - one exact `MemberDocument` binding;
-- selected exact-overload Rows from a `LogicalMemberDocument`; or
-- a complete logical-family receipt when requested relationship evidence
+- selected exact-overload Rows from a `MemberGroupDocument`; or
+- a complete Member-group receipt when requested relationship evidence
   requires authoritative sibling scope.
 
 It returns outcomes keyed to exact Member identities and, when requested,
@@ -745,7 +767,7 @@ a mirrored overload Rows population or QuerySpace Count.
 Sibling-overload relationships are the important initial composition:
 
 ```text
-LogicalMemberDocument
+MemberGroupDocument
   -> settle exact-overload Rows and family receipt
   -> optional MemberMetrics request for those exact Members
   -> relationship and per-overload role outcomes
@@ -768,10 +790,10 @@ documentation.
 Before adoption beneath these documents, #8445 must revise its current
 contract as follows:
 
-- the metric subject is one or more exact Member declarations, not the logical
-  Member concept;
+- the metric subject is one or more exact Member declarations, not the
+  `MemberGroup` concept;
 - `MemberMetricsInspect` consumes exact Member bindings and may additionally
-  require a complete logical-family receipt for sibling-relative evidence;
+  require a complete Member-group receipt for sibling-relative evidence;
 - its output is a keyed metric/relationship result, not a second declaration
   population;
 - it does not expose QuerySpace Rows or Count, mirror the overload population,
@@ -802,7 +824,7 @@ the complete family scope under which the relationship was established. It
 must not discover or redefine the overload population.
 
 `CompleteProfileV1` remains a compatibility request for existing consumers. It
-must not become the default evidence request for logical-Member decoration.
+must not become the default evidence request for Member-group decoration.
 The initial decoration requests only the minimal evidence needed for body-size
 and sibling-relationship presentation.
 
@@ -811,11 +833,11 @@ and sibling-relationship presentation.
 Primary Subject Views must name the updated containment ladder:
 
 ```text
-Library -> Type -> logical Member -> exact Member
+Library -> Type -> MemberGroup -> exact Member
 ```
 
-Its compact Type tree may show logical-Member Rows with nested exact-overload
-Counts. Its `member` tree presents exact-overload Rows for one logical Member.
+Its compact Type tree may show Member-group Rows with nested exact-overload
+Counts. Its `member` tree presents exact-overload Rows for one MemberGroup.
 The presentation may collapse or decorate those rows but may not redefine
 their populations.
 
@@ -824,15 +846,15 @@ their populations.
 [Contextual Resource Explanation](contextual-resource-explanation.md) must
 generalize its current "exact-subject" wording to one resolved explainable
 subject. Its exactly-one cardinality requirement applies to resolved subjects,
-not to the number of exact declarations contained by a logical-Member subject.
+not to the number of exact declarations contained by a MemberGroup subject.
 
 Member adoption therefore maps:
 
-- bare-name Member intent to the `LogicalMemberDocument` subject affordance;
+- bare-name Member intent to the `MemberGroupDocument` subject affordance;
 - ordinal or digest exact-target intent to the `MemberDocument` subject
   affordance;
-- a reusable logical-Member reference consumed by `explain` to the same
-  logical-family explanation; and
+- a reusable Member-group reference consumed by `explain` to the same
+  MemberGroup explanation; and
 - a reusable exact-Member reference consumed by `explain` to the same exact
   declaration explanation.
 
@@ -874,7 +896,7 @@ Each completed operation returns one shared envelope:
 
 ```text
 InspectionEnvelope<TypeInspectionContent>
-InspectionEnvelope<LogicalMemberInspectionContent>
+InspectionEnvelope<MemberGroupInspectionContent>
 InspectionEnvelope<MemberInspectionContent>
 ```
 
@@ -896,11 +918,11 @@ credentials, or source continuations.
 Sections project completed documents; they do not invoke another House,
 enumerate a replacement population, or reconstruct Count.
 
-The Type section owner maps the compact tree to logical-Member row sets and
+The Type section owner maps the compact tree to Member-group row sets and
 their requested nested overload Counts. `Extension Methods` is a distinguished
-projection of attached-extension logical rows, not a second population.
+projection of attached-extension Member-group rows, not a second population.
 
-The logical-Member section owner maps overload sections to the exact-overload
+The Member-group section owner maps overload sections to the exact-overload
 population. The exact Member section owner projects the selected
 `MemberDocument` declaration and attachments.
 
@@ -909,7 +931,7 @@ may use host-native interaction and progressive decoration over the same typed
 content. The CLI may await an explicitly requested decoration before printing;
 that scheduling choice does not move the metric into document settlement.
 
-The default Type and logical-Member views show population structure and API
+The default Type and Member-group views show population structure and API
 signatures without documentation or metrics. Documentation, source, and
 metrics require explicit gestures until their presentation owners establish a
 different measured disclosure policy.
@@ -920,8 +942,8 @@ After each route has a completed production implementation, it registers with
 [Inspection Capability Composition](inspection-capability-composition.md):
 
 - Type document definition and route;
-- Type logical-Member QuerySpace surfaces;
-- logical-Member document definition and route;
+- Type Member-group QuerySpace surfaces;
+- Member-group document definition and route;
 - exact-overload QuerySpace surface;
 - exact Member document definition and route;
 - section-to-population bindings;
@@ -929,7 +951,7 @@ After each route has a completed production implementation, it registers with
 - real CLI and Browser bindings.
 
 Metrics operations register independently. Registration may state that a
-logical-Member view can consume overload-scoped metric decorations, but it does
+Member-group view can consume overload-scoped metric decorations, but it does
 not merge document and metric routes.
 
 The current Browser route named `TypeDocumentInspection` returns
@@ -958,33 +980,33 @@ Browser/Wasm gates named by #8430 exist and pass.
 
 The implementation must preserve at least:
 
-- `JsonSerializer` returns ten logical method Rows and nested Counts totaling
+- `JsonSerializer` returns ten method-group Rows and nested Counts totaling
   107 exact overloads without constructing 107 overload Rows;
 - `Deserialize` returns 40 exact-overload Rows, while Count over the same
   intent returns 40;
-- requesting Type documentation does not request logical-Member or exact
+- requesting Type documentation does not request Member-group or exact
   overload documentation;
 - Count cannot request row documentation and never invokes
   DocumentationHouse;
 - a bounded overload Rows request attaches documentation only to returned
   exact rows;
 - same-named ordinary and attached-extension families remain distinct;
-- `JsonSerializer.Deserialize` remains one declared logical family containing
+- `JsonSerializer.Deserialize` remains one declared MemberGroup containing
   25 ordinary static and 15 extension overloads;
-- `receiver = extension` preserves that logical identity with nested Count 15,
-  while `receiver != extension` preserves it with nested Count 25;
+- `receiver = extension` preserves that Member-group identity with nested
+  Count 15, while `receiver != extension` preserves it with nested Count 25;
 - ordinary static, instance, and extension exact rows are classified
   respectively as `static`, `this`, and `extension`;
 - an attached extension row retains receiver context and exact declaring
   identity;
-- an ambiguous logical Member runs no exact-Member documentation, source, or
+- an ambiguous MemberGroup runs no exact-Member documentation, source, or
   metrics work;
-- bare-name `DeserializeAsync` remains a `LogicalMemberDocument` even when a
+- bare-name `DeserializeAsync` remains a `MemberGroupDocument` even when a
   selected version has one overload, while `DeserializeAsync:1` resolves one
   exact `MemberDocument`;
-- `--explain` preserves the same logical or exact subject and does not rerun
-  selector resolution;
-- `explain` over a reusable logical-Member or exact-Member reference preserves
+- `--explain` preserves the same MemberGroup or exact Member subject and does
+  not rerun selector resolution;
+- `explain` over a reusable Member-group or exact-Member reference preserves
   the reference's subject kind after reopening;
 - one exact Member has no managed body but still has API signature and
   documentation;
@@ -1010,18 +1032,18 @@ The final two are product defects, not permitted host divergence.
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430)
 owns the revised counted path:
 
-1. Lock this Type/logical-Member/Member population-document specification.
-2. Add the compact Type logical-Member population and terminal-specific
+1. Lock this Type/Member-group/Member population-document specification.
+2. Add the compact Type Member-group population and terminal-specific
    QuerySpace execution, including nested exact-overload Count.
 3. Implement `TypeDocument` over that population without the eager rich
    exact-Type/API-surface path.
 4. Bind the Type tree and section inventories to the shared route in CLI and
    Inspect Web.
 5. Add the exact-overload population and terminal-specific QuerySpace
-   execution for one logical Member.
-6. Implement `LogicalMemberDocument` and adopt its overload tree in CLI and
+   execution for one MemberGroup.
+6. Implement `MemberGroupDocument` and adopt its overload tree in CLI and
    Inspect Web.
-7. Implement selector-driven `LogicalMemberDocument` versus exact
+7. Implement selector-driven `MemberGroupDocument` versus exact
    `MemberDocument` routing, exact declaration drill-down, and corresponding
    `--explain` subject mapping.
 8. Compose independently scoped Type-subject, Member-subject, and returned
@@ -1030,7 +1052,7 @@ owns the revised counted path:
 10. Amend #8445 and its implementation path to the exact-Member, non-population
     metrics contract required above.
 11. Adopt selective sibling-relationship decoration from #8450/#8455 without
-    changing logical-Member Rows or Count.
+    changing Member-group Rows or Count.
 12. Register completed routes and remove superseded eager, command-local, and
     host-local composition paths.
 
@@ -1041,8 +1063,8 @@ and tracker connect them without approving one broad implementation PR.
 
 The implementation sequence must add Release gates proving:
 
-- the `JsonSerializer` Type view returns one property logical row, ten method
-  logical rows, and nested exact-overload Counts totaling 107;
+- the `JsonSerializer` Type view returns one property-group row, ten
+  method-group rows, and nested exact-overload Counts totaling 107;
 - those nested Counts do not construct exact-overload result Rows or the rich
   exact-Type API graph;
 - `JsonSerializer.Deserialize` returns the same 40-overload population through
@@ -1056,19 +1078,19 @@ The implementation sequence must add Release gates proving:
   output-guarded method;
 - attached extensions retain receiver and declaring correspondence and never
   merge with same-named ordinary families;
-- `JsonSerializer.Deserialize` remains one logical row over 25 ordinary static
-  and 15 extension declarations; receiver filtering selects exact children
-  before grouping and produces nested Counts 25 or 15 without changing the
-  logical identity;
+- `JsonSerializer.Deserialize` remains one Member-group row over 25 ordinary
+  static and 15 extension declarations; receiver filtering selects exact
+  children before grouping and produces nested Counts 25 or 15 without
+  changing the Member-group identity;
 - `receiver = static | this | extension` is exhaustive for exact-overload rows,
   and source-applicable receiver predicates affect producer work before
-  logical grouping or row materialization;
-- Type-subject documentation can complete without logical-Member-row
+  Member-group formation or row materialization;
+- Type-subject documentation can complete without Member-group-row
   documentation;
 - Count and default views invoke neither DocumentationHouse nor SourceHouse;
 - returned-row documentation batches only exact realized subjects and
   preserves independent provenance, conflicts, failure, and completion;
-- logical-Member inspection never chooses one overload's documentation as
+- Member-group inspection never chooses one overload's documentation as
   family documentation;
 - exact `MemberDocument` signature and DocumentationHouse subject retain one
   exact declaration binding;
@@ -1077,10 +1099,10 @@ The implementation sequence must add Release gates proving:
 - an ordinal selector is resolved once against the bound overload population
   and explanation receives the resulting exact identity rather than treating
   the ordinal as durable identity;
-- reusable logical-Member and exact-Member references round-trip through
+- reusable Member-group and exact-Member references round-trip through
   `explain` to explanations of their original subject kinds;
 - exact Type or Member metadata views consume the settled subject binding and
-  expose no logical-Member or overload Rows or Count;
+  expose no Member-group or overload Rows or Count;
 - sibling-relationship decoration consumes the settled exact-overload roster,
   returns exact endpoints, and changes neither membership nor order;
 - body-size-only and sibling-relationship metric requests execute only their
@@ -1116,10 +1138,10 @@ This design does not:
 - expose House attempts directly as host commands;
 - make documentation, source, or metrics affect declaration cardinality;
 - make broader Metadata views part of population settlement;
-- request documentation or metrics in the default Type or logical-Member view;
+- request documentation or metrics in the default Type or Member-group view;
 - define family-level synthesized documentation;
 - define metric algorithms or a universal metrics query language;
-- define a `LogicalMemberMetricsDocument`;
+- define a `MemberGroupMetricsDocument`;
 - make QuerySpace the owner of Type or Member semantics;
 - require CLI and Browser to use the same visual presentation; or
 - preserve a legacy host path solely for compatibility after the shared route
