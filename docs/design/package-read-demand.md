@@ -8,7 +8,7 @@ realization asks a ranged read for**. It is a slice of
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
 
-The claim has two parts:
+The claim has three parts:
 
 - **Asset demand.** A House request carries an asset demand. `Surface` asks
   for the compile surface only: the reference or compile assets the
@@ -23,6 +23,11 @@ The claim has two parts:
   subfolders, such as satellite resource folders. A command that inspects one
   assembly of a folder usually inspects its neighbors and their
   documentation next, and a whole folder is cached as a whole.
+- **Named implementation reads aligned blocks.** A consumer may name the
+  implementation assemblies it needs. Those are read in fixed, entry-aligned
+  blocks of about 1 MB, derived from the archive alone, instead of whole
+  folders. A large implementation folder, such as a runtime pack's 172
+  assemblies, then costs the blocks an inspection actually names.
 
 This document transfers one claim from the
 [package source model](package-source-model.md#ranged-payload-realization):
@@ -125,6 +130,56 @@ which the entry cache already holds, without a request
 reads are whole folders, a folder is either cached as a whole or read as a
 whole.
 
+### Named implementation and aligned blocks
+
+A House request with `SurfaceAndImplementation` demand may name the
+implementation assemblies it needs, by file name. With no names, every
+selected implementation asset is read, as above. With names, the realization
+selects only the implementation assets with those names. The surface is
+unchanged and is still read as whole folders. The package Root prepares an
+implementation role, and forms a role correspondence, only for the named
+assets. A name that selects no implementation asset is a visible realization
+failure, never an empty success.
+
+Named implementation assets are read in **aligned blocks**, not folders.
+Blocks are fixed by the archive alone:
+
+- The entries of each implementation folder are taken in archive order: the
+  order of their local-header offsets in the central directory.
+- Walking from the folder's first entry, a block closes when adding the next
+  whole entry would take the block past the budget. No entry is ever split,
+  so an entry larger than the budget is a block by itself.
+- The budget is the [size cut](package-cache-policy.md#size-first), 1 MB.
+
+A read of a named asset fetches the whole block that contains it, as one
+request covering the block from its first entry's local header to the next
+block's first local header. Blocks tile the folder without gaps or overlap,
+so two reads never fetch the same bytes, and a block already held by the
+[entry cache](package-cache-policy.md#the-entry-cache) costs no request. The
+entry cache still stores entries. A block is a read-planning unit, and it is
+present when all of its entries are.
+
+Following a reference into another assembly, such as a runtime facade that
+forwards a type to `System.Private.CoreLib`, is a new realization naming that
+assembly. Each realization is an ordinary House operation. Nothing reads
+after settlement, and ranged content stays immutable.
+
+Measured on `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0 (39.9 MB, 172
+managed assemblies in one contiguous 28.3 MB run), a 1 MB budget gives 25
+blocks:
+
+| Named assembly | Its own size | Its block |
+| --- | --- | --- |
+| `System.Private.CoreLib` | 6.70 MB | 6.70 MB |
+| `System.Text.Json` | 0.84 MB | 0.84 MB |
+| `System.Linq` | 0.32 MB | 0.83 MB |
+| `System.Collections` | 0.14 MB | 0.94 MB |
+| `System.Runtime` (a facade) | 0.02 MB | 0.86 MB, the facade block |
+
+Counting assemblies instead of bytes was measured and rejected. With
+8-assembly blocks, `System.Linq` reads 2.67 MB and `System.Collections`
+1.74 MB, because a large neighbour shares the block.
+
 ### Per-command demand
 
 | Command | Demand | Access at this head |
@@ -149,14 +204,26 @@ All gates run in Release.
 | 3. A surface-only Root | no implementation role; admission succeeds | case 1's gate, whose search admits a Root realized from the surface folder alone |
 | 4. The same search twice from a credential-free HTTP feed | the second makes no package request and returns the same output | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly` |
 | 5. A surface search, then focused commands and `package` on the same package | each command's output equals the baseline build's | `eng/measure-package-read-demand.sh`, a preserved probe as design evidence; it also reproduces the measurements above |
+| 6. A named implementation assembly | the surface folders and only the block that contains the named assembly | `PackageRangedRealizationTests`, real asset `Avalonia` 12.1.2 |
+| 7. A second realization naming a neighbour in the same block | no request | `PackageRangedRealizationTests`, entry cache |
+| 8. An entry larger than the budget | one block holding that entry alone | contract suite, block planner |
+| 9. A name that selects no implementation asset | a visible realization failure | contract suite |
 
 ## Adoption
 
 1. This document, `PackageAssetDemand`, the folder unit, and the
    exact-package search Root realized with `Surface`.
-2. `type`, `member`, and `library` adopt ranged access with
-   `SurfaceAndImplementation`, reusing the folders a surface search cached.
-3. `graph` adopts ranged access with `SurfaceAndImplementation`.
+2. Named implementation demand and aligned blocks in the House and the
+   acquisition step, with gates 6 to 9. No command sets names yet.
+3. `type`, `member`, and `library` adopt ranged access with
+   `SurfaceAndImplementation`, naming the assemblies that define what they
+   inspect, and reusing the folders a surface search cached. Moving these
+   commands onto the House is separate work; this step only sets their demand.
+4. `graph` adopts ranged access with `SurfaceAndImplementation`.
+5. Runtime packs are realized with named implementation demand once the
+   [package-backed platform source](package-backed-platform-realization.md)
+   no longer reads every member's identity at realization. That change belongs
+   to its owner.
 
 `package` keeps complete acquisition.
 
