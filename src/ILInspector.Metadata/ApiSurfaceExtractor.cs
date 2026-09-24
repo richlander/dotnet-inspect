@@ -1304,12 +1304,16 @@ public static partial class ApiSurfaceExtractor
                     out JsonSourceGenerationMode generationMode,
                     out JsonWireIgnoreCondition defaultIgnoreCondition,
                     out bool useStringEnumConverter,
+                    out JsonSourceGenerationDefaultIgnoreConditionEvidence
+                        defaultIgnoreConditionEvidence,
                     observeDecodeWork))
             {
                 apiType.JsonPropertyNamingPolicy = namingPolicy;
                 apiType.JsonSourceGenerationMode = generationMode;
                 apiType.JsonDefaultIgnoreCondition =
                     defaultIgnoreCondition;
+                apiType.JsonDefaultIgnoreConditionEvidence =
+                    defaultIgnoreConditionEvidence;
                 apiType.JsonUseStringEnumConverter =
                     useStringEnumConverter;
             }
