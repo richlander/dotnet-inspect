@@ -17,6 +17,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         AssemblyRoute> _routes;
     readonly ImmutableArray<IAssemblyBindingPolicy> _delegates;
     readonly bool _composeParticipantSelections;
+    readonly bool _canonicalizeParticipantSelections;
     readonly bool _restrictToParticipants;
     BindingPolicyState _state;
 
@@ -40,6 +41,21 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         new(participants, composeParticipantSelections: false);
 
     /// <summary>
+    /// Routes through participant contexts while replacing selected in-group
+    /// descriptors with the supplied canonical participant descriptors.
+    /// Out-of-group selections remain available.
+    /// </summary>
+    public static SourceRelativeAssemblyGroupBindingPolicy
+        CreateCanonicalizingParticipantSelections(
+            IEnumerable<(
+                ResolvedAssemblyReference Assembly,
+                IAssemblyBindingPolicy Policy)> participants) =>
+        new(
+            participants,
+            composeParticipantSelections: true,
+            canonicalizeParticipantSelections: true);
+
+    /// <summary>
     /// Composes acquisition-free participant policies over an exact retained
     /// assembly group, preserving source-relative selection and lineage.
     /// </summary>
@@ -61,6 +77,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 participants.Select(participant =>
                     (participant.Assembly, (IAssemblyBindingPolicy)participant.Policy)),
                 composeParticipantSelections: true,
+                canonicalizeParticipantSelections: true,
                 restrictToParticipants: true));
     }
 
@@ -69,10 +86,13 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             ResolvedAssemblyReference Assembly,
             IAssemblyBindingPolicy Policy)> participants,
         bool composeParticipantSelections,
+        bool canonicalizeParticipantSelections = false,
         bool restrictToParticipants = false)
     {
         ArgumentNullException.ThrowIfNull(participants);
         _composeParticipantSelections = composeParticipantSelections;
+        _canonicalizeParticipantSelections =
+            canonicalizeParticipantSelections;
         _restrictToParticipants = restrictToParticipants;
         var roots = ImmutableArray.CreateBuilder<
             ResolvedAssemblyReference>();
@@ -623,7 +643,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     AssemblyBindingOccurrence.Seed(
                         canonicalRoute.Assembly));
             }
-            if (_restrictToParticipants)
+            if (_canonicalizeParticipantSelections)
                 assembly = canonicalRoute.Assembly;
         }
 

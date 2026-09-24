@@ -695,11 +695,19 @@ public sealed class MemberCallGraphSessionTests
             participant => Assert.Equal(1, participant.OpenCount));
     }
 
-    [Fact]
-    public async Task ResourceEffectsReuseParticipantSnapshotsAcrossProgression()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResourceEffectsReuseParticipantSnapshotsAcrossProgression(
+        bool targetIsDesignated)
     {
         await using GraphContext context =
-            GraphContext.Create(CallerPath, TargetPath);
+            targetIsDesignated
+                ? GraphContext.CreateWithDesignatedParticipant(
+                    1,
+                    CallerPath,
+                    TargetPath)
+                : GraphContext.Create(CallerPath, TargetPath);
         int root = MemberToken(
             CallerPath,
             "Entry",
@@ -722,24 +730,28 @@ public sealed class MemberCallGraphSessionTests
 
         MemberCallGraphView callees = graph.Callees();
 
-        Assert.Contains(
+        Analysis.ResourceOwnershipMethodSummary rootSummary =
+            Assert.Single(
             callees.ResourceOwnershipSummaries,
             summary => summary.Method.MetadataToken == root);
-        Assert.All(
-            context.Sources,
-            participant => Assert.Equal(1, participant.OpenCount));
+        Assert.Single(rootSummary.Acquisitions);
+        int[] callerTierOpenCounts =
+            targetIsDesignated ? [1, 0] : [1, 1];
+        Assert.Equal(
+            callerTierOpenCounts,
+            context.Sources.Select(participant => participant.OpenCount));
 
         _ = graph.Callers();
 
-        Assert.All(
-            context.Sources,
-            participant => Assert.Equal(1, participant.OpenCount));
+        Assert.Equal(
+            callerTierOpenCounts,
+            context.Sources.Select(participant => participant.OpenCount));
 
         _ = graph.CrossLibrary();
 
-        Assert.All(
-            context.Sources,
-            participant => Assert.Equal(1, participant.OpenCount));
+        Assert.Equal(
+            [1, 1],
+            context.Sources.Select(participant => participant.OpenCount));
         Assert.Equal(
             new MemberCallGraphBuildCounts(1, 1, 1),
             graph.BuildCounts);
@@ -2780,6 +2792,7 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: false,
                 failingIndex: null,
                 equivalentIdentityIndex: null,
+                designatedIndex: null,
                 paths);
 
         internal static GraphContext CreateStreamOnly(
@@ -2788,6 +2801,7 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: true,
                 failingIndex: null,
                 equivalentIdentityIndex: null,
+                designatedIndex: null,
                 paths);
 
         internal static GraphContext CreateWithFailingParticipant(
@@ -2796,6 +2810,7 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: false,
                 failingIndex: 1,
                 equivalentIdentityIndex: null,
+                designatedIndex: null,
                 paths);
 
         internal static GraphContext CreateWithEquivalentIdentity(
@@ -2805,12 +2820,24 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: false,
                 failingIndex: null,
                 equivalentIdentityIndex,
+                designatedIndex: null,
+                paths);
+
+        internal static GraphContext CreateWithDesignatedParticipant(
+            int designatedIndex,
+            params string[] paths) =>
+            CreateCore(
+                streamOnly: false,
+                failingIndex: null,
+                equivalentIdentityIndex: null,
+                designatedIndex,
                 paths);
 
         static GraphContext CreateCore(
             bool streamOnly,
             int? failingIndex,
             int? equivalentIdentityIndex,
+            int? designatedIndex,
             params string[] paths)
         {
             TestSource[] sources = paths
@@ -2819,7 +2846,8 @@ public sealed class MemberCallGraphSessionTests
                         path,
                         streamOnly,
                         failingIndex == index,
-                        equivalentIdentityIndex == index))
+                        equivalentIdentityIndex == index,
+                        designatedIndex == index))
                 .ToArray();
             var policy =
                 new SourceRelativeAssemblyGroupBindingPolicy(
@@ -2873,13 +2901,19 @@ public sealed class MemberCallGraphSessionTests
             string sourcePath,
             bool streamOnly,
             bool fails,
-            bool useEquivalentIdentity = false)
+            bool useEquivalentIdentity = false,
+            bool designated = false)
         {
+            AssemblyResolutionProvenance provenance =
+                designated
+                    ? AssemblyResolutionProvenance.Designated(
+                        "progressive graph test source")
+                    : AssemblyResolutionProvenance.Local(
+                        "progressive graph test source");
             ResolvedAssemblyReference source =
                 ResolvedAssemblyReference.CreateFromPath(
                     sourcePath,
-                    AssemblyResolutionProvenance.Local(
-                        "progressive graph test source"));
+                    provenance);
             byte[]? content =
                 streamOnly ? File.ReadAllBytes(sourcePath) : null;
             TestSource? testSource = null;

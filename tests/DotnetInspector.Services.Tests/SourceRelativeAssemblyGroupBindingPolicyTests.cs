@@ -57,6 +57,47 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
+    public void Select_CanonicalizingParticipantsReplacesOnlyInGroupDescriptors()
+    {
+        var owner = NamedDescriptor("Owner");
+        var external = NamedDescriptor("External");
+        string candidatePath =
+            FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath();
+        ResolvedAssemblyReference candidate = Descriptor(
+            candidatePath,
+            AssemblyResolutionProvenance.Designated(
+                "canonical participant selection"));
+        var snapshot = Assert.IsType<AssemblyImageSnapshotResult.Ready>(
+            AssemblyImageSnapshot.FromRetainedContent(
+                candidate,
+                [.. File.ReadAllBytes(candidatePath)])).Snapshot;
+        ResolvedAssemblyReference canonical =
+            snapshot.RetainAssemblyReference(candidate);
+        var selecting = new SelectionPolicy(request =>
+            request.Target is AssemblyBindingTarget.AssemblyReference reference
+                && string.Equals(
+                    reference.Identity.Name,
+                    candidate.Identity.Name,
+                    StringComparison.Ordinal)
+                    ? AssemblyBindingSelection.Found(candidate)
+                    : AssemblyBindingSelection.Found(external));
+        var group = SourceRelativeAssemblyGroupBindingPolicy
+            .CreateCanonicalizingParticipantSelections(
+                [
+                    (owner, (IAssemblyBindingPolicy)selecting),
+                    (canonical, selecting),
+                ]);
+
+        var selectedParticipant =
+            Selected(group, Request(candidate, owner));
+        var selectedExternal =
+            Selected(group, Request(external, selectedParticipant.Occurrence));
+
+        Assert.Same(canonical, selectedParticipant.Assembly);
+        Assert.Same(external, selectedExternal.Assembly);
+    }
+
+    [Fact]
     public void Select_NestedGroupPreservesDelegatedContinuation()
     {
         var fallback = NamedDescriptor("Fallback");

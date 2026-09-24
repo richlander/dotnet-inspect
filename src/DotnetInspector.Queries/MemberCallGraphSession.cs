@@ -245,12 +245,13 @@ public sealed class MemberCallGraphSession : IDisposable
         _resourceBindingPolicy =
             options.ResourceEffects is null
                 ? null
-                : new SourceRelativeAssemblyGroupBindingPolicy(
-                    group.Participants.Select(participant =>
-                        (
-                            group.CreateSnapshotBackedReference(
-                                participant.Assembly),
-                            participant.BindingPolicy)));
+                : SourceRelativeAssemblyGroupBindingPolicy
+                    .CreateCanonicalizingParticipantSelections(
+                        group.Participants.Select(participant =>
+                            (
+                                group.CreateSnapshotBackedReference(
+                                    participant.Assembly),
+                                participant.BindingPolicy)));
         _group.RegisterOwnedResource(this);
     }
 
