@@ -90,6 +90,7 @@ root README remains current without cataloging every focused capability.
 | Package composition | [PackageHouse](design/package-house.md) |
 | Package version selection and freshness | [Version Resolution](design/version-resolution.md) and [Package Version Service](design/package-version-service.md) |
 | Ranged reads of a package archive's directory and entries | [Package archive range access](design/package-archive-range-access.md) |
+| Which remote package archives are cached and which are read by range; durable identity for credential-free HTTP feeds | [Package cache policy](design/package-cache-policy.md) |
 | What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
 | Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |

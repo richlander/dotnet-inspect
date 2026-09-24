@@ -355,11 +355,9 @@ the archive directory with its validator kind; per-entry expanded content;
 Non-claims:
 
 - when a consumer reads by range and when it fetches the whole archive, and
-  the size-differentiated cache policy (#8386, later slices);
-- the background completion of a surgical read into the cache (the warm
-  queue, #8386);
-- caching of directories or entries between invocations: a ranged read
-  populates no persistent store at this head;
+  the caching of directories and entries between invocations, which the
+  [package cache policy](package-cache-policy.md) owns; the reader itself
+  populates no persistent store;
 - symbol packages and any archive other than the package's nupkg, as uses of
   this capability (the two libraries' contracts are archive-agnostic, and a
   later consumer such as the symbol-package downloader adopts them under its
@@ -427,8 +425,9 @@ All gates run in Release.
    (#8285), and the legacy `PackageExtractor` latest path retires there.
 3. Inspect Web adopts the same content over the browser reader for package
    opens that today buffer the whole nupkg, under the browser-host rule above.
-4. The warm queue and the size-differentiated cache policy (#8386) decide
-   when a ranged read is followed by a complete download.
+4. The [package cache policy](package-cache-policy.md) (#8386) decides which
+   archives are acquired complete and cached and which are read by range. It
+   is adopted before the second part of step 2.
 
 Total: four slices, the second in two parts; both hosts named; the retired
 path named.
