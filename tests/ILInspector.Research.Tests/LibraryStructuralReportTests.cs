@@ -160,6 +160,137 @@ public sealed class LibraryStructuralReportTests
     }
 
     [Fact]
+    public void LibraryStructuralReport_ProjectsTypeAndEntangledRelationshipEvidence()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+
+        var available = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(execution));
+
+        Assert.NotEmpty(available.Document.TypeSummaries);
+        Assert.Contains(
+            available.Document.TypeSummaries,
+            summary => summary.Type.Name == "InstanceRecursionApi"
+                && summary.BodyCount > 0
+                && summary.InstructionCount > 0);
+        Assert.NotEmpty(available.Document.EntangledRelationships);
+        Assert.All(
+            available.Document.EntangledRelationships,
+            static relationship => Assert.NotEqual(
+                relationship.Source,
+                relationship.Target));
+        Assert.Contains(
+            execution.CallGraph.DirectCalls,
+            static call =>
+                call.Kind == CallKind.LoadFunction
+                && call.Caller.DeclaringType.Name == "LocalThrowPathApi"
+                && call.Callee.DeclaringType.Name == "CrossTypeCallbackApi");
+        Assert.DoesNotContain(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "LocalThrowPathApi"
+                && relationship.Target.Name == "CrossTypeCallbackApi");
+        DirectCall bodilessCall = Assert.Single(
+            execution.CallGraph.DirectCalls,
+            static call =>
+                call.Kind == CallKind.CallVirtual
+                && call.Caller.DeclaringType.Name == "BodilessCallerApi"
+                && call.Callee.DeclaringType.Name == "IBodilessApi");
+        Assert.Contains(
+            execution.CallGraph.DeclaredMethods,
+            method =>
+                method.MetadataToken == bodilessCall.CalleeDefinitionToken);
+        Assert.DoesNotContain(
+            execution.CallGraph.Methods,
+            method =>
+                method.MetadataToken == bodilessCall.CalleeDefinitionToken);
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "BodilessCallerApi"
+                && relationship.Target.Name == "IBodilessApi"
+                && relationship.CallSiteCount == 1);
+        Assert.True(
+            available.Document.EntangledRelationships.Length
+                <= LibraryStructuralReport.MaximumEntangledTypeCount
+                    * LibraryStructuralReport.MaximumEntangledTypeCount);
+        var repeated = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(execution));
+        Assert.Equal(
+            available.Document.EntangledRelationships,
+            repeated.Document.EntangledRelationships);
+        Assert.Equal(
+            available.Document.EntangledRelationships
+                .OrderByDescending(static relationship =>
+                    relationship.CallSiteCount)
+                .ThenBy(
+                    static relationship =>
+                        ExactTypeIdentity(relationship.Source),
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static relationship =>
+                        ExactTypeIdentity(relationship.Target),
+                    StringComparer.Ordinal),
+            available.Document.EntangledRelationships);
+    }
+
+    [Fact]
+    public void LibraryStructuralReport_UsesExactIdentityAtRelationshipTypeCutoff()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+
+        var available = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(execution));
+        MethodIdentity oneArgument = Assert.Single(
+            execution.CallGraph.DeclaredMethods,
+            static method =>
+                method.Name == "Touch"
+                && ExactTypeIdentity(method.DeclaringType)
+                    == "Target.RankingBox`1");
+        MethodIdentity twoArguments = Assert.Single(
+            execution.CallGraph.DeclaredMethods,
+            static method =>
+                method.Name == "Touch"
+                && ExactTypeIdentity(method.DeclaringType)
+                    == "Target.RankingBox`2");
+        Assert.Equal(
+            oneArgument.DeclaringType.ToQualifiedDisplayString(),
+            twoArguments.DeclaringType.ToQualifiedDisplayString());
+
+        HashSet<TypeRef> retainedTypes =
+        [
+            .. available.Document.EntangledRelationships.SelectMany(
+                static relationship =>
+                new[]
+                {
+                    relationship.Source,
+                    relationship.Target,
+                }),
+        ];
+        Assert.Equal(
+            LibraryStructuralReport.MaximumEntangledTypeCount,
+            retainedTypes.Count);
+        Assert.Contains(oneArgument.DeclaringType, retainedTypes);
+        Assert.DoesNotContain(twoArguments.DeclaringType, retainedTypes);
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                ExactTypeIdentity(relationship.Source)
+                    == "Target.RankingBox`1"
+                && relationship.Target.Name == "RelationshipRankingSink");
+    }
+
+    [Fact]
     public void LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies()
     {
         var profiles = ImmutableArray.Create(
@@ -226,6 +357,12 @@ public sealed class LibraryStructuralReportTests
         LibraryStructuralReportDocument document,
         LibraryStructuralMetric metric) =>
         Assert.Single(document.Distributions, distribution => distribution.Metric == metric);
+
+    static string ExactTypeIdentity(TypeRef type) =>
+        type.Resolution?.Type.ToEscapedFullName()
+            ?? (string.IsNullOrEmpty(type.Namespace)
+                ? type.Name
+                : $"{type.Namespace}.{type.Name}");
 
     static MethodImplementationProfile FakeProfileValue(
         string methodName,
