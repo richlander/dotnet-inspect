@@ -36,7 +36,10 @@ The pattern has five obligations. An adopting command meets all of them:
    that another Type declares. These remain children and count toward the
    population, but every presentation and format distinguishes them from
    ordinary children by their owner-issued row kind. The tree marks or groups
-   them, and Markdown, JSON, and row formats carry the row kind.
+   them, and Markdown, JSON, and row formats carry the row kind. The row kinds
+   are the Library declaration-kind facet (`Definition` or `Forwarder`) and
+   the Member `receiver` facet (`static`, `this`, or `extension`), each defined
+   by its population owner.
 3. **Info is opt-in.** Facts about the subject are one explicitly named
    subject-facts section, selected with `-S <section>`. It answers "what is
    this subject?" and does not re-render the children population. Whether
@@ -103,12 +106,14 @@ edge, that adoption must not present its rows as copyable arguments.
 - **Library children:**
   [Library inspection documents and populations](library-inspection-document.md)
   owns the Library Type declaration population, including first-class
-  forwarders, public-surface selection, and exact Count and Rows.
-- **Type and Member children:** the proposed
-  [Type and Member inspection documents](https://github.com/richlander/dotnet-inspect/pull/8432)
-  own the Type `Members` and Member `Overloads` populations, including
-  attached extension rows that keep their receiver attachment separate from
-  their declaring identity.
+  forwarders and the declaration-kind facet that distinguishes them,
+  public-surface selection, and exact Count and Rows.
+- **Type and Member children:**
+  [Type and Member inspection documents](type-member-inspection-documents.md#type-members-row-space)
+  own the Type `Members` and Member `Overloads` populations and the
+  `receiver = static | this | extension` row facet, including attached
+  extension rows that keep their receiver attachment separate from their
+  declaring identity.
 - **Package target:**
   [Traversal target-framework policy](traversal-target-framework-policy.md#traversal-and-selection-are-different-policies)
   separates package-local selection from traversal; package children use the
