@@ -2805,6 +2805,28 @@ kbd {
   .brand-label, .brand-chevron { display: none; }
   .inspected-target { gap: 6px; padding: 0 10px; }
   .subject-path-separator { margin: 0 6px; }
+  .working-surface-actions:has(.source-part-picker) {
+    gap: 3px;
+    padding-right: 6px;
+  }
+  .working-surface-actions:has(.source-part-picker) button,
+  .working-surface-actions:has(.source-part-picker) .shell-action-link {
+    padding-inline: 6px;
+  }
+  .working-surface-actions .source-part-picker { gap: 0; }
+  .working-surface-actions .source-part-picker > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .working-surface-actions .source-part-picker select {
+    width: 100px;
+    padding-inline: 6px 18px;
+  }
   .workspace:not(.content-frame):not(.platform-workspace) { grid-template-columns: 44% 56%; }
   .type-library-context .namespace-chips, .pane-footer { display: none; }
   .type-browser { grid-template-rows: 40px auto auto minmax(0, 1fr); }

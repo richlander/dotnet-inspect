@@ -2130,7 +2130,7 @@ test("Annotated Source keeps its complete action group under shell pressure", as
 test("Source fills the detail area below working-surface actions and above provenance", async ({
   page,
 }) => {
-  for (const width of [1120, 600, 400]) {
+  for (const width of [1120, 600, 400, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
 
@@ -2147,6 +2147,8 @@ test("Source fills the detail area below working-surface actions and above prove
     await expect(
       page.getByRole("region", { name: "Source code" }),
     ).toBeVisible();
+    const targetFramework = page.locator("[data-subject-framework]");
+    await expect(targetFramework).toBeVisible();
 
     const inspector = await box(page, "#inspector-panel");
     const source = await box(page, ".source-result");
@@ -2156,6 +2158,8 @@ test("Source fills the detail area below working-surface actions and above prove
     const targetbar = await box(page, ".targetbar");
     const code = await box(page, ".source-result pre");
     const provenance = await box(page, ".source-provenance");
+    const path = await box(page, ".subject-path");
+    const framework = await box(page, "[data-subject-framework]");
     expect(source.x).toBeCloseTo(inspector.x, 0);
     expect(source.y).toBeCloseTo(inspector.y, 0);
     expect(source.width).toBeCloseTo(inspector.width, 0);
@@ -2168,6 +2172,9 @@ test("Source fills the detail area below working-surface actions and above prove
       .toBeLessThanOrEqual(targetbar.y + targetbar.height);
     expect(actions.x + actions.width)
       .toBeLessThanOrEqual(targetbar.x + targetbar.width);
+    expect(framework.x).toBeGreaterThanOrEqual(path.x);
+    expect(framework.x + framework.width)
+      .toBeLessThanOrEqual(path.x + path.width + 1);
     expect(code.y).toBeCloseTo(source.y, 0);
     expect(code.y + code.height).toBeLessThanOrEqual(provenance.y + 1);
     expect(provenance.y + provenance.height)

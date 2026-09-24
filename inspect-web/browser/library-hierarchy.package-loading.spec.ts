@@ -152,6 +152,16 @@ for (const width of [1280, 390]) {
     await installPackageLoadingFacades(page);
     await page.goto(frameworkRoot);
     await chooseSubject(page, "type", "Type");
+    if (width === 390) {
+      await chooseInspector(page, "data-lens", "source", "Source");
+      await expect(
+        page.getByRole("group", { name: "Source actions" }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Select type code view")).toBeVisible();
+      await expect(page.locator("#copy-type-source")).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open" })).toBeVisible();
+      await expect(page.locator("#explore-source")).toBeVisible();
+    }
 
     const targetFramework = page.getByRole(
       "button",
@@ -159,6 +169,14 @@ for (const width of [1280, 390]) {
         name: "Target framework net10.0. Change target framework for System.Text.Json",
       });
     await expect(targetFramework).toHaveText("· net10.0");
+    await expect(targetFramework).toBeVisible();
+    const frameworkBounds = await targetFramework.boundingBox();
+    const pathBounds = await page.locator(".subject-path").boundingBox();
+    expect(frameworkBounds).not.toBeNull();
+    expect(pathBounds).not.toBeNull();
+    expect(frameworkBounds!.x).toBeGreaterThanOrEqual(pathBounds!.x);
+    expect(frameworkBounds!.x + frameworkBounds!.width)
+      .toBeLessThanOrEqual(pathBounds!.x + pathBounds!.width + 1);
     await targetFramework.click();
 
     await expect(subjectTab(page, "package")).toHaveAttribute(
