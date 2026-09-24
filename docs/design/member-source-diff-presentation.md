@@ -392,11 +392,15 @@ The fixture proves:
 
 `DotnetInspector.Presentation.Tests` runs in Release in the ordinary `ci.yml`
 test job covered by `ci-required`, Deep Inspect's `platform-test` lane, and
-the Windows PR `cli` suite. The existing
-`TextAnalysisDiffPresentation.CreateMappedTextDiff` construction enforces
-line-to-analysis index association and admits only stable unchanged one-to-one
-correspondences as anchors; this suite does not independently assert those
-shared lowering rules. These presentation tests prove:
+the Windows PR `cli` suite. `TextDiffCharacterization.Create` admits only
+stable unchanged one-to-one content-equal correspondences as anchors and tiles
+the lines between them into characterized changes; `Inspector.Text.Tests`
+gates those rules with an independent validator. The labeled lowering maps
+each characterized change to one Markout change over the analysis endpoint
+sequences, and `MappedTextDiff` construction validates the result. The
+`LabeledLowering*` tests in `TextAnalysisDiffPresentationTests` gate label
+text, emphasis, move relations, and inner mappings. These presentation tests
+prove:
 
 - the unchanged PDB endpoint remains available beside canonical Before text;
 - one and only one producer-guaranteed type-body placement prefix is replaced

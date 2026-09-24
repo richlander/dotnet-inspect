@@ -111,6 +111,20 @@ public sealed class TextAnalysisDiffPresentationTests
     }
 
     [Fact]
+    public void LabeledLoweringNamesWhitespaceOnlyMoveContent()
+    {
+        const string Before = "A\nB\n    c1();\n    c2();\nx\ny\nz";
+        const string After = "A\nB\nx\ny\nz\n\tc1();\n\tc2();";
+
+        MappedTextDiff diff = Lower(Before, After);
+
+        TextDiffChange[] moved = [.. diff.Changes.Where(change => change.Label?.RelatedChange is not null)];
+        Assert.Equal(2, moved.Length);
+        Assert.Equal("moved (1) to +6; whitespace-only: indentation", moved[0].Label!.Text);
+        Assert.Equal("moved (1) from -3; whitespace-only: indentation", moved[1].Label!.Text);
+    }
+
+    [Fact]
     public void LabeledLoweringSeparatesRealAndWhitespaceHunks()
     {
         // Newtonsoft.Json 13.0.3 JToken.Remove: a real edit next to a removed blank line.
