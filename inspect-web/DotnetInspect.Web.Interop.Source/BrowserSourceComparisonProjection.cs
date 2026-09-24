@@ -61,6 +61,9 @@ internal static class BrowserSourceComparisonProjection
         AssemblyMemberSourceRequest? request = null;
         switch (endpoint)
         {
+            case AssemblyMemberSourcePairEndpoint.Unrequested:
+                state = "Unrequested";
+                break;
             case AssemblyMemberSourcePairEndpoint.Resolved resolved:
                 request = resolved.Request;
                 switch (resolved.Source)

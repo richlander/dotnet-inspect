@@ -36,6 +36,7 @@ const endpointStates = [
   "Failed",
   "NotFound",
   "Rejected",
+  "Unrequested",
 ] as const;
 const comparisonStatuses = ["Compared", "Unavailable", "Failed"] as const;
 const relationKinds = ["Addition", "Removal", "Correspondence"] as const;
@@ -66,10 +67,17 @@ interface BrowserSourceComparisonRequest {
   readonly afterVersion: string;
   readonly framework: string;
   readonly assembly: string;
+  readonly before: BrowserSourceComparisonEndpointRequest | null;
+  readonly after: BrowserSourceComparisonEndpointRequest | null;
+}
+
+interface BrowserSourceComparisonEndpointRequest {
   readonly typeIdentity: string;
+  readonly stableSelector: string;
+  readonly canonicalSignature: string;
+  readonly fingerprint: string;
+  readonly typeFullName: string;
   readonly memberName: string;
-  readonly selectorKey: string;
-  readonly metadataToken: number;
 }
 
 export interface BrowserSourceComparisonEndpoint {
@@ -338,6 +346,13 @@ function nullableText(
   return value === null ? null : text(value, path, maximumBytes);
 }
 
+function nonEmptyText(value: unknown, path: string): string {
+  const decoded = text(value, path);
+  if (decoded.length === 0)
+    throw new SourceDiffPayloadError(`${path} must not be empty.`);
+  return decoded;
+}
+
 function integer(value: unknown, path: string): number {
   if (typeof value !== "number"
     || !Number.isSafeInteger(value)
@@ -436,18 +451,58 @@ function request(
 ): BrowserSourceComparisonRequest {
   const item = record(value, [
     "packageId", "beforeVersion", "afterVersion", "framework", "assembly",
-    "typeIdentity", "memberName", "selectorKey", "metadataToken",
+    "before", "after",
   ], path);
+  const before = item.before === null
+    ? null
+    : endpointRequest(item.before, `${path}.before`);
+  const after = item.after === null
+    ? null
+    : endpointRequest(item.after, `${path}.after`);
+  if (before === null && after === null) {
+    throw new SourceDiffPayloadError(
+      `${path} must request at least one Source endpoint.`);
+  }
   return {
     packageId: text(item.packageId, `${path}.packageId`),
     beforeVersion: text(item.beforeVersion, `${path}.beforeVersion`),
     afterVersion: text(item.afterVersion, `${path}.afterVersion`),
     framework: text(item.framework, `${path}.framework`),
     assembly: text(item.assembly, `${path}.assembly`),
-    typeIdentity: text(item.typeIdentity, `${path}.typeIdentity`),
-    memberName: text(item.memberName, `${path}.memberName`),
-    selectorKey: text(item.selectorKey, `${path}.selectorKey`),
-    metadataToken: integer(item.metadataToken, `${path}.metadataToken`),
+    before,
+    after,
+  };
+}
+
+function endpointRequest(
+  value: unknown,
+  path: string,
+): BrowserSourceComparisonEndpointRequest {
+  const item = record(
+    value,
+    [
+      "typeIdentity",
+      "stableSelector",
+      "canonicalSignature",
+      "fingerprint",
+      "typeFullName",
+      "memberName",
+    ],
+    path,
+  );
+  return {
+    typeIdentity: nonEmptyText(item.typeIdentity, `${path}.typeIdentity`),
+    stableSelector: nonEmptyText(
+      item.stableSelector,
+      `${path}.stableSelector`,
+    ),
+    canonicalSignature: nonEmptyText(
+      item.canonicalSignature,
+      `${path}.canonicalSignature`,
+    ),
+    fingerprint: nonEmptyText(item.fingerprint, `${path}.fingerprint`),
+    typeFullName: nonEmptyText(item.typeFullName, `${path}.typeFullName`),
+    memberName: nonEmptyText(item.memberName, `${path}.memberName`),
   };
 }
 
@@ -795,9 +850,18 @@ function auxiliaryBytes(
     requestValue.afterVersion,
     requestValue.framework,
     requestValue.assembly,
-    requestValue.typeIdentity,
-    requestValue.memberName,
-    requestValue.selectorKey,
+    requestValue.before?.typeIdentity ?? null,
+    requestValue.before?.stableSelector ?? null,
+    requestValue.before?.canonicalSignature ?? null,
+    requestValue.before?.fingerprint ?? null,
+    requestValue.before?.typeFullName ?? null,
+    requestValue.before?.memberName ?? null,
+    requestValue.after?.typeIdentity ?? null,
+    requestValue.after?.stableSelector ?? null,
+    requestValue.after?.canonicalSignature ?? null,
+    requestValue.after?.fingerprint ?? null,
+    requestValue.after?.typeFullName ?? null,
+    requestValue.after?.memberName ?? null,
     status,
     failure,
     sourceDiff?.before.label ?? null,

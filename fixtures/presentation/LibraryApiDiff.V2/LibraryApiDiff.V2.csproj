@@ -10,4 +10,8 @@
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\LibraryApiDiff.ConstraintDependency\LibraryApiDiff.ConstraintDependency.csproj" />
+  </ItemGroup>
+
 </Project>

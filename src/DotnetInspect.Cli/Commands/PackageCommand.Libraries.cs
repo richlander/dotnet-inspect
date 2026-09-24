@@ -873,6 +873,8 @@ public partial class PackageCommand
             IncludePrerelease = options.IncludePrerelease,
             Tfm = selectedTargetFramework ?? options.Tfm,
             TypeNamespace = options.TypeNamespace,
+            IncludeNamespaceChildren =
+                options.IncludeNamespaceChildren,
             TypeFilter = options.TypeFilter,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,

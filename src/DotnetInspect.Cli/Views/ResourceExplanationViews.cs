@@ -33,6 +33,75 @@ public sealed class ResourceExplanationView
         init => field = LibraryViewText.Contain(value);
     } = "";
 
+    public string? Identity
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Summary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Key
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? SubjectRole
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? ResultGrain
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Profile
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? ResultContract
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    [MarkoutJoin(", ")]
+    public List<string> Operators { get; init; } = [];
+
+    public string? ValueKind
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    [MarkoutJoin(", ")]
+    public List<string> Values { get; init; } = [];
+
+    [MarkoutJoin(", ")]
+    public List<string> Effects { get; init; } = [];
+
+    public string? ConsumerKind
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Gesture
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
     public string? ItemKind
     {
         get;
@@ -80,12 +149,26 @@ public sealed class ResourceExplanationView
         ResourceExplanationResource root = document.Resources[0];
         ResourceExplanationResourceRow rootRow =
             ResourceExplanationResourceRow.Create(root);
+        RootDetails details = RootDetails.Create(root.Details);
         return new ResourceExplanationView
         {
             Title = $"Explain {document.RequestedPath.Value}",
             Kind = rootRow.Kind,
             Name = rootRow.Name,
             Owner = rootRow.Owner,
+            Identity = details.Identity,
+            Summary = details.Summary,
+            Key = details.Key,
+            SubjectRole = details.SubjectRole,
+            ResultGrain = details.ResultGrain,
+            Profile = details.Profile,
+            ResultContract = details.ResultContract,
+            Operators = details.Operators,
+            ValueKind = details.ValueKind,
+            Values = details.Values,
+            Effects = details.Effects,
+            ConsumerKind = details.ConsumerKind,
+            Gesture = details.Gesture,
             ItemKind = rootRow.ItemKind,
             Formats = rootRow.Formats,
             Members = rootRow.Members,
@@ -129,6 +212,95 @@ public sealed class ResourceExplanationView
         || rows.Select(static row => row.Source)
             .Distinct(StringComparer.Ordinal)
             .Count() <= 1;
+
+    private sealed record RootDetails(
+        string? Identity,
+        string? Summary,
+        string? Key,
+        string? SubjectRole,
+        string? ResultGrain,
+        string? Profile,
+        string? ResultContract,
+        List<string> Operators,
+        string? ValueKind,
+        List<string> Values,
+        List<string> Effects,
+        string? ConsumerKind,
+        string? Gesture)
+    {
+        internal static RootDetails Create(
+            ResourceExplanationDetail details) =>
+            details switch
+            {
+                ResourceExplanationDetail.InspectionDocumentDetails value =>
+                    Empty(
+                        value.Identity,
+                        value.Summary,
+                        resultContract: value.ResultContract),
+                ResourceExplanationDetail.HostNeutralRouteDetails value =>
+                    Empty(
+                        value.Identity,
+                        value.Summary,
+                        subjectRole: value.SubjectRole,
+                        resultGrain: value.ResultGrain,
+                        profile: value.Profile,
+                        resultContract: value.ResultContract),
+                ResourceExplanationDetail.QuerySpaceDetails value =>
+                    Empty(
+                        value.Identity,
+                        value.Summary),
+                ResourceExplanationDetail.QueryFacetDetails value =>
+                    new(
+                        value.Identity,
+                        value.Summary,
+                        value.Key,
+                        null,
+                        null,
+                        null,
+                        null,
+                        [.. value.Operators],
+                        value.ValueKind,
+                        [.. value.Values],
+                        [.. value.Effects],
+                        null,
+                        null),
+                ResourceExplanationDetail.ConsumerBindingDetails value =>
+                    Empty(
+                        value.Identity,
+                        value.Summary,
+                        consumerKind: Display(value.ConsumerKind),
+                        gesture: value.Gesture),
+                _ => Empty(),
+            };
+
+        private static RootDetails Empty(
+            string? identity = null,
+            string? summary = null,
+            string? subjectRole = null,
+            string? resultGrain = null,
+            string? profile = null,
+            string? resultContract = null,
+            string? consumerKind = null,
+            string? gesture = null) =>
+            new(
+                identity,
+                summary,
+                null,
+                subjectRole,
+                resultGrain,
+                profile,
+                resultContract,
+                [],
+                null,
+                [],
+                [],
+                consumerKind,
+                gesture);
+
+        private static string Display<T>(T value)
+            where T : struct, Enum =>
+            value.ToString();
+    }
 }
 
 [MarkoutSerializable]
@@ -190,6 +362,26 @@ public sealed record ResourceExplanationResourceRow(
                 itemKind = details.ItemKind;
                 memberCount = null;
                 break;
+            case ResourceExplanationDetail.InspectionDocumentDetails details:
+                name = details.Name;
+                memberCount = null;
+                break;
+            case ResourceExplanationDetail.HostNeutralRouteDetails details:
+                name = details.Name;
+                memberCount = null;
+                break;
+            case ResourceExplanationDetail.QuerySpaceDetails details:
+                name = details.Name;
+                memberCount = details.FacetCount;
+                break;
+            case ResourceExplanationDetail.QueryFacetDetails details:
+                name = details.Name;
+                memberCount = null;
+                break;
+            case ResourceExplanationDetail.ConsumerBindingDetails details:
+                name = details.Name;
+                memberCount = details.ExposedFacetCount;
+                break;
             default:
                 throw new InvalidOperationException(
                     "Unknown Resource Explanation detail variant.");
@@ -225,12 +417,45 @@ public sealed record ResourceExplanationResourceRow(
                 "Structural item",
                 StringComparison.Ordinal)
             .Replace(
+                nameof(ResourceExplanationResourceKind.InspectionDocument),
+                "Inspection document",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationResourceKind.HostNeutralRoute),
+                "Host-neutral route",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationResourceKind.QuerySpace),
+                "Query Space",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationResourceKind.QueryFacet),
+                "Query facet",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationResourceKind.ConsumerBinding),
+                "Consumer binding",
+                StringComparison.Ordinal)
+            .Replace(
                 nameof(ResourceExplanationOwner.ResourceExplanation),
                 "Resource Explanation",
                 StringComparison.Ordinal)
             .Replace(
                 nameof(ResourceExplanationOwner.SchemaQuery),
                 "Schema Query",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationOwner
+                    .InspectionCapabilityComposition),
+                "Inspection Capability Composition",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationOwner.QuerySpace),
+                "Query Space",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationOwner.Consumer),
+                "Consumer",
                 StringComparison.Ordinal);
 }
 
@@ -265,6 +490,11 @@ public sealed record ResourceExplanationRelationshipRow(
                 ResourceExplanationOwner.ResourceExplanation =>
                     "Resource Explanation",
                 ResourceExplanationOwner.SchemaQuery => "Schema Query",
+                ResourceExplanationOwner
+                    .InspectionCapabilityComposition =>
+                    "Inspection Capability Composition",
+                ResourceExplanationOwner.QuerySpace => "Query Space",
+                ResourceExplanationOwner.Consumer => "Consumer",
                 _ => relationship.TargetOwner.ToString(),
             });
 

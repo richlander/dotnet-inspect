@@ -11,9 +11,10 @@ UI requirements.
 The focused delivery is
 [#6076](https://github.com/richlander/dotnet-inspect/issues/6076).
 
-> An explicitly selected member and two package versions produce a view tied
-> to that ordered request and the shared paired Source query, preserving
-> authored-source changes, exactness, endpoint provenance, and non-success.
+> One or two explicitly selected endpoint members and their package versions
+> produce a result tied to that ordered request and the shared paired Source
+> query, preserving authored-source changes, exactness, endpoint provenance,
+> and non-success.
 
 The immediate consumer is a person inspecting a package member who wants to
 see how its authored declaration changed in another version. This delivers
@@ -79,12 +80,19 @@ comparison. Portable paired navigation remains broader #7213 work.
 
 ## Managed projection
 
-The Source facade resolves the launching selection through existing browser
-member resolution, derives the query's logical member anchor, and leases both
-package implementation contexts until query and release settle. It invokes
-`AssemblyContextMemberSourcePairQuery` once. The other version resolves the
-anchor independently; the launching image's MethodDef token is never used as
-the other image's identity.
+The Source facade accepts a complete logical member anchor independently for
+each requested endpoint and leases both package implementation contexts until
+query and release settle. It invokes `AssemblyContextMemberSourcePairQuery`
+once, and the query resolves each supplied anchor in its own image. A MethodDef
+token is not request identity and is never reused in the other image. The
+retired same-member interaction derived one anchor from its launching surface
+and supplied it on both sides; Member Diff Explore may supply different
+relation-issued anchors or leave one side unrequested.
+
+At least one endpoint must be requested. An unrequested side is projected as
+`Unrequested`, not as query-established positive absence. A consumer that
+renders an absent member must own that fact independently, as Library API Diff
+does for Member Diff Explore.
 
 The transport retains the submitted pair, each resolved package coordinate
 and asset, assembly identity and module version where available, exact member

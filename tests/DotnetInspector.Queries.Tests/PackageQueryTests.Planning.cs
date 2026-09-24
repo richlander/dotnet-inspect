@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Packages;
 using QuerySpace;
+using QuerySpace.Composition;
 using QuerySpace.Operations;
 using QuerySpace.Rows;
 using DotnetInspector.Sections;
@@ -323,6 +324,34 @@ public partial class PackageQueryTests
             PackageQuery.RegisteredTerms.Select(term =>
                 term.Descriptor),
             PackageQuery.Terms);
+    }
+
+    [Fact]
+    public void QuerySpacePreservesTheExecutableRouteAndDocumentContract()
+    {
+        QuerySpaceBinding querySpace = PackageQuery.QuerySpace;
+
+        Assert.Same(
+            PackageQuery.OperationRoute,
+            querySpace.Operation);
+        Assert.Equal(
+            PackageQuery.QuerySpaceIdentity,
+            querySpace.Descriptor.Identity);
+        Assert.Equal(
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Descriptor.Key),
+            querySpace.Descriptor.Operation.Terms.Select(
+                static term => term.Key));
+        Assert.Equal(
+            PackageQuery.ResultContractIdentity,
+            Assert.Single(
+                querySpace.Descriptor.ResultContracts).Identity);
+        Assert.Equal(
+            "package-query.term.library-literal",
+            PackageQuery.TermBindingIdentity(
+                PackageQuery.LibraryLiteralTermKey));
+        Assert.Throws<ArgumentException>(() =>
+            PackageQuery.TermBindingIdentity("not-a-term"));
     }
 
     [Theory]
