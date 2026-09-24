@@ -37,7 +37,7 @@ public static class AssemblyContextLibraryMetricsQuery
                         LibraryBodyAnalysisRequest.Create(
                             LibraryBodyAnalysisFeatures.ImplementationProfiles),
                         resolver);
-                return LibraryMetricsQuery.Execute(execution.ImplementationProfiles);
+                return LibraryMetricsQuery.Execute(execution);
             });
     }
 }
