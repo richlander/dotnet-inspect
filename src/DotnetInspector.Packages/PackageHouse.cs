@@ -1352,15 +1352,16 @@ public sealed class PackageHouse
                         CompilePolicy(request),
                         request.TargetContext?.RequestedFramework,
                         request.TargetContext?.RuntimeIdentifier).Selection;
-                return
-                [
-                    .. compile.Assets
-                        .Select(static asset => asset.Path)
-                        .Concat(
-                            compile.ImplementationAssets
-                                .Select(static asset => asset.Path))
-                        .Distinct(StringComparer.Ordinal),
-                ];
+                IEnumerable<string> demanded =
+                    compile.Assets.Select(static asset => asset.Path);
+                if (request.AssetDemand
+                    == PackageAssetDemand.SurfaceAndImplementation)
+                {
+                    demanded = demanded.Concat(
+                        compile.ImplementationAssets
+                            .Select(static asset => asset.Path));
+                }
+                return WholeFolders(demanded, directory);
             case PackageHouseAssetSelectionKind.Runtime:
                 if (request.TargetContext?.RequestedFramework is not { } framework)
                     return [];
@@ -1369,7 +1370,9 @@ public sealed class PackageHouse
                         framework,
                         request.TargetContext.RuntimeIdentifier).Selection
                     is PackageAssetSelection.Selected selected
-                        ? [.. selected.Universe.Assets.Select(static asset => asset.EntryPath)]
+                        ? WholeFolders(
+                            selected.Universe.Assets.Select(static asset => asset.EntryPath),
+                            directory)
                         : [];
             default:
                 throw new ArgumentOutOfRangeException(
@@ -1377,6 +1380,35 @@ public sealed class PackageHouse
                     request.AssetSelection,
                     "A ranged Realize operation requires a known asset-selection kind.");
         }
+    }
+
+    /// <summary>
+    /// A ranged read fetches whole folders: every entry directly inside the
+    /// folder of each selected asset (its documentation XML beside it, for
+    /// one), never a subfolder. A folder is contiguous in most archives, so
+    /// it is usually one request, and a later reader that needs the folder's
+    /// other files finds them cached.
+    /// </summary>
+    private static IReadOnlyList<string> WholeFolders(
+        IEnumerable<string> selected,
+        IPackageContent directory)
+    {
+        var folders = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string path in selected)
+        {
+            int slash = path.LastIndexOf('/');
+            folders.Add(slash < 0 ? "" : path[..(slash + 1)]);
+        }
+
+        var entries = new List<string>();
+        foreach (string entry in directory.EnumerateEntries())
+        {
+            int slash = entry.LastIndexOf('/');
+            string folder = slash < 0 ? "" : entry[..(slash + 1)];
+            if (folders.Contains(folder))
+                entries.Add(entry);
+        }
+        return entries;
     }
 
     private static PackageHouseRealizationReceipt CreateRealization(

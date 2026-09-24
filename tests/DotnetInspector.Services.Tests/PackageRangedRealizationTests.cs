@@ -25,6 +25,13 @@ public sealed class PackageRangedRealizationTests
         "lib/net45/PCLStorage.Abstractions.dll",
     ];
 
+    private static readonly string[] Net45Folder =
+    [
+        .. Net45Assemblies,
+        "lib/net45/PCLStorage.xml",
+        "lib/net45/PCLStorage.Abstractions.xml",
+    ];
+
     /// <summary>
     /// Design gate 14a: PCLStorage 1.0.2 (real asset; its local extra fields
     /// are longer than its central records) realized for net45 by range with
@@ -49,8 +56,10 @@ public sealed class PackageRangedRealizationTests
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
         Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
         var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+        // The read fetches whole folders: the selected assemblies and the
+        // documentation beside them.
         Assert.Equal(
-            Net45Assemblies.Order(StringComparer.Ordinal),
+            Net45Folder.Order(StringComparer.Ordinal),
             content.MaterializedEntries.Order(StringComparer.Ordinal));
         var compile = Assert.IsType<PackageHouseRealizationReceipt.Compile>(
             acquired.Result.Evidence.Realization);

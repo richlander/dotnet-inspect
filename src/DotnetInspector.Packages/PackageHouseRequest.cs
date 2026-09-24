@@ -260,7 +260,9 @@ public sealed class PackageHouseRequest
         PackageHouseAssetSelectionKind? assetSelection = null,
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
-        PackageHouseRequestAssociation? association = null)
+        PackageHouseRequestAssociation? association = null,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -268,6 +270,8 @@ public sealed class PackageHouseRequest
             throw new ArgumentOutOfRangeException(nameof(libraryHandoff));
         if (assetSelection is { } selection && !Enum.IsDefined(selection))
             throw new ArgumentOutOfRangeException(nameof(assetSelection));
+        if (!Enum.IsDefined(assetDemand))
+            throw new ArgumentOutOfRangeException(nameof(assetDemand));
 
         bool realizes =
             operation.Profile == PackageHouseOperationProfile.Realize;
@@ -292,6 +296,7 @@ public sealed class PackageHouseRequest
         AssetSelection = assetSelection;
         LibraryHandoff = libraryHandoff;
         Association = association;
+        AssetDemand = assetDemand;
     }
 
     public PackageHouseDemand Demand { get; }
@@ -305,4 +310,10 @@ public sealed class PackageHouseRequest
     public PackageHouseLibraryHandoffMode LibraryHandoff { get; }
 
     public PackageHouseRequestAssociation? Association { get; }
+
+    /// <summary>
+    /// Which assets the consumer reads. A ranged Realize reads only these;
+    /// complete access acquires the whole archive regardless.
+    /// </summary>
+    public PackageAssetDemand AssetDemand { get; }
 }

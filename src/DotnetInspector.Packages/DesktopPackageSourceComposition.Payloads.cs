@@ -22,7 +22,9 @@ public sealed partial class DesktopPackageSourceComposition
         IPackagePayloadTransferPolicy? transferPolicy = null,
         string? requiredProducerKey = null,
         PackageHouseTargetContext? compileTargetContext = null,
-        PackagePayloadAccess access = PackagePayloadAccess.Complete)
+        PackagePayloadAccess access = PackagePayloadAccess.Complete,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation)
     {
         ArgumentNullException.ThrowIfNull(createStore);
         if (compileTargetContext is not null
@@ -81,7 +83,8 @@ public sealed partial class DesktopPackageSourceComposition
                     transferPolicy,
                     requiredProducerKey,
                     compileTargetContext,
-                    access);
+                    access,
+                    assetDemand);
             sourceOperation = null;
             return execution;
         }

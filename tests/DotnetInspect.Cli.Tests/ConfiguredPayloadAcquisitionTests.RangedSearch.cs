@@ -61,8 +61,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// <summary>
     /// The real Avalonia 12.1.2 archive (10.1 MB: net8.0 and net10.0 reference
     /// and implementation assemblies, XML docs, analyzers, designer tools)
-    /// searched for net10.0 transfers the directory and the 22 net10.0
-    /// reference and implementation assemblies only: 3.6 MB compressed.
+    /// searched for net10.0 transfers the directory and the ref/net10.0
+    /// folder only: about 2.2 MB, in two ranged requests.
     /// </summary>
     [Fact]
     public async Task SearchCommand_RangedRead_RealAvaloniaArchive()
@@ -97,9 +97,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("InvalidateMeasure", result.Output, StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
         Assert.Equal(0, feed.FullPackageResponses);
+        // Search reads the surface only: the whole ref/net10.0 folder (11
+        // assemblies and their 11 documentation files) and none of lib/. The
+        // archive interleaves other folders' documentation into that folder,
+        // so it is three spans, sent together after the tail.
         Assert.Contains("22 of 121 entries", result.Error, StringComparison.Ordinal);
+        Assert.True(4 == feed.RangedResponses, string.Join("; ", feed.Ranges));
+        const long RefFolderStart = 5_688_854;
+        const long RefFolderEnd = 8_330_000;
+        Assert.All(
+            feed.Ranges.Skip(1),
+            range => Assert.InRange(long.Parse(range.Split('-')[0]), RefFolderStart, RefFolderEnd));
         Assert.True(
-            feed.PackageBytesServed < package.Length * 2 / 5,
+            feed.PackageBytesServed < 2_500_000,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
     }
 
@@ -221,6 +231,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         public ConcurrentQueue<string> Requests { get; } = new();
 
+        public ConcurrentQueue<string> Ranges { get; } = new();
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -270,6 +282,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             }
 
             int length = checked((int)(end - start + 1));
+            Ranges.Enqueue($"{start}-{end}");
             Interlocked.Increment(ref _rangedResponses);
             Interlocked.Add(ref _packageBytesServed, length);
             var content = new ByteArrayContent(package, (int)start, length);

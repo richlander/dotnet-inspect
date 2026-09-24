@@ -954,6 +954,36 @@ public sealed class PackageRootBinding
             allowsCompatibleTargetSelection: true);
     }
 
+    /// <summary>
+    /// The same Root with another asset demand. A surface-only Root realizes
+    /// no implementation role, so realization never opens its implementation
+    /// assets; broad surface consumers such as <c>find</c> use it.
+    /// </summary>
+    public PackageRootBinding WithAssetDemand(PackageAssetDemand demand)
+    {
+        if (!Enum.IsDefined(demand))
+            throw new ArgumentOutOfRangeException(nameof(demand));
+        if (Root.AssetDemand == demand)
+            return this;
+        var root = new PackageRootRealization(
+            Root.Content,
+            Root.PackageId,
+            Root.PackageVersion,
+            Root.RequestedTargetFramework,
+            Root.RequestedRuntimeIdentifier,
+            Root.AssetSelection,
+            demand);
+        return new PackageRootBinding(
+            root,
+            Coordinate,
+            SourceProducer,
+            ContentGenerationIdentity,
+            SelectionIdentity,
+            CompileTargetFramework,
+            UsesCompatibleImplementationSelection,
+            AllowsCompatibleTargetSelection);
+    }
+
     internal bool ReferencesRetainedContent() =>
         ReferenceEquals(
             ContentGenerationIdentity,
@@ -1042,13 +1072,16 @@ public sealed class PackageRootRealization
         string packageVersion,
         string? targetFramework,
         string? runtimeIdentifier,
-        PackageCompileAssetSelection? assetSelection)
+        PackageCompileAssetSelection? assetSelection,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
 
         _content = content;
+        AssetDemand = assetDemand;
         PackageId = packageId;
         PackageVersion = packageVersion;
         RequestedTargetFramework = targetFramework;
@@ -1086,6 +1119,12 @@ public sealed class PackageRootRealization
     public bool FromCache => _content.FromCache;
 
     public PackageCompileAssetSelection AssetSelection { get; }
+
+    /// <summary>
+    /// Which roles this Root realizes: the surface only, or the surface and
+    /// its implementation universe.
+    /// </summary>
+    public PackageAssetDemand AssetDemand { get; }
 
     /// <summary>
     /// Whether the package contains a DLL candidate for the selected target
@@ -1392,6 +1431,8 @@ public sealed partial class InspectionWorkspace
             .. packageRoots.SelectMany(
                 (package, packageIndex) =>
                     package.AssetSelection.IsSelected
+                        && package.AssetDemand
+                            == PackageAssetDemand.SurfaceAndImplementation
                         ? package.AssetSelection.ImplementationAssets.Select(
                             asset => new RoleAsset(
                                 packageIndex,
@@ -1664,6 +1705,10 @@ public sealed partial class InspectionWorkspace
             ImmutableArray.CreateBuilder<PackageAssemblyRoleCorrespondence>();
         foreach (RoleAssembly surface in surfaces)
         {
+            // A surface-only Root realizes no implementation role, so it has
+            // nothing to pair.
+            if (surface.Package.AssetDemand == PackageAssetDemand.Surface)
+                continue;
             PackageCompileAsset? selectedImplementation =
                 surface.Package.AssetSelection.FindImplementationAsset(
                     surface.Asset);
