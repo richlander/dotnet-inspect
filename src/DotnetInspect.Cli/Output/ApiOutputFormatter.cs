@@ -1711,7 +1711,6 @@ public static class ApiOutputFormatter
 
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
             var callsByCaller = analysisInspection
                 .CallGraph
                 .DirectCallsByCaller;
@@ -1744,7 +1743,6 @@ public static class ApiOutputFormatter
 
         if (requestedSections.Contains(SectionNames.ExceptionRegions) && singleMethodList is [{ MetadataToken: { } exceptionToken } exceptionMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.exception-regions", exceptionMethod.Name);
             var regions = analysisInspection.ResolveExceptionRegions(exceptionToken, out var error)
                 .Select(region => new ExceptionRegionRow(
                     region.Region,
@@ -1765,7 +1763,6 @@ public static class ApiOutputFormatter
 
         if (request.Callers && bodyMethods.Count > 0)
         {
-            RequestTelemetry.Breadcrumb("il-analysis.callers", $"{bodyMethods.Count} member(s)");
             var edges = new List<(
                 string Source,
                 Analysis.DirectCall Call)>();
@@ -1806,7 +1803,6 @@ public static class ApiOutputFormatter
 
         if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken } graphMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
             // One bidirectional graph: inbound callers and outbound callees around the selected
             // member. The projection collapses the two trees onto shared node identity, so a member
             // that is both a caller and a callee is one node rather than two unrelated subtrees.
@@ -1864,7 +1860,6 @@ public static class ApiOutputFormatter
 
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
             var evidence = InspectSafetyFindings(
                     analysisInspection.Safety,
                     analysisInspection.CallGraph,
@@ -1909,7 +1904,6 @@ public static class ApiOutputFormatter
 
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
                 var rows = Analysis.SemanticFactProjection.AllocationFacts(
@@ -1958,12 +1952,6 @@ public static class ApiOutputFormatter
                 }
             }
         }
-
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay
-            || request.SemanticsOverlay || request.IL || request.Attributes
-            || request.Facts || request.FidelityCauses || request.AppliedTaste
-            || request.SourceDocument || request.FindingCensus)
-            RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(
             type,
@@ -2016,7 +2004,6 @@ public static class ApiOutputFormatter
 
             if ((code.ILText ?? code.ILDiagnostic) is { } ilText)
             {
-                RequestTelemetry.Breadcrumb("il-render", member.Name);
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;
             }
@@ -2134,7 +2121,6 @@ public static class ApiOutputFormatter
 
         if (code.DecompiledResult is { } decompiledResult)
         {
-            EmitDecompileBreadcrumb(member.Name, decompiledResult.Trace);
             if (!decompiledResult.Succeeded)
                 memberCode.DecompiledSourceFailure = decompiledResult;
             memberCode.DecompiledSourceCode = FormatCSharpResult(
@@ -2150,7 +2136,6 @@ public static class ApiOutputFormatter
 
         if (code.AnnotatedResult is { } annotatedResult)
         {
-            EmitDecompileBreadcrumb(member.Name, annotatedResult.Trace);
             memberCode.AnnotatedSourceCode = FormatCSharpResult(
                 type,
                 member,
@@ -2166,7 +2151,6 @@ public static class ApiOutputFormatter
 
         if (code.CostOverlayResult is { } costOverlayResult)
         {
-            EmitDecompileBreadcrumb(member.Name, costOverlayResult.Trace);
             memberCode.CostOverlayCode = FormatCSharpResult(
                 type,
                 member,
@@ -2180,7 +2164,6 @@ public static class ApiOutputFormatter
 
         if (code.SemanticsOverlayResult is { } semanticsOverlayResult)
         {
-            EmitDecompileBreadcrumb(member.Name, semanticsOverlayResult.Trace);
             memberCode.SemanticsOverlayCode = FormatCSharpResult(
                 type,
                 member,
@@ -3329,37 +3312,6 @@ public static class ApiOutputFormatter
             name += $"<{string.Join(", ", typeArgs.Select(t => t.ToQualifiedDisplayString()))}>";
         string signature = $"{name}({string.Join(", ", parameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
         return declaringType is null ? signature : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
-    }
-
-    /// <summary>
-    /// Converts the decompiler's telemetry-free <see cref="Decompiler.DecompilerTrace"/>
-    /// shape into a request-trace breadcrumb: a <c>decompile.method</c> stage on
-    /// success or <c>decompile.fallback</c> on failure, with the fidelity outcome,
-    /// the symbol source used, and (on failure) the leading diagnostic id. Falls
-    /// back to a bare crumb when no trace is available.
-    /// </summary>
-    private static void EmitDecompileBreadcrumb(string member, Decompiler.DecompilerTrace? trace)
-    {
-        if (trace is null)
-        {
-            RequestTelemetry.Breadcrumb("decompile.method", member);
-            return;
-        }
-
-        var symbols = trace.Symbols switch
-        {
-            Decompiler.DecompilerSymbolSource.Embedded => "pdb:embedded",
-            Decompiler.DecompilerSymbolSource.Sidecar => "pdb:sidecar",
-            Decompiler.DecompilerSymbolSource.External => "pdb:external",
-            _ => "pdb:none",
-        };
-
-        var stage = trace.Succeeded ? "decompile.method" : "decompile.fallback";
-        var detail = $"{member} ({trace.Fidelity}, {symbols})";
-        if (!trace.Succeeded && trace.Diagnostics.Count > 0)
-            detail += $" [{trace.Diagnostics[0].Id}]";
-
-        RequestTelemetry.Breadcrumb(stage, detail);
     }
 
     private static string DiagnosticComment(Decompiler.DecompilerResult result)

@@ -42,39 +42,31 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
     {
         await ConsoleCapture.RunAsync(async () =>
         {
-            try
-            {
-                NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: !globalPackages);
-                ConfiguredPackageAuthority authority = LocalAuthority("measurement-feed");
-                using IPackageSourceClient client = CreateClient(authority);
-                var store = CreateStore(authority, client);
-                InfoTracker.ResetForTests();
-                InfoTracker.Start();
+            NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: !globalPackages);
+            ConfiguredPackageAuthority authority = LocalAuthority("measurement-feed");
+            using IPackageSourceClient client = CreateClient(authority);
+            var store = CreateStore(authority, client);
+            var observer = new CacheObservationRecorder(observation =>
+                observation.Key.ToString().Contains(
+                    PackageName,
+                    StringComparison.OrdinalIgnoreCase));
+            using IDisposable subscription = CacheTelemetry.Subscribe(observer);
 
-                Assert.Null(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
-                Assert.Equal(0, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
+            Assert.Null(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
+            Assert.Equal((0, 1), observer.Counts);
 
-                if (globalPackages)
-                    WriteGlobalPackage(authority.Source.Url);
-                else
-                    await CommitAsync(store, client, "measurement");
-                Assert.Equal(0, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
+            if (globalPackages)
+                WriteGlobalPackage(authority.Source.Url);
+            else
+                await CommitAsync(store, client, "measurement");
+            Assert.Equal((0, 1), observer.Counts);
 
-                Assert.NotNull(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
-                Assert.Equal(1, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
+            Assert.NotNull(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
+            Assert.Equal((1, 1), observer.Counts);
 
-                Assert.Null(store.TryGetCached(PackageName, Version, ["unauthorized-producer"]));
-                Assert.Equal(1, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
-                return 0;
-            }
-            finally
-            {
-                InfoTracker.ResetForTests();
-            }
+            Assert.Null(store.TryGetCached(PackageName, Version, ["unauthorized-producer"]));
+            Assert.Equal((1, 1), observer.Counts);
+            return 0;
         });
     }
 

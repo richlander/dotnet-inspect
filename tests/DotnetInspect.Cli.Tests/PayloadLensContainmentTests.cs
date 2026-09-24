@@ -30,9 +30,7 @@ namespace DotnetInspect.Cli.Tests;
 /// </list>
 ///
 /// <see cref="ReadmeLens_PutsNoToolFramingOnEncodedStdout"/> runs the hazard
-/// payload with <c>--info</c> specifically -- the mode that
-/// does put a real <c># Info</c> table in the picture -- and asserts the table
-/// landed on the other stream.
+/// payload and asserts that no tool framing lands on stdout.
 /// </remarks>
 public class PayloadLensContainmentTests : IDisposable
 {
@@ -192,19 +190,11 @@ public class PayloadLensContainmentTests : IDisposable
     {
         using var package = HostilePackage.Create();
 
-        // --info is the mode that composes a real section alongside the lens,
-        // so it is the one that can put framing and payload on one stream.
-        var (output, error) = RunCli([package.Path, ..ReadmeLens, "--info"]);
+        var (output, error) = RunCli([package.Path, ..ReadmeLens]);
 
         AssertIsEncodedPayload(output);
 
-        // The framing exists -- otherwise this test would pass by the section
-        // having been silently dropped, which is a different bug that would
-        // look identical here.
-        Assert.Contains("# Info", error, StringComparison.Ordinal);
-
-        // ... and it is on the other stream. No line of stdout is a heading, a
-        // table row, or a diagnostic.
+        // No line of stdout is a heading, a table row, or a diagnostic.
         foreach (string line in output.ReplaceLineEndings("\n").Split('\n'))
         {
             string trimmed = line.TrimStart();
@@ -219,7 +209,7 @@ public class PayloadLensContainmentTests : IDisposable
 
         // The tool's own stream stays contained even while the payload beside
         // it does not, which is the whole basis for the split.
-        HostileOutputAssert.NoRenderingHazard(error, "readme-lens-info");
+        HostileOutputAssert.NoRenderingHazard(error, "readme-lens");
     }
 
     /// <summary>

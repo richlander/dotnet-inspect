@@ -529,6 +529,8 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Packages.RangedPackageContent",
             "DotnetInspector.Packages.PackageCoordinateResolver",
             "DotnetInspector.Packages.PackageExtractor",
+            // Opens a package-relative product-resource path, not a filesystem path.
+            "DotnetInspector.Packages.PackageHouseSettlement+Acquired",
             "DotnetInspector.Packages.SymbolPackageDownloader",
             // Operate on semantic product-resource paths, not filesystem paths.
             "DotnetInspector.Sections.ResourceExplanationCatalog",

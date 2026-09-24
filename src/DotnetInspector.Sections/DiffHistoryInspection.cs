@@ -170,6 +170,46 @@ public static class DiffHistoryInspection
         return Envelope(BindCount(outcome, request.Count));
     }
 
+    /// <summary>
+    /// Completes Analysis History and captures the House acquisitions its
+    /// cells made.
+    /// </summary>
+    public static async Task<EvidenceInspectionEnvelope<
+        DiffHistoryOutcome,
+        PackageAcquisitionEvidence>>
+        InspectAnalysisWithEvidenceAsync(
+            DiffHistoryAnalysisOperationRequest request,
+            IPackageHouseVersionPopulationCellExecutor executor,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(executor);
+        var recorder = new PackageAcquisitionEvidenceRecorder(executor);
+        InspectionEnvelope<DiffHistoryOutcome> inspection =
+            await InspectAnalysisAsync(request, recorder, cancellationToken)
+                .ConfigureAwait(false);
+        return new(inspection, recorder.ToEvidence());
+    }
+
+    /// <summary>
+    /// Completes API History and captures the House acquisitions its cells
+    /// made.
+    /// </summary>
+    public static async Task<EvidenceInspectionEnvelope<
+        DiffHistoryOutcome,
+        PackageAcquisitionEvidence>>
+        InspectApiWithEvidenceAsync(
+            DiffHistoryApiOperationRequest request,
+            IPackageHouseVersionPopulationCellExecutor executor,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(executor);
+        var recorder = new PackageAcquisitionEvidenceRecorder(executor);
+        InspectionEnvelope<DiffHistoryOutcome> inspection =
+            await InspectApiAsync(request, recorder, cancellationToken)
+                .ConfigureAwait(false);
+        return new(inspection, recorder.ToEvidence());
+    }
+
     static InspectionEnvelope<DiffHistoryOutcome> Envelope(
         DiffHistoryOutcome outcome) =>
         new(

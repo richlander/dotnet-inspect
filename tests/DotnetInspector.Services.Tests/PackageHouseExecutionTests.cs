@@ -957,6 +957,71 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration()
+    {
+        byte[] expected = new byte[256 * 1024];
+        for (int index = 0; index < expected.Length; index++)
+            expected[index] = (byte)(index % 239);
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    ("docs/payload.bin", expected),
+                ]));
+        PackageHouseRequest request = ExactRequest(
+            PackageHouseOperationProfile.Acquire);
+        PackageHouse house = environment.CreateHouse(
+            (_, _) => new InMemoryPackageStore());
+
+        PackageHouseSettlement.Acquired acquired =
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await house.ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken)));
+        await using PackageHousePayloadRead read =
+            acquired.OpenPayloadRead(
+                "docs/payload.bin",
+                expected.LongLength);
+
+        Assert.False(read.HasStarted);
+        Assert.Throws<NotSupportedException>(() => read.Length);
+        Assert.Throws<NotSupportedException>(() => read.Position);
+        Assert.Equal(0, read.Read(Span<byte>.Empty));
+        Assert.Equal(
+            0,
+            await read.ReadAsync(
+                Memory<byte>.Empty,
+                TestContext.Current.CancellationToken));
+        Assert.False(read.HasStarted);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () =>
+            {
+                using var canceled = new CancellationTokenSource();
+                await canceled.CancelAsync();
+                await read.ReadExactlyAsync(
+                    new byte[1],
+                    canceled.Token);
+            });
+        Assert.False(read.HasStarted);
+
+        using var output = new MemoryStream();
+        await read.CopyToAsync(
+            output,
+            bufferSize: 4096,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(read.HasStarted);
+        Assert.Same(
+            acquired.Result.Evidence.Acquisition,
+            read.Acquisition);
+        Assert.Equal(expected, output.ToArray());
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task ExactCompileRealizeBindsSelectionAndLibraryHandoff()
     {
         await using HouseEnvironment environment =

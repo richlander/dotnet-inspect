@@ -931,7 +931,65 @@ public sealed class PackageHouseContractTests
                 authority,
                 otherSource,
                 PackagePayloadOrigin.Cache,
-                new PackageContentGenerationIdentity()));
+                new PackageContentGenerationIdentity(),
+                PackageTransferReceipt.Cache));
+    }
+
+    /// <summary>
+    /// Transfer receipt design gate 6: the House acquisition receipt's origin
+    /// agrees with its transfer receipt's path — Cache with Cache, Download
+    /// with Download or RangedThenDownload, Ranged with Ranged.
+    /// </summary>
+    [Fact]
+    public void AcquisitionRequiresOriginToAgreeWithTransferPath()
+    {
+        AcquisitionBundle bundle = Acquisition(
+            Request(PackageHouseOperationProfile.Acquire));
+        PackageTransferReceipt download = PackageTransferReceipt.Create(
+            PackageTransferPath.Download,
+            null,
+            [new(PackageTransferRequestPurpose.Complete, null,
+                PackageTransferRequestOutcome.Completed, 10, 10)]);
+        PackageTransferReceipt fellBack = PackageTransferReceipt.Create(
+            PackageTransferPath.RangedThenDownload,
+            PackageTransferFallbackReason.RangeIgnored,
+            [new(PackageTransferRequestPurpose.DirectoryTail, new(null, 64),
+                PackageTransferRequestOutcome.RangeIgnored, 10, 0),
+             new(PackageTransferRequestPurpose.Complete, null,
+                PackageTransferRequestOutcome.Completed, 10, 10)]);
+        PackageTransferReceipt ranged = PackageTransferReceipt.Create(
+            PackageTransferPath.Ranged,
+            null,
+            [new(PackageTransferRequestPurpose.DirectoryTail, new(null, 64),
+                PackageTransferRequestOutcome.Completed, 10, 10)]);
+
+        PackageHouseAcquisitionReceipt Create(
+            PackagePayloadOrigin origin,
+            PackageTransferReceipt transfer) =>
+            new(
+                bundle.Decision,
+                bundle.Authority,
+                bundle.Source,
+                origin,
+                bundle.Generation,
+                transfer);
+
+        Assert.Same(
+            PackageTransferReceipt.Cache,
+            Create(PackagePayloadOrigin.Cache, PackageTransferReceipt.Cache).Transfer);
+        Assert.Same(download, Create(PackagePayloadOrigin.Download, download).Transfer);
+        Assert.Same(fellBack, Create(PackagePayloadOrigin.Download, fellBack).Transfer);
+        Assert.Same(ranged, Create(PackagePayloadOrigin.Ranged, ranged).Transfer);
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Cache, download));
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Download, PackageTransferReceipt.Cache));
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Download, ranged));
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Ranged, fellBack));
+        Assert.Throws<ArgumentNullException>(
+            () => Create(PackagePayloadOrigin.Cache, null!));
     }
 
     [Fact]
@@ -2220,7 +2278,8 @@ public sealed class PackageHouseContractTests
             authority,
             source,
             PackagePayloadOrigin.Cache,
-            generation);
+            generation,
+            PackageTransferReceipt.Cache);
         return new AcquisitionBundle(
             decision,
             candidate,

@@ -143,7 +143,7 @@ public static class RouterCommandDefinition
                 CommandError.WriteBlankLine();
             }
 
-            RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
+            RouterDecisionLog.Record("router-hit", string.Join(' ', tokens));
             bool structuralDiscovery =
                 opts.IsDiscoveryMode(sourceParseResult)
                 && opts.ParseSchema(sourceParseResult);
@@ -162,7 +162,7 @@ public static class RouterCommandDefinition
                     CommandLineBuilder.PreprocessArgs(
                         structuralRewrite,
                         rootCommand);
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "router-structural",
                     $"syntax: {string.Join(' ', structuralRewrite)}");
                 return await CommandLineBuilder.InvokeWithLineWindowAsync(
@@ -195,7 +195,7 @@ public static class RouterCommandDefinition
                     CommandLineBuilder.PreprocessArgs(
                         structuralRoute!.RewrittenTokens,
                         rootCommand);
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "router-structural",
                     $"{structuralRoute.Route.Label}: "
                     + string.Join(' ', structuralTokens));
@@ -287,7 +287,7 @@ public static class RouterCommandDefinition
                                 Error = error,
                             }
                             : alternative)]);
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "router-structural",
                     "alternatives: "
                     + string.Join(
@@ -329,7 +329,7 @@ public static class RouterCommandDefinition
                 sourceOptions,
                 rootCommand,
                 ct);
-            RequestTelemetry.Breadcrumb(
+            RouterDecisionLog.Record(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
 
@@ -387,7 +387,7 @@ public static class RouterCommandDefinition
         {
             return false;
         }
-        RequestTelemetry.Breadcrumb(
+        RouterDecisionLog.Record(
             "router-row-selection",
             rowSelection.Outcome.ToString());
         return CliRowSelectionRouterPreflight.TryWriteFailure(rowSelection);
@@ -720,7 +720,7 @@ public static class RouterCommandDefinition
             if (memberSplit is { Probe.Kind: not SourceResolver.LocalSourceKind.Platform })
             {
                 var probe = memberSplit.Value.Probe;
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "qualified-member",
                     $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
 
@@ -750,7 +750,7 @@ public static class RouterCommandDefinition
             if (memberSplit != null)
             {
                 var probe = memberSplit.Value.Probe;
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "qualified-member",
                     $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
 
@@ -770,7 +770,7 @@ public static class RouterCommandDefinition
                     && !await IsExactPlatformTypeAsync(typeProbe, context);
                 if (!hasNonExactPlatformProbe)
                 {
-                    RequestTelemetry.Breadcrumb(
+                    RouterDecisionLog.Record(
                         "qualified-type",
                         $"{target} -> source={typeProbe.SourceName}; type={typeProbe.Remainder}");
 

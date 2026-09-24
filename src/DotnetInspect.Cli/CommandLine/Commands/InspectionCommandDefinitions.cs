@@ -106,6 +106,16 @@ public static class InspectionCommandDefinitions
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Diff JSON (use with unprojected --json or --envelope)" };
 
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched Diff History envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+#endif
+
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
         diffCommand.Options.Add(platformOption);
@@ -137,6 +147,28 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+#if DEBUG
+        diffCommand.Options.Add(evidenceEnvelopeOption);
+        diffCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(evidenceEnvelopeOption)
+                is not { Implicit: false })
+            {
+                return;
+            }
+            if (!result.GetValue(historyOption))
+            {
+                result.AddError(
+                    "--evidence-envelope is supported only by diff --history.");
+            }
+            if (result.GetResult(opts.Discover) is { Implicit: false }
+                || result.GetValue(opts.Schema))
+            {
+                result.AddError(
+                    "--evidence-envelope requires a Diff History inspection, not discovery or schema output.");
+            }
+        });
+#endif
         opts.AddCountOptionTo(diffCommand);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
@@ -280,6 +312,24 @@ public static class InspectionCommandDefinitions
                     {
                         SourceOptions = sourceOptions,
                     };
+#if DEBUG
+                    if (parseResult.GetResult(evidenceEnvelopeOption)
+                        is { Implicit: false })
+                    {
+                        if (!EvidenceEnvelopeOutput.TryResolvePath(
+                                parseResult.GetValue(evidenceEnvelopeOption)!,
+                                out string? evidencePath,
+                                out string? evidencePathError))
+                        {
+                            CommandError.Write(evidencePathError!);
+                            return 1;
+                        }
+                        options = options with
+                        {
+                            EvidenceEnvelopePath = evidencePath,
+                        };
+                    }
+#endif
                     var exitCode = await DiffCommand.ExecuteAsync(options, ct);
 
                     if (exitCode == 0)

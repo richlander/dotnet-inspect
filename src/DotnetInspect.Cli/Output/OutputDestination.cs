@@ -24,14 +24,7 @@ internal static class OutputDestination
         {
             NewLine = "\n"
         };
-        CountingTextWriter? countingWriter = null;
-        TextWriter destination = output;
-        if (InfoTracker.Enabled)
-        {
-            countingWriter = new CountingTextWriter(output);
-            destination = countingWriter;
-        }
-        destination = new LfTextWriter(destination);
+        TextWriter destination = new LfTextWriter(output);
 
         TailLineLimitingTextWriter? tailWriter = null;
         bool hasLineWindow = false;
@@ -59,16 +52,8 @@ internal static class OutputDestination
         if (hasLineWindow)
             destination = TextWriter.Synchronized(destination);
 
-        try
-        {
-            write(destination);
-            tailWriter?.FlushTail();
-            destination.Flush();
-        }
-        finally
-        {
-            if (countingWriter is not null)
-                InfoTracker.RecordOutputChars(countingWriter.CharCount);
-        }
+        write(destination);
+        tailWriter?.FlushTail();
+        destination.Flush();
     }
 }

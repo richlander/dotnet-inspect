@@ -318,14 +318,22 @@ public sealed class PackageHouseAcquisitionReceipt
         ConfiguredPackageAuthority authority,
         PackageSourceResultIdentity source,
         PackagePayloadOrigin origin,
-        PackageContentGenerationIdentity generation)
+        PackageContentGenerationIdentity generation,
+        PackageTransferReceipt transfer)
     {
         ArgumentNullException.ThrowIfNull(decision);
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(transfer);
         if (!Enum.IsDefined(origin))
             throw new ArgumentOutOfRangeException(nameof(origin));
+        if (!transfer.AgreesWith(origin))
+        {
+            throw new ArgumentException(
+                "The transfer receipt's path must agree with the payload origin.",
+                nameof(transfer));
+        }
         if (decision.Request.Operation.Profile
             == PackageHouseOperationProfile.Settle)
         {
@@ -360,6 +368,7 @@ public sealed class PackageHouseAcquisitionReceipt
         Source = source;
         Origin = origin;
         Generation = generation;
+        Transfer = transfer;
     }
 
     public PackageHouseDecisionReceipt Decision { get; }
@@ -375,6 +384,9 @@ public sealed class PackageHouseAcquisitionReceipt
     public PackagePayloadOrigin Origin { get; }
 
     public PackageContentGenerationIdentity Generation { get; }
+
+    /// <summary>What the acquisition transferred; its path agrees with <see cref="Origin"/>.</summary>
+    public PackageTransferReceipt Transfer { get; }
 }
 
 /// <summary>

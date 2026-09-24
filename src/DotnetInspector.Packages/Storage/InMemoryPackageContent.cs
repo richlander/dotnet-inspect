@@ -15,7 +15,8 @@ namespace DotnetInspector.Packages;
 public sealed class InMemoryPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
-    IPackageContentDigestSource
+    IPackageContentDigestSource,
+    IPackageHousePayloadSource
 {
     const long MaxEntryMaterializationBytes = 512L * 1024 * 1024;
 
@@ -326,6 +327,27 @@ public sealed class InMemoryPackageContent :
             writable: false,
             publiclyVisible: true);
         return true;
+    }
+
+    bool IPackageHousePayloadSource.TryOpenPayloadRead(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
+        if (!_admission.TryPrepareArchive(
+                _nupkgBytes,
+                out PackageArchivePayload? archive))
+        {
+            throw new InvalidDataException(
+                "Package archive is unavailable for pull-based reads.");
+        }
+
+        return archive.TryOpenEntryPull(
+            relativePath,
+            maxExpandedBytes,
+            out stream);
     }
 
     /// <summary>Gets an entry's declared expanded length without expanding its body.</summary>

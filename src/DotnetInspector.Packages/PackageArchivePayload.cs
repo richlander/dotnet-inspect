@@ -63,6 +63,17 @@ internal sealed class PackageArchivePayload
             .ToList()
             .AsReadOnly();
 
+    internal Dictionary<string, PackageArchiveEntryValidation>
+        CreateEntryValidationIndex() =>
+        _entries
+            .Where(entry => !entry.IsDirectory)
+            .ToDictionary(
+                entry => entry.Path,
+                entry => new PackageArchiveEntryValidation(
+                    entry.UncompressedSize,
+                    entry.Crc32),
+                StringComparer.OrdinalIgnoreCase);
+
     internal bool TryOpenEntry(
         string relativePath,
         long maxExpandedBytes,
@@ -95,6 +106,63 @@ internal sealed class PackageArchivePayload
             writable: false,
             publiclyVisible: true);
         return true;
+    }
+
+    internal bool TryOpenEntryPull(
+        string relativePath,
+        long maxExpandedBytes,
+        out Stream? stream)
+    {
+        if (!_entriesByPath.TryGetValue(relativePath, out PackageArchiveEntry entry))
+        {
+            stream = null;
+            return false;
+        }
+
+        if (entry.UncompressedSize > (ulong)maxExpandedBytes)
+        {
+            throw new InvalidDataException(
+                "Package entry exceeds the configured byte limit.");
+        }
+
+        stream = OpenEntryPull(
+            entry,
+            maxExpandedBytes);
+        return true;
+    }
+
+    private Stream OpenEntryPull(
+        PackageArchiveEntry entry,
+        long maxExpandedBytes)
+    {
+        Stream compressed = new MemoryStream(
+            _bytes,
+            entry.DataOffset,
+            checked((int)entry.CompressedSize),
+            writable: false);
+        Stream content;
+        try
+        {
+            content = entry.CompressionMethod switch
+            {
+                0 => compressed,
+                8 => new DeflateStream(
+                    compressed,
+                    CompressionMode.Decompress),
+                _ => throw new InvalidDataException(
+                    "Package entry uses an unsupported compression method."),
+            };
+        }
+        catch
+        {
+            compressed.Dispose();
+            throw;
+        }
+
+        return new PackageArchiveEntryReadStream(
+            content,
+            entry,
+            maxExpandedBytes);
     }
 
     internal void ExtractToDirectory(
@@ -232,3 +300,171 @@ internal readonly record struct PackageArchiveEntry(
     ulong CompressedSize,
     ulong UncompressedSize,
     int DataOffset);
+
+internal readonly record struct PackageArchiveEntryValidation(
+    ulong ExpandedLength,
+    uint Crc32);
+
+internal sealed class PackageArchiveEntryReadStream : Stream
+{
+    private readonly Stream _content;
+    private readonly ulong _expectedLength;
+    private readonly uint _expectedCrc32;
+    private readonly long _maxExpandedBytes;
+    private ZipCrc32 _crc = new();
+    private long _expandedBytes;
+    private bool _completed;
+    private bool _disposed;
+
+    internal PackageArchiveEntryReadStream(
+        Stream content,
+        PackageArchiveEntry entry,
+        long maxExpandedBytes) :
+        this(
+            content,
+            entry.UncompressedSize,
+            entry.Crc32,
+            maxExpandedBytes)
+    {
+    }
+
+    internal PackageArchiveEntryReadStream(
+        Stream content,
+        ulong expectedLength,
+        uint expectedCrc32,
+        long maxExpandedBytes)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
+        _content = content;
+        _expectedLength = expectedLength;
+        _expectedCrc32 = expectedCrc32;
+        _maxExpandedBytes = maxExpandedBytes;
+    }
+
+    public override bool CanRead => !_disposed;
+
+    public override bool CanSeek => false;
+
+    public override bool CanWrite => false;
+
+    public override long Length =>
+        checked((long)_expectedLength);
+
+    public override long Position
+    {
+        get => _expandedBytes;
+        set => throw new NotSupportedException();
+    }
+
+    public override int Read(
+        byte[] buffer,
+        int offset,
+        int count)
+    {
+        ValidateBufferArguments(buffer, offset, count);
+        return Read(buffer.AsSpan(offset, count));
+    }
+
+    public override int Read(Span<byte> buffer)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (buffer.IsEmpty)
+            return 0;
+        if (_completed)
+            return 0;
+
+        int read = _content.Read(buffer);
+        return RecordRead(buffer[..read]);
+    }
+
+    public override Task<int> ReadAsync(
+        byte[] buffer,
+        int offset,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        ValidateBufferArguments(buffer, offset, count);
+        return ReadAsync(
+            buffer.AsMemory(offset, count),
+            cancellationToken).AsTask();
+    }
+
+    public override async ValueTask<int> ReadAsync(
+        Memory<byte> buffer,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (buffer.IsEmpty)
+            return 0;
+        if (_completed)
+            return 0;
+
+        int read = await _content
+            .ReadAsync(buffer, cancellationToken)
+            .ConfigureAwait(false);
+        return RecordRead(buffer.Span[..read]);
+    }
+
+    private int RecordRead(ReadOnlySpan<byte> bytes)
+    {
+        int read = bytes.Length;
+        if (read == 0)
+        {
+            if ((ulong)_expandedBytes != _expectedLength
+                || _crc.Value != _expectedCrc32)
+            {
+                throw new InvalidDataException(
+                    "Package entry does not match its declared size or checksum.");
+            }
+
+            _completed = true;
+            return 0;
+        }
+
+        if (read > _maxExpandedBytes - _expandedBytes
+            || (ulong)read
+                > _expectedLength - (ulong)_expandedBytes)
+        {
+            throw new InvalidDataException(
+                "Package entry exceeds its declared or configured byte limit.");
+        }
+
+        _crc.Append(bytes);
+        _expandedBytes += read;
+        return read;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (!_disposed && disposing)
+            _content.Dispose();
+        _disposed = true;
+        base.Dispose(disposing);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+            await _content.DisposeAsync().ConfigureAwait(false);
+        _disposed = true;
+        GC.SuppressFinalize(this);
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) =>
+        throw new NotSupportedException();
+
+    public override void SetLength(long value) =>
+        throw new NotSupportedException();
+
+    public override void Write(
+        byte[] buffer,
+        int offset,
+        int count) =>
+        throw new NotSupportedException();
+}

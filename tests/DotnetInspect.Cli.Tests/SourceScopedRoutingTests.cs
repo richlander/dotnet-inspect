@@ -3279,11 +3279,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 : NuGetCache.GetSourceKey(sourceUrl));
     }
 
-    private static async Task<IReadOnlyList<BreadcrumbObservation>> RunAppAsync(string[] args)
+    private static async Task<IReadOnlyList<RouterDecision>> RunAppAsync(string[] args)
     {
-        var observations = new ConcurrentQueue<BreadcrumbObservation>();
-        using var subscription = BreadcrumbTelemetry.Subscribe(
-            new BreadcrumbObserver(observations));
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
 
         await ConsoleCapture.RunAsync(async () =>
         {
@@ -3293,7 +3291,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             return await CommandLineBuilder.InvokeAsync(parseResult, args);
         });
 
-        return [.. observations];
+        return decisions.Decisions;
     }
 
     private static Task<(int Exit, string Output, string Error)> RunCommandAsync(string[] args)
@@ -3371,22 +3369,6 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 new HttpClientFactoryOptions { Offline = true });
             DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
-    }
-
-    private sealed class BreadcrumbObserver(
-        ConcurrentQueue<BreadcrumbObservation> observations)
-        : IObserver<BreadcrumbObservation>
-    {
-        public void OnCompleted()
-        {
-        }
-
-        public void OnError(Exception error)
-        {
-        }
-
-        public void OnNext(BreadcrumbObservation value)
-            => observations.Enqueue(value);
     }
 
     private sealed class VersionFeedHandler(

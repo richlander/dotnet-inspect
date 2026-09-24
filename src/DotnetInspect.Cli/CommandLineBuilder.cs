@@ -1165,8 +1165,6 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(rootTipsOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
-        var traceMermaidOption = new Option<bool>("--trace-mermaid") { Description = "Write a Mermaid request trace diagram to stderr at process exit" };
-        rootCommand.Options.Add(traceMermaidOption);
         var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
         rootCommand.Options.Add(httpTimeoutOption);
 
