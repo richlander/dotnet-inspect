@@ -1221,8 +1221,12 @@ static partial class FidelityCheck
 
     static Dictionary<int, (ApiType Type, ApiMember Member)> CreateTargetApiIndex(
         PEReader pe)
+        => CreateTargetApiEvidence(pe).Index;
+
+    static TargetApiEvidence CreateTargetApiEvidence(PEReader pe)
     {
         var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
+        var accessorTokens = new HashSet<int>();
         // includeAll: the harness evaluates non-public methods too, so
         // index the whole surface — otherwise internal/private targets
         // silently miss the migration and retain the legacy signature
@@ -1238,26 +1242,51 @@ static partial class FidelityCheck
                     else
                         index[token] = (type, member);
                 }
-                if (member.Kind == "property"
-                    && !member.Name.Contains('.', StringComparison.Ordinal))
+                if (member.Kind == "property")
                 {
                     if (member.GetterToken is { } getterToken)
-                        index.TryAdd(getterToken, (type, member));
+                    {
+                        accessorTokens.Add(getterToken);
+                        if (!member.Name.Contains(
+                                '.',
+                                StringComparison.Ordinal))
+                        {
+                            index.TryAdd(getterToken, (type, member));
+                        }
+                    }
                     if (member.SetterToken is { } setterToken)
-                        index.TryAdd(setterToken, (type, member));
+                    {
+                        accessorTokens.Add(setterToken);
+                        if (!member.Name.Contains(
+                                '.',
+                                StringComparison.Ordinal))
+                        {
+                            index.TryAdd(setterToken, (type, member));
+                        }
+                    }
                 }
                 if (member.Kind == "event")
                 {
                     if (member.AdderToken is { } adderToken)
+                    {
+                        accessorTokens.Add(adderToken);
                         index.TryAdd(adderToken, (type, member));
+                    }
                     if (member.RemoverToken is { } removerToken)
+                    {
+                        accessorTokens.Add(removerToken);
                         index.TryAdd(removerToken, (type, member));
+                    }
                 }
             }
         }
 
-        return index;
+        return new(index, accessorTokens);
     }
+
+    sealed record TargetApiEvidence(
+        Dictionary<int, (ApiType Type, ApiMember Member)> Index,
+        IReadOnlySet<int> AccessorTokens);
 
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned

@@ -211,11 +211,28 @@ static partial class FidelityCheck
         IReadOnlyList<string> assemblies,
         int cap,
         string? typeFilter = null)
+        => SelectReturnToSenderTargetPlan(
+            assemblies,
+            cap,
+            typeFilter).Targets;
+
+    internal static ReturnToSenderTargetSelection SelectReturnToSenderTargetPlan(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        string? typeFilter = null,
+        CSharpLanguageProfile? languageProfile = null)
     {
         if (cap <= 0)
-            return [];
+            return new([], [], 0, 0, 0);
 
         var selected = new List<CompileBackTarget>(Math.Min(cap, 4096));
+        var exclusions = new List<ReturnToSenderTargetExclusion>();
+        int scannedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int eligibleCount = 0;
+        CSharpLanguageProfile profile =
+            languageProfile
+            ?? new(CSharpLanguageVersion.Preview);
         using var metadata = CorpusMetadata.Create(assemblies);
         foreach (var assemblyPath in assemblies)
         {
@@ -226,50 +243,89 @@ static partial class FidelityCheck
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             RegisterSourceContext(source, metadata);
             var reader = source.Reader;
-            var targetApiIndex = CreateTargetApiIndex(source.Pe);
+            TargetApiEvidence targetApiEvidence =
+                CreateTargetApiEvidence(source.Pe);
+            using var declarations =
+                new ReturnToSenderDeclarationSession(assemblyPath);
+            var decisions =
+                new Dictionary<int, ReturnToSenderCandidateDecision>();
             foreach (var candidate in IrImporter.GetStableSampleCandidates(
                          source,
                          remaining,
-                         candidate => IsStandaloneReturnToSenderCandidate(
-                                 reader,
-                                 candidate,
-                                 typeFilter,
-                                 targetApiIndex)
-                             && MetadataMemberSignatureShape.Create(
-                                 reader,
-                                 candidate.MethodHandle).Shape is not null,
-                         candidate => "generic-arity:"
-                             + reader.GetMethodDefinition(candidate.MethodHandle)
-                                 .GetGenericParameters().Count.ToString(
-                                     CultureInfo.InvariantCulture)))
+                         candidate =>
+                         {
+                             scannedBodyCount++;
+                             ReturnToSenderCandidateDecision? decision =
+                                 DecideStandaloneReturnToSenderCandidate(
+                                     assemblyPath,
+                                     reader,
+                                     candidate,
+                                     typeFilter,
+                                     targetApiEvidence,
+                                     declarations,
+                                     profile,
+                                     out bool declarationCandidate);
+                             if (declarationCandidate)
+                                 declarationCandidateCount++;
+                             if (decision is null)
+                                 return false;
+
+                             int token = System.Reflection.Metadata.Ecma335
+                                 .MetadataTokens.GetToken(
+                                     candidate.MethodHandle);
+                             decisions.Add(token, decision);
+                             if (decision.Exclusion is { } exclusion)
+                             {
+                                 exclusions.Add(exclusion);
+                                 return false;
+                             }
+
+                             eligibleCount++;
+                             return true;
+                         },
+                         candidate =>
+                         {
+                             int token = System.Reflection.Metadata.Ecma335
+                                 .MetadataTokens.GetToken(
+                                     candidate.MethodHandle);
+                             return decisions[token].StableIdentitySuffix;
+                         }))
             {
-                var signatureShape = MetadataMemberSignatureShape.Create(
-                    reader,
-                    candidate.MethodHandle);
-                if (signatureShape.Shape is not { } shape)
-                {
-                    throw new InvalidOperationException(
-                        "A selected standalone RTS target lost its canonical signature.");
-                }
-                selected.Add(new CompileBackTarget(
-                    assemblyPath,
-                    candidate.TypeName,
-                    candidate.MethodName,
-                    candidate.Overload,
-                    MemberSignatureShapeCodec.Encode(shape),
-                    MetadataMethodAddress.Create(reader, candidate.MethodHandle)));
+                int token = System.Reflection.Metadata.Ecma335.MetadataTokens
+                    .GetToken(candidate.MethodHandle);
+                selected.Add(decisions[token].Target
+                    ?? throw new InvalidOperationException(
+                        "A selected standalone RTS target lost its declaration decision."));
             }
         }
 
-        return selected;
+        return new(
+            selected.ToArray(),
+            exclusions
+                .OrderBy(exclusion => exclusion.AssemblyPath, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Type, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Method, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Signature, StringComparer.Ordinal)
+                .ThenBy(exclusion => exclusion.Reason)
+                .ThenBy(exclusion => exclusion.Overload)
+                .ToArray(),
+            scannedBodyCount,
+            declarationCandidateCount,
+            eligibleCount);
     }
 
-    static bool IsStandaloneReturnToSenderCandidate(
+    static ReturnToSenderCandidateDecision?
+        DecideStandaloneReturnToSenderCandidate(
+        string assemblyPath,
         MetadataReader reader,
         IrImporter.StableSampleCandidate candidate,
         string? typeFilter,
-        IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)> targetApiIndex)
+        TargetApiEvidence targetApiEvidence,
+        ReturnToSenderDeclarationSession declarations,
+        CSharpLanguageProfile languageProfile,
+        out bool declarationCandidate)
     {
+        declarationCandidate = false;
         var typeDef = reader.GetTypeDefinition(candidate.TypeDefHandle);
         if (!typeDef.GetDeclaringType().IsNil
             || ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct)
@@ -277,17 +333,228 @@ static partial class FidelityCheck
                 && !candidate.TypeName.Contains(typeFilter, StringComparison.Ordinal))
             || IsGeneratedType(reader, typeDef, candidate.TypeName))
         {
-            return false;
+            return null;
         }
 
         var method = reader.GetMethodDefinition(candidate.MethodHandle);
+        if (IsGeneratedMethod(
+                reader,
+                method,
+                candidate.MethodName,
+                allowEmbeddedAngleBrackets: true))
+            return null;
+
+        declarationCandidate = true;
+        MetadataMethodAddress address =
+            MetadataMethodAddress.Create(reader, candidate.MethodHandle);
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
             candidate.MethodHandle);
-        return !IsGeneratedMethod(reader, method, candidate.MethodName)
-            && targetApiIndex.TryGetValue(token, out var entry)
-            && CSharpMemberArtifactEligibility.IsRepresentable(
-                entry.Type,
-                entry.Member);
+        string stableIdentitySuffix = "generic-arity:"
+            + method.GetGenericParameters().Count.ToString(
+                CultureInfo.InvariantCulture);
+        MemberSignatureShapeResult signatureShape =
+            MetadataMemberSignatureShape.Create(
+                reader,
+                candidate.MethodHandle);
+        string? signature = signatureShape.Shape is { } shape
+            ? MemberSignatureShapeCodec.Encode(shape)
+            : null;
+
+        ReturnToSenderTargetExclusion Exclude(
+            ReturnToSenderTargetExclusionReason reason,
+            ReturnToSenderDeclarationProducer? producer = null,
+            CSharpDeclarationRepresentabilityResult? exactOutcome = null)
+            => new(
+                assemblyPath,
+                candidate.TypeName,
+                candidate.MethodName,
+                candidate.Overload,
+                signature,
+                address,
+                reason,
+                producer,
+                exactOutcome);
+
+        bool hasApiEntry =
+            targetApiEvidence.Index.TryGetValue(token, out var entry);
+        bool mappedAccessor =
+            targetApiEvidence.AccessorTokens.Contains(token);
+        if (hasApiEntry
+            && (mappedAccessor
+                || entry.Member.MethodSemantics is not
+                    ApiMethodSemanticsKind.None))
+        {
+            return new(
+                null,
+                Exclude(
+                    !mappedAccessor
+                        && entry.Member.MethodSemantics is null
+                        ? ReturnToSenderTargetExclusionReason
+                            .MethodSemanticsUnavailable
+                        : ReturnToSenderTargetExclusionReason
+                            .AccessorDeferred),
+                stableIdentitySuffix);
+        }
+
+        ReturnToSenderDeclarationSelection declaration;
+        CSharpDeclarationRepresentabilityResult? exactResult = null;
+        CSharpMethodDeclarationPost? exactPost = null;
+        bool inspectExactDeclaration =
+            !hasApiEntry
+            || entry.Member.Kind is
+                "explicit-interface-implementation" or "operator";
+        bool requiresExactDeclaration =
+            hasApiEntry
+            && entry.Member.Kind == "explicit-interface-implementation";
+        if (inspectExactDeclaration)
+        {
+            exactPost = declarations.Capture(
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    candidate.TypeDefHandle),
+                address);
+            requiresExactDeclaration |=
+                exactPost.Implementations is not
+                    MetadataMethodImplementationResult.Absent;
+        }
+
+        if (requiresExactDeclaration)
+        {
+            exactPost ??= declarations.Capture(
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    candidate.TypeDefHandle),
+                address);
+            exactResult = CSharpDeclarationRepresentability.Decide(
+                exactPost,
+                languageProfile);
+            switch (exactResult)
+            {
+                case CSharpDeclarationRepresentabilityResult.Representable
+                    represented:
+                    declaration =
+                        new ReturnToSenderDeclarationSelection.ExactMethod(
+                            represented.Request);
+                    break;
+                case CSharpDeclarationRepresentabilityResult.Unrepresentable:
+                    return new(
+                        null,
+                        Exclude(
+                            ReturnToSenderTargetExclusionReason
+                                .ExactDeclarationUnrepresentable,
+                            ReturnToSenderDeclarationProducer
+                                .ExactMethodDeclaration,
+                            exactResult),
+                        stableIdentitySuffix);
+                case CSharpDeclarationRepresentabilityResult.Unavailable:
+                    return new(
+                        null,
+                        Exclude(
+                            ReturnToSenderTargetExclusionReason
+                                .ExactDeclarationUnavailable,
+                            ReturnToSenderDeclarationProducer
+                                .ExactMethodDeclaration,
+                            exactResult),
+                        stableIdentitySuffix);
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown C# declaration representability result.");
+            }
+        }
+        else
+        {
+            if (!hasApiEntry)
+            {
+                return new(
+                    null,
+                    Exclude(
+                        ReturnToSenderTargetExclusionReason
+                            .ProductMemberUnavailable,
+                        ReturnToSenderDeclarationProducer
+                            .OrdinaryTypeArtifact,
+                        exactResult),
+                    stableIdentitySuffix);
+            }
+
+            if (!CSharpMemberArtifactEligibility.IsRepresentable(
+                    entry.Type,
+                    entry.Member))
+            {
+                return new(
+                    null,
+                    Exclude(
+                        ReturnToSenderTargetExclusionReason
+                            .OrdinaryDeclarationUnrepresentable,
+                        ReturnToSenderDeclarationProducer
+                            .OrdinaryTypeArtifact),
+                    stableIdentitySuffix);
+            }
+
+            declaration =
+                new ReturnToSenderDeclarationSelection.OrdinaryMethod();
+        }
+
+        if (signature is null)
+        {
+            return new(
+                null,
+                Exclude(
+                    ReturnToSenderTargetExclusionReason
+                        .CanonicalSignatureUnavailable,
+                    declaration is
+                        ReturnToSenderDeclarationSelection.ExactMethod
+                            ? ReturnToSenderDeclarationProducer
+                                .ExactMethodDeclaration
+                            : ReturnToSenderDeclarationProducer
+                                .OrdinaryTypeArtifact,
+                    exactResult),
+                stableIdentitySuffix);
+        }
+
+        return new(
+            new CompileBackTarget(
+                assemblyPath,
+                candidate.TypeName,
+                candidate.MethodName,
+                candidate.Overload,
+                signature,
+                address,
+                declaration),
+            null,
+            stableIdentitySuffix);
+    }
+
+    sealed class ReturnToSenderDeclarationSession : IDisposable
+    {
+        readonly string _assemblyPath;
+        AssemblyInspectionSession? _assembly;
+        MetadataOperationContext? _operation;
+        MetadataDeclarationSession? _declarations;
+
+        internal ReturnToSenderDeclarationSession(string assemblyPath)
+            => _assemblyPath = assemblyPath;
+
+        internal CSharpMethodDeclarationPost Capture(
+            MetadataTypeDefinitionAddress type,
+            MetadataMethodAddress method)
+        {
+            _assembly ??= AssemblyInspectionSession.Open(_assemblyPath);
+            _operation ??= new(
+                MetadataOperationPolicy.Unbounded);
+            _declarations ??=
+                _assembly.CreateDeclarationSession(_operation);
+            return CSharpMethodDeclarationPost.Capture(
+                _declarations,
+                type,
+                method);
+        }
+
+        public void Dispose()
+        {
+            _declarations?.Dispose();
+            _operation?.Dispose();
+            _assembly?.Dispose();
+        }
     }
 
     public static async Task<int> RunMethodDelta(
@@ -483,7 +750,62 @@ static partial class FidelityCheck
         string Method,
         int Overload,
         string Signature,
-        MetadataMethodAddress? Address = null);
+        MetadataMethodAddress? Address = null,
+        ReturnToSenderDeclarationSelection? Declaration = null);
+
+    internal abstract record ReturnToSenderDeclarationSelection
+    {
+        private ReturnToSenderDeclarationSelection()
+        {
+        }
+
+        internal sealed record OrdinaryMethod
+            : ReturnToSenderDeclarationSelection;
+
+        internal sealed record ExactMethod(
+            CSharpAcceptedDeclarationRequest Request)
+            : ReturnToSenderDeclarationSelection;
+    }
+
+    internal enum ReturnToSenderDeclarationProducer
+    {
+        OrdinaryTypeArtifact,
+        ExactMethodDeclaration,
+    }
+
+    internal enum ReturnToSenderTargetExclusionReason
+    {
+        ProductMemberUnavailable,
+        MethodSemanticsUnavailable,
+        AccessorDeferred,
+        OrdinaryDeclarationUnrepresentable,
+        ExactDeclarationUnrepresentable,
+        ExactDeclarationUnavailable,
+        CanonicalSignatureUnavailable,
+    }
+
+    internal sealed record ReturnToSenderTargetExclusion(
+        string AssemblyPath,
+        string Type,
+        string Method,
+        int Overload,
+        string? Signature,
+        MetadataMethodAddress Address,
+        ReturnToSenderTargetExclusionReason Reason,
+        ReturnToSenderDeclarationProducer? Producer = null,
+        CSharpDeclarationRepresentabilityResult? ExactOutcome = null);
+
+    internal sealed record ReturnToSenderTargetSelection(
+        IReadOnlyList<CompileBackTarget> Targets,
+        IReadOnlyList<ReturnToSenderTargetExclusion> Exclusions,
+        int ScannedBodyCount,
+        int DeclarationCandidateCount,
+        int EligibleCount);
+
+    sealed record ReturnToSenderCandidateDecision(
+        CompileBackTarget? Target,
+        ReturnToSenderTargetExclusion? Exclusion,
+        string StableIdentitySuffix);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
@@ -1574,9 +1896,16 @@ static partial class FidelityCheck
            || AttributeReader.HasAttribute(reader, typeDef.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute")
            || BaseTypeName(reader, typeDef.BaseType) == "System.Text.Json.Serialization.JsonSerializerContext";
 
-    static bool IsGeneratedMethod(MetadataReader reader, MethodDefinition method, string name)
+    static bool IsGeneratedMethod(
+        MetadataReader reader,
+        MethodDefinition method,
+        string name,
+        bool allowEmbeddedAngleBrackets = false)
     {
-        if (name.Contains('<')
+        bool generatedName = allowEmbeddedAngleBrackets
+            ? name.StartsWith('<')
+            : name.Contains('<');
+        if (generatedName
             || name.StartsWith("__", StringComparison.Ordinal)
             || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute"))
             return true;
