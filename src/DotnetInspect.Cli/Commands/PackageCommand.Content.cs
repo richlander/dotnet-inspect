@@ -259,6 +259,7 @@ public partial class PackageCommand
         string[] selectors = PathSelectors(options);
         if (targets is not [var selectedTarget]
             || selectedTarget.IsLocalFile
+            || DotnetInspector.Networking.HttpClientFactory.IsOffline
             || options.ForceLatest
             || !RequiresUnaryPackageContent(options)
             || !HasUnstructuredOutputPath(options)

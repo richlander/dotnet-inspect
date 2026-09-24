@@ -174,6 +174,43 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
 
+    [Fact]
+    public async Task PackageCommand_ExactDocumentExportPreservesOfflineCacheOnlyBehavior()
+    {
+        string id = $"Pinned.OfflineDocument.{Guid.NewGuid():N}";
+        string source = Path.Combine(_root, "offline-document-feed");
+        WriteLocalPackage(source, id, "local feed README", hierarchical: false);
+        string outputPath = Path.Combine(_root, "offline-README.md");
+
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            CoreHttpClientFactory.ResetSharedForTesting();
+
+            var result = await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", source,
+                    "--path", "README.md", "--content", "--out", outputPath,
+                    "--tips", "q"]);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Package '{id.ToLowerInvariant()}' version '{Version}' "
+                    + "is not available offline; no cached package was found.",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = wasOffline });
+            CoreHttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
