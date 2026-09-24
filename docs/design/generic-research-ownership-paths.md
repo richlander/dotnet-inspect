@@ -75,6 +75,14 @@ When Analysis reuses the acquisition's owner-issued immutable domain for a
 method-local release, that shared identity is already exact evidence even when
 the containing method remains open generic.
 
+Whole-call value provenance can remain unresolved when a local may hold either
+an acquisition result or a non-resource value. Analysis may still publish an
+incomplete release for one acquisition definition when reaching definitions
+prove that definition reaches the exact release parameter and the retained
+method-level limitation has the same call, effect source, and exact resource
+domain. The rootless limitation remains visible; this join adds positive
+evidence without claiming complete source provenance.
+
 Analysis builds the summary in the same execution that produced Resource
 Occurrence. It reuses the retained `MethodBodyAnalysisContext`, resolved
 effects, and existing direct-call evidence. Research never decodes a body,
@@ -174,6 +182,8 @@ The focused gates establish:
 - a resource used as a field receiver is incomplete rather than a proven field
   store, and an unsupported rootless acquisition or release keeps its method
   summary incomplete;
+- a mixed acquisition-or-allocation local stored into an object and later
+  released preserves both the stored and incomplete released uses;
 - missing and ambiguous body correspondence remain incomplete;
 - a positive terminal witness survives unrelated incompleteness; and
 - witness and path budgets preserve positive evidence while reporting their

@@ -58,6 +58,14 @@ static class RetirementReport
                 "-y",
                 "--",
                 "--version");
+        string fullyLegacyPackage =
+            NuGetPackagePath(
+                "dotnet-inspect",
+                FullyLegacyProductVersion);
+        string continuityPackage =
+            NuGetPackagePath(
+                "dotnet-inspect",
+                ShippedContinuityVersion);
 
         List<Input> inputs = LoadInputs(options);
         var rows = new List<LedgerRow>();
@@ -74,6 +82,22 @@ static class RetirementReport
             Basis: "v0.25.0 is the fully legacy product baseline; the three "
                 + "in-tree ArrayPool-specific oracle files are unchanged from "
                 + "published v0.26.0."));
+        rows.Add(PackageProvenanceRow(
+            FullyLegacyProductVersion,
+            fullyLegacyPackage));
+        rows.Add(PackageProvenanceRow(
+            ShippedContinuityVersion,
+            continuityPackage));
+        rows.Add(new(
+            Domain: "provenance",
+            Input: "current-cli",
+            Facet: "binary",
+            Identity: Path.GetFileName(options.CurrentCli),
+            Legacy: "not applicable",
+            Generic: $"sha256:{Sha256(options.CurrentCli)}",
+            Classification: "Parity",
+            Basis: "The current CLI binary used for public continuity is "
+                + "content-addressed in the ledger."));
 
         foreach (Input input in inputs.OrderBy(static input => input.Identity))
         {
@@ -114,6 +138,12 @@ static class RetirementReport
 
     static List<Input> LoadInputs(Options options)
     {
+        IReadOnlyDictionary<string, PackageManifest> manifest =
+            File.ReadLines(options.CorpusManifest)
+                .Select(ParseManifest)
+                .ToDictionary(
+                    static entry => entry.AssemblyFile,
+                    StringComparer.OrdinalIgnoreCase);
         var inputs = new List<Input>();
         foreach (string line in File.ReadLines(options.CorpusList))
         {
@@ -126,9 +156,40 @@ static class RetirementReport
                 throw new InvalidOperationException(
                     $"No pinned package identity is registered for '{fileName}'.");
             }
-            inputs.Add(new(identity, path, "package"));
+            if (!manifest.TryGetValue(
+                    fileName,
+                    out PackageManifest? package))
+            {
+                throw new InvalidOperationException(
+                    $"No corpus manifest entry exists for '{fileName}'.");
+            }
+            string manifestIdentity =
+                $"nuget:{package.PackageId}@{package.Version}";
+            if (!string.Equals(
+                    identity,
+                    manifestIdentity,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Corpus identity '{identity}' does not match manifest "
+                    + $"identity '{manifestIdentity}'.");
+            }
+            inputs.Add(new(
+                identity,
+                path,
+                "package",
+                package.SelectedAsset,
+                package.AssemblySha256,
+                package.PackageSha256,
+                Path.GetFullPath(package.PackageFile)));
         }
         inputs.AddRange(options.Fixtures);
+        if (manifest.Count != inputs.Count(
+                static input => input.Kind == "package"))
+        {
+            throw new InvalidOperationException(
+                "The corpus list and provenance manifest populations differ.");
+        }
 
         foreach (Input input in inputs)
         {
@@ -148,6 +209,49 @@ static class RetirementReport
         List<LedgerRow> rows)
     {
         int firstRow = rows.Count;
+        string actualSha256 = Sha256(input.Path);
+        bool digestMatches =
+            string.Equals(
+                input.AssemblySha256,
+                actualSha256,
+                StringComparison.Ordinal);
+        rows.Add(new(
+            "provenance",
+            input.Identity,
+            "input-binary",
+            input.AssetIdentity,
+            $"expected sha256:{input.AssemblySha256}",
+            $"actual sha256:{actualSha256}",
+            digestMatches ? "Parity" : "Defect",
+            digestMatches
+                ? "The inspected binary matches its retained content digest."
+                : "The inspected binary does not match the retained corpus "
+                    + "manifest."));
+        if (input.PackageSha256 is not null)
+        {
+            string actualPackageSha256 = Sha256(
+                input.PackagePath
+                    ?? throw new InvalidOperationException(
+                        $"Package path is absent for {input.Identity}."));
+            bool packageDigestMatches =
+                string.Equals(
+                    input.PackageSha256,
+                    actualPackageSha256,
+                    StringComparison.Ordinal);
+            rows.Add(new(
+                "provenance",
+                input.Identity,
+                "package-archive",
+                input.AssetIdentity,
+                $"expected sha256:{input.PackageSha256}",
+                $"actual sha256:{actualPackageSha256}",
+                packageDigestMatches ? "Parity" : "Defect",
+                packageDigestMatches
+                    ? "The immutable package archive digest and selected "
+                        + "asset path are verified with the inspected binary."
+                    : "The package archive does not match the retained corpus "
+                        + "manifest."));
+        }
         try
         {
             CommandResult oldPublished = await RunLibraryTriageAsync(
@@ -217,6 +321,9 @@ static class RetirementReport
                 rows.Skip(firstRow).ToArray();
             return new(
                 input.Identity,
+                input.AssetIdentity,
+                actualSha256,
+                input.PackageSha256,
                 lifecycleCount,
                 rootCount,
                 pathCount,
@@ -236,7 +343,16 @@ static class RetirementReport
                 ex.Message,
                 "Defect",
                 "The comparison must execute successfully on every pinned input."));
-            return new(input.Identity, 0, 0, 0, 0, 1);
+            return new(
+                input.Identity,
+                input.AssetIdentity,
+                actualSha256,
+                input.PackageSha256,
+                0,
+                0,
+                0,
+                0,
+                1);
         }
     }
 
@@ -530,9 +646,28 @@ static class RetirementReport
                     view,
                     projection,
                     ResourceOwnershipSearchOptions.ArrayPool);
+            ResourceOwnershipPathInspection repeated =
+                ResourceOwnershipPathFindings.Inspect(
+                    view,
+                    projection,
+                    ResourceOwnershipSearchOptions.ArrayPool);
             pathCount += generic.Findings.Length;
-            CompareResearchLimits(input, method, legacy, generic, rows);
-            CompareResearchPaths(input, method, view, legacy, generic, rows);
+            CompareResearchLimits(
+                input,
+                method,
+                legacyRoot is not null,
+                legacy,
+                generic,
+                repeated,
+                rows);
+            CompareResearchPaths(
+                input,
+                method,
+                view,
+                legacy,
+                generic,
+                repeated,
+                rows);
         }
         return (roots.Length, pathCount);
     }
@@ -540,15 +675,30 @@ static class RetirementReport
     static void CompareResearchLimits(
         Input input,
         string method,
+        bool hasLegacyRoot,
         AnnotatedCallGraphOwnershipInspection legacy,
         ResourceOwnershipPathInspection generic,
+        ResourceOwnershipPathInspection repeated,
         List<LedgerRow> rows)
     {
         bool equal = legacy.Limits == generic.Limits;
+        const AnnotatedCallGraphOwnershipLimit sharedLimits =
+            AnnotatedCallGraphOwnershipLimit.NotRequested
+            | AnnotatedCallGraphOwnershipLimit.TraversalBoundary
+            | AnnotatedCallGraphOwnershipLimit.IncompleteCorrespondence
+            | AnnotatedCallGraphOwnershipLimit.WitnessBudget
+            | AnnotatedCallGraphOwnershipLimit.PathBudget;
+        bool expectedTransformation =
+            generic.Limits == repeated.Limits
+            && (!hasLegacyRoot
+                || (legacy.Limits & sharedLimits)
+                    == (generic.Limits & sharedLimits));
         string classification =
             equal
                 ? "Parity"
-                : "IntentionalImprovement";
+                : expectedTransformation
+                    ? "IntentionalImprovement"
+                    : "Defect";
         rows.Add(new(
             "research",
             input.Identity,
@@ -563,9 +713,12 @@ static class RetirementReport
                     "Both engines report the same operation-level limits.",
                 "IntentionalImprovement" =>
                     "The generic owner reports independent traversal, body, "
-                    + "correspondence, and publication limits instead of "
-                    + "preserving the legacy aggregate classification.",
-                _ => throw new InvalidOperationException(),
+                    + "and publication limits. Shared graph/budget limits "
+                    + "remain exact and a repeated generic query returns the "
+                    + "same set (MemberCallGraphSessionTests gates typed "
+                    + "ownership limits).",
+                _ => "The limit change affects shared graph/budget state or "
+                    + "is not repeat-stable.",
             }));
     }
 
@@ -575,6 +728,7 @@ static class RetirementReport
         MemberCallGraphView view,
         AnnotatedCallGraphOwnershipInspection legacy,
         ResourceOwnershipPathInspection generic,
+        ResourceOwnershipPathInspection repeated,
         List<LedgerRow> rows)
     {
         Dictionary<string, List<Finding<ArrayPoolOwnershipPathWitness>>>
@@ -598,6 +752,31 @@ static class RetirementReport
                         .OrderBy(finding => finding.Key.IdentityKey)
                         .ToList(),
                     StringComparer.Ordinal);
+        bool genericKeysUnique =
+            generic.Findings
+                .Select(static finding => finding.Key)
+                .Distinct()
+                .Count()
+            == generic.Findings.Length;
+        bool genericDeterministic =
+            generic.Limits == repeated.Limits
+            && generic.Findings.SequenceEqual(repeated.Findings);
+        rows.Add(new(
+            "research",
+            input.Identity,
+            "generic-determinism",
+            method,
+            $"{generic.Findings.Length} witnesses",
+            $"{repeated.Findings.Length} repeated witnesses",
+            genericDeterministic && genericKeysUnique
+                ? "Parity"
+                : "Defect",
+            genericDeterministic && genericKeysUnique
+                ? "Repeated generic composition preserves payload, key, "
+                    + "path-local completeness, ordering, and operation limits; "
+                    + "every key is unique in the result."
+                : "Generic identity, payload, completeness, ordering, limits, "
+                    + "or key uniqueness is not repeat-stable."));
 
         foreach (string path in legacyByPath.Keys
             .Union(genericByPath.Keys, StringComparer.Ordinal)
@@ -614,17 +793,6 @@ static class RetirementReport
             bool equal = oldCount == newCount;
             bool genericAddition =
                 oldCount == 0 && newCount > 0;
-            bool terminalTransferSuppression =
-                oldCount > 0
-                && newCount == 0
-                && oldFindings!.All(oldFinding =>
-                    oldFinding.Payload.Outcome
-                        == ArrayPoolOwnershipUseKind.ReturnedToPool
-                    && generic.Findings.Any(newFinding =>
-                        newFinding.Payload.Obligation.Call.ILOffset
-                            == oldFinding.Payload.RentOffset
-                        && newFinding.Payload.Outcome
-                            == ResourceOwnershipPathOutcome.Stored));
             rows.Add(new(
                 "research",
                 input.Identity,
@@ -634,7 +802,7 @@ static class RetirementReport
                 $"{newCount} witnesses",
                 equal
                     ? "Parity"
-                    : genericAddition || terminalTransferSuppression
+                    : genericAddition
                         ? "IntentionalImprovement"
                         : "Defect",
                 equal
@@ -644,17 +812,11 @@ static class RetirementReport
                         ? "The generic typed ownership contract proves a "
                             + "terminal path outside the narrower legacy flow "
                             + "producer."
-                        : terminalTransferSuppression
-                            ? "The generic path stops at the proven field-store "
-                                + "terminal and does not claim a later release "
-                                + "through the stored alias; field reachability "
-                                + "is outside the owned contract."
-                            : "The generic engine omitted or changed a legacy "
-                                + "semantic ownership path."));
-            if (!equal)
-                continue;
+                        : "The generic engine omitted or changed a legacy "
+                            + "semantic ownership path."));
 
-            for (int index = 0; index < oldCount; index++)
+            int pairedCount = Math.Min(oldCount, newCount);
+            for (int index = 0; index < pairedCount; index++)
             {
                 Finding<ArrayPoolOwnershipPathWitness> oldFinding =
                     oldFindings![index];
@@ -662,6 +824,14 @@ static class RetirementReport
                     newFindings![index];
                 bool keyEqual =
                     oldFinding.Key == newFinding.Key;
+                bool headersEqual =
+                    oldFinding.Subject == newFinding.Subject
+                    && oldFinding.Descriptor == newFinding.Descriptor
+                    && oldFinding.Detail == newFinding.Detail;
+                bool transformationVerified =
+                    genericDeterministic
+                    && genericKeysUnique
+                    && headersEqual;
                 rows.Add(new(
                     "research",
                     input.Identity,
@@ -669,13 +839,26 @@ static class RetirementReport
                     $"{method}|{path}|{index}",
                     oldFinding.Key.IdentityKey,
                     newFinding.Key.IdentityKey,
-                    keyEqual ? "Parity" : "IntentionalImprovement",
+                    keyEqual && headersEqual
+                        ? "Parity"
+                        : transformationVerified
+                            ? "IntentionalImprovement"
+                            : "Defect",
                     keyEqual
-                        ? "Finding identity is unchanged."
-                        : "The generic owner intentionally adds resource-kind "
+                        ? headersEqual
+                            ? "Finding identity and common headers are unchanged."
+                            : "Finding identity is unchanged but common Finding "
+                                + "headers differ."
+                        : transformationVerified
+                            ? "The generic owner intentionally adds resource-kind "
                             + "identity and bound resource arguments to the key "
                             + "(generic-research-ownership-paths.md"
-                            + "#research-composition-contract)."));
+                            + "#research-composition-contract); the exact key, "
+                            + "payload, completeness, and headers are repeat-"
+                            + "stable and keys remain unique."
+                            : "The changed key lacks repeat-stable, unique "
+                                + "generic identity with unchanged common "
+                                + "Finding headers."));
                 rows.Add(new(
                     "research",
                     input.Identity,
@@ -683,11 +866,77 @@ static class RetirementReport
                     $"{method}|{path}|{index}",
                     "not represented",
                     newFinding.Payload.IsComplete.ToString(),
-                    "IntentionalImprovement",
-                    "The generic owner adds path-local completeness separately "
-                        + "from operation-level limits "
-                        + "(generic-research-ownership-paths.md"
-                        + "#research-composition-contract)."));
+                    genericDeterministic
+                        ? "IntentionalImprovement"
+                        : "Defect",
+                    genericDeterministic
+                        ? "The generic owner adds path-local completeness "
+                            + "separately from operation-level limits; repeated "
+                            + "composition preserves the exact payload "
+                            + "(GenericOwnershipPreservesOpenGenericLocalRelease "
+                            + "and ownership completeness gates)."
+                        : "Path-local completeness is not repeat-stable."));
+            }
+
+            for (int index = pairedCount; index < newCount; index++)
+            {
+                Finding<ResourceOwnershipPathWitness> newFinding =
+                    newFindings![index];
+                rows.Add(new(
+                    "research",
+                    input.Identity,
+                    "finding-identity",
+                    $"{method}|{path}|{index}",
+                    "absent",
+                    newFinding.Key.IdentityKey,
+                    genericDeterministic && genericKeysUnique
+                        ? "IntentionalImprovement"
+                        : "Defect",
+                    genericDeterministic && genericKeysUnique
+                        ? "The generic-only witness retains a repeat-stable, "
+                            + "unique resource-aware Finding key."
+                        : "The generic-only witness key is not repeat-stable "
+                            + "and unique."));
+                rows.Add(new(
+                    "research",
+                    input.Identity,
+                    "path-completeness",
+                    $"{method}|{path}|{index}",
+                    "absent",
+                    newFinding.Payload.IsComplete.ToString(),
+                    genericDeterministic
+                        ? "IntentionalImprovement"
+                        : "Defect",
+                    genericDeterministic
+                        ? "The generic-only witness retains repeat-stable "
+                            + "path-local completeness."
+                        : "The generic-only witness completeness is not "
+                            + "repeat-stable."));
+            }
+
+            for (int index = pairedCount; index < oldCount; index++)
+            {
+                Finding<ArrayPoolOwnershipPathWitness> oldFinding =
+                    oldFindings![index];
+                rows.Add(new(
+                    "research",
+                    input.Identity,
+                    "finding-identity",
+                    $"{method}|{path}|{index}",
+                    oldFinding.Key.IdentityKey,
+                    "absent",
+                    "Defect",
+                    "The generic result omitted a legacy witness identity."));
+                rows.Add(new(
+                    "research",
+                    input.Identity,
+                    "path-completeness",
+                    $"{method}|{path}|{index}",
+                    "not represented",
+                    "absent",
+                    "Defect",
+                    "The generic result omitted a legacy witness before it "
+                        + "could publish path-local completeness."));
             }
         }
     }
@@ -897,9 +1146,86 @@ static class RetirementReport
             .ToLowerInvariant();
     }
 
+    static string Sha256(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        return Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(stream))
+            .ToLowerInvariant();
+    }
+
     static string CommandSummary(IReadOnlyList<string> lines) =>
         $"{lines.Count} records | sha256:{Fingerprint(lines)} | "
         + string.Join(" || ", lines);
+
+    static LedgerRow PackageProvenanceRow(
+        string version,
+        string packagePath)
+    {
+        string digest = Sha256(packagePath);
+        return new(
+            "provenance",
+            $"dotnet-inspect@{version}",
+            "published-package",
+            Path.GetFileName(packagePath),
+            $"version:{version}",
+            $"sha256:{digest}",
+            "Parity",
+            "The immutable published tool package used by dnx is identified "
+                + "by exact version and SHA-256.");
+    }
+
+    static string NuGetPackagePath(
+        string packageId,
+        string version)
+    {
+        string normalizedId = packageId.ToLowerInvariant();
+        string path = Path.Combine(
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.UserProfile),
+            ".nuget",
+            "packages",
+            normalizedId,
+            version,
+            $"{normalizedId}.{version}.nupkg");
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException(
+                $"The NuGet package {packageId}@{version} is not materialized "
+                + "in the global package cache.",
+                path);
+        }
+        return path;
+    }
+
+    static PackageManifest ParseManifest(string line)
+    {
+        using JsonDocument document = JsonDocument.Parse(line);
+        JsonElement root = document.RootElement;
+        return new(
+            root.GetProperty("package_id").GetString()
+                ?? throw new InvalidOperationException(
+                    "Manifest package_id is null."),
+            root.GetProperty("version").GetString()
+                ?? throw new InvalidOperationException(
+                    "Manifest version is null."),
+            root.GetProperty("selected_asset").GetString()
+                ?? throw new InvalidOperationException(
+                    "Manifest selected_asset is null."),
+            root.GetProperty("assembly_file").GetString()
+                ?? throw new InvalidOperationException(
+                    "Manifest assembly_file is null."),
+            root.GetProperty("assembly_sha256").GetString()
+                ?? throw new InvalidOperationException(
+                    "Manifest assembly_sha256 is null."),
+            root.GetProperty("package_sha256").GetString()
+                ?? throw new InvalidOperationException(
+                    "Manifest package_sha256 is null."),
+            root.GetProperty("package_file").GetString()
+                ?? throw new InvalidOperationException(
+                    "Manifest package_file is null."));
+    }
+
 
     static string SerializeRow(LedgerRow row)
     {
@@ -1031,11 +1357,6 @@ static class RetirementReport
             && row.Facet == "semantic-path"
             && row.Classification == "IntentionalImprovement"
             && row.Legacy == "0 witnesses");
-        int suppressedLegacyPaths = rows.Count(static row =>
-            row.Domain == "research"
-            && row.Facet == "semantic-path"
-            && row.Classification == "IntentionalImprovement"
-            && row.Generic == "0 witnesses");
         int publishedCompatibilityChanges = rows.Count(static row =>
             row.Domain == "published-cli"
             && row.Classification == "AcceptedCompatibilityChange");
@@ -1103,16 +1424,28 @@ static class RetirementReport
             + $"{addedPaths} typed terminal paths that the narrower legacy "
             + "producer omitted.");
         text.AppendLine(
-            $"- Research suppresses {suppressedLegacyPaths} legacy release "
-            + "paths after the same obligation already reached a proven "
-            + "field-store terminal; the generic contract does not traverse "
-            + "the stored alias.");
-        text.AppendLine(
             $"- v0.25.0 to v0.26.0 records "
             + $"{publishedCompatibilityChanges} already-shipped public JSONL, "
             + $"diagnostic, or exit-status changes and "
             + $"{typedFailureTransitions} corresponding typed fail-closed "
             + "transitions. Every v0.26.0-to-current comparison is exact.");
+        text.AppendLine();
+        text.AppendLine("## Input provenance");
+        text.AppendLine();
+        text.AppendLine(
+            "| Input | Selected asset | Assembly SHA-256 | Package SHA-256 |");
+        text.AppendLine("| --- | --- | --- | --- |");
+        foreach (InputSummary summary in summaries
+            .OrderBy(static summary => summary.Input, StringComparer.Ordinal))
+        {
+            text.AppendLine(
+                $"| `{summary.Input}` | `{summary.AssetIdentity}` | "
+                + $"`{summary.AssemblySha256}` | "
+                + (summary.PackageSha256 is null
+                    ? "n/a"
+                    : $"`{summary.PackageSha256}`")
+                + " |");
+        }
         text.AppendLine();
         text.AppendLine("## Population");
         text.AppendLine();
@@ -1141,8 +1474,8 @@ static class RetirementReport
             "`IntentionalImprovement` is limited to owner-specified generic "
             + "behavior: additional typed Resource Occurrence roots and "
             + "root-local lifecycle outcomes, typed resource-aware Finding "
-            + "identity, path-local and operation-level completeness, and "
-            + "stopping at a proven field-store terminal. An omitted legacy "
+            + "identity, and path-local and operation-level completeness. "
+            + "An omitted legacy "
             + "acquisition or assessment, changed shared coordinate or sink, "
             + "or other unowned difference is a `Defect`.");
         text.AppendLine();
@@ -1151,7 +1484,8 @@ static class RetirementReport
         text.AppendLine("```bash");
         text.AppendLine(
             "dotnet run eng/prepare-resource-triage-corpus.cs -- \\");
-        text.AppendLine("  artifacts/resource-triage-corpus.txt");
+        text.AppendLine("  artifacts/resource-triage-corpus.txt \\");
+        text.AppendLine("  artifacts/resource-triage-corpus-manifest.jsonl");
         text.AppendLine(
             "dotnet build src/DotnetInspect.Cli/DotnetInspect.Cli.csproj \\");
         text.AppendLine("  -c Release");
@@ -1167,6 +1501,8 @@ static class RetirementReport
             "dotnet run eng/produce-arraypool-ownership-retirement-report.cs -- \\");
         text.AppendLine(
             "  --corpus artifacts/resource-triage-corpus.txt \\");
+        text.AppendLine(
+            "  --manifest artifacts/resource-triage-corpus-manifest.jsonl \\");
         text.AppendLine(
             "  --current-cli artifacts/bin/dotnet-inspect/release/"
             + "dotnet-inspect.dll \\");
@@ -1188,6 +1524,7 @@ static class RetirementReport
 
     sealed record Options(
         string CorpusList,
+        string CorpusManifest,
         string CurrentCli,
         string JsonlPath,
         string MarkdownPath,
@@ -1196,6 +1533,7 @@ static class RetirementReport
         internal static Options Parse(string[] args)
         {
             string? corpus = null;
+            string? manifest = null;
             string? currentCli = null;
             string? jsonl = null;
             string? markdown = null;
@@ -1214,6 +1552,9 @@ static class RetirementReport
                     case "--current-cli":
                         currentCli = value;
                         break;
+                    case "--manifest":
+                        manifest = value;
+                        break;
                     case "--jsonl":
                         jsonl = value;
                         break;
@@ -1230,13 +1571,23 @@ static class RetirementReport
                         fixtures.Add(new(
                             value[..separator],
                             Path.GetFullPath(value[(separator + 1)..]),
-                            "fixture"));
+                            "fixture",
+                            Path.GetRelativePath(
+                                    Environment.CurrentDirectory,
+                                    Path.GetFullPath(
+                                        value[(separator + 1)..]))
+                                .Replace('\\', '/'),
+                            Sha256(Path.GetFullPath(
+                                value[(separator + 1)..])),
+                            PackageSha256: null,
+                            PackagePath: null));
                         break;
                     default:
                         throw Usage();
                 }
             }
             if (corpus is null
+                || manifest is null
                 || currentCli is null
                 || jsonl is null
                 || markdown is null
@@ -1246,6 +1597,7 @@ static class RetirementReport
             }
             return new(
                 Path.GetFullPath(corpus),
+                Path.GetFullPath(manifest),
                 Path.GetFullPath(currentCli),
                 Path.GetFullPath(jsonl),
                 Path.GetFullPath(markdown),
@@ -1254,11 +1606,28 @@ static class RetirementReport
 
         static ArgumentException Usage() => new(
             "Usage: dotnet run eng/produce-arraypool-ownership-retirement-report.cs "
-            + "-- --corpus <list> --current-cli <dll> --fixture <id=path> "
+            + "-- --corpus <list> --manifest <jsonl> --current-cli <dll> "
+            + "--fixture <id=path> "
             + "[--fixture <id=path> ...] --jsonl <path> --markdown <path>");
     }
 
-    sealed record Input(string Identity, string Path, string Kind);
+    sealed record Input(
+        string Identity,
+        string Path,
+        string Kind,
+        string AssetIdentity,
+        string AssemblySha256,
+        string? PackageSha256,
+        string? PackagePath);
+
+    sealed record PackageManifest(
+        string PackageId,
+        string Version,
+        string SelectedAsset,
+        string AssemblyFile,
+        string AssemblySha256,
+        string PackageSha256,
+        string PackageFile);
 
     sealed record LedgerRow(
         string Domain,
@@ -1272,6 +1641,9 @@ static class RetirementReport
 
     sealed record InputSummary(
         string Input,
+        string AssetIdentity,
+        string AssemblySha256,
+        string? PackageSha256,
         int LifecycleFindings,
         int ResearchRoots,
         int ResearchPaths,

@@ -2,12 +2,20 @@
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
 
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
 using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
-if (args.Length > 1)
-    throw new ArgumentException("Usage: dotnet run eng/prepare-resource-triage-corpus.cs -- [output-file]");
+if (args.Length > 2)
+{
+    throw new ArgumentException(
+        "Usage: dotnet run eng/prepare-resource-triage-corpus.cs -- "
+        + "[output-file] [manifest-jsonl]");
+}
 
 (string Id, string Version)[] packages =
 [
@@ -27,11 +35,13 @@ string destination = Path.GetFullPath(
 if (Directory.Exists(destination))
     Directory.Delete(destination, recursive: true);
 Directory.CreateDirectory(destination);
+string packageDestination = Path.Combine(destination, "packages");
 
 HttpClientFactory.Initialize(new HttpClientFactoryOptions());
 NuGetCache.Initialize("dotnet-inspect");
 
 var assemblies = new List<string>(packages.Length);
+var manifest = new List<string>(packages.Length);
 foreach (var (id, version) in packages)
 {
     PackageExtractionResult? package = null;
@@ -62,6 +72,36 @@ foreach (var (id, version) in packages)
         string target = Path.Combine(destination, Path.GetFileName(source));
         File.Copy(source, target);
         assemblies.Add(target);
+        if (args.Length == 2)
+        {
+            if (package.NupkgPath is not { } nupkgPath
+                || !File.Exists(nupkgPath))
+            {
+                throw new InvalidOperationException(
+                    $"Package archive provenance is unavailable for "
+                    + $"{id}@{version}.");
+            }
+            Directory.CreateDirectory(packageDestination);
+            string packageTarget = Path.Combine(
+                packageDestination,
+                Path.GetFileName(nupkgPath));
+            File.Copy(nupkgPath, packageTarget);
+            manifest.Add(
+                ManifestRow(
+                    id,
+                    version,
+                    Path.GetRelativePath(
+                            package.ExtractPath,
+                            source)
+                        .Replace('\\', '/'),
+                    Path.GetFileName(target),
+                    Sha256(target),
+                    Sha256(packageTarget),
+                    Path.GetRelativePath(
+                            Environment.CurrentDirectory,
+                            packageTarget)
+                        .Replace('\\', '/')));
+        }
     }
     finally
     {
@@ -73,6 +113,43 @@ foreach (var (id, version) in packages)
 assemblies.Sort(StringComparer.Ordinal);
 if (args.Length == 1)
     await File.WriteAllLinesAsync(args[0], assemblies);
+else if (args.Length == 2)
+{
+    await File.WriteAllLinesAsync(args[0], assemblies);
+    await File.WriteAllLinesAsync(args[1], manifest);
+}
 else
     foreach (string assembly in assemblies)
         Console.WriteLine(assembly);
+
+static string Sha256(string path)
+{
+    using FileStream stream = File.OpenRead(path);
+    return Convert.ToHexString(SHA256.HashData(stream))
+        .ToLowerInvariant();
+}
+
+static string ManifestRow(
+    string packageId,
+    string version,
+    string selectedAsset,
+    string assemblyFile,
+    string assemblySha256,
+    string packageSha256,
+    string packageFile)
+{
+    using var stream = new MemoryStream();
+    using (var writer = new Utf8JsonWriter(stream))
+    {
+        writer.WriteStartObject();
+        writer.WriteString("package_id", packageId);
+        writer.WriteString("version", version);
+        writer.WriteString("selected_asset", selectedAsset);
+        writer.WriteString("assembly_file", assemblyFile);
+        writer.WriteString("assembly_sha256", assemblySha256);
+        writer.WriteString("package_sha256", packageSha256);
+        writer.WriteString("package_file", packageFile);
+        writer.WriteEndObject();
+    }
+    return Encoding.UTF8.GetString(stream.ToArray());
+}

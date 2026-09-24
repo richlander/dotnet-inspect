@@ -190,6 +190,24 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentOrAllocateStoreThenReturn(
+        bool usePool)
+    {
+        byte[] buffer = usePool
+            ? ArrayPool<byte>.Shared.Rent(16)
+            : new byte[16];
+        _ = new OwnershipBufferHolder(buffer);
+        try
+        {
+            return buffer.Length;
+        }
+        finally
+        {
+            if (usePool)
+                ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
     public static int RentAndReturnAtTwoSites(bool first)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -802,6 +820,11 @@ public static class Entry
 
         internal void Return(int marker, byte[] buffer) =>
             ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    sealed class OwnershipBufferHolder(byte[] buffer)
+    {
+        readonly byte[] _buffer = buffer;
     }
 }
 

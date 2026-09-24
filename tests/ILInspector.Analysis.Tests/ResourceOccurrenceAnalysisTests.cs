@@ -114,6 +114,60 @@ public sealed class ResourceOccurrenceAnalysisTests
     }
 
     [Fact]
+    public void
+        ExecutePath_OwnershipRecoversReleaseDomainForMixedSourceLocal()
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        ResourceOccurrenceAnalysisResult occurrences =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                method =>
+                    method.Method.Name
+                    == "RentOrAllocateStoreThenReturn");
+        ResourceOccurrenceLimitation limitation =
+            Assert.Single(
+                occurrences.Limitations,
+                candidate =>
+                    candidate.Effect is ResourceEffect.Release
+                    && candidate.Root is null);
+        Assert.Contains(
+            limitation.ResourceKinds,
+            kind =>
+                kind.Identity
+                    == ArrayPoolResourceEffectModel.BufferKind);
+
+        ResourceOwnershipMethodSummary summary =
+            Assert.Single(
+                execution.ResourceOwnership.Methods,
+                method =>
+                    method.Method.Name
+                    == "RentOrAllocateStoreThenReturn");
+        ResourceOwnershipAcquisitionFlow ownership =
+            Assert.Single(summary.Acquisitions);
+        ResourceOwnershipUse release =
+            Assert.Single(
+                ownership.Uses,
+                use =>
+                    use.Kind == ResourceOwnershipUseKind.Released);
+        Assert.Contains(
+            release.ResourceKinds,
+            kind =>
+                kind.Identity
+                    == ArrayPoolResourceEffectModel.BufferKind);
+        Assert.False(ownership.IsComplete);
+    }
+
+    [Fact]
     public void ExecutePath_AssociatesAuthorityByBoundTargetProvenance()
     {
         ResourceEffectAdmissionOutcome admission =
