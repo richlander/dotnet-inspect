@@ -12,7 +12,8 @@ internal sealed record LibraryBodyAnalysisPlan(
     ImmutableArray<AnalysisDiagnostic>
         ScopeExpansionDiagnostics = default,
     ResourceEffectAdmission? ResourceEffects = null,
-    bool IncludesResourceLifecycle = false)
+    bool IncludesResourceLifecycle = false,
+    ImplementationMetricAnalysisPlan? ImplementationMetrics = null)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
@@ -32,7 +33,9 @@ internal sealed record LibraryBodyAnalysisPlan(
         IReadOnlySet<int>? methodScope,
         Func<TypeRef, bool>? typeScope,
         ResourceEffectAdmission? resourceEffects = null,
-        bool includeResourceLifecycle = false)
+        bool includeResourceLifecycle = false,
+        ImplementationMetricAnalysisRequest?
+            implementationMetrics = null)
     {
         if (includeResourceLifecycle && resourceEffects is null)
         {
@@ -42,6 +45,37 @@ internal sealed record LibraryBodyAnalysisPlan(
         }
         if ((features & ~LibraryBodyAnalysisFeatures.All) != 0)
             throw new ArgumentOutOfRangeException(nameof(features));
+        bool legacyImplementationProfiles =
+            (features
+                & LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles) != 0;
+        if (legacyImplementationProfiles
+            && implementationMetrics is not null)
+        {
+            throw new ArgumentException(
+                "Implementation profiles cannot be selected by both "
+                    + "the legacy feature and a metric request.",
+                nameof(implementationMetrics));
+        }
+        implementationMetrics ??=
+            legacyImplementationProfiles
+                ? ImplementationMetricAnalysisRequest
+                    .LegacyFeatureCompatibility()
+                : null;
+        ImplementationMetricAnalysisPlan? metricPlan =
+            implementationMetrics is null
+                ? null
+                : ImplementationMetricAnalysisPlan.Create(
+                    implementationMetrics);
+        if (metricPlan is not null)
+        {
+            // Temporary execution bridge. The selective stages replace and
+            // delete these compatibility features in later #8450 slices.
+            features |=
+                LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles
+                | LibraryBodyAnalysisFeatures.MethodEvidence;
+        }
         if ((features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0)
         {
@@ -81,6 +115,7 @@ internal sealed record LibraryBodyAnalysisPlan(
             typeScope,
             RequestedMethodScope: methodScope,
             ResourceEffects: resourceEffects,
-            IncludesResourceLifecycle: includeResourceLifecycle);
+            IncludesResourceLifecycle: includeResourceLifecycle,
+            ImplementationMetrics: metricPlan);
     }
 }
