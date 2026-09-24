@@ -2786,4 +2786,19 @@ test.describe("bounded network-backed two-host demo", () => {
     expect(flattened).toContain("IHttpClientFactory");
     expect(flattened).toContain("AddHttpClient");
   });
+
+  test("opens Avalonia over the ordinary Worker boundary", async ({ page }) => {
+    await boot(page);
+    // This real result crosses both former ordinary Worker limits.
+    const surface = await driver(page).queryCoordinate(
+      "Avalonia",
+      "12.1.3",
+      "net8.0",
+    );
+    expect(surface.package).toBe("Avalonia");
+    expect(surface.version).toBe("12.1.3");
+    expect(surface.activeFramework).toBe("net8.0");
+    expect(surface.assemblies.length).toBeGreaterThan(0);
+    expect(surface.types.length).toBeGreaterThan(0);
+  });
 });
