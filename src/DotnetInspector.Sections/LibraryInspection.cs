@@ -99,7 +99,9 @@ public sealed record LibraryTypePopulationRequest
         LibraryTypePopulationCountRequest? count,
         LibraryTypePopulationRowsRequest? rows = null,
         LibraryTypeDeclarationSelection declarationSelection =
-            LibraryTypeDeclarationSelection.DefinitionsAndForwarders)
+            LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
+        ApiTypeInventoryKinds definitionKinds =
+            ApiTypeInventoryKinds.All)
     {
         if (!Enum.IsDefined(accessibility))
         {
@@ -115,6 +117,43 @@ public sealed record LibraryTypePopulationRequest
                 declarationSelection,
                 "Unknown Library Type declaration selection.");
         }
+        if ((definitionKinds
+                & ~ApiTypeInventoryKinds.All)
+            != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(definitionKinds),
+                definitionKinds,
+                "Unknown Library Type definition-kind selection.");
+        }
+
+        bool includesDefinitions =
+            declarationSelection
+                is LibraryTypeDeclarationSelection.Definitions
+                    or LibraryTypeDeclarationSelection
+                        .DefinitionsAndForwarders;
+        if (includesDefinitions
+            && definitionKinds
+                == ApiTypeInventoryKinds.None)
+        {
+            throw new ArgumentException(
+                "A Type population that includes definitions must select at least one definition kind.",
+                nameof(definitionKinds));
+        }
+        if (!includesDefinitions)
+        {
+            if (definitionKinds
+                is not ApiTypeInventoryKinds.All
+                    and not ApiTypeInventoryKinds.None)
+            {
+                throw new ArgumentException(
+                    "A forwarder-only Type population cannot select definition kinds.",
+                    nameof(definitionKinds));
+            }
+
+            definitionKinds =
+                ApiTypeInventoryKinds.None;
+        }
 
         if (count is null && rows is null)
         {
@@ -124,12 +163,14 @@ public sealed record LibraryTypePopulationRequest
 
         Accessibility = accessibility;
         DeclarationSelection = declarationSelection;
+        DefinitionKinds = definitionKinds;
         Count = count;
         Rows = rows;
     }
 
     public LibraryTypeAccessibility Accessibility { get; }
     public LibraryTypeDeclarationSelection DeclarationSelection { get; }
+    public ApiTypeInventoryKinds DefinitionKinds { get; }
     public LibraryTypePopulationCountRequest? Count { get; }
     public LibraryTypePopulationRowsRequest? Rows { get; }
 }
@@ -209,7 +250,8 @@ public sealed record LibraryAssemblyIdentity
 public sealed record LibraryTypePopulationBinding(
     Guid ModuleVersionId,
     LibraryTypeAccessibility Accessibility,
-    LibraryTypeDeclarationSelection DeclarationSelection);
+    LibraryTypeDeclarationSelection DeclarationSelection,
+    ApiTypeInventoryKinds DefinitionKinds);
 
 public enum LibraryTypePopulationCountUnavailableReason
 {
