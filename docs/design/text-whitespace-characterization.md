@@ -239,7 +239,7 @@ The relations are consumed unchanged, but the characterization accepts only a
 diff whose content assertions it can build on. Two preconditions apply:
 
 - every anchor (defined below) joins two lines with ordinal-equal content; and
-- every region with no `Moved` endpoint has region texts that are not
+- every region with no move end has region texts that are not
   ordinal-equal.
 
 [Analysis diff](analysis-diff.md) lets a producer assert `Unchanged` or
@@ -312,20 +312,23 @@ Each change receives exactly one outcome:
 
 | Outcome | Condition |
 | --- | --- |
-| `WhitespaceOnly` | The change texts differ whitespace-only, and no `Moved` correspondence has an endpoint in the change. Its canonical edits and their kinds are issued. |
-| `Changed` | The whitespace-stripped change texts differ, or a `Moved` correspondence has an endpoint in the change. Movement is never whitespace. |
+| `WhitespaceOnly` | The change texts differ whitespace-only, and the change holds no move end. Its canonical edits and their kinds are issued. |
+| `Changed` | The whitespace-stripped change texts differ, and the change holds no move end. |
+| `Moved` | The change is exactly one end of a move, as [Text move characterization](text-move-characterization.md) defines it. Movement is never whitespace. |
 
 A change whose texts are ordinal-equal is never issued alone. It joins a
 neighboring change, and the outcome of the joined change is recomputed.
 
 Each region first receives a deterministic *region outcome* from its own
 texts. It is `WhitespaceOnly` when the region texts differ whitespace-only and
-no `Moved` correspondence has an endpoint in the region, and `Changed`
+the region holds no move end, and `Changed`
 otherwise. The partition then follows two rules:
 
 - A `WhitespaceOnly` region is issued as exactly one `WhitespaceOnly` change.
-- A `Changed` region contains at least one `Changed` change, and adjacent
-  changes in it always have different outcomes, so every change is maximal.
+- A `Changed` region contains at least one `Changed` or `Moved` change, and
+  adjacent changes in it always have different outcomes, so every change is
+  maximal. `Moved` changes are exempt from that rule, as the move design
+  states.
   Where the owner can isolate a whitespace-only part, that part becomes its
   own `WhitespaceOnly` change.
 
@@ -345,7 +348,7 @@ Soundness doesn't depend on the aligner. A validator checks that:
 - the partition is ordered, non-overlapping, complete, and maximal, and the
   change texts are the consecutive cuts defined above; and
 - each change's outcome matches its own texts under the whitespace-only
-  predicate and the `Moved` rule.
+  predicate, and every move end is exactly one `Moved` change.
 
 For example, `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` splits
 into two changes:
@@ -361,7 +364,8 @@ maximality.
 ### Line facts
 
 Every Before and After line inside a region takes its change's outcome. So a
-line is `WhitespaceOnly` exactly when the change holding it is. Anchor lines
+line is `WhitespaceOnly` exactly when the change holding it is, and a line in
+a `Moved` change is `Moved` with that move's id. Anchor lines
 are outside every region and carry no fact. A presentation that labels changes
 therefore marks lines too, without any per-line machinery.
 
@@ -517,7 +521,7 @@ soundness.
 | Implementation | Lesson |
 | --- | --- |
 | git `-w`/`-b`/`--ignore-blank-lines` | Whitespace handled as an equivalence switch: turning it on erases the difference. This design keeps the difference and reports it. |
-| git `--color-moved-ws=allow-indentation-change` | Moved-and-re-indented blocks are a recognized need; that pairing is left to identity-bearing producers. |
+| git `--color-moved-ws=allow-indentation-change` | Moved-and-re-indented blocks are a recognized need; [Text move characterization](text-move-characterization.md) detects them. |
 | git `--word-diff`, `diff-highlight` | Intraline highlighting; `diff-highlight` pairs lines by position within equal-count hunks and can't show a brace reflow. |
 | GitHub | Intraline highlighting plus a hide-whitespace view filter. |
 | VS Code diff editor | Line-range mappings with character-range inner changes, the same shape as Markout inner mappings. |
@@ -532,7 +536,8 @@ This design does not define:
   literal-only classification (a separate `CSharpText` certifier design);
 - a change to `AnalysisDiff<T>`, to `TextFindings` relations, or to any
   producer's statistics;
-- move detection across whitespace edits for line diffs;
+- moves, which [Text move characterization](text-move-characterization.md)
+  defines;
 - intraline ranges for non-whitespace changes, though a follow-on may reuse the
   splitting alignment;
 - whitespace beyond U+0020, U+0009, and logical line boundaries;

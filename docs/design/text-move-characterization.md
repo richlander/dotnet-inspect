@@ -1,0 +1,236 @@
+# Text move characterization
+
+## Status and ownership
+
+This document defines the `Inspector.Text`-owned characterization of moved
+line blocks within one text diff, for
+[#8435](https://github.com/richlander/dotnet-inspect/issues/8435) under the
+tracker [#8393](https://github.com/richlander/dotnet-inspect/issues/8393). It
+extends [Text whitespace characterization](text-whitespace-characterization.md),
+which the same owner defines.
+
+The normative claim is:
+
+> For a completed line `AnalysisDiff<string>` that meets the whitespace
+> characterization's preconditions, `Inspector.Text` identifies each moved
+> block as one *move*. A move links its Before lines to its After lines with a
+> deterministic, document-local move id, and states whether the block moved
+> unchanged, moved with whitespace-only edits, or moved with other changes.
+> `TextFindings.CreateAnalysisDiff` also detects blocks that moved with
+> whitespace-only edits.
+
+`Inspector.Text` owns:
+
+- the definition of a move and its id;
+- the move facts issued beside the whitespace characterization;
+- how moves take part in regions, changes, line facts, and the summary; and
+- whitespace-insensitive move detection in `TextFindings.CreateAnalysisDiff`.
+
+Supporting owners remain authoritative:
+
+| Owner | Contract consumed |
+| --- | --- |
+| [Analysis diff](analysis-diff.md) | `Moved` placement on correspondences, consumed unchanged |
+| `FindingMatcher` (`Inspector.Findings`) | Exact move detection: maximal blocks of at least two lines, contiguous on both sides |
+| [Text whitespace characterization](text-whitespace-characterization.md) | Regions, changes, the whitespace-only predicate, edits, and presentation rules |
+| Markout `MappedTextDiff` | Ordered, non-overlapping changes, adjacent changes allowed |
+
+Relocation across members, such as reordered methods in a type, belongs to
+cross-version member pairing and is out of scope. So are copies, splits, and
+moves between files.
+
+## Why
+
+Today, a moved block renders as a removal in one place and an addition in
+another, with nothing to connect them. A reviewer has to find the pair by eye.
+If the block was also re-indented, for example by being wrapped in a new `if`,
+no move is detected at all, because the line contents differ.
+
+The matcher already detects exact moved blocks, and `AnalysisDiff<T>` already
+carries `Moved` placement. What's missing is a typed identity that links the two
+ends, plus whitespace-insensitive detection.
+
+### Motivating assets
+
+To be recorded before the design locks, from a real nuget.org package whose
+member diff shows a relocated block. S1 retains it as pinned-package evidence,
+and the pathological cases below become deterministic `Inspector.Text`
+fixtures.
+
+## Moves
+
+### Definition
+
+A *moved correspondence* is a `Moved` correspondence whose lines contain at
+least one non-whitespace character. A `Moved` correspondence over
+whitespace-only lines isn't a move. Relocating blank space is a whitespace
+difference, and the whitespace characterization treats it as one, so that
+placement is ignored here.
+
+A *move* is a maximal set of moved correspondences whose Before lines form one
+contiguous run and whose After lines form one contiguous run, with the
+correspondences in the same order on both sides. Each side of a move is its
+*end*. An end is contiguous and holds at least one line.
+
+A moved correspondence whose Before or After population isn't contiguous is an
+argument failure.
+
+### Move ids
+
+Moves are numbered from 1 in the order in which their first end appears in the
+change sequence of the whitespace characterization. That sequence is ordered
+on both sides, so the numbering is deterministic. A block that moved up has
+its addition first, so its id is assigned at the addition.
+
+Ids are local to one diff. They identify the move relation, not line content.
+Every move id appears on exactly two changes.
+
+### Move facts
+
+Each move carries:
+
+- its id;
+- its Before line range and its After line range;
+- a *content* fact from the pair characterization of the two ends' texts,
+  where each end's text is its lines joined with single logical boundaries and
+  has no leading or trailing boundary:
+
+  | Content | Meaning |
+  | --- | --- |
+  | `Unchanged` | The ends' lines are ordinal-equal. |
+  | `WhitespaceOnly` | The ends differ whitespace-only. The canonical edits and their kinds are issued, with coordinates on both ends' lines. |
+  | `Changed` | The ends differ beyond whitespace. Only a producer that issues such correspondences reaches this; no current producer does. |
+
+Terminator spelling inside a moved block isn't characterized, because logical
+lines don't retain it.
+
+## Moves within the whitespace characterization
+
+Moves refine the whitespace characterization's regions and changes without
+changing its region outcomes or document summary:
+
+- **Regions.** A region that holds a move end is `Changed`, because movement
+  is a real change. The whitespace characterization's preconditions and
+  region rules apply unchanged, with "`Moved` endpoint" read as "move end".
+- **Changes.** Each move end is exactly one change, with outcome `Moved`. It
+  holds the end's lines on one side and no lines on the other. A change that
+  isn't a `Moved` change holds no move end.
+- **Maximality.** `Moved` changes are exempt from the rule that adjacent
+  changes have different outcomes: each move end is always its own change,
+  including next to another move end. The rule still applies among all other
+  changes.
+- **Line facts.** Each line in a `Moved` change takes the fact `Moved`, with
+  its move id.
+- **Change texts.** A `Moved` change's text is its cut of the region text, as
+  for any change. The whitespace facts of a move come from the move's content
+  fact, not from that cut.
+
+The whitespace characterization's validator gains four checks:
+
+- every move end is exactly one `Moved` change;
+- every move id appears on exactly two changes, one on each side;
+- the ids follow the stated order; and
+- each move's content fact matches its ends' texts.
+
+## Detection in `TextFindings`
+
+`TextFindings.CreateAnalysisDiff` keeps its exact matching and the matcher's
+exact move pass. It then runs a second move pass over the lines that remain
+unmatched on both sides. That pass commits maximal blocks that are:
+
+- contiguous on both sides;
+- at least two lines long;
+- equal line by line after removing whitespace from each line; and
+- contain at least one non-whitespace character.
+
+Ties resolve by length and then by position, as in the exact pass. Each
+committed line becomes a `Moved` correspondence with `Changed` content, which
+records that its text isn't identical.
+
+Other producers' `Moved` correspondences are consumed as issued.
+`TextFindings.Compare`, which feeds the cross-version member source pair
+through `TextAnalysisDiffPresentation.CreateAnalysisDiff`, keeps exact
+detection only. Its adoption of the whitespace pass is tracked as a follow-on
+in #8435, because it changes a `FindingComparison` contract that another path
+consumes.
+
+## Presentation
+
+A move lowers to two ordinary Markout changes, a removal and an addition, and
+no line appears in both. Under Markout slice M1, each carries a typed label:
+
+- the kind, `moved`;
+- the move id;
+- the direction, *to* on the removal and *from* on the addition;
+- the other end's first line; and
+- when the content is `WhitespaceOnly`, the whitespace kinds.
+
+In a unified diff, the label follows the closing `@@`:
+
+```diff
+@@ -12,4 +12,0 @@ moved (1) to +40
+-    var cache = new Cache();
+-    cache.Warm();
+-    Log("warmed");
+-    Flush();
+@@ -44,0 +40,4 @@ moved (1) from -12; whitespace-only: indentation
++        var cache = new Cache();
++        cache.Warm();
++        Log("warmed");
++        Flush();
+```
+
+The id makes moves countable and greppable: both ends share one token. The
+summary reports moved blocks as well as moved lines, for example
+`Moved: 2 blocks (6 → 6 lines)`. A host that shows only one end, such as a
+suppressed or filtered view, still reports the move in the summary.
+
+In Inspect Web, the typed link lets the viewer jump between the two ends. No
+host uses color as the only cue for a move.
+
+## Pathological demonstration
+
+Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`, using
+`TextFindings.CreateAnalysisDiff` unless the row says otherwise.
+
+| Case | Before → After | Expected |
+| --- | --- | --- |
+| Block moved down | `A B x y z` → `x y z A B` (one line per letter) | one move, id 1, `A B` from Before 0–1 to After 3–4, `Unchanged`; the removal comes first |
+| Block moved up | `x y z A B` → `A B x y z` | one move, id 1, assigned at the addition, which comes first |
+| Moved and re-indented | `A` / `B` moved and wrapped: `if (c) {` / `␠␠A` / `␠␠B` / `}` | one move, `WhitespaceOnly`, `Indentation`; the `if` and brace lines are ordinary `Changed` changes |
+| Moved and edited | `A` / `B` moved, and `B` became `B2` | no move under `TextFindings`; ordinary removal and addition |
+| Single-line move | `A x y` → `x y A` | no move (below the two-line minimum) |
+| Blank lines moved | two blank lines relocated | no move; whitespace-only regions |
+| Two moves | two separate blocks relocated | ids 1 and 2 in change-sequence order, each on exactly two changes |
+| Swapped blocks | `A B C D` → `C D A B` | one move (the exact pass keeps one block as matched); id 1 |
+| Adjacent ends of different moves | two moved blocks leave adjacent Before positions | two adjacent `Moved` changes with different ids |
+| Ambiguous source | two identical `A B` blocks, one moves | deterministic choice of source, by the pass's tie rule |
+| Braces only | a block of `}` / `}` lines relocated | a move (it has non-whitespace characters); reviewers see it labeled |
+
+## Non-claims
+
+This design does not define:
+
+- moves across members, types, or files, or member reordering;
+- copies, or a block split into several destinations;
+- single-line moves;
+- moves with content changes beyond whitespace in `TextFindings`;
+- whitespace-insensitive move detection in `TextFindings.Compare` (a tracked
+  follow-on); or
+- host rendering beyond the label content and the summary counts.
+
+## Production adoption
+
+The whitespace plan in #8393 carries moves along its existing steps:
+
+| Step | Owner | Moves adds |
+| --- | --- | --- |
+| S1 | `Inspector.Text` | Move facts, ids, validator checks, and the whitespace move pass in `TextFindings.CreateAnalysisDiff` |
+| M1 | Markout | The typed `moved` label (id, direction, other end) beside the whitespace label |
+| S2 | `DotnetInspector.Presentation` + CLI | Lowering moves in member Source Diff; the summary's moved-block count |
+| S3 | `ILInspector.Research` + CLI | The same for `diff --pdb-source` |
+| S4, S5 | Inspect Web | Transport of move facts; jump between ends |
+
+The CLI is first reached at S2, three steps after this design. Inspect Web is
+reached at S5. The `TextFindings.Compare` follow-on is independent of those
+steps.
