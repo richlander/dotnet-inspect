@@ -223,11 +223,16 @@ existing heading or persistent-shell fallback when the caller is destroyed.
 The request therefore carries a logical target resolved at dismissal rather
 than an element reference.
 
-Browser Back or Forward and accepted destination navigation dismiss without
-ordinary focus return, as they do for embedded opening. Rejected destination
-navigation retains the modal and its original dismissal target. Opening a
-replacement modal closes the prior modal without returning focus, then admits
-the replacement request under the shell's one-modal rule.
+Browser Back or Forward and committed destination navigation dismiss without
+ordinary focus return, as they do for embedded opening. A viewer-local refusal
+before navigation commitment retains the modal, reports the reason there, and
+keeps its original dismissal target. Once navigation is committed, every
+returned typed outcome follows Shell Interaction and Navigation Consumer: the
+modal remains closed, successful navigation focuses its destination, and a
+non-applied outcome focuses the surviving logical invoker or retained surface
+heading without reopening the modal. Opening a replacement modal closes the
+prior modal without returning focus, then admits the replacement request under
+the shell's one-modal rule.
 
 [#8083](https://github.com/richlander/dotnet-inspect/issues/8083) owns the
 production path. This focused adoption establishes the Annotated Source
@@ -470,7 +475,9 @@ detail cannot consume Escape or receive restored focus through the overlay.
 
 Pointer activation of **Close** may dismiss the whole modal even while detail
 is open. It is not the keyboard Escape transition. The shell then restores
-focus to **Explore**.
+focus through the current open request's ordinary-dismissal target: **Explore**
+for an embedded-reader open, or the caller-issued logical target for an
+external open.
 
 Focus is trapped inside the open modal by
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Successful
@@ -637,14 +644,15 @@ Conformance requires:
 - layered Escape tests distinguishing detail closure, modal dismissal, and
   embedded fall-through, with an independent before/after oracle for every
   viewer-owned state field and focus;
-- focus tests for direct close, annotation-set controls, annotation, media, and
-  coordinate toggles, pointer dismissal, rejected navigation, and successful
-  destination handoff;
+- focus tests for direct close, including pointer Close while detail is open,
+  annotation-set controls, annotation, media, and coordinate toggles,
+  viewer-local destination refusal, returned typed navigation failure, and
+  successful destination handoff;
 - shell-composition focus tests proving external ordinary dismissal resolves
   the caller-issued logical target across caller rerender, falls back through
   the Navigation Consumer contract after caller destruction, never focuses a
-  detached element, and does not run for Back, Forward, accepted navigation,
-  or modal replacement;
+  detached element, and is not applied for Back, Forward, committed
+  navigation, or modal replacement;
 - hit tests covering pointer coordinates, keyboard activation, invocation
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;
