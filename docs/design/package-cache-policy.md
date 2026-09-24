@@ -8,7 +8,7 @@ cached durably and which are read by range**. It is the third slice of
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
 
-The claim has two parts:
+The claim has three parts:
 
 - **Durable identity for credential-free HTTP authorities.** An HTTP
   authority with no configured credential gets a persistent cache key, so its
@@ -16,10 +16,15 @@ The claim has two parts:
   authority-scoped store. This is the one claim this document transfers into
   the [package source model](package-source-model.md#candidate-and-payload-stores),
   which keeps every other store rule.
-- **Size first.** A consumer that asks for ranged access learns the archive's
-  size before transferring it: an archive at or under the size cut is
-  acquired complete and cached; a larger one is read by range and not cached.
-  The CLI and Inspect Web apply the same rule.
+- **Size first, for every package.** A consumer that asks for ranged access
+  learns the archive's size before transferring it: an archive at or under
+  the size cut is acquired complete and cached; a larger one is read by
+  range. Platform packs follow the same rule: reference packs fall under the
+  cut, runtime packs above it. The CLI and Inspect Web apply the same rule.
+- **An entry cache for ranged reads.** Every entry a ranged read materializes
+  is kept durably, with the archive's directory, so a later read of the same
+  entry costs no request and a read of another entry skips the directory
+  read.
 
 It consumes, and does not redefine, the ranged read of
 [package archive range access](package-archive-range-access.md), the lease
@@ -62,6 +67,20 @@ of bytes; the packages above it are mostly native tool and runtime payloads
 (`runtime.*.ilcompiler`, `*.linux-x64` tool packages, browser-wasm runtime
 packs), where a query reads a small fraction of the archive.
 
+Runtime packs are the clearest case. Measured 2026-09-23 against nuget.org
+with the ranged reader's request plan, medians of five runs:
+
+| Pack | Archive | Complete | One assembly by range | All managed assemblies by range |
+| --- | --- | --- | --- | --- |
+| `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0 | 39.9 MB | 1,102 ms | 71 ms, 0.9 MB | 681 ms, 28.3 MB |
+| `Microsoft.NETCore.App.Runtime.win-x64` 9.0.9 | 39.0 MB | 855 ms | 78 ms, 0.9 MB | 411 ms, 27.7 MB |
+| `Microsoft.AspNetCore.App.Runtime.linux-x64` 9.0.9 | 12.5 MB | 244 ms | 66 ms, 0.9 MB | 260 ms, 12.5 MB |
+
+Each ranged read took two requests: the managed assemblies are contiguous,
+so even all of them are one span. Queries against a runtime pack keep coming
+back to the same few assemblies, so keeping those assemblies costs a
+fraction of the pack and makes later reads local.
+
 ## Contract
 
 ### Durable identity for credential-free HTTP authorities
@@ -96,10 +115,9 @@ changes for credential-free HTTP authorities, not only the ranged consumer:
 | Extraction result `CacheScopeKey` | carries the key instead of `null` |
 | Package Version Service priors | unchanged: the service keeps identifying an HTTP authority by its endpoint, as its [store key](package-version-service.md) defines, so existing priors stay valid |
 
-Platform packs are acquired complete by the
-[package-backed platform](package-backed-platform-realization.md) owner
-through the authority-scoped store, so they become durably cached at any
-size by this rule and are never subject to the size cut.
+Platform packs acquired through the authority-scoped store become durably
+cached by this rule. Whether they are acquired complete or by range is the
+size-first rule below.
 
 ### Size first
 
@@ -114,15 +132,45 @@ complete acquisition proceeds and publishes to the authority's store. A
 cache hit answers first, as always, so a durably cached archive costs no
 request.
 
-The size cut is 12 MB of archive. An archive at or under it costs one
-request the first time and none afterwards. An archive above it costs one
-abandoned request plus the ranged read on every invocation, and nothing is
-cached.
+The size cut is 12 MB of archive and applies to every package, platform
+packs included. An archive at or under it costs one request the first time
+and none afterwards. An archive above it costs one abandoned request plus a
+ranged read of the entries not already in the entry cache.
 
 The complete acquisition joins the process-local single-flight for its
 coordinate, so a consumer that falls back from ranged content to the
 complete archive in the same invocation never runs two transfers of it at
 once.
+
+### The entry cache
+
+A ranged read from an authority with a persistent key publishes what it
+fetched to a durable entry cache, keyed like the complete store by authority
+key and exact coordinate:
+
+- **The directory.** The archive's central directory, its derived total
+  length, and its validator, published once.
+- **Each materialized entry.** Its expanded bytes, published under its
+  archive path.
+
+Each item is immutable and published by the same atomic rename that
+[cache concurrency](cache-concurrency.md) uses, so concurrent invocations
+converge on one copy without locks.
+
+A later ranged read of the coordinate consults the entry cache first. With a
+cached directory it needs no tail or directory request. Each selected entry
+that is cached is read from disk and checked against the cached directory's
+declared length and CRC; a mismatch discards that entry and reads it again.
+Only the missing entries are fetched, and the first request carries the
+cached validator, so a changed archive is `ArchiveChanged` and the cached
+directory and entries for that coordinate are discarded. An entry-cache read
+with everything present makes no request.
+
+A complete payload in the durable store answers before the entry cache, as
+the cache-first rule already orders them. Authorities without a persistent
+key keep ranged content in memory only, as they do today. The entry cache is
+not a package cache entry: it never answers a complete acquisition, and a
+consumer that needs an entry it lacks reads that entry by range.
 
 ## Host scope
 
@@ -143,8 +191,9 @@ After a day the browser revalidates with `Last-Modified`, which costs a
 request but not the archive. Ranged `206` responses do not get this reuse,
 which is a further reason to cache small archives complete.
 
-The browser can keep archives longer, in two steps that belong to the Inspect
-Web slice:
+Ranged responses are not reused by the browser's HTTP cache, so Inspect Web
+keeps its entry cache in an explicit browser store. That and longer retention
+of complete archives belong to the Inspect Web slice:
 
 - **Force the cache for archives.** A package version is immutable, so the
   archive request can use the `force-cache` fetch mode. The browser then
@@ -200,12 +249,16 @@ All gates run in Release.
 | 2. Configured credential, or user information in the endpoint | no persistent key | `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`, extended |
 | 3. Version-service priors for an HTTP authority | identity is still the endpoint | `PackageVersionServiceTests`, extended |
 | 4. Search of an archive under the cut, then a second invocation | first: one complete request, published durably; second: cache hit, no package request | CLI harness, two invocations |
-| 5. Search of an archive over the cut, twice | each: one abandoned request and the ranged read; nothing published | CLI harness, two invocations |
+| 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: one abandoned request and no other package request | CLI harness, two invocations |
+| 5a. A second query needing one more entry of the same archive | one abandoned request and one entry request; no tail or directory request | CLI harness |
+| 5b. A cached entry whose bytes no longer match the cached directory | discarded and read again | contract suite |
+| 5c. The archive changed since the directory was cached | `ArchiveChanged`; the coordinate's cached directory and entries are discarded; the complete fetch answers | contract suite |
+| 5d. An authority without a persistent key | nothing published to the entry cache | contract suite |
 | 6. No advertised length | complete acquisition | contract suite |
 | 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | CLI harness, two invocations |
 | 8. Ranged content that does not cover the Root's selection, then the complete fallback | one complete transfer | CLI harness |
 | 9. Two invocations acquiring the same coordinate | one publication | existing cache-concurrency gates |
-| 10. Motivating assets | `Avalonia` 12.1.2: cold about the 0.26.0 cold time, warm about the 0.26.0 warm time; one package over the cut read by range on every invocation | preserved probe as design evidence |
+| 10. Motivating assets | `Avalonia` 12.1.2: cold about the 0.26.0 cold time, warm about the 0.26.0 warm time. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package transfer | preserved probe as design evidence |
 
 The existing assertion that an HTTP extraction result carries no
 `CacheScopeKey` (`ConfiguredPayloadAcquisitionTests`) changes with case 1.
@@ -214,14 +267,20 @@ The existing assertion that an HTTP extraction result carries no
 
 1. This document, with the persistent-key rule recorded in the package
    source model as the target of step 2.
-2. The persistent key for credential-free HTTP authorities and size first in
-   the lease step, adopted by the exact-package search Root that #8415 put on
-   the ranged path; gates 1 to 9. This step changes every consumer in the
-   table above.
+2. The persistent key for credential-free HTTP authorities, size first, and
+   the entry cache in the lease step, adopted by the exact-package search Root
+   that #8415 put on the ranged path; gates 1 to 9. This step changes every
+   consumer in the table above.
 3. The remaining search scopes adopt ranged access, and with it size first,
    in the second part of range-access adoption step 2.
-4. Inspect Web adopts ranged access, and with it size first, in the
-   range-access design's Inspect Web slice, with preflight-free ranged
+4. The [package-backed platform](package-backed-platform-realization.md)
+   owner adopts ranged access for platform packs, so runtime packs are read by
+   range and reference packs stay complete. In the same step, platform packs
+   settle "latest" through the
+   [Package Version Service](package-version-service.md) as other packages
+   do. Both changes are claims of those owners, adopted under their designs.
+5. Inspect Web adopts ranged access, size first, and a browser entry cache in
+   the range-access design's Inspect Web slice, with preflight-free ranged
    requests.
 
 ## Non-claims
@@ -229,9 +288,8 @@ The existing assertion that an HTTP extraction result carries no
 This document does not:
 
 - download anything in the background or after the command's work;
-- cache ranged content or individual entries;
 - change the ranged read, its outcomes, or its fallback;
-- change platform-pack acquisition, which becomes durable only through the
-  key rule;
+- change platform-pack acquisition or version selection, which their owners
+  adopt in step 4;
 - evict or bound the durable cache's total size, which remains the cache
   maintenance owner's.
