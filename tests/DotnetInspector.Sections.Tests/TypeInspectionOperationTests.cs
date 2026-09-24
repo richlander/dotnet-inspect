@@ -232,6 +232,27 @@ public sealed partial class ExactTypeInspectionOperationTests
             .Document;
         Assert.IsType<TypeMembersOutcome.NotRequested>(
             notRequested.Members);
+        var membersShare =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                allRowsEnvelope.Share);
+        Assert.Equal(
+            "type-inspection/members/share",
+            membersShare.Path);
+
+        TypeMembersOutcome.Rows jsonDocumentRows =
+            Rows(
+                TypeInspectionOperation.Execute(
+                    authority,
+                    context,
+                    new(
+                        new("System.Text.Json.JsonDocument"),
+                        TypeInspectionMembersQuery.CreateRequest(
+                            QuerySpaceTerminalRequirement.Rows)),
+                    ApiSurfaceScope.IncludeAll));
+        Assert.Equal(84, jsonDocumentRows.Items.Length);
+        Assert.DoesNotContain(
+            jsonDocumentRows.Items,
+            row => MemberFilters.IsCompilerGenerated(row.Name));
 
         string json = JsonSerializer.Serialize(
             allRowsEnvelope,

@@ -207,12 +207,19 @@ public static class TypeInspectionOperation
                             "The Type Members semantic selection could not "
                                 + "be satisfied by the complete population."))
                     : subjectEnvelope.Diagnostics;
+        InspectionShare share =
+            membersPlan is null
+                ? subjectEnvelope.Share
+                : new InspectionShare.NonProjectable(
+                    "type-inspection/members/share",
+                    "The Type Members QuerySpace request cannot yet be "
+                        + "represented by portable Share.");
         return new(
             new TypeInspectionContent.Completed(
                 new(
                     subjectEnvelope.Content,
                     members)),
-            subjectEnvelope.Share,
+            share,
             diagnostics);
     }
 
@@ -302,6 +309,9 @@ public static class TypeInspectionOperation
             target.Type.Members.Count);
         foreach (ApiMember member in target.Type.Members)
         {
+            if (MemberFilters.IsCompilerGenerated(member.Name))
+                continue;
+
             ApiType declaringType = target.Type;
             ApiMember declaringMember = member;
             TypeMemberRowKind rowKind = TypeMemberRowKind.Declared;
@@ -364,7 +374,7 @@ public static class TypeInspectionOperation
 
         return TypeMemberProjection.Completed(
             receiverType,
-            members.MoveToImmutable());
+            members.ToImmutable());
     }
 
     private static TypeMemberReceiver Receiver(ApiMember member) =>
