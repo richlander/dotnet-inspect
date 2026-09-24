@@ -123,6 +123,72 @@ public sealed class ExactLibraryApiInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        PackageNamespaceDiscoveryReturnsDetachedExactLibraryDeclarations()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextInput input = Input();
+        PackageRootBinding root =
+            Assert.IsType<WorkspacePackageRootAcquisitionOutcome.Acquired>(
+                await WorkspaceContextLoader.AcquirePackageRootAsync(
+                    input,
+                    LoadOptions(client, store),
+                    TestContext.Current.CancellationToken))
+            .Root;
+        InspectionEnvelope<PackageNamespaceDiscoveryOutcome> inspection;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using PackageAssemblyContextRealization realization =
+                await workspace.RealizePackageAssemblyContextRolesAsync(
+                    root,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+            inspection =
+                await PackageNamespaceDiscoveryInspection.ExecuteAsync(
+                    realization,
+                    new(
+                        "DotnetInspector.Queries.Definitions",
+                        new(
+                            maxTypes: 500_000,
+                            maxMembers: 0,
+                            maxInspectionFailures: 10_000,
+                            maxTypeForwarders: 100_000,
+                            maxMetadataRows: int.MaxValue,
+                            maxRetainedTextCharacters: int.MaxValue),
+                        new(
+                            maxCapturedImageBytes:
+                                512L * 1024 * 1024,
+                            maxRetainedArtifactBytes:
+                                512L * 1024 * 1024)),
+                    TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(inspection.Content.IsComplete);
+        Assert.Empty(inspection.Diagnostics);
+        PackageNamespaceDiscoveryHit hit =
+            Assert.Single(inspection.Content.Hits);
+        Assert.Equal(PackageId, hit.PackageId);
+        Assert.Equal(Version, hit.PackageVersion);
+        Assert.Equal("DotnetInspector.Queries", hit.Library);
+        Assert.Equal(
+            "DotnetInspector.Queries.Definitions",
+            hit.Namespace);
+        Assert.Contains(
+            hit.Declarations,
+            static declaration =>
+                declaration.Identity.ToMetadataFullName()
+                    == "DotnetInspector.Queries.Definitions.WorkspaceSharePacket");
+        Assert.All(
+            hit.Declarations,
+            static declaration =>
+                Assert.Equal(
+                    "DotnetInspector.Queries.Definitions",
+                    declaration.Namespace.ToString()));
+        AssertDetachedContract();
+    }
+
+    [Fact]
     public async Task MissingLibraryRetainsTypedFailureAndShare()
     {
         var store = await CachedStoreAsync();
@@ -300,6 +366,9 @@ public sealed class ExactLibraryApiInspectionOperationTests
             typeof(ExactLibraryApiAssemblyIdentity),
             typeof(ExactLibraryApiInventory),
             typeof(ExactLibraryApiInspectionFailure),
+            typeof(PackageNamespaceDiscoveryRequest),
+            typeof(PackageNamespaceDiscoveryHit),
+            typeof(PackageNamespaceDiscoveryOutcome),
         ];
         foreach (Type type in contract)
         {
