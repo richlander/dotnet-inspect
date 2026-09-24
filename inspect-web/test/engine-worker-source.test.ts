@@ -26,6 +26,9 @@ import {
   engineWorkerText,
 } from "../src/engine-worker-contract.ts";
 import {
+  engineWorkerOrdinaryMaximumJsonCharacters,
+} from "../src/engine-worker-ordinary.ts";
+import {
   engineWorkerTypeSourceCancellationIsRunning,
   engineWorkerTypeSourceInput,
   engineWorkerTypeSourceKind,
@@ -554,7 +557,10 @@ test("declaration envelopes retain the ordinary Worker JSON bound", () => {
     ...value,
     inspection: {
       ...value.inspection,
-      content: { ...value.inspection.content, text: "x".repeat(16_777_217) },
+      content: {
+        ...value.inspection.content,
+        text: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters + 1),
+      },
     },
   });
   assert.equal(decoded.kind, "rejected");
