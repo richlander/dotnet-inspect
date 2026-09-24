@@ -704,6 +704,26 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   outline: 1px solid var(--shell-accent);
   outline-offset: 3px;
 }
+.subject-path-framework {
+  flex: none;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: 500 11px var(--mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.subject-path-framework:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.subject-path-framework:focus-visible {
+  outline: 1px solid var(--shell-accent);
+  outline-offset: 3px;
+}
 .subject-path-qualifier {
   flex: 0 4 auto;
   min-width: 0;
@@ -2856,6 +2876,28 @@ kbd {
   .workspace-occurrence > span { grid-column: 1 / -1; }
   .workspace-occurrence > small { grid-column: 1; }
   .workspace-view-details div { grid-template-columns: 80px minmax(0, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .workbench:has(.targetbar .working-surface-actions #type-source-view) {
+    grid-template-rows: 42px 82px auto minmax(0, 1fr) 30px;
+  }
+  .targetbar:has(.working-surface-actions #type-source-view) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 41px 40px;
+    gap: 0;
+  }
+  .targetbar:has(.working-surface-actions #type-source-view)
+  .inspected-target {
+    width: 100%;
+    height: 41px;
+  }
+  .targetbar:has(.working-surface-actions #type-source-view)
+  .working-surface-actions {
+    width: 100%;
+    height: 40px;
+  }
 }
 
 @container title-navigation (max-width: 280px) {
