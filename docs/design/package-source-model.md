@@ -1031,10 +1031,11 @@ and returns them as ranged content.
 The PackageHouse supplies the selection and bounds it. A host sets ranged
 access on its `PackagePayloadAcquisitionPlan`; ranged access requires a
 `Realize` operation, and an `Acquire` operation with it is refused before any
-source work. The selection is exactly the assets that operation's realization
-selects over the directory — the compile selection's assets and
-implementation assets, or the runtime universe — so the realization receipt
-is evaluated over the same content and names only materialized entries.
+source work. The selection is the assets that operation's realization
+selects over the directory for its asset demand, expanded to their folders,
+as [package read demand](package-read-demand.md) owns, so the realization
+receipt is evaluated over the same content and names only materialized
+entries.
 
 The desktop CLI's first consumer is the exact-package search Root used by
 `find` member search, `implements`, `extensions`, and `depends` with one
@@ -1042,14 +1043,9 @@ The desktop CLI's first consumer is the exact-package search Root used by
 with ranged access. When the Root's compatible compile selection names an
 entry the ranged read did not materialize, it acquires the complete archive
 instead. Offline, it keeps the local package cache path, as the package
-command's offline branch does. Until HTTP authorities have a durable cache
-identity, their ranged content is read again by each invocation, as their
-complete payloads already are on this path. Before this adoption the search
-Root read the legacy producer-keyed cache, which the configured-authority
-path does not consult; a repeated online search of an HTTP package therefore
-costs a ranged read where it previously cost nothing after the first
-download. The [package cache policy](package-cache-policy.md) owns durable
-HTTP identity and which archives are cached rather than read by range.
+command's offline branch does. The [package cache policy](package-cache-policy.md)
+owns durable HTTP identity, which archives are cached rather than read by
+range, and the entry cache that keeps what a ranged read fetched.
 Local-folder authorities do not expose the
 capability at this head and keep complete acquisition with their durable
 store.

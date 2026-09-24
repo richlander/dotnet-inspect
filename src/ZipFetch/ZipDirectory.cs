@@ -64,14 +64,24 @@ public sealed class ZipDirectory
         long archiveLength,
         long directoryOffset,
         long directoryLength,
-        ReadOnlyMemory<byte> tail)
+        ReadOnlyMemory<byte> tail,
+        ReadOnlyMemory<byte> region)
     {
         Entries = entries;
         ArchiveLength = archiveLength;
         DirectoryOffset = directoryOffset;
         DirectoryLength = directoryLength;
         Tail = tail;
+        Region = region;
     }
+
+    /// <summary>
+    /// The archive's last bytes that the directory read covered: the central
+    /// directory, the end-of-central-directory record, and the rest of the
+    /// tail read. Kept so a consumer can rebuild this directory without a
+    /// transfer (<see cref="ZipArchiveReader.ReadDirectoryFromRegion"/>).
+    /// </summary>
+    public ReadOnlyMemory<byte> Region { get; }
 
     /// <summary>
     /// The bytes the directory read fetched from the archive's end, retained so
