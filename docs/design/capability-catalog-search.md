@@ -54,8 +54,8 @@ installed facts they issue; it does not repair, infer, or reinterpret them.
 The shipped skill should teach a capable agent that the installed product can
 describe itself. Command-local `-D` and `-Q` remain the fastest discovery
 gestures when the agent already knows the relevant route. Exact `explain`
-remains the semantic drill-down when the agent already has one canonical
-resource path.
+path dispatch remains the semantic drill-down when the agent already has one
+canonical resource path.
 
 Catalog search fills the orientation gap:
 
@@ -78,7 +78,7 @@ An agent starts with the concept `literal`, not with prior knowledge of Package
 Query:
 
 ```console
-dotnet-inspect catalog literal
+dotnet-inspect explain literal
 ```
 
 The result includes at least:
@@ -94,7 +94,8 @@ The same result identifies the available CLI discovery binding:
 package query -Q Packages
 ```
 
-The agent then resolves the returned exact path:
+The search result supplies an exact path that selects the other branch of the
+same facade:
 
 ```console
 dotnet-inspect explain <library-literal-resource-path>
@@ -403,31 +404,75 @@ Every returned row carries the canonical `ResourcePath` issued by Resource
 Explanation. Selecting Explain passes that exact path unchanged:
 
 ```text
-catalog search result ResourcePath
-  -> ResourceExplanationCatalog.Resolve(exactPath)
+explain facade search branch
+  -> catalog search result ResourcePath
+      -> explain facade exact-path branch
+          -> ResourceExplanationCatalog.Resolve(exactPath)
 ```
 
-Catalog search does not ask Resource Explanation to resolve the original
-search text. `explain literal`, wildcard resource paths, prefix resolution,
-and similarity fallback inside Resource Explanation remain invalid.
+The facade does not ask Resource Explanation to resolve the original search
+text. An exact registered path or alias selects exact resolution; a recognized
+reusable-reference shape selects its owner; an otherwise canonical
+multi-segment `ResourcePath` selects exact resolution; and every remaining
+non-empty bounded operand selects search.
+
+This distinction is necessary because `ResourcePath` grammar intentionally
+admits canonical single segments. Calling `ResourcePath.TryCreate("literal")`
+is therefore not sufficient facade classification. An unregistered
+single-segment `literal` is search text, while a registered single-segment
+root or alias remains exact. `https://` is also search text because it is not a
+canonical multi-segment `ResourcePath`. An unknown canonical multi-segment path
+remains an exact-resolution failure and never falls through to search.
+
+Search always returns candidates. It does not silently resolve the
+highest-ranked row, including a unique row or one with similarity `1.0`.
+Selecting or copying a returned path is the explicit transition to exact
+explanation.
 
 The handoff gate must prove that every returned path resolves to the same
 typed resource identity represented by the search row. A dangling path, a
 path that resolves to another identity, or a result synthesized without an
 explainable resource prevents catalog construction or operation completion.
 
-## CLI and Browser adoption
+## Explain facade and Browser adoption
 
-The proposed CLI gesture is:
+The proposed CLI search gesture is:
 
 ```console
-dotnet-inspect catalog <text>
+dotnet-inspect explain <search-text>
 ```
 
-`catalog` is a product-contract orientation command. It takes no package,
-Library, Type, Member, project, or Workspace subject. Default Markdown is a
-compact ranked table. Structured output serializes the same
-`CapabilityCatalogSearchDocument`; it does not expose a CLI-only search DTO.
+The top-level `explain` facade remains owned by
+[Contextual Resource Explanation](contextual-resource-explanation.md). It
+dispatches by operand syntax before invoking an operation:
+
+| Operand family | Operation |
+| --- | --- |
+| Exact registered path or alias, or otherwise canonical multi-segment `ResourcePath` | Exact Resource Explanation |
+| Reusable inspection reference | Subject-affordance explanation |
+| Any other non-empty bounded text | Capability Catalog Search |
+
+The facade classifies in this order:
+
+1. exact registered resource path or alias;
+2. reusable-reference shape;
+3. any remaining operand that `ResourcePath.TryCreate` accepts and that
+   contains `/`; and
+4. capability-search text.
+
+Dispatch is never based on whether a preceding operation succeeds.
+Reference-shape recognition precedes Resource Path recognition because a
+reference owner may use slash-bearing syntax. An unknown canonical
+multi-segment path remains an exact path failure, and an invalid
+reference-shaped operand remains a reference failure. Neither becomes search
+text. A noncanonical slash-bearing string such as `https://` remains search
+text.
+
+The search branch takes no package, Library, Type, Member, project, or
+Workspace subject. Default Markdown is a compact ranked table. Structured
+output serializes the same `CapabilityCatalogSearchDocument`; it does not
+expose a CLI-only search DTO or force all three facade branches into one
+universal Content type.
 
 The CLI maps the typed Document to one Markout view for Markdown, table, TSV,
 JSONL, and projected JSON. Plain unprojected Content JSON and `--envelope`
@@ -438,23 +483,27 @@ re-encoding rendered table cells. The Browser renders the same typed Content
 through its own view layer. Neither host owns another search result or ranking
 model.
 
-The first CLI adoption supports the ordinary output-format controls and the
-semantic result limit. Section selection, `--where`, acquisition capabilities,
-source-content controls, and inspection verbosity are inapplicable and are
-rejected rather than ignored.
+The search branch supports shared presentation and destination controls plus
+the semantic result limit. Resource Explanation traversal, including
+`--depth`, reusable-reference operations, section selection, `--where`,
+acquisition capabilities, source-content controls, and inspection verbosity
+are inapplicable and are rejected before dispatch rather than ignored.
 
 The Browser exposes a capability-search entry point using the same request and
-inspection envelope. Search results can navigate to exact explanation and to
-available Browser bindings. The CLI and Browser may arrange controls
-differently, but equivalent request values over the same catalog generation
-must receive equal Content, Share, and diagnostics.
+inspection envelope. It may present one search box and route selected exact
+paths directly rather than reproducing CLI operand parsing, but its typed
+branch selection is equivalent. Search results can navigate to exact
+explanation and to available Browser bindings. The CLI and Browser may arrange
+controls differently, but equivalent request values over the same catalog
+generation must receive equal Content, Share, and diagnostics.
 
 The root shipped skill eventually needs only the durable workflow:
 
 ```text
-search installed capability catalog
-  -> explain an exact result
-      -> use the returned production binding
+explain unfamiliar text
+  -> select an exact result path
+      -> explain the exact resource
+          -> use the returned production binding
 ```
 
 It does not carry a copied facet, section, route, or command inventory.
@@ -491,6 +540,7 @@ All gates below are planned until implementation lands.
 | Invalid input does not become successful empty Content | Request-validation tests |
 | Every result path resolves to the same resource identity | Search-to-Resource-Explanation handoff test |
 | Search invokes no producer or acquisition path | Throwing producer/acquisition seam test over a settled catalog |
+| The `explain` facade selects registered or canonical multi-segment paths, reusable references, and search text without failure fallback | Facade-level CLI matrix covering a registered single-segment path, unregistered single-segment search text, ordinary multiword and `https://` search text, a registered multi-segment path, an unknown canonical multi-segment path, noncanonical slash-bearing text, slash-bearing reusable-reference syntax, invalid shaped references, and close grammar-boundary negatives |
 | CLI and Browser consume equal Content for the same request and catalog | Cross-host contract test |
 | The real agent path reaches the production literal query | CLI end-to-end test using `literal`, exact explanation, and `Microsoft.Azure.SignalR@1.33.1` at `net8.0` |
 
@@ -505,7 +555,9 @@ implementation; this adoption adds no new matching algorithm.
    bindings.
 2. Add the host-neutral search-term projection, request, result Document,
    similarity ranking, and exact-path handoff over the settled composed graph.
-3. Adopt `dotnet-inspect catalog <text>` with Markdown and structured output.
+3. Extend the top-level `explain` facade with syntax-selected capability search
+   for every operand that is neither an exact registered path or alias,
+   reusable-reference-shaped, nor a canonical multi-segment `ResourcePath`.
 4. Add the Browser/Wasm capability-search entry point over the same envelope.
 5. Replace detailed capability inventory in the shipped router skill with the
    search, explain, discover, and execute workflow after both production hosts
@@ -522,11 +574,14 @@ Substring search makes `literal` easy but gives misspellings and neighboring
 terms no useful orientation. It would also introduce a second matching model
 despite the repository already owning normalized edit-distance similarity.
 
-### Resource Explanation similarity fallback
+### Exact-resolution failure fallback
 
-Letting `explain` guess from non-path text combines orientation with exact
-resolution and makes automation ambiguous. Search returns candidates;
-Resource Explanation continues to resolve exactly one canonical path.
+Trying similarity only after a path or reusable-reference operation fails
+would make misspelled automation ambiguous. The facade instead selects search
+only when the operand does not have either exact operand syntax. Resource
+Explanation continues to resolve exactly one canonical path, and reusable
+reference explanation preserves its owner's exact invalid and unavailable
+outcomes.
 
 ### Search-only aliases or keywords
 

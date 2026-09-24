@@ -210,6 +210,19 @@ Explain: <canonical resource path>
 Discover: package query -Q Packages
 ```
 
+The top-level CLI gesture is:
+
+```console
+dotnet-inspect explain literal
+```
+
+The `explain` facade dispatches text that is not an exact registered path or
+alias, reusable-reference-shaped, or a canonical multi-segment `ResourcePath`
+to Capability Catalog Search. Selecting the returned canonical path dispatches
+the next invocation to exact Resource Explanation. Resource Explanation itself
+remains exact-path-only and never applies similarity after a resolution
+failure.
+
 Inspection Capability Composition supplies the searchable owner-issued
 identity, canonical query key, name, summary, relationships, path, route, and
 available consumer bindings. It does not define search-term projection,
@@ -220,9 +233,10 @@ deterministic, resource-free, and network-free, and must not recover
 capability from parser help, rendered output, reflection, or source-code
 names.
 
-Resource Explanation remains exact-path-only. Catalog search orients the user
-to an exact resource; `explain` then resolves that resource without adding
-fuzzy, prefix, wildcard, or natural-language resolution.
+Resource Explanation remains exact-path-only. The `explain` facade composes
+search and exact resolution as syntax-selected operations; it does not add
+fuzzy, prefix, wildcard, or natural-language resolution to Resource
+Explanation.
 
 ## Basis and authority map
 
