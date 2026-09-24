@@ -1,0 +1,73 @@
+        public static string ToString(object? value)
+        {
+            if (value is null)
+            {
+                return JsonConvert.Null;
+            }
+            switch (ConvertUtils.GetTypeCode(value.GetType()))
+            {
+                case PrimitiveTypeCode.Char:
+                    return ToString((char)value);
+                case PrimitiveTypeCode.BigIntegerNullable:
+                case PrimitiveTypeCode.BooleanNullable:
+                case PrimitiveTypeCode.ByteNullable:
+                case PrimitiveTypeCode.Bytes:
+                case PrimitiveTypeCode.CharNullable:
+                case PrimitiveTypeCode.DateTimeNullable:
+                case PrimitiveTypeCode.DateTimeOffsetNullable:
+                case PrimitiveTypeCode.DecimalNullable:
+                case PrimitiveTypeCode.DoubleNullable:
+                case PrimitiveTypeCode.GuidNullable:
+                case PrimitiveTypeCode.Int16Nullable:
+                case PrimitiveTypeCode.Int32Nullable:
+                case PrimitiveTypeCode.Int64Nullable:
+                case PrimitiveTypeCode.SByteNullable:
+                case PrimitiveTypeCode.SingleNullable:
+                case PrimitiveTypeCode.TimeSpanNullable:
+                case PrimitiveTypeCode.UInt16Nullable:
+                case PrimitiveTypeCode.UInt32Nullable:
+                case PrimitiveTypeCode.UInt64Nullable:
+                default:
+                    throw new ArgumentException("Unsupported type: {0}. Use the JsonSerializer class to get the object's JSON representation.".FormatWith(CultureInfo.InvariantCulture, value.GetType()));
+                case PrimitiveTypeCode.Boolean:
+                    return ToString((bool)value);
+                case PrimitiveTypeCode.SByte:
+                    return ToString((sbyte)value);
+                case PrimitiveTypeCode.Int16:
+                    return ToString((short)value);
+                case PrimitiveTypeCode.UInt16:
+                    return ToString((ushort)value);
+                case PrimitiveTypeCode.Int32:
+                    return ToString((int)value);
+                case PrimitiveTypeCode.Byte:
+                    return ToString((byte)value);
+                case PrimitiveTypeCode.UInt32:
+                    return ToString((uint)value);
+                case PrimitiveTypeCode.Int64:
+                    return ToString((long)value);
+                case PrimitiveTypeCode.UInt64:
+                    return ToString((ulong)value);
+                case PrimitiveTypeCode.Single:
+                    return ToString((float)value);
+                case PrimitiveTypeCode.Double:
+                    return ToString((double)value);
+                case PrimitiveTypeCode.DateTime:
+                    return ToString((DateTime)value);
+                case PrimitiveTypeCode.DateTimeOffset:
+                    return ToString((DateTimeOffset)value);
+                case PrimitiveTypeCode.Decimal:
+                    return ToString((decimal)value);
+                case PrimitiveTypeCode.Guid:
+                    return ToString((Guid)value);
+                case PrimitiveTypeCode.TimeSpan:
+                    return ToString((TimeSpan)value);
+                case PrimitiveTypeCode.BigInteger:
+                    return ToStringInternal((BigInteger)value);
+                case PrimitiveTypeCode.Uri:
+                    return ToString((Uri)value);
+                case PrimitiveTypeCode.String:
+                    return ToString((string)value);
+                case PrimitiveTypeCode.DBNull:
+                    return JsonConvert.Null;
+            }
+        }

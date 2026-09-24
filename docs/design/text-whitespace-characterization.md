@@ -464,7 +464,8 @@ or glyphs.
 
 ## Pathological demonstration
 
-Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`. Rows
+Each row is a Release test in `tests/Inspector.Text.Tests`: pair rows in
+`TextWhitespaceTests` and line-diff rows in `TextDiffCharacterizationTests`. Rows
 marked *doc* are observed at the document summary. The others are observed on
 their region's changes.
 
@@ -501,15 +502,22 @@ their region's changes.
 | Surrogate adjacency | `😀 x` → `😀x` | edit spans are valid UTF-16 boundaries |
 | Split budget | a region above the budget with one real edit | one `Changed` change; summary `Changed` |
 
-Soundness gates, planned in S1:
+Soundness gates (Release, in PR CI):
 
-- an independent validator runs over the fixtures and a pinned real-source
-  corpus. It checks the input preconditions, recomputes each region's
-  outcome, checks that a `WhitespaceOnly`
-  region is one change, checks that every region's changes form an ordered,
-  non-overlapping, complete, maximal partition of consecutive cuts, and
-  recomputes each change's outcome
-  from its own texts, as [Changes](#changes) requires.
+- `TextDiffCharacterizationValidator` in `tests/Inspector.Text.Tests` is an
+  independent validator. It checks the input preconditions, recomputes each
+  region's outcome, checks that a `WhitespaceOnly` region is one change, and
+  checks that every region's changes form an ordered, non-overlapping,
+  complete, maximal partition of consecutive cuts. It recomputes each change's
+  outcome from its own texts, as [Changes](#changes) requires, and replays
+  every whitespace-only change's edits to reproduce the After text.
+- `TextDiffCharacterizationTests` runs the validator over every line-diff
+  fixture row and over pinned real-source excerpts (Polly.Extensions
+  `MeterEvent` and Newtonsoft.Json `JsonConvert.ToString`, under
+  `tests/Inspector.Text.Tests/Assets`).
+- `SmallTextSweep_EveryCharacterizationValidates` runs it over every pair of
+  texts of up to three lines drawn from blank, content, indented-content, and
+  whitespace-only lines, with and without a final terminator.
 
 The Leading zero-line side, Mixed reflow, and Blank line after a rewritten
 line rows state quality
