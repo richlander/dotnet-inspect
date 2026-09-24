@@ -9,6 +9,8 @@ import {
   type OperationProducerAdapter,
 } from "./operation-authority.ts";
 import type {
+  BrowserTypeExplorerInspection,
+  BrowserTypeExplorerResult,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
 } from "./facades/inspect-web-source.d.ts";
@@ -33,6 +35,11 @@ import {
   createEngineWorkerTypeSourceHostRegistration,
   type EngineWorkerTypeSourceFailure,
 } from "./engine-worker-source.ts";
+import {
+  createEngineWorkerTypeExplorerHostRegistration,
+  type EngineWorkerTypeExplorerFailure,
+  type TypeExplorerLoadRequest,
+} from "./engine-worker-type-explorer.ts";
 import {
   createEngineWorkerPackageChangesHostRegistration,
   engineWorkerPackageChangesInput,
@@ -125,6 +132,22 @@ export function registerEngineWorkerTypeSourceAdapter(
 ): EngineWorkerTypeSourceAdapter {
   return host.registerOperation(
     createEngineWorkerTypeSourceHostRegistration(),
+  );
+}
+
+export type EngineWorkerTypeExplorerAdapter = OperationProducerAdapter<
+  TypeExplorerLoadRequest,
+  BrowserTypeExplorerInspection,
+  EngineWorkerTypeExplorerFailure,
+  never,
+  WorkerRuntimePreparationError
+>;
+
+export function registerEngineWorkerTypeExplorerAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerTypeExplorerAdapter {
+  return host.registerOperation(
+    createEngineWorkerTypeExplorerHostRegistration(),
   );
 }
 
@@ -304,6 +327,7 @@ export function bindTypeSourceFacade(
       WorkerRuntimePreparationError
     >;
   }
+
   const active = new Map<string, ActiveTypeSource>();
   return {
     async queryTypeSource(
@@ -389,6 +413,125 @@ export function bindTypeSourceFacade(
     },
     cancelTypeSourceQuery(operationId, reason) {
       active.get(operationId)?.handle.cancel(operationCancelReason(reason));
+    },
+    dispose() {
+      for (const operation of active.values())
+        operation.session.dispose();
+      active.clear();
+    },
+  };
+}
+
+export function bindTypeExplorerFacade(
+  adapter: EngineWorkerTypeExplorerAdapter,
+  reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  authority: SharedEngineOperationAuthority,
+): Pick<
+  EngineClient["source"],
+  "cancelTypeExplorerQuery" | "queryTypeExplorer"
+> & { readonly dispose: () => void } {
+  interface ActiveTypeExplorer {
+    readonly handle: OperationHandle<
+      BrowserTypeExplorerInspection,
+      EngineWorkerTypeExplorerFailure
+    >;
+    readonly session: OperationSession<
+      TypeExplorerLoadRequest,
+      BrowserTypeExplorerInspection,
+      EngineWorkerTypeExplorerFailure,
+      never,
+      WorkerRuntimePreparationError
+    >;
+  }
+  const active = new Map<string, ActiveTypeExplorer>();
+  return {
+    async queryTypeExplorer(
+      operationId,
+      packageId,
+      version,
+      framework,
+      assembly,
+      type,
+      taste,
+      projection,
+    ): Promise<BrowserTypeExplorerResult> {
+      if (active.has(operationId)) {
+        throw new Error(
+          `Type Explorer operation '${operationId}' is already active.`);
+      }
+      const request: TypeExplorerLoadRequest = {
+        packageId,
+        version,
+        framework,
+        assembly,
+        type,
+        taste,
+        projection,
+      };
+      const session = authority.page.createSession<
+        TypeExplorerLoadRequest,
+        BrowserTypeExplorerInspection,
+        EngineWorkerTypeExplorerFailure,
+        never,
+        WorkerRuntimePreparationError
+      >({
+        feature: { publish: () => undefined },
+        diagnostic: { report: reportDiagnostic },
+      });
+      const started = authority.startWithId(
+        operationId,
+        () => session.start(request, adapter),
+      );
+      if (started.kind === "rejected") {
+        session.dispose();
+        throw new Error(
+          `Type Explorer could not start: ${
+            startFailureReason(started.reason)
+          }.`);
+      }
+      active.set(operationId, { handle: started.handle, session });
+      try {
+        const outcome = await started.handle.outcome;
+        await started.handle.quiesced;
+        if (outcome.kind === "succeeded") {
+          return {
+            version: 1,
+            kind: "Succeeded",
+            value: outcome.value,
+            failureKind: null,
+            error: null,
+            diagnostic: null,
+            reason: null,
+          };
+        }
+        if (outcome.kind === "failed") {
+          return {
+            version: 1,
+            kind: "Failed",
+            value: null,
+            failureKind: outcome.error.failureKind,
+            error: outcome.error.error,
+            diagnostic: outcome.error.diagnostic,
+            reason: null,
+          };
+        }
+        return {
+          version: 1,
+          kind: "Canceled",
+          value: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: outcome.reason,
+        };
+      } finally {
+        active.delete(operationId);
+        session.dispose();
+      }
+    },
+    cancelTypeExplorerQuery(operationId, reason) {
+      active.get(operationId)?.handle.cancel(
+        operationCancelReason(reason));
     },
     dispose() {
       for (const operation of active.values())
@@ -800,6 +943,11 @@ export function createProductionEngineWorkerClient(
     options.operationDiagnostic,
     authority,
   );
+  const typeExplorer = bindTypeExplorerFacade(
+    registerEngineWorkerTypeExplorerAdapter(host),
+    options.operationDiagnostic,
+    authority,
+  );
   const packageQuery = bindPackageQueryFacade(
     registerEngineWorkerPackageQueryAdapter(host),
     options.operationDiagnostic,
@@ -830,6 +978,7 @@ export function createProductionEngineWorkerClient(
     source: {
       ...ordinary.source,
       ...typeSource,
+      ...typeExplorer,
     },
     callGraph: ordinary.callGraph,
     catalog: {
@@ -845,6 +994,7 @@ export function createProductionEngineWorkerClient(
       readinessSession.dispose();
       packageChanges.dispose();
       packageQuery.dispose();
+      typeExplorer.dispose();
       typeSource.dispose();
       host.dispose();
     },
