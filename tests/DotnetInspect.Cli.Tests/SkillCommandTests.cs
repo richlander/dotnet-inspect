@@ -271,6 +271,31 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task ProjectAnalysisSkill_UsesProgressiveEvidenceWorkflow()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("project-analysis")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("## Report progressively", output);
+        Assert.Contains("**Orientation**", output);
+        Assert.Contains("**Character**", output);
+        Assert.Contains("**Investigation**", output);
+        Assert.Contains("**Synthesis**", output);
+        Assert.Contains("**Fact**", output);
+        Assert.Contains("**Derived observation**", output);
+        Assert.Contains("**Interpretation**", output);
+        Assert.Contains("**Hypothesis**", output);
+        Assert.Contains("-D --details", output);
+        Assert.Contains("-Q", output);
+        Assert.Contains("explain library/sections/library-metrics", output);
+        Assert.Contains("--envelope", output);
+        Assert.Contains("--share url", output);
+        Assert.Contains("dependency graph is complete", output);
+        Assert.Contains("The local package cache does not prove", output);
+    }
+
+    [Fact]
     public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
