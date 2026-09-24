@@ -90,6 +90,10 @@ edge, that adoption must not present its rows as copyable arguments.
   [Library inspection documents and populations](library-inspection-document.md)
   owns the Library Type declaration population, including first-class
   forwarders, public-surface selection, and exact Count and Rows.
+- **Package target:**
+  [Traversal target-framework policy](traversal-target-framework-policy.md#traversal-and-selection-are-different-policies)
+  separates package-local selection from traversal; package children use the
+  Selection default.
 - **Package children:** [Package library scope](package-library-scope.md) and
   [Package asset-selection correspondence](package-asset-selection-correspondence.md)
   own the selected compile population and its aggregate scope.
@@ -164,6 +168,11 @@ adopts it, in that owner's document, with its own gates.
 
 ### Package (owners: Progressive disclosure and Package library scope)
 
+- **Target:** the package children view is a package-local selection
+  consumer, like Package Info. Without `--tfm` it uses the Selection default,
+  PackageHouse's `HighestAvailable`, not the Traversal default; `--tfm`
+  requests an explicit target. See
+  [Traversal and selection are different policies](traversal-target-framework-policy.md#traversal-and-selection-are-different-policies).
 - **Children:** the selected compile population in aggregate scope, one row
   per Library with its public-surface Type declaration Count. Each count reads
   only the compile asset that compile selection chose.
