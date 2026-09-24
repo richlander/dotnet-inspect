@@ -174,6 +174,17 @@ the same entry, and a block already held by the
 entry cache still stores entries. A block is a read-planning unit, and it is
 present when all of its entries are.
 
+A named asset whose folder is already read whole as the surface, as in a
+package with no `ref/` folder, gets no block. Its own folder is being read
+anyway, so its block would add only other folders' interleaved entries: a
+cost the unnamed read does not pay.
+
+Covered entries of other folders pass every check the reader applies to any
+entry: declared lengths, compression method, and the payload's expanded-byte
+bound. A covered entry that fails one fails the block's read visibly, as it
+would fail a read that selected it. Only a malformed or hostile archive has
+such an entry.
+
 On `Avalonia` 12.1.2 for net10.0, whose `lib/net10.0` folder the archive
 interleaves with other folders, naming `Avalonia.Dialogs.dll` reads its
 0.75 MB block of 15 entries in one request, and keeps the 14 `lib/net8.0`
@@ -230,13 +241,14 @@ All gates run in Release.
 | 7. A second realization naming a neighbour in the same block | no request | `PackageRangedRealizationTests.NamedImplementation_NeighbourInACachedBlock_MakesNoRequest`, entry cache |
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |
+| 10. A named asset in a folder already read whole as the surface | no block and no extra request: the named read equals the unnamed read | `PackageRangedRealizationTests.NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock`, a boundary fixture with interleaved `lib/net8.0` and `lib/net10.0` folders and no `ref/` |
 
 ## Adoption
 
 1. This document, `PackageAssetDemand`, the folder unit, and the
    exact-package search Root realized with `Surface`.
 2. Named implementation demand and aligned blocks in the House and the
-   acquisition step, with gates 6 to 9. No command sets names yet.
+   acquisition step, with gates 6 to 10. No command sets names yet.
 3. `type`, `member`, and `library` adopt ranged access with
    `SurfaceAndImplementation`, naming the assemblies that define what they
    inspect, and reusing the folders a surface search cached. Moving these

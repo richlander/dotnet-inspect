@@ -1376,9 +1376,16 @@ public sealed class PackageHouse
                     compile.ImplementationAssets.Select(static asset => asset.Path);
                 if (names is null)
                     return new(WholeFolders(surface.Concat(implementation), directory));
+                // A named implementation asset whose folder is already read
+                // whole as the surface, as in a package with no ref/ folder,
+                // needs no block: its block would add only other folders'
+                // interleaved entries (docs/design/package-read-demand.md).
+                IReadOnlyList<string> surfaceEntries = WholeFolders(surface, directory);
+                var readWhole = new HashSet<string>(surfaceEntries, StringComparer.Ordinal);
                 return new(
-                    WholeFolders(surface, directory),
-                    Anchors(implementation.Where(names.MatchesPath), directory));
+                    surfaceEntries,
+                    [.. Anchors(implementation.Where(names.MatchesPath), directory)
+                        .Where(anchor => !readWhole.Contains(anchor))]);
             case PackageHouseAssetSelectionKind.Runtime:
                 if (request.TargetContext?.RequestedFramework is not { } framework)
                     return new([]);

@@ -262,6 +262,90 @@ public sealed partial class PackageRangedRealizationTests
     }
 
     /// <summary>
+    /// A package with no <c>ref/</c> folder reads its compile surface from the
+    /// implementation folder itself, whole. Naming an implementation assembly
+    /// there adds no block: in an archive whose target-framework folders are
+    /// interleaved, the block would otherwise fetch only the other folder's
+    /// entries. The named read costs exactly what the unnamed read costs. The
+    /// archive is a boundary fixture: every lib-only real asset in the suite
+    /// keeps its folders contiguous.
+    /// </summary>
+    [Fact]
+    public async Task NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock()
+    {
+        const string Id = "Interleaved.Fixture";
+        const string Version = "1.0.0";
+        byte[] archive = InterleavedLibOnlyArchive(Id, Version);
+        // Above the cut, so the read is ranged, and a block budget wide enough
+        // to span the whole net10.0 folder with its interleaved neighbours.
+        long sizeCut = archive.Length / 2;
+
+        async Task<(PackageHouseSettlement.Acquired Acquired, RangeFeed Server)> RealizeAsync(
+            IEnumerable<string>? names)
+        {
+            var server = new RangeFeed(Id, Version, archive);
+            await using RangedEnvironment environment = RangedEnvironment.Create(server);
+            var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+                await environment.RealizeAsync(
+                    new InMemoryPackageStore(),
+                    PackagePayloadAccess.Ranged,
+                    "net10.0",
+                    sizeCut,
+                    Id,
+                    Version,
+                    names));
+            return (acquired, server);
+        }
+
+        var (named, namedServer) = await RealizeAsync(["A.dll"]);
+        var (surface, surfaceServer) = await RealizeAsync(null);
+
+        Assert.IsType<PackageHouseResult.Settled>(named.Result);
+        IEnumerable<string> namedEntries =
+            Assert.IsType<RangedPackageContent>(named.Payload.Content).MaterializedEntries;
+        Assert.DoesNotContain(namedEntries, entry => entry.StartsWith("lib/net8.0/", StringComparison.Ordinal));
+        Assert.Equal(
+            Assert.IsType<RangedPackageContent>(surface.Payload.Content)
+                .MaterializedEntries.Order(StringComparer.Ordinal),
+            namedEntries.Order(StringComparer.Ordinal));
+        Assert.Equal(surfaceServer.RangedRequests, namedServer.RangedRequests);
+    }
+
+    /// <summary>
+    /// A lib-only package whose net8.0 and net10.0 entries alternate in archive
+    /// order, as Avalonia's do: 4 incompressible assemblies per folder.
+    /// </summary>
+    private static byte[] InterleavedLibOnlyArchive(string id, string version)
+    {
+        using var output = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(
+            output, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            void Add(string path, byte[] content)
+            {
+                using Stream entry = zip.CreateEntry(
+                    path, System.IO.Compression.CompressionLevel.NoCompression).Open();
+                entry.Write(content);
+            }
+
+            Add($"{id}.nuspec", System.Text.Encoding.UTF8.GetBytes(
+                $"<?xml version=\"1.0\"?><package><metadata><id>{id}</id><version>{version}</version>"
+                + "<authors>test</authors><description>test</description></metadata></package>"));
+            var random = new Random(8478);
+            foreach (string name in new[] { "A", "B", "C", "D" })
+            {
+                foreach (string folder in new[] { "lib/net10.0", "lib/net8.0" })
+                {
+                    byte[] content = new byte[10_000];
+                    random.NextBytes(content);
+                    Add($"{folder}/{name}.dll", content);
+                }
+            }
+        }
+        return output.ToArray();
+    }
+
+    /// <summary>
     /// A runtime realization with names filters its universe the same way:
     /// only the named asset's block is read and selected.
     /// </summary>
