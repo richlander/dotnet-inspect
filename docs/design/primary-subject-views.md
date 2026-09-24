@@ -2,10 +2,12 @@
 
 ## Status
 
-Proposed. This document is the focused owner of the primary subject view
-pattern for `package`, `library`, `type`, and `member`. Each existing owner
-named in [Adoption](#adoption) adopts the pattern in its own slice; until a
-slice lands, current product behavior remains governed by that owner.
+Proposed. This document is the focused owner of one cross-cutting pattern: the
+primary subject view for `package`, `library`, `type`, and `member`. It owns
+only that pattern. Each command's owner adopts it in its own slice and owns the
+command-specific choices; [Adopter proposals](#adopter-proposals) records
+proposed choices for those owners without deciding them. Until a slice lands,
+current product behavior remains governed by its existing owner.
 
 ## Authority and exact claim
 
@@ -13,257 +15,198 @@ This document owns one claim:
 
 > Each of `package`, `library`, `type`, and `member` names exactly one subject.
 > Its default view is that subject's children: one compact identity line
-> followed by the child inventory, grouped and counted. Facts about the subject
-> itself are the opt-in Info view.
+> followed by the child population that the subject's owner issues. Facts
+> about the subject itself are the opt-in Info view.
 
-The four commands form one containment ladder. Every child row identifies an
-argument to the next command down, so a reader can move from a package to a
-signature by copying one row at a time.
+The pattern has five obligations. An adopting command meets all of them:
 
-| Command | Subject | Default children | Next command |
-| --- | --- | --- | --- |
-| `package P` | one package at one selected target | libraries, each with its public type count | `library` |
-| `library L` | one library | namespaces, then types, each with a count | `type` |
-| `type T` | exactly one type | member groups with overload counts | `member` |
-| `member T M` | exactly one member name | one signature, or its overload signatures | `member T M:<n>` |
+1. **One subject.** The command resolves exactly one subject or fails visibly.
+   It never renders a list of subjects and never picks one candidate silently.
+2. **Children by default.** The default view and the `-v:m` view are the
+   subject's children, drawn from the host-neutral population its owner issues.
+   The children section is the command's single `-v:m` section.
+3. **Info is opt-in.** Facts about the subject are reached through bare `-S`,
+   owned by [Bare `-S` default view](info-view.md). This pattern does not
+   change Info content.
+4. **Summaries are projections.** A presentation such as the CLI tree may group,
+   decorate, or collapse children. It never omits a member of an unqualified
+   population, and never substitutes a group count for the population's
+   Count. Complete formats render the full population.
+5. **Failure is visible.** An unreadable child, an incomplete population, or an
+   empty population renders as such. None becomes a success-shaped empty or
+   zero result.
 
-This document does not own section construction, package asset selection,
-library scope, the bare `-S` presets, verbosity presets, or the renderer
-resolver. It states the obligations those owners adopt.
+### Containment ladder
+
+The four commands form one containment ladder:
+
+| Command | Subject | Children |
+| --- | --- | --- |
+| `package` | one package at one selected target | Libraries |
+| `library` | one exact Library | Type declarations |
+| `type` | one exact Type | Members |
+| `member` | one exact member name | Overload signatures |
+
+The ladder is a target, not a claim that every edge works today. An edge from
+one level to the next is supported only after its adopter provides both:
+
+- a portable identity on each child row that preserves the correspondence
+  facts of its source (for example package source, version, and target for a
+  package's Libraries); and
+- an exact next-command gesture that consumes that identity and resolves to
+  the same child.
+
+A display name alone is not a sufficient identity. Until both exist for an
+edge, that adoption must not present its rows as copyable arguments.
 
 ## Design basis
 
-- **Normative owner:** this document — the subject cardinality and default
-  children view for the four primary commands.
+- **Normative owner:** this document — subject cardinality, the default
+  children view, and the obligations above.
 - **Verbosity and section defaults:**
   [Progressive disclosure](progressive-disclosure.md#verbosity) owns which
-  sections each verbosity level renders. It adopts this pattern by making the
-  children section each command's single `-v:m` section.
-- **Info view:** [Bare `-S` default view](info-view.md) owns the opt-in
-  subject-facts bundle. This pattern consumes it unchanged as the Info view and
-  retires the presets whose contexts this pattern removes.
+  sections each verbosity level renders; it adopts obligation 2 per command.
+- **Info view:** [Bare `-S` default view](info-view.md) owns subject facts;
+  this pattern consumes it unchanged and asks it to retire presets for
+  contexts an adoption removes.
 - **Default renderer:**
   [Rendering model](rendering-model.md#native-type-and-source-defaults) owns
-  default presentation. The existing exact-type tree is the reference shape;
-  this pattern extends tree-by-default to the other three commands.
-- **Package libraries:** [Package library scope](package-library-scope.md)
-  classifies the package children view as aggregate scope over the selected
-  compile population.
+  default presentation. The existing exact-type tree is the reference shape
+  for obligations 2 and 4.
+- **Library children:**
+  [Library inspection documents and populations](library-inspection-document.md)
+  owns the Library Type declaration population, including first-class
+  forwarders, public-surface selection, and exact Count and Rows.
+- **Package children:** [Package library scope](package-library-scope.md) and
   [Package asset-selection correspondence](package-asset-selection-correspondence.md)
-  issues that population and its target selection.
-- **Symbol search:** `find` already owns pattern search over type and member
-  symbols; this pattern routes non-exact `type` and `member` input there.
-- **Motivating assets:** System.Text.Json (NuGet 10.0.12 and platform 11.0),
-  Microsoft.Data.SqlClient 7.1.0, SkiaSharp.NativeAssets.Linux,
-  System.Private.CoreLib, and the platform `Timer` name collision. See
-  [Evidence](#evidence).
-
-## Subject resolution
-
-`package` and `library` already resolve one subject. `type` and `member` must
-also resolve exactly one subject and fail visibly otherwise.
-
-- `type T` resolves to exactly one type. An ambiguous name — a short name
-  declared in more than one namespace, differing generic arities, or the same
-  full name in more than one library of the selected source — fails with the
-  candidate list, each candidate spelled as an argument that resolves uniquely.
-- `member T M` resolves `T` under the same rule and `M` to exactly one member
-  name. Several overloads of one name are one subject; `M:<n>` narrows to one
-  overload.
-- A pattern, wildcard, prefix, or missing name fails with a tip. The tip points
-  to `find` for search and to `library` for browsing.
-- `member T` without a member name fails with a tip for `type T`. The two views
-  are not kept side by side.
-
-Resolution never picks one candidate silently. Today `type Timer` renders
-`System.Threading.Timer` while the platform also declares `System.Timers.Timer`;
-under this pattern that input fails and lists both.
-
-## Default views
-
-Each default view has one identity line, then the child inventory. The identity
-line carries only facts needed to interpret the children; everything else
-belongs to the Info view.
-
-### Package
-
-```text
-Microsoft.Data.SqlClient 7.1.0 (NuGet, net9.0; ref, lib; runtimes: unix, win)
-└─ Microsoft.Data.SqlClient (92)
-```
-
-- **Target:** the selected target from compile selection, either the highest
-  available or the `--tfm` request.
-- **Identity line:** source, selected target, the compile roles present (`ref`,
-  `lib`), managed runtime RIDs (`runtimes/<rid>/lib`), and native RIDs
-  (`runtimes/<rid>/native`). Each RID list names at most four RIDs and
-  otherwise reports its count, for example `native: 13 RIDs`.
-- **Rows:** one row per Library in the selected compile population, with its
-  public type count. Per [Package library scope](package-library-scope.md),
-  this is aggregate scope over one role population; it does not form a union
-  with runtime-only assets.
-- **Cost:** each count comes from the one compile asset that compile selection
-  chooses — `ref` over `lib`. The `lib` implementation behind a `ref` asset
-  and the `runtimes` copies are not opened for the default view.
-- **Runtime-only libraries:** a managed library that exists only under
-  `runtimes/` is reported as a count on the identity line, not as a row.
-- **No libraries:** a package with an empty compile population still renders
-  its identity line and states that it has no libraries for the selected
-  target. It is never an empty success-shaped inventory.
-
-The per-folder breakdown — which role and RID supplies each library, with sizes
-— is detail, not default. It stays reachable through explicit selection and
-`-v:d` under Progressive disclosure.
-
-### Library
-
-```text
-System.Text.Json 11.0.0-rc.1.26425.128 (Platform, net11.0)
-├─ System.Text.Json (…)
-│  ├─ static class JsonSerializer (108)
-│  ├─ class JsonSerializerOptions (45)
-│  └─ …
-└─ System.Text.Json.Nodes (…)
-   ├─ abstract class JsonNode (95)
-   └─ …
-```
-
-- **Rows:** namespaces with their public type counts, then types by short name
-  with their kind, modifiers, and member count. The namespace supplies the
-  qualification; a copied type row plus its namespace resolves uniquely.
-- **Collapse:** see [Tree collapse](#tree-collapse).
-- **Narrowing:** `library L --namespace N` shows one namespace's types. This
-  selector is required so that every collapsed namespace row can be expanded.
-
-### Type
-
-The existing exact-type tree is the reference shape and is unchanged:
-
-```text
-static class System.Text.Json.JsonSerializer
-├─ Inherits
-│  └─ System.Object
-├─ Properties (1)
-│  └─ bool IsReflectionEnabledByDefault { get; }
-└─ Methods (10 logical, 107 overloads)
-   ├─ Deserialize (40 overloads)
-   └─ …
-```
-
-### Member
-
-```text
-method System.Text.Json.JsonSerializer.Serialize (15 overloads)
-├─ string Serialize<TValue>(TValue value, JsonSerializerOptions? options = null)
-└─ …
-```
-
-A member name with one overload renders its single signature under the same
-identity line. `M:<n>` renders exactly one signature.
-
-## Tree collapse
-
-The tree is a one-screen summary. It may collapse a level; every other format
-is complete data and never collapses.
-
-- The exact-type tree already collapses overloads into logical groups.
-- The library tree lists types when the library has at most 100 public types
-  and otherwise lists namespaces only. The threshold is one product constant
-  applied to the public type count, not a terminal-height heuristic.
-- A collapsed tree always ends with a tip naming the expansion gesture
-  (`--namespace N`, or a complete format). A collapsed view never presents
-  itself as the whole inventory.
-- The package tree does not collapse; one row per compile Library is bounded by
-  the package.
-
-## Formats, verbosity, and Info
-
-- **Default presentation** is the tree for all four commands, under the
-  Rendering model's resolver. An explicit format overrides it.
-- **Markdown, JSON, and row formats** render the same children section in
-  full: the complete library inventory, the complete member inventory, and the
-  complete overload set.
-- **`-v:m`** renders the children section as the command's single high-value
-  section. Progressive disclosure keeps ownership of `-v:q`, `-v:n`, and
-  `-v:d`.
-- **Info** is bare `-S`, owned by [Bare `-S` default view](info-view.md). Its
-  existing package, library, single-type, and selected-member presets already
-  answer "what is this subject?" and remain the opt-in facts view. The `package`
-  and `library` defaults move from Info to children; Info content does not
-  change.
-- **Counts** use the public API population by default. `--all` changes the
-  counted population under
-  [API population scope](api-population-scope.md).
-
-## Failure visibility
-
-- A library whose count cannot be read renders its row with a failure marker,
-  not a zero, and the command reports incomplete aggregate evidence under
-  Package library scope's completeness rules.
-- Ambiguous or non-exact subjects fail as described in
-  [Subject resolution](#subject-resolution).
-- An empty child population renders an explicit statement, not a bare
-  identity line.
+  own the selected compile population and its aggregate scope.
+- **Visibility default:** [API population scope](api-population-scope.md) owns
+  the public-facing default and explicit widening.
+- **Symbol search:** `find` owns pattern search, so non-exact `type` and
+  `member` input has a home other than a listing.
+- **Motivating assets:** System.Text.Json, Microsoft.Data.SqlClient 7.1.0,
+  SkiaSharp.NativeAssets.Linux, System.Private.CoreLib, Newtonsoft.Json, and
+  the platform `Timer` name collision. See [Evidence](#evidence).
 
 ## Non-claims
 
-- No change to Info content, section names, or the bare `-S` bundles beyond
-  retiring presets for removed contexts.
-- No change to package asset selection, role preference, or library scope.
-- No selection of a runtime-folder Library as a `library` subject; that
-  addressing gap is recorded under [Open decisions](#open-decisions).
-- No change to `find`, `diff`, or relationship commands.
+This document does not own and does not decide:
+
+- Library or package population membership, Count, or Rows;
+- package asset selection, role preference, or library scope;
+- the identity-line fields, RID disclosure, or tree layout of any command;
+- collapse thresholds;
+- type or member name resolution rules or overload addressing; or
+- Info content or section names.
+
+Those remain with the owners named in the basis. The next section records
+proposals for them.
+
+## Adopter proposals
+
+These proposals are not normative. Each becomes a contract only when its owner
+adopts it, in that owner's document, with its own gates.
+
+### Library (owner: Library inspection documents and populations)
+
+- **Children:** the public-surface Type declaration population, both
+  definitions and forwarders.
+- **Tree:** namespaces with declaration counts, then declarations by short
+  name. A definition shows its kind, modifiers, and member count. A forwarder
+  keeps its declared name and namespace and is marked as forwarded (for
+  example `SomeType (forwarded)`). It shows no kind, modifiers, or member
+  count, because those would come from a target.
+- **Namespace counts** include forwarders, and the total equals the
+  population's Count.
+- **Complete formats** (Markdown, JSON, rows) carry every declaration with its
+  declaration kind.
+- **Collapse:** the tree lists namespaces only when the public-surface
+  declaration Count exceeds a threshold, proposed as 100. Collapsed namespace
+  counts still include forwarders, and the tree ends with a tip naming the
+  expansion gesture.
+- **Narrowing:** `library L --namespace N`, so that every collapsed row can be
+  expanded.
+- **Retirement:** the current `type` listing context retires only after the
+  Library children view passes positive CLI format and mode gates and
+  Browser/Wasm adoption gates. The host-neutral operation and its forwarder
+  semantics remain after that presentation context retires.
+
+### Package (owners: Progressive disclosure and Package library scope)
+
+- **Children:** the selected compile population in aggregate scope, one row
+  per Library with its public-surface Type declaration Count. Each count reads
+  only the compile asset that compile selection chose.
+- **Identity line:** source, selected target, compile roles present, and
+  managed and native runtime RIDs, capped to a count when long; for example
+  `Microsoft.Data.SqlClient 7.1.0 (NuGet, net9.0; ref, lib; runtimes: unix,
+  win)`.
+- **Runtime-only Libraries** appear as a count on the identity line, not as
+  rows, because they are outside the compile population.
+- **Addressing prerequisite:** this adoption requires the package-to-Library
+  edge above — a portable row identity that preserves package source,
+  version, and target, and an exact `library` gesture that consumes it. A
+  candidate spelling is `library P --library <name>`, but the gesture must
+  bind to the row identity, not only the name.
+
+### Type and member (owners: the `type` and `member` command designs)
+
+- **Exact resolution:** ambiguous input fails with a candidate list, and each
+  candidate is spelled as input that resolves uniquely. Pattern, prefix, and
+  missing-name input fails with tips for `find` and `library`.
+- **`member T` without a member name** fails with a tip for `type T`.
+- **Member tree:** an identity line with the overload count, then one
+  signature per overload.
 
 ## Evidence
 
-Observed with production dotnet-inspect 0.26.0 on 2026-09-23:
+Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 
-| Asset | Observation | Consequence |
+| Asset | Observation | Bearing |
 | --- | --- | --- |
-| System.Text.Json 10.0.12 (NuGet) | Default is Package Info; one `lib/net10.0` Library | Package default becomes one library row |
-| System.Text.Json 11.0 (platform) | Default is Library Info; 91 public types | Library tree lists types |
-| Microsoft.Data.SqlClient 7.1.0 | `ref`, `lib`, and `runtimes/{unix,win}/lib` copies; the `lib/net9.0` asset is a 93 KB stub against 1.67 MB runtime copies; 92 public types | Identity line reports roles and RIDs; the count reads only the `ref` asset |
-| SkiaSharp.NativeAssets.Linux | 13 `runtimes/*/native` RIDs, no managed libraries | RID lists cap; empty compile population is stated |
-| System.Private.CoreLib | 1,358 public types | Library tree collapses to namespaces |
-| Newtonsoft.Json | 130 public types | Library tree collapses to namespaces |
-| platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Exact resolution fails and lists candidates |
-| `type System.Text.Json` | Renders a flat per-kind table of qualified names | Library tree replaces the listing |
-| `member JsonSerializer` | Renders member-group tables duplicating `type` | `member T` without a name fails with a tip |
+| System.Text.Json 10.0.12 (NuGet) | Default is Package Info; one `lib/net10.0` Library | Package default is Info, not children |
+| System.Text.Json 11.0 (platform) | Default is Library Info. Legacy definition-only public count is 91; the Library owner reports 97 public-surface declarations | Threshold uses declaration Count, not definitions |
+| System.Private.CoreLib | Legacy definition-only public count 1,358; the Library owner reports 1,447 declarations | A large library collapses under any reasonable threshold |
+| Newtonsoft.Json | 130 public definitions | Collapses at the proposed threshold |
+| Microsoft.Data.SqlClient 7.1.0 | `ref`, `lib`, and `runtimes/{unix,win}/lib` copies; the `lib/net9.0` asset is a 93 KB stub next to 1.67 MB runtime copies | Package children count from the compile asset alone |
+| SkiaSharp.NativeAssets.Linux | 13 `runtimes/*/native` RIDs, no managed Libraries | Empty compile population must be stated |
+| platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
+| `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
+
+The 97 and 1,447 figures come from the Library owner's current evidence and
+were not reproduced here. Each adoption records its own measurements against
+its owner's Count.
 
 ## Adoption
 
-Each slice is independently shippable, updates `docs/cli-reference.md` and the
-shipped product skills for behavior it changes, and demonstrates the real
-production-host scenario. Browser/Wasm adoption follows the host-neutral
-children sections; the CLI tree is host presentation.
+Each adoption lands in its owner's document and implementation. It updates
+`docs/cli-reference.md` and the shipped product skills for any behavior it
+changes and demonstrates the real production-host scenario. Host-neutral
+children populations serve both CLI and Browser/Wasm; the CLI tree is host
+presentation.
 
-1. **Library children.** Add the namespace-then-type children section and
-   `--namespace`, make it the `library` default and tree, and retire the `type`
-   listing context. Adopted by Progressive disclosure, Rendering model, and
-   Bare `-S` (removing the `type` listing preset).
-2. **Package children.** Add the package libraries section and identity line,
-   and make it the `package` default and tree. Adopted by Progressive
-   disclosure and Rendering model; consumes Package library scope.
-3. **Exact `type` and `member`.** Enforce exact resolution with candidate
-   errors, remove `member T` without a name, and add the member identity-line
-   tree. Adopted by Bare `-S` (removing the broad `member` preset).
+1. **Library children** (presentation only): default and `-v:m` children
+   view, tree, and `--namespace`, consuming the Library Type declaration
+   population. Current listing paths remain.
+2. **Listing retirement:** after the positive CLI and Browser/Wasm gates in
+   the Library proposal, retire the `type` listing context and its bare `-S`
+   preset.
+3. **Package children:** after the package-to-Library edge exists.
+4. **Exact `type` and `member`:** exact resolution, removal of `member T`
+   without a name, and the member tree.
 
 ## Gates
 
-Each slice gates its claims in Release against its motivating assets:
+This document's obligations are gated through each adoption, in Release,
+against that adoption's motivating assets:
 
-- the default tree and complete Markdown and JSON children sections for System.Text.Json;
-- collapse at the threshold for System.Private.CoreLib and Newtonsoft.Json;
-- the package identity line and ref-only counting for Microsoft.Data.SqlClient;
-- the empty compile population for SkiaSharp.NativeAssets.Linux; and
-- candidate failure for the platform `Timer` collision.
+- obligation 1: the platform `Timer` collision fails with candidates;
+- obligations 2 and 3: default, `-v:m`, and bare `-S` output for each adopted
+  command;
+- obligation 4: a tree's grouped or collapsed counts sum to the population
+  Count, forwarders included, for System.Text.Json and System.Private.CoreLib;
+- obligation 5: an empty compile population for SkiaSharp.NativeAssets.Linux;
+  and
+- each ladder edge: its row identity resolves through its exact gesture to the
+  same child.
 
-## Open decisions
-
-- **Collapse threshold:** 100 public types, chosen so System.Text.Json (91)
-  and Microsoft.Data.SqlClient (92) expand while Newtonsoft.Json (130) and
-  System.Private.CoreLib (1,358) collapse.
-- **Package-to-library addressing:** `library P` for a multi-library package
-  needs an exact Library selector so that each package row is a valid next
-  argument. The proposed spelling is `library P --library <name>`, matching
-  `package --library`. Selecting a runtime-folder copy is deferred.
+Until an adoption lands, every obligation is `unverified` for that command.
