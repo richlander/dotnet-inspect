@@ -143,6 +143,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SectionSelection_AcceptsColonAttachedCategory()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "--section:@Library",
+            "--tips",
+            "q");
+
+        Assert.True(
+            exit == 0,
+            $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            "## Library Info",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SectionSelection_RejectsSeparatorOnlyRepeatedTarget()
     {
         var (exit, output, error) = await RunAppAsync(

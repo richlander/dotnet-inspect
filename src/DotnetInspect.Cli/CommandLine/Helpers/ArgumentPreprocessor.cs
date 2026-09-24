@@ -746,7 +746,7 @@ public static class ArgumentPreprocessor
                 if (!ReferenceEquals(escaped, inlineValue))
                 {
                     result ??= (string[])args.Clone();
-                    result[i] = args[i][..args[i].IndexOf('=')] + "=" + escaped;
+                    result[i] = args[i][..^inlineValue.Length] + escaped;
                 }
             }
             else if (i + 1 < args.Length)
@@ -777,7 +777,7 @@ public static class ArgumentPreprocessor
                 if (!ReferenceEquals(escaped, inlineValue))
                 {
                     result ??= (string[])args.Clone();
-                    result[i] = args[i][..args[i].IndexOf('=')] + "=" + escaped;
+                    result[i] = args[i][..^inlineValue.Length] + escaped;
                 }
                 continue;
             }

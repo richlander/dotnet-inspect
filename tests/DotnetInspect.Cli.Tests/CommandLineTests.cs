@@ -845,6 +845,22 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_EscapesColonAttachedAtCategorySelectAndPathValues()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "--section:@All", "--path:@readme"]);
+
+        Assert.Equal(
+            [
+                "package",
+                "Foo",
+                "--section:" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "All",
+                "--path:" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "readme",
+            ],
+            result);
+    }
+
+    [Fact]
     public void PreprocessArgs_WithKnownCommand_ReturnsUnchanged()
     {
         var args = new[] { "package", "Foo" };
