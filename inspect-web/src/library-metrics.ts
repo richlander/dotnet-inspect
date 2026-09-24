@@ -5,6 +5,7 @@ const TREEMAP_HEIGHT = 360;
 const TREEMAP_LIMIT = 72;
 const RELATIONSHIP_WIDTH = 900;
 const RELATIONSHIP_HEIGHT = 320;
+const RECIPROCAL_BEND_SEPARATION = 16;
 const RELATIONSHIP_COLORS = [
   "#b9aaee", "#7ed8dc", "#9cc8f1", "#e5b567", "#d98a70",
   "#8ebb76", "#c795e9", "#87aeca",
@@ -178,6 +179,10 @@ function renderTreemap(
   </section>`;
 }
 
+function relationshipDirectionKey(source: string, target: string): string {
+  return JSON.stringify([source, target]);
+}
+
 function renderRelationshipCrossing(
   data: BrowserLibraryMetrics,
   escapeHtml: (value: unknown) => string,
@@ -211,6 +216,8 @@ function renderRelationshipCrossing(
   const edges = relationships.filter(relationship =>
     selected.has(relationship.sourceTypeKey)
     && selected.has(relationship.targetTypeKey));
+  const directions = new Set(edges.map(edge =>
+    relationshipDirectionKey(edge.sourceTypeKey, edge.targetTypeKey)));
   const positions = new Map(
     types.map((type, index) => [
       type.typeKey,
@@ -221,7 +228,16 @@ function renderRelationshipCrossing(
   const arcs = edges.map((edge, index) => {
     const source = positions.get(edge.sourceTypeKey) ?? 0;
     const target = positions.get(edge.targetTypeKey) ?? 0;
-    const bend = 34 + Math.abs(target - source) * .36 + (index % 4) * 10;
+    const reciprocal = directions.has(relationshipDirectionKey(
+      edge.targetTypeKey,
+      edge.sourceTypeKey,
+    ));
+    const bendOffset = reciprocal
+      ? (edge.sourceTypeKey < edge.targetTypeKey
+          ? 0
+          : RECIPROCAL_BEND_SEPARATION)
+      : (index % 4) * 10;
+    const bend = 34 + Math.abs(target - source) * .36 + bendOffset;
     const color = RELATIONSHIP_COLORS[index % RELATIONSHIP_COLORS.length];
     const tooltip = `${edge.sourceTypeDisplay} calls ${edge.targetTypeDisplay} at ${formatNumber(edge.callSiteCount)} retained sites`;
     return `<path class="metrics-relationship-edge" d="M ${source.toFixed(1)} ${baseline} C ${source.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${baseline}" stroke="${color}" stroke-width="${Math.min(8, 1.5 + Math.log2(edge.callSiteCount + 1))}"><title>${escapeHtml(tooltip)}</title></path>`;
