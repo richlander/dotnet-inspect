@@ -417,9 +417,102 @@ public sealed class CSharpDeclarationRepresentabilityTests
 
         Assert.False(
             CSharpDeclarationRepresentability
-                .IsSupportedAdditionSignature(
-                    signature,
-                    intType));
+                .IsAdditionSignatureShape(signature));
+    }
+
+    [Fact]
+    public void CDR003_StaticContainingClassIsOutsideInitialBoundary()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            targetAttributes:
+                TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            targetIsValueType: false);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        MetadataTypeDeclarationEvidence containing = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(post.ContainingType)
+            .Evidence;
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Class,
+            containing.Category);
+        Assert.True(
+            containing.Attributes.HasFlag(TypeAttributes.Abstract));
+        Assert.True(
+            containing.Attributes.HasFlag(TypeAttributes.Sealed));
+
+        var unavailable = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unavailable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+        Assert.Equal(
+            CSharpDeclarationUnavailableReason.OutsideInitialBoundary,
+            unavailable.Reason);
+    }
+
+    [Fact]
+    public void CDR003_VoidArrayReturnIsOutsideInitialBoundary()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            returnsVoidArray: true);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        MetadataMethodSignatureIdentity signature = Assert.IsType<
+            MetadataMethodDeclarationResult.Posted>(post.Method)
+            .Evidence.Signature;
+        Assert.IsType<MetadataTypeIdentity.SzArray>(
+            signature.ReturnType);
+        Assert.True(
+            CSharpDeclarationRepresentability
+                .IsAdditionSignatureShape(signature));
+        Assert.False(
+            CSharpDeclarationRepresentability.TrySpellType(
+                signature.ReturnType,
+                out _));
+
+        var unavailable = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unavailable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+        Assert.Equal(
+            CSharpDeclarationUnavailableReason.OutsideInitialBoundary,
+            unavailable.Reason);
+    }
+
+    [Fact]
+    public void CDR003_NonContainingOperandsAreOutsideInitialBoundary()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            signatureUsesContainingType: false);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        MetadataMethodSignatureIdentity signature = Assert.IsType<
+            MetadataMethodDeclarationResult.Posted>(post.Method)
+            .Evidence.Signature;
+        MetadataTypeDeclarationEvidence containing = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(post.ContainingType)
+            .Evidence;
+        Assert.True(
+            CSharpDeclarationRepresentability
+                .IsAdditionSignatureShape(signature));
+        Assert.DoesNotContain(
+            containing.PrimitiveAlias ?? containing.OpenSelfIdentity,
+            signature.ParameterTypes);
+
+        var unavailable = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unavailable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+        Assert.Equal(
+            CSharpDeclarationUnavailableReason.OutsideInitialBoundary,
+            unavailable.Reason);
     }
 
     [Fact]
@@ -539,9 +632,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
 
         Assert.False(
             CSharpDeclarationRepresentability
-                .IsSupportedAdditionSignature(
-                    signature,
-                    intType));
+                .IsAdditionSignatureShape(signature));
     }
 
     [Fact]
@@ -590,6 +681,44 @@ public sealed class CSharpDeclarationRepresentabilityTests
         Assert.False(
             CSharpDeclarationRepresentability.TrySpellType(
                 formattedType,
+                out _));
+    }
+
+    [Fact]
+    public void CDR003_TypeSpellingRejectsNamedSystemVoid()
+    {
+        var scope = new MetadataTypeScopeIdentity(
+            MetadataTypeScopeKind.AssemblyReference,
+            Guid.Empty,
+            ModuleName: null,
+            new(
+                new(
+                    InertText.TextPolicy.Field,
+                    "System.Private.CoreLib"),
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null));
+        var systemVoid = new MetadataTypeIdentity.Named(
+            new(
+                scope,
+                new(
+                    InertText.TextPolicy.Field,
+                    "System"),
+                [
+                    new(
+                        InertText.TextPolicy.Field,
+                        "Void"),
+                ],
+                [0]),
+            IsValueType: true);
+
+        Assert.False(
+            CSharpDeclarationRepresentability.TrySpellType(
+                systemVoid,
+                out _));
+        Assert.False(
+            CSharpDeclarationRepresentability.TrySpellType(
+                new MetadataTypeIdentity.SzArray(systemVoid),
                 out _));
     }
 
@@ -842,8 +971,19 @@ public sealed class CSharpDeclarationRepresentabilityTests
             int interfaceGenericArity = 0,
             string operatorName = "op_Addition",
             bool returnsVoid = false,
-            bool ownerIsInterface = true)
+            bool ownerIsInterface = true,
+            bool returnsVoidArray = false,
+            bool signatureUsesContainingType = true,
+            TypeAttributes targetAttributes =
+                TypeAttributes.Public | TypeAttributes.Sealed,
+            bool targetIsValueType = true)
         {
+            if (returnsVoid && returnsVoidArray)
+            {
+                throw new ArgumentException(
+                    "A signature cannot return both void and void[].");
+            }
+
             Guid mvid = Guid.NewGuid();
             var metadata = new MetadataBuilder();
             metadata.AddModule(
@@ -859,6 +999,19 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 default,
                 (AssemblyFlags)0,
                 AssemblyHashAlgorithm.None);
+            AssemblyReferenceHandle coreLibrary =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("System.Private.CoreLib"),
+                    new Version(11, 0, 0, 0),
+                    default,
+                    default,
+                    (AssemblyFlags)0,
+                    default);
+            TypeReferenceHandle valueType =
+                metadata.AddTypeReference(
+                    coreLibrary,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString("ValueType"));
 
             var signatureBlob = new BlobBuilder();
             signatureBlob.WriteByte(0x00);
@@ -867,19 +1020,23 @@ public sealed class CSharpDeclarationRepresentabilityTests
             {
                 signatureBlob.WriteByte(0x01);
             }
+            else if (returnsVoidArray)
+            {
+                signatureBlob.WriteByte(0x1d);
+                signatureBlob.WriteByte(0x01);
+            }
             else
             {
-                signatureBlob.WriteByte(0x11);
-                signatureBlob.WriteCompressedInteger(0x08);
+                WriteSignatureType(signatureBlob);
             }
-            signatureBlob.WriteByte(0x11);
-            signatureBlob.WriteCompressedInteger(0x08);
-            signatureBlob.WriteByte(0x11);
-            signatureBlob.WriteCompressedInteger(0x08);
+            WriteSignatureType(signatureBlob);
+            WriteSignatureType(signatureBlob);
             BlobHandle signature =
                 metadata.GetOrAddBlob(signatureBlob);
             var bodyInstructions = new BlobBuilder();
-            if (!returnsVoid)
+            if (returnsVoidArray)
+                bodyInstructions.WriteByte((byte)ILOpCode.Ldnull);
+            else if (!returnsVoid)
                 bodyInstructions.WriteByte((byte)ILOpCode.Ldarg_0);
             bodyInstructions.WriteByte((byte)ILOpCode.Ret);
             var methodBodies = new BlobBuilder();
@@ -920,11 +1077,10 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 body);
             TypeDefinitionHandle target =
                 metadata.AddTypeDefinition(
-                    TypeAttributes.Public
-                        | TypeAttributes.Sealed,
+                    targetAttributes,
                     metadata.GetOrAddString("Samples"),
                     metadata.GetOrAddString("Number"),
-                    default,
+                    targetIsValueType ? valueType : default(EntityHandle),
                     MetadataTokens.FieldDefinitionHandle(1),
                     body);
             TypeDefinitionHandle @interface =
@@ -987,6 +1143,18 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 MetadataTypeDefinitionAddress.FromHandle(
                     reader,
                     @interface));
+
+            void WriteSignatureType(BlobBuilder builder)
+            {
+                builder.WriteByte(
+                    signatureUsesContainingType && targetIsValueType
+                        ? (byte)0x11
+                        : (byte)0x12);
+                builder.WriteCompressedInteger(
+                    signatureUsesContainingType
+                        ? 0x08
+                        : 0x0c);
+            }
         }
 
         internal CSharpMethodDeclarationPost Capture()

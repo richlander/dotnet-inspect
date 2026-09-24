@@ -522,7 +522,13 @@ public static class CSharpDeclarationRepresentability
             || local.Attributes != DeclarationAttributes
             || containingType.Evidence.Category is not
                 (MetadataTypeDeclarationCategory.Class
-                or MetadataTypeDeclarationCategory.Struct))
+                or MetadataTypeDeclarationCategory.Struct)
+            || containingType.Evidence.Category
+                    == MetadataTypeDeclarationCategory.Class
+                && containingType.Evidence.Attributes.HasFlag(
+                    TypeAttributes.Abstract)
+                && containingType.Evidence.Attributes.HasFlag(
+                    TypeAttributes.Sealed))
         {
             return Unavailable(
                 post,
@@ -561,14 +567,21 @@ public static class CSharpDeclarationRepresentability
         MetadataTypeIdentity containingIdentity =
             containingType.Evidence.PrimitiveAlias
             ?? containingType.Evidence.OpenSelfIdentity;
-        if (!IsSupportedAdditionSignature(
-                declaration.Signature,
-                containingIdentity))
+        if (!IsAdditionSignatureShape(declaration.Signature))
         {
             return Refuse(
                 post,
                 CSharpDeclarationRefusalReason
                     .UnsupportedOperatorSignature);
+        }
+
+        if (!declaration.Signature.ParameterTypes.Contains(
+                containingIdentity))
+        {
+            return Unavailable(
+                post,
+                CSharpDeclarationUnavailableReason
+                    .OutsideInitialBoundary);
         }
 
         if (!TrySpellType(
@@ -887,12 +900,10 @@ public static class CSharpDeclarationRepresentability
         identity is MetadataTypeIdentity.Primitive primitive
         && MetadataDeclarationText.RenderPrimitiveName(primitive) == "void";
 
-    internal static bool IsSupportedAdditionSignature(
-        MetadataMethodSignatureIdentity signature,
-        MetadataTypeIdentity containingIdentity)
+    internal static bool IsAdditionSignatureShape(
+        MetadataMethodSignatureIdentity signature)
     {
         ArgumentNullException.ThrowIfNull(signature);
-        ArgumentNullException.ThrowIfNull(containingIdentity);
 
         var header = new SignatureHeader(signature.Header);
         return OperatorNames.GetDeclarationParameterCount(
@@ -904,7 +915,6 @@ public static class CSharpDeclarationRepresentability
             && !header.IsGeneric
             && signature.RequiredParameterCount ==
                 signature.ParameterTypes.Length
-            && signature.ParameterTypes.Contains(containingIdentity)
             && !IsVoid(signature.ReturnType)
             && !signature.ParameterTypes.Any(IsVoid);
     }
@@ -940,7 +950,8 @@ public static class CSharpDeclarationRepresentability
     {
         string name =
             MetadataDeclarationText.RenderPrimitiveName(primitive);
-        return PrimitiveTypeNames.TryToClrFullName(name, out _)
+        return name != "void"
+            && PrimitiveTypeNames.TryToClrFullName(name, out _)
             ? name
             : null;
     }
@@ -1033,7 +1044,10 @@ public static class CSharpDeclarationRepresentability
             builder.Append('>');
         }
 
-        return builder.ToString();
+        string source = builder.ToString();
+        return source == "global::System.Void"
+            ? null
+            : source;
     }
 }
 

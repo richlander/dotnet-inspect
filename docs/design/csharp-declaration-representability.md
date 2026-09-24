@@ -264,6 +264,8 @@ associated static explicit-interface `op_Addition` operator:
 - the declaration is an authenticated two-operand `op_Addition` with a
   non-void return, a containing-type operand, plain complete parameter
   evidence, and a C# 11-or-later profile; and
+- the containing declaration is not a static class, and no recursively spelled
+  type position contains `void`; and
 - the accepted immutable request carries qualified type spellings, parameter
   spellings, exact body binding, and enough information to render a complete
   stub declaration without reopening metadata.
@@ -274,7 +276,9 @@ multiplicity. Rejected, absent, unresolved, mismatched, or unposted evidence
 produces `Unavailable` atomically. Method-like categories and type shapes
 outside this first proof boundary also remain `Unavailable`; the implementation
 does not misstate an unimplemented but potentially valid C# form as a language
-impossibility.
+impossibility. In particular, an otherwise valid explicit-interface operator
+whose operands do not include the implementing containing type is outside this
+slice rather than a language refusal.
 
 Ordinary methods, constructors, conversions, checked operators, generic
 method-like declarations, and broader explicit-interface methods remain later
