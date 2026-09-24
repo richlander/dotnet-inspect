@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -3083,6 +3084,45 @@ public static class ApiOutputFormatter
             else
                 view.TypeMetricRows = rows;
         }
+    }
+
+    internal static void PopulateImplementationProfiles(
+        TypeView view,
+        ApiType type,
+        AssemblyImplementationProfileFamilyInspection inspection)
+    {
+        var drillByToken = BuildMemberDrillMap(type);
+        var relationshipsByBody = inspection.OverloadRelationships
+            .GroupBy(relationship => (
+                relationship.Caller.MetadataToken,
+                relationship.EvidenceMethod.MetadataToken))
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToArray());
+        List<ImplementationProfileRow> rows =
+        [
+            .. inspection.Profiles.Select(profile =>
+            {
+                drillByToken.TryGetValue(
+                    profile.Profile.Method.MetadataToken,
+                    out var drill);
+                relationshipsByBody.TryGetValue(
+                    (
+                        profile.Profile.Method.MetadataToken,
+                        profile.Profile.EvidenceMethod.MetadataToken),
+                    out var relationships);
+                return ToImplementationProfileRow(
+                    profile.Profile,
+                    relationships ?? [],
+                    drill,
+                    LibraryMetadataService.IsGeneratedMethod(
+                        profile.Profile.Method,
+                        inspection.GeneratedFrameworkTypes),
+                    includeDeclaringType: false);
+            }),
+        ];
+        if (rows.Count > 0)
+            view.MemberMetricRows = rows;
     }
 
     internal static bool IncludesImplementationProfileDiagnostic(

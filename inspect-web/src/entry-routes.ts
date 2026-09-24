@@ -4,6 +4,7 @@ export const ROUTED_ENTRY_PATHS = {
   demos: "/demos",
   diagnostics: "/diagnostics",
   packageQuery: "/query",
+  typeExplorer: "/type-explorer",
 } as const;
 
 export const ENTRY_DOCUMENT_PATHS = [
@@ -14,6 +15,7 @@ export const ENTRY_DOCUMENT_PATHS = [
   ROUTED_ENTRY_PATHS.demos,
   ROUTED_ENTRY_PATHS.diagnostics,
   ROUTED_ENTRY_PATHS.packageQuery,
+  ROUTED_ENTRY_PATHS.typeExplorer,
 ] as const;
 
 export function isRoutedEntryPath(

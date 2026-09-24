@@ -164,6 +164,24 @@ public enum ApiTypeInventoryKind
     Delegate,
 }
 
+/// <summary>Selectable sets of compact public API Type kinds.</summary>
+[Flags]
+public enum ApiTypeInventoryKinds
+{
+    None = 0,
+    Classes = 1 << 0,
+    Structs = 1 << 1,
+    Interfaces = 1 << 2,
+    Enums = 1 << 3,
+    Delegates = 1 << 4,
+    All =
+        Classes
+        | Structs
+        | Interfaces
+        | Enums
+        | Delegates,
+}
+
 /// <summary>Exact cardinality of the compact public Type inventory, grouped by Type kind.</summary>
 public sealed record ApiTypeInventoryCount(
     Guid ModuleVersionId,
