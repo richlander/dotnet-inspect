@@ -135,6 +135,11 @@ continues through its established namespace-prefix and similarity behavior.
 Explicit source selection remains authoritative and never gains an implicit
 package observation.
 
+Locator-backed exact namespace rows restore caller source order before
+eliminating repeated Type identities within one logical source. Repeated
+versions of one package ID therefore retain the caller-first observation,
+while package and Platform observations remain distinct.
+
 For a direct miss, namespace-prefix and similarity work remains CLI-owned.
 Prefix fallback is issued as a separate `<pattern>*` locator request. A
 successful prefix answer settles that pattern without issuing or retaining a

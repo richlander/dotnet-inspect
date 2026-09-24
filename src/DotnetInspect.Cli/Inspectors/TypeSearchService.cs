@@ -379,12 +379,9 @@ internal static class TypeSearchService
                     out List<TypeSearchResult>? namespaceCandidates))
             {
                 IEnumerable<TypeSearchResult> exactNamespace =
-                    InFindSourceOrder(namespaceCandidates)
-                        .Where(candidate =>
-                            string.Equals(
-                                candidate.Namespace,
-                                pattern,
-                                StringComparison.Ordinal));
+                    ExactNamespaceCandidates(
+                        pattern,
+                        InFindSourceOrder(namespaceCandidates));
                 if (options.Limit is { } namespaceLimit)
                     exactNamespace = exactNamespace.Take(namespaceLimit);
                 List<TypeSearchResult> selected =
@@ -1342,7 +1339,25 @@ internal static class TypeSearchService
                     candidate.Namespace,
                     pattern,
                     StringComparison.Ordinal))
+                .DistinctBy(static candidate =>
+                    (
+                        candidate.FullName,
+                        ExactNamespaceSourceIdentity(candidate)))
             : [];
+
+    private static string ExactNamespaceSourceIdentity(
+        TypeSearchResult candidate) =>
+        candidate.Location?.Observation.Realization switch
+        {
+            TypeDeclarationLocatorRealization.PackageRealization package =>
+                $"package:{package.PackageId.ToUpperInvariant()}",
+            TypeDeclarationLocatorRealization.PlatformRealization platform =>
+                $"platform:{platform.Family}",
+            _ when candidate.Location is { } location =>
+                $"context:{location.Observation.ContextOrder}",
+            _ =>
+                $"compatibility:{candidate.Source?.ToUpperInvariant()}",
+        };
 
     /// <summary>
     /// Converts separate result dictionaries into a unified flat list of TypeFindResult.
