@@ -1,9 +1,11 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
+using ILInspector.Analysis.ClassicAsyncFixtures;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -232,6 +234,270 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 maximumEncodedIlBytes: 1,
                 maximumAttributionProbeBodies: 1,
                 maximumAttributionProbeIlBytes: 1));
+        Assert.Throws<ArgumentException>(
+            () => LibraryBodyAnalysisRequest
+                .CreateImplementationMetrics(
+                    ImplementationMetricEvidenceKind.BodySize,
+                    limits,
+                    new HashSet<int>()));
+        Assert.False(
+            new ImplementationMetricWorkLimits(
+                int.MaxValue,
+                long.MaxValue,
+                int.MaxValue,
+                long.MaxValue)
+            .IsLegacyUnbounded);
+        Assert.Throws<ArgumentException>(
+            () => ImplementationMetricAnalysisPlan.Create(
+                new(
+                    ImplementationMetricEvidenceKind.BodySize,
+                    ImplementationMetricWorkLimits
+                        .LegacyUnbounded,
+                    ImplementationMetricRequestOrigin.Explicit)));
+    }
+
+    [Fact]
+    public void MetricWorkBounds_StopAtPhysicalBodyLimit()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        int[] tokens = ManagedMethodTokens(path)
+            .Take(2)
+            .ToArray();
+        Assert.Equal(2, tokens.Length);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: int.MaxValue,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        tokens.ToHashSet()));
+
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(1, work.MetricBodies);
+        Assert.True(work.MetricIlBytes > 0);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind.PhysicalBodies,
+            work.MetricExhaustedLimit);
+        Assert.Equal(tokens[1], work.MetricExhaustedMethodToken);
+        Assert.Contains(
+            execution.ImplementationProfiles.Profiles,
+            profile =>
+                profile.EvidenceMethod.MetadataToken == tokens[0]);
+        ImplementationProfileUnavailableBody unavailable =
+            Assert.Single(
+                execution.ImplementationProfiles.Coverage
+                    .UnavailableBodies,
+                body => body.MethodToken == tokens[1]);
+        Assert.Equal(
+            ImplementationProfileUnavailableReason.AnalysisFailed,
+            unavailable.Reason);
+        Assert.Contains(
+            "physical-body limit",
+            unavailable.Diagnostic!.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MetricWorkBounds_DoNotChargeBodylessMethods()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures)
+                .Assembly.Location;
+        int bodylessToken = BodylessMethodToken(path);
+        int managedToken = MethodToken(
+            path,
+            nameof(OptimizationOpportunityFixtures),
+            nameof(OptimizationOpportunityFixtures
+                .ReadWithoutCompatibleAsyncSibling),
+            MethodAttributes.Public);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: int.MaxValue,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        new HashSet<int>
+                        {
+                            bodylessToken,
+                            managedToken,
+                        }));
+
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(1, work.MetricBodies);
+        Assert.Null(work.MetricExhaustedLimit);
+        Assert.Contains(
+            execution.ImplementationProfiles.Profiles,
+            profile =>
+                profile.EvidenceMethod.MetadataToken
+                    == managedToken);
+    }
+
+    [Fact]
+    public void MetricWorkBounds_StopAtEncodedIlLimit()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        int token = ManagedMethodTokens(path)[0];
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: 1,
+            maximumAttributionProbeBodies: int.MaxValue,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        new HashSet<int> { token }));
+
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(0, work.MetricBodies);
+        Assert.Equal(0, work.MetricIlBytes);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind.EncodedIlBytes,
+            work.MetricExhaustedLimit);
+        Assert.Equal(token, work.MetricExhaustedMethodToken);
+        ImplementationProfileUnavailableBody unavailable =
+            Assert.Single(
+                execution.ImplementationProfiles.Coverage
+                    .UnavailableBodies,
+                body => body.MethodToken == token);
+        Assert.Contains(
+            "encoded-IL-byte limit",
+            unavailable.Diagnostic!.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MetricWorkBounds_StopAtAttributionProbeIlLimit()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        int token = MethodToken(
+            path,
+            nameof(ClassicAsyncSiblingFixture),
+            nameof(ClassicAsyncSiblingFixture
+                .ScopedAsyncLocalOwner),
+            MethodAttributes.Assembly);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 100,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: 100,
+            maximumAttributionProbeIlBytes: 1);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        new HashSet<int> { token }));
+
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(1, work.AttributionProbeBodies);
+        Assert.Equal(0, work.AttributionProbeIlBytes);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind
+                .AttributionProbeIlBytes,
+            work.AttributionExhaustedLimit);
+        Assert.NotNull(work.AttributionExhaustedMethodToken);
+        Assert.Contains(
+            execution.Receipt.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "attribution-probe encoded-IL-byte limit",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void
+        MetricWorkBounds_RetainMappingsBeforeAttributionBodyLimit()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures)
+                .Assembly.Location;
+        int ownerToken = MethodToken(
+            path,
+            nameof(OptimizationOpportunityFixtures),
+            nameof(OptimizationOpportunityFixtures
+                .MultipleLiftedFunctions),
+            MethodAttributes.Public);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 10,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution Execute() =>
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        new HashSet<int> { ownerToken }));
+        LibraryBodyAnalysisExecution execution = Execute();
+        LibraryBodyAnalysisExecution repeated = Execute();
+
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        ImplementationMetricWorkBudgetSnapshot repeatedWork =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                repeated.ImplementationMetricWork);
+        Assert.Equal(1, work.AttributionProbeBodies);
+        Assert.True(work.AttributionProbeIlBytes > 0);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind
+                .AttributionProbeBodies,
+            work.AttributionExhaustedLimit);
+        Assert.Equal(work, repeatedWork);
+        Assert.Equal(
+            execution.ImplementationProfiles.Profiles,
+            repeated.ImplementationProfiles.Profiles);
+        Assert.True(
+            execution.ImplementationProfiles.Profiles.Count(
+                profile =>
+                    profile.Method.MetadataToken == ownerToken
+                    && profile.EvidenceMethod.MetadataToken
+                        != ownerToken)
+            >= 2);
+        Assert.Contains(
+            execution.Receipt.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "attribution-probe body limit",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -552,6 +818,66 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .GeneratedFrameworkTypes.SetEquals(
                     index.GeneratedFrameworkTypes));
+    }
+
+    static ImmutableArray<int> ManagedMethodTokens(
+        string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        return
+        [
+            .. reader.MethodDefinitions
+                .Where(handle =>
+                    reader.GetMethodDefinition(handle)
+                        .RelativeVirtualAddress != 0)
+                .Select(static handle =>
+                    MetadataTokens.GetToken(handle)),
+        ];
+    }
+
+    static int BodylessMethodToken(
+        string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle handle =
+            reader.MethodDefinitions.First(candidate =>
+                reader.GetMethodDefinition(candidate)
+                    .RelativeVirtualAddress == 0);
+        return MetadataTokens.GetToken(handle);
+    }
+
+    static int MethodToken(
+        string path,
+        string typeName,
+        string methodName,
+        MethodAttributes accessibility)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(definition =>
+                reader.StringComparer.Equals(
+                    definition.Name,
+                    typeName));
+        MethodDefinitionHandle handle = type.GetMethods()
+            .Single(candidate =>
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(candidate);
+                return reader.StringComparer.Equals(
+                        method.Name,
+                        methodName)
+                    && (method.Attributes
+                            & MethodAttributes.MemberAccessMask)
+                        == accessibility;
+            });
+        return MetadataTokens.GetToken(handle);
     }
 
     static int ReplaceMethodCodeSizeWithInvalidValue(
