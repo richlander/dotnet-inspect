@@ -703,7 +703,7 @@ test("moving between members keeps sections sticky without activating a new prof
     ?? "";
   assert.match(
     selectEntryBody,
-    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);[\s\S]*state\.memberSection === "implementation-profiles"[\s\S]*loadMemberSectionContent\(state\.memberSection\);[\s\S]*else\s*render\(\)/);
 });
 
 test("every overload-specific member loader leaves a multi-overload picker inert", () => {

@@ -6387,7 +6387,10 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
       } else {
         state.selectedOverloadIndex = null;
         clearMemberContentCache();
-        render();
+        if (state.memberSection === "implementation-profiles")
+          loadMemberSectionContent(state.memberSection);
+        else
+          render();
       }
     } else {
       openMemberGroup(entry.group.key);

@@ -209,6 +209,23 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
     name: "Example.Widget.Run",
   })).toBeVisible();
 
+  await page.locator('[data-nav-overload="0"]').click();
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "2",
+  );
+  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "2",
+  );
+  await expect(page.getByRole("heading", {
+    name: "Example.Widget.Run",
+  })).toBeVisible();
+  await expect(
+    page.locator(".implementation-profile-physical-row"),
+  ).toHaveCount(3);
+
   await chooseInspector(
     page,
     "data-member-section",
