@@ -92,6 +92,7 @@ public static class LibraryInspectionOperation
                 Count(
                     correspondence.Inventory,
                     request.Plan.Types.DeclarationSelection,
+                    request.Plan.Types.DefinitionKinds,
                     request.Plan.Bounds,
                     cancellationToken);
             diagnostics.AddRange(countDiagnostics);
@@ -243,7 +244,8 @@ public static class LibraryInspectionOperation
         var binding = new LibraryTypePopulationBinding(
             subject.ModuleVersionId,
             request.Plan.Types.Accessibility,
-            request.Plan.Types.DeclarationSelection);
+            request.Plan.Types.DeclarationSelection,
+            request.Plan.Types.DefinitionKinds);
         var document = new LibraryDocument(
             portableIdentity,
             subject.ModuleVersionId,
@@ -307,6 +309,7 @@ public static class LibraryInspectionOperation
                                 correspondence.ModuleVersionId,
                                 population.Accessibility,
                                 population.DeclarationSelection,
+                                population.DefinitionKinds,
                                 request.Ordering,
                                 request.MemberCount is not null,
                                 next)
@@ -520,6 +523,7 @@ public static class LibraryInspectionOperation
         Count(
             AssemblyTypeDeclarationInventory inventory,
             LibraryTypeDeclarationSelection selection,
+            ApiTypeInventoryKinds definitionKinds,
             ApiSurfaceExtractionBounds bounds,
             CancellationToken cancellationToken)
     {
@@ -537,8 +541,15 @@ public static class LibraryInspectionOperation
             switch (declaration.Kind)
             {
                 case AssemblyTypeDeclarationKind.Definition:
-                    if (!IncludesDefinitions(selection))
+                    if (!IncludesDefinitions(selection)
+                        || !IncludesDefinitionKind(
+                            definitionKinds,
+                            declaration.DefinitionKind
+                            ?? throw new InvalidOperationException(
+                                "A Type definition declaration omitted its kind.")))
+                    {
                         break;
+                    }
                     switch (
                         declaration.DefinitionKind
                         ?? throw new InvalidOperationException(
@@ -572,7 +583,9 @@ public static class LibraryInspectionOperation
                     {
                         if (selection
                             != LibraryTypeDeclarationSelection
-                                .DefinitionsAndForwarders)
+                                .DefinitionsAndForwarders
+                            || definitionKinds
+                                != ApiTypeInventoryKinds.All)
                         {
                             break;
                         }
@@ -660,6 +673,8 @@ public static class LibraryInspectionOperation
         if (payload.Accessibility != population.Accessibility
             || payload.DeclarationSelection
                 != population.DeclarationSelection
+            || payload.DefinitionKinds
+                != population.DefinitionKinds
             || payload.Ordering != rows.Ordering
             || payload.IncludeMemberCount
                 != (rows.MemberCount is not null))
@@ -691,7 +706,9 @@ public static class LibraryInspectionOperation
                         population.DeclarationSelection),
                 includeForwarders:
                     IncludesForwarders(
-                        population.DeclarationSelection));
+                        population.DeclarationSelection),
+                definitionKinds:
+                    population.DefinitionKinds);
     }
 
     private static LibraryTypePopulationRowsRejection?
@@ -711,13 +728,14 @@ public static class LibraryInspectionOperation
         Guid moduleVersionId,
         LibraryTypeAccessibility accessibility,
         LibraryTypeDeclarationSelection declarationSelection,
+        ApiTypeInventoryKinds definitionKinds,
         LibraryTypePopulationOrdering ordering,
         bool includeMemberCount,
         int nextOrdinal)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(nextOrdinal);
-        Span<byte> payload = stackalloc byte[25];
-        payload[0] = 2;
+        Span<byte> payload = stackalloc byte[26];
+        payload[0] = 3;
         if (!moduleVersionId.TryWriteBytes(payload[1..17]))
         {
             throw new InvalidOperationException(
@@ -725,10 +743,11 @@ public static class LibraryInspectionOperation
         }
         payload[17] = checked((byte)accessibility);
         payload[18] = checked((byte)declarationSelection);
-        payload[19] = checked((byte)ordering);
-        payload[20] = includeMemberCount ? (byte)1 : (byte)0;
+        payload[19] = checked((byte)definitionKinds);
+        payload[20] = checked((byte)ordering);
+        payload[21] = includeMemberCount ? (byte)1 : (byte)0;
         BinaryPrimitives.WriteInt32LittleEndian(
-            payload[21..25],
+            payload[22..26],
             nextOrdinal);
         return new(
             new InertString(
@@ -741,14 +760,14 @@ public static class LibraryInspectionOperation
         out ContinuationPayload payload)
     {
         payload = default;
-        Span<byte> bytes = stackalloc byte[25];
+        Span<byte> bytes = stackalloc byte[26];
         if (!Convert.TryFromBase64String(
                 continuation.Value.ToString(),
                 bytes,
                 out int written)
             || written != bytes.Length
-            || bytes[0] != 2
-            || bytes[20] > 1)
+            || bytes[0] != 3
+            || bytes[21] > 1)
         {
             return false;
         }
@@ -757,13 +776,19 @@ public static class LibraryInspectionOperation
             (LibraryTypeAccessibility)bytes[17];
         var declarationSelection =
             (LibraryTypeDeclarationSelection)bytes[18];
+        var definitionKinds =
+            (ApiTypeInventoryKinds)bytes[19];
         var ordering =
-            (LibraryTypePopulationOrdering)bytes[19];
+            (LibraryTypePopulationOrdering)bytes[20];
         int nextOrdinal =
-            BinaryPrimitives.ReadInt32LittleEndian(bytes[21..25]);
+            BinaryPrimitives.ReadInt32LittleEndian(
+                bytes[22..26]);
         if (!Enum.IsDefined(accessibility)
             || !Enum.IsDefined(declarationSelection)
             || !Enum.IsDefined(ordering)
+            || !IsValidDefinitionKinds(
+                declarationSelection,
+                definitionKinds)
             || nextOrdinal < 0)
         {
             return false;
@@ -773,8 +798,9 @@ public static class LibraryInspectionOperation
             new Guid(bytes[1..17]),
             accessibility,
             declarationSelection,
+            definitionKinds,
             ordering,
-            bytes[20] == 1,
+            bytes[21] == 1,
             nextOrdinal);
         return payload.ModuleVersionId != Guid.Empty;
     }
@@ -826,6 +852,7 @@ public static class LibraryInspectionOperation
         Guid ModuleVersionId,
         LibraryTypeAccessibility Accessibility,
         LibraryTypeDeclarationSelection DeclarationSelection,
+        ApiTypeInventoryKinds DefinitionKinds,
         LibraryTypePopulationOrdering Ordering,
         bool IncludeMemberCount,
         int NextOrdinal);
@@ -839,6 +866,55 @@ public static class LibraryInspectionOperation
         LibraryTypeDeclarationSelection selection) =>
         selection is LibraryTypeDeclarationSelection.Forwarders
             or LibraryTypeDeclarationSelection.DefinitionsAndForwarders;
+
+    private static bool IncludesDefinitionKind(
+        ApiTypeInventoryKinds selection,
+        AssemblyTypeDefinitionKind kind) =>
+        kind switch
+        {
+            AssemblyTypeDefinitionKind.Class =>
+                (selection
+                    & ApiTypeInventoryKinds.Classes)
+                != 0,
+            AssemblyTypeDefinitionKind.ValueType =>
+                (selection
+                    & ApiTypeInventoryKinds.Structs)
+                != 0,
+            AssemblyTypeDefinitionKind.Interface =>
+                (selection
+                    & ApiTypeInventoryKinds.Interfaces)
+                != 0,
+            AssemblyTypeDefinitionKind.Enum =>
+                (selection
+                    & ApiTypeInventoryKinds.Enums)
+                != 0,
+            AssemblyTypeDefinitionKind.Delegate =>
+                (selection
+                    & ApiTypeInventoryKinds.Delegates)
+                != 0,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown Type definition kind."),
+        };
+
+    private static bool IsValidDefinitionKinds(
+        LibraryTypeDeclarationSelection declarationSelection,
+        ApiTypeInventoryKinds definitionKinds)
+    {
+        if ((definitionKinds
+                & ~ApiTypeInventoryKinds.All)
+            != 0)
+        {
+            return false;
+        }
+
+        return IncludesDefinitions(declarationSelection)
+            ? definitionKinds
+                != ApiTypeInventoryKinds.None
+            : definitionKinds
+                == ApiTypeInventoryKinds.None;
+    }
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Rejected(
         LibraryTypeDeclarationInventoryInspectionRejectionKind rejection)
