@@ -132,7 +132,10 @@ positive witness was complete. Operation completeness remains separate:
 `NotRequested`, `TraversalBoundary`, `IncompleteCorrespondence`,
 `BodyUnavailable`, `AnalysisFailure`, `WitnessBudget`, and `PathBudget` are
 independent limits. A positive witness remains valid when another path or
-unrelated body is incomplete.
+unrelated body is incomplete. A method-associated Resource Occurrence
+limitation therefore cannot suppress resource-neutral forwarding or storage
+evidence from another decoded method; only an operation-wide limitation with
+no method association can make an otherwise unaffected summary unavailable.
 
 ## Bounds and progression
 

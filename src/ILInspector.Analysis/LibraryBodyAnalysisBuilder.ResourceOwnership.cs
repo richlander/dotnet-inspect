@@ -30,8 +30,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     context.Method.MetadataToken,
                     out ResourceOccurrenceAnalysisResult? occurrences))
             {
-                if (analysis.ResourceOccurrences is not
-                    { Limitations.IsEmpty: true })
+                if (analysis.ResourceOccurrences is not { } occurrenceLibrary
+                    || occurrenceLibrary.Limitations.Any(
+                        static limitation => limitation.Method is null))
                 {
                     summaries.Add(
                         ResourceOwnershipSummaryAnalysis.Unavailable(

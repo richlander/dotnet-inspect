@@ -1241,6 +1241,85 @@ public sealed class MemberCallGraphSessionTests
                 AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
     }
 
+    [Fact]
+    public async Task OwnershipStoredWitnessSurvivesUnrelatedResolutionFailure()
+    {
+        (ResourceOwnershipPathInspection Baseline,
+            MemberCallGraphView BaselineView) =
+            await Inspect(OwnershipIsolationAdmission());
+        (ResourceOwnershipPathInspection WithUnrelated,
+            MemberCallGraphView WithUnrelatedView) =
+            await Inspect(
+                OwnershipIsolationAdmission(
+                    includeUnrelatedFailure: true));
+
+        Finding<ResourceOwnershipPathWitness>[] expected =
+            [.. Baseline.Findings];
+        Assert.Single(expected);
+        Assert.All(
+            expected,
+            finding =>
+            {
+                Assert.Equal(
+                    ResourceOwnershipPathOutcome.Stored,
+                    finding.Payload.Outcome);
+                Assert.True(finding.Payload.IsComplete);
+                Assert.Single(finding.Payload.Steps);
+            });
+        Assert.False(
+            Baseline.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+        Assert.True(BaselineView.ResourceOwnershipPublicationComplete);
+
+        Assert.Equal(
+            expected.Select(finding => finding.Key),
+            WithUnrelated.Findings.Select(finding => finding.Key));
+        Assert.All(
+            WithUnrelated.Findings,
+            finding =>
+            {
+                Assert.Equal(
+                    ResourceOwnershipPathOutcome.Stored,
+                    finding.Payload.Outcome);
+                Assert.True(finding.Payload.IsComplete);
+                Assert.Single(finding.Payload.Steps);
+            });
+        Assert.True(
+            WithUnrelated.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+        Assert.False(WithUnrelatedView.ResourceOwnershipPublicationComplete);
+
+        async Task<(
+            ResourceOwnershipPathInspection Inspection,
+            MemberCallGraphView View)> Inspect(
+                Analysis.ResourceEffectAdmission admission)
+        {
+            await using GraphContext context =
+                GraphContext.Create(OwnershipPath, TargetPath);
+            using var graph = new MemberCallGraphSession(
+                context.Group,
+                context.Sources[0].Assembly,
+                MemberToken(
+                    OwnershipPath,
+                    "Entry",
+                    "ExerciseOwnershipIsolation"),
+                new MemberCallGraphOptions
+                {
+                    Features =
+                        Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+                    ResourceEffects = admission,
+                });
+            MemberCallGraphView view = graph.Callers();
+            ResourceOwnershipPathInspection inspection =
+                ResourceOwnershipPathFindings.Inspect(
+                    view,
+                    CallGraphProjection.Create(
+                        view.CallerRoot,
+                        view.CalleeRoot));
+            return (inspection, view);
+        }
+    }
+
     [Theory]
     [InlineData("RentWithMethodGroup")]
     [InlineData("RentWithFunctionPointer")]
@@ -2732,6 +2811,96 @@ public sealed class MemberCallGraphSessionTests
                 outcome).Admission;
     }
 
+    static Analysis.ResourceEffectAdmission OwnershipIsolationAdmission(
+        bool includeUnrelatedFailure = false)
+    {
+        var model =
+            new Analysis.ResourceEffectModelIdentity(
+                "test.generic-research-ownership.isolation");
+        var kind =
+            new Analysis.ResourceKindIdentity(
+                "test.generic-research-ownership.isolation-token");
+        Analysis.ResourceTypeExpression.Named entry =
+            FixtureEntryType();
+        Analysis.ResourceTypeExpression.Named token =
+            FixtureOwnershipTokenType();
+        var resource = new Analysis.ResourceKindReference(kind, []);
+        var definition =
+            new Analysis.ResourceEffectModelDefinition(
+                Analysis.ResourceEffectLanguageIdentity.Version1,
+                model,
+                [
+                    new Analysis.ResourceKindDefinition(
+                        kind,
+                        arity: 0,
+                        [Provenance(model, 0)]),
+                ],
+                [],
+                [
+                    Declaration(
+                        model,
+                        entry,
+                        "AcquireOwnershipToken",
+                        [],
+                        token,
+                        new Analysis.ResourceEffect.Acquire(
+                            resource,
+                            new Analysis.ResourceEffectLocation.Return(),
+                            new Analysis.ResourceEffectCompletion.NormalReturn(),
+                            Correspondence: null,
+                            Lender: null),
+                        1),
+                ]);
+        var conflictOrdinary =
+            new Analysis.ResourceEffectModelIdentity(
+                "test.generic-research-ownership.isolation-conflict-ordinary");
+        var conflictTransparent =
+            new Analysis.ResourceEffectModelIdentity(
+                "test.generic-research-ownership.isolation-conflict-transparent");
+        Analysis.ResourceEffectModelDefinition Conflict(
+            Analysis.ResourceEffectModelIdentity conflictModel,
+            Analysis.ResourceOperationBoundary boundary) =>
+            new(
+                Analysis.ResourceEffectLanguageIdentity.Version1,
+                conflictModel,
+                [],
+                [],
+                [
+                    Declaration(
+                        conflictModel,
+                        entry,
+                        "ObserveResource",
+                        [
+                            new Analysis.ResourceTypeExpression.SzArray(
+                                CoreType("Byte")),
+                        ],
+                        CoreType("Void"),
+                        new Analysis.ResourceEffect.Operation(
+                            boundary,
+                            Analysis.ResourceOperationThrows.Possible,
+                            Guard: null),
+                        0),
+                ]);
+        ImmutableArray<Analysis.ResourceEffectModelDefinition> definitions =
+            includeUnrelatedFailure
+                ?
+                [
+                    definition,
+                    Conflict(
+                        conflictOrdinary,
+                        Analysis.ResourceOperationBoundary.Ordinary),
+                    Conflict(
+                        conflictTransparent,
+                        Analysis.ResourceOperationBoundary.Transparent),
+                ]
+                : [definition];
+        Analysis.ResourceEffectAdmissionOutcome outcome =
+            Analysis.ResourceEffectAdmissionBuilder.Admit(definitions);
+        return Assert.IsType<
+            Analysis.ResourceEffectAdmissionOutcome.Admitted>(
+                outcome).Admission;
+    }
+
     static Analysis.ResourceEffectAdmission CrossParticipantAcquisition()
     {
         var model =
@@ -2838,6 +3007,16 @@ public sealed class MemberCallGraphSessionTests
                 Analysis.ResourceAssemblyVersionPolicy.Any),
             "Ownership",
             [new Analysis.ResourceTypeNameSegment("TrackedResource", 0)]);
+
+    static Analysis.ResourceTypeExpression.Named
+        FixtureOwnershipTokenType() =>
+        new(
+            new Analysis.ResourceAssemblySelector(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                publicKeyToken: null,
+                Analysis.ResourceAssemblyVersionPolicy.Any),
+            "Ownership",
+            [new Analysis.ResourceTypeNameSegment("OwnershipToken", 0)]);
 
     static Analysis.ResourceTypeExpression.Named CoreType(string name) =>
         new(

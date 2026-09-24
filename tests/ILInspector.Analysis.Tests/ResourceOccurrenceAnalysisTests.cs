@@ -623,6 +623,15 @@ public sealed class ResourceOccurrenceAnalysisTests
                 && limitation.Message.Contains(
                     "conflict",
                     StringComparison.Ordinal));
+        ResourceOwnershipMethodSummary unaffected =
+            Assert.Single(
+                execution.ResourceOwnership.Methods,
+                summary => summary.Method.Name == "StoreRentedArray");
+        Assert.True(unaffected.IsComplete);
+        Assert.Contains(
+            Assert.Single(unaffected.Parameters).Uses,
+            use => use.Kind == ResourceOwnershipUseKind.Stored);
+        Assert.False(execution.ResourceOwnership.IsComplete);
     }
 
     [Fact]

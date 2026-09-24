@@ -434,6 +434,7 @@ public static class Entry
 
     static byte[]? s_rentedArray;
     static object? s_resource;
+    static OwnershipToken? s_ownershipToken;
     static int s_ownershipProbe;
     static readonly Exception s_lifecycleException =
         new InvalidOperationException();
@@ -701,6 +702,21 @@ public static class Entry
         StoreResource(resource);
     }
 
+    public static void ExerciseOwnershipIsolation()
+    {
+        OwnershipToken resource = AcquireOwnershipToken();
+        try
+        {
+            ForwardOwnershipToken(resource);
+        }
+        finally
+        {
+            ++s_ownershipProbe;
+        }
+
+        System.GC.KeepAlive(resource);
+    }
+
     public static void ExerciseTrackedResourceMutation()
     {
         TrackedResource resource = AcquireTrackedResource<int>();
@@ -744,6 +760,12 @@ public static class Entry
 
     static object AcquirePair<TFirst, TSecond>() =>
         new();
+
+    static OwnershipToken AcquireOwnershipToken() =>
+        new();
+
+    static void ForwardOwnershipToken(OwnershipToken resource) =>
+        s_ownershipToken = resource;
 
     static void KeepLocal<T>(ref T resource)
     {
