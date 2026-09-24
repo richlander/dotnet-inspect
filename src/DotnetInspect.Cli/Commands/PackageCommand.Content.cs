@@ -354,8 +354,7 @@ public partial class PackageCommand
             return null;
         }
 
-        if (await PackageToolDeclarationEvidence.TryCreateAsync(
-                settlement.Payload).ConfigureAwait(false) is not null)
+        if (MayRequireLegacyToolWrapperHandling(settlement.Payload.Content))
         {
             return null;
         }
@@ -411,6 +410,31 @@ public partial class PackageCommand
         ContainmentDiagnosticOutput.Write(content.SelectedContent);
         WritePackageFileExport(content, destination);
         return 0;
+    }
+
+    private static bool MayRequireLegacyToolWrapperHandling(
+        IPackageContent content)
+    {
+        bool hasToolSettings = false;
+        foreach (string entry in content.EnumerateEntries())
+        {
+            if (entry.EndsWith(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase)
+                && !entry.EndsWith(
+                    ".resources.dll",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            int fileNameStart = entry.LastIndexOfAny('/', '\\') + 1;
+            hasToolSettings |= entry.AsSpan(fileNameStart).Equals(
+                "DotnetToolSettings.xml",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return hasToolSettings;
     }
 
     private static void CleanupPackageExtraction(

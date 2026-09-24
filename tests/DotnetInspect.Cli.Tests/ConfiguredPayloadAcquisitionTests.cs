@@ -174,13 +174,23 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
 
-    [Fact]
-    public async Task PackageCommand_ExactDocumentExportPreservesToolWrapperRedirect()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageCommand_ExactDocumentExportPreservesToolWrapperRedirect(
+        bool declaresPackageType)
     {
         string wrapperId = $"Pinned.DocumentWrapper.{Guid.NewGuid():N}";
         string payloadId = $"{wrapperId}.Payload";
         string source = Path.Combine(_root, "document-wrapper-feed");
         Directory.CreateDirectory(source);
+        string packageTypes = declaresPackageType
+            ? """
+                      <packageTypes>
+                        <packageType name="DotnetTool" />
+                      </packageTypes>
+              """
+            : "";
         File.WriteAllBytes(
             Path.Combine(
                 source,
@@ -195,9 +205,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                       <authors>Payload tests</authors>
                       <description>Tool wrapper</description>
                       <readme>README.md</readme>
-                      <packageTypes>
-                        <packageType name="DotnetTool" />
-                      </packageTypes>
+                      {packageTypes}
                     </metadata></package>
                     """));
         File.WriteAllBytes(
