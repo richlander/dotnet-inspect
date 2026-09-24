@@ -407,6 +407,11 @@ public static class InspectionCommandDefinitions
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
+        var namespaceOption = new Option<string?>("--namespace")
+        {
+            Description =
+                "Select the exact namespace in a host-neutral Library inspection envelope",
+        };
         var metadataRootOption = new Option<string?>("--metadata-root")
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
@@ -439,6 +444,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
+        assemblyCommand.Options.Add(namespaceOption);
         assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
@@ -500,7 +506,15 @@ public static class InspectionCommandDefinitions
                     "--compact requires library --envelope.");
             }
             if (!result.GetValue(opts.Envelope))
+            {
+                if (result.GetResult(namespaceOption)
+                    is { Implicit: false })
+                {
+                    result.AddError(
+                        "library --namespace currently requires --envelope.");
+                }
                 return;
+            }
 
             if (result.GetResult(opts.Select)
                 is { Implicit: false })
@@ -856,6 +870,8 @@ public static class InspectionCommandDefinitions
                 Tfm = parseResult.GetValue(asmTfmOption),
                 IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
+                TypeNamespace =
+                    parseResult.GetValue(namespaceOption),
                 MetadataRoot = metadataRoot,
                 PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,

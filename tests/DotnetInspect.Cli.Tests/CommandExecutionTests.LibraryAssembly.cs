@@ -303,6 +303,81 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Library_DirectEnvelope_ExactNamespaceBindsTypeCount()
+    {
+        const string Namespace = "DotnetInspect.Cli.Tests";
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--compact",
+            "--namespace",
+            Namespace,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement types =
+            json.RootElement.GetProperty("content")
+                .GetProperty("document")
+                .GetProperty("types");
+        Assert.Equal(
+            Namespace,
+            types.GetProperty("binding")
+                .GetProperty("namespace")
+                .GetString());
+        Assert.True(
+            types.GetProperty("count")
+                .GetProperty("total")
+                .GetInt32()
+            > 0);
+    }
+
+    [Fact]
+    public async Task Library_NamespaceRequiresHostNeutralEnvelope()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--namespace",
+            "DotnetInspect.Cli.Tests",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--namespace currently requires --envelope",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Library_DirectEnvelope_RejectsOversizedNamespace()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--namespace",
+            new string(
+                'N',
+                MetadataSafetyPolicy.MaxTypeNameCharacters + 1),
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "namespace cannot exceed",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Library_DirectEnvelope_OutPublishesAfterCompletion()
     {
         string outputPath =

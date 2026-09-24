@@ -165,6 +165,7 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         bool emptyModuleVersionId = false,
         bool malformedPublicType = false,
         bool includeModuleExport = false,
+        bool includeGlobalType = false,
         string metadataVersion = "v4.0.30319")
     {
         var metadata = new MetadataBuilder();
@@ -194,6 +195,18 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        if (includeGlobalType)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("GlobalProbe"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
         if (malformedPublicType)
         {
             metadata.AddTypeDefinition(

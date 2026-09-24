@@ -230,6 +230,18 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     public ImmutableArray<string> Segments { get; }
 
     /// <summary>
+    /// Tests exact namespace membership using metadata's ordinal identity.
+    /// </summary>
+    public bool IsInNamespace(string exactNamespace)
+    {
+        ArgumentNullException.ThrowIfNull(exactNamespace);
+        return string.Equals(
+            Namespace,
+            exactNamespace,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Projects this lookup name to the dotted spelling used by metadata
     /// search surfaces. The structured value remains authoritative for exact
     /// declaration lookup.

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Text;
 
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
@@ -14,9 +15,15 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class LibraryInspectionOperation
 {
+    private const byte ContinuationVersion = 4;
+    private const int ContinuationHeaderLength = 27;
     private const string SharePath = "library-inspection/share";
     private const string ShareReason =
         "A complete portable Workspace scenario was not supplied.";
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
 
     public static InspectionEnvelope<LibraryInspectionOutcome> Execute(
         LibraryInspectionRequest request,
@@ -93,6 +100,7 @@ public static class LibraryInspectionOperation
                     correspondence.Inventory,
                     request.Plan.Types.DeclarationSelection,
                     request.Plan.Types.DefinitionKinds,
+                    request.Plan.Types.Namespace,
                     request.Plan.Bounds,
                     cancellationToken);
             diagnostics.AddRange(countDiagnostics);
@@ -245,7 +253,8 @@ public static class LibraryInspectionOperation
             subject.ModuleVersionId,
             request.Plan.Types.Accessibility,
             request.Plan.Types.DeclarationSelection,
-            request.Plan.Types.DefinitionKinds);
+            request.Plan.Types.DefinitionKinds,
+            request.Plan.Types.Namespace);
         var document = new LibraryDocument(
             portableIdentity,
             subject.ModuleVersionId,
@@ -310,6 +319,7 @@ public static class LibraryInspectionOperation
                                 population.Accessibility,
                                 population.DeclarationSelection,
                                 population.DefinitionKinds,
+                                population.Namespace,
                                 request.Ordering,
                                 request.MemberCount is not null,
                                 next)
@@ -524,6 +534,7 @@ public static class LibraryInspectionOperation
             AssemblyTypeDeclarationInventory inventory,
             LibraryTypeDeclarationSelection selection,
             ApiTypeInventoryKinds definitionKinds,
+            string? @namespace,
             ApiSurfaceExtractionBounds bounds,
             CancellationToken cancellationToken)
     {
@@ -538,6 +549,11 @@ public static class LibraryInspectionOperation
             in inventory.GetDeclarations())
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (@namespace is not null
+                && !declaration.Name.IsInNamespace(@namespace))
+            {
+                continue;
+            }
             switch (declaration.Kind)
             {
                 case AssemblyTypeDeclarationKind.Definition:
@@ -589,6 +605,8 @@ public static class LibraryInspectionOperation
                         {
                             break;
                         }
+                        if (@namespace is not null)
+                            break;
                         const LibraryTypePopulationCountUnavailableReason
                             reason =
                                 LibraryTypePopulationCountUnavailableReason
@@ -675,6 +693,10 @@ public static class LibraryInspectionOperation
                 != population.DeclarationSelection
             || payload.DefinitionKinds
                 != population.DefinitionKinds
+            || !string.Equals(
+                payload.Namespace,
+                population.Namespace,
+                StringComparison.Ordinal)
             || payload.Ordering != rows.Ordering
             || payload.IncludeMemberCount
                 != (rows.MemberCount is not null))
@@ -708,7 +730,9 @@ public static class LibraryInspectionOperation
                     IncludesForwarders(
                         population.DeclarationSelection),
                 definitionKinds:
-                    population.DefinitionKinds);
+                    population.DefinitionKinds,
+                @namespace:
+                    population.Namespace);
     }
 
     private static LibraryTypePopulationRowsRejection?
@@ -729,14 +753,23 @@ public static class LibraryInspectionOperation
         LibraryTypeAccessibility accessibility,
         LibraryTypeDeclarationSelection declarationSelection,
         ApiTypeInventoryKinds definitionKinds,
+        string? @namespace,
         LibraryTypePopulationOrdering ordering,
         bool includeMemberCount,
         int nextOrdinal)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(nextOrdinal);
-        Span<byte> payload = stackalloc byte[26];
-        payload[0] = 3;
-        if (!moduleVersionId.TryWriteBytes(payload[1..17]))
+        int namespaceByteCount =
+            @namespace is null
+                ? 0
+                : StrictUtf8.GetByteCount(@namespace);
+        byte[] payload =
+            GC.AllocateUninitializedArray<byte>(
+                checked(
+                    ContinuationHeaderLength
+                    + namespaceByteCount));
+        payload[0] = ContinuationVersion;
+        if (!moduleVersionId.TryWriteBytes(payload.AsSpan(1, 16)))
         {
             throw new InvalidOperationException(
                 "The Library MVID could not be encoded.");
@@ -746,9 +779,16 @@ public static class LibraryInspectionOperation
         payload[19] = checked((byte)definitionKinds);
         payload[20] = checked((byte)ordering);
         payload[21] = includeMemberCount ? (byte)1 : (byte)0;
+        payload[22] = @namespace is null ? (byte)0 : (byte)1;
         BinaryPrimitives.WriteInt32LittleEndian(
-            payload[22..26],
+            payload.AsSpan(23, 4),
             nextOrdinal);
+        if (@namespace is not null)
+        {
+            StrictUtf8.GetBytes(
+                @namespace,
+                payload.AsSpan(ContinuationHeaderLength));
+        }
         return new(
             new InertString(
                 TextPolicy.Field,
@@ -760,14 +800,21 @@ public static class LibraryInspectionOperation
         out ContinuationPayload payload)
     {
         payload = default;
-        Span<byte> bytes = stackalloc byte[26];
-        if (!Convert.TryFromBase64String(
-                continuation.Value.ToString(),
-                bytes,
-                out int written)
-            || written != bytes.Length
-            || bytes[0] != 3
-            || bytes[21] > 1)
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(
+                continuation.Value.ToString());
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        if (bytes.Length < ContinuationHeaderLength
+            || bytes[0] != ContinuationVersion
+            || bytes[21] > 1
+            || bytes[22] > 1)
         {
             return false;
         }
@@ -782,7 +829,31 @@ public static class LibraryInspectionOperation
             (LibraryTypePopulationOrdering)bytes[20];
         int nextOrdinal =
             BinaryPrimitives.ReadInt32LittleEndian(
-                bytes[22..26]);
+                bytes.AsSpan(23, 4));
+        string? @namespace = null;
+        if (bytes[22] == 0)
+        {
+            if (bytes.Length != ContinuationHeaderLength)
+                return false;
+        }
+        else
+        {
+            try
+            {
+                @namespace = StrictUtf8.GetString(
+                    bytes.AsSpan(ContinuationHeaderLength));
+            }
+            catch (DecoderFallbackException)
+            {
+                return false;
+            }
+
+            if (@namespace.Length
+                > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            {
+                return false;
+            }
+        }
         if (!Enum.IsDefined(accessibility)
             || !Enum.IsDefined(declarationSelection)
             || !Enum.IsDefined(ordering)
@@ -799,6 +870,7 @@ public static class LibraryInspectionOperation
             accessibility,
             declarationSelection,
             definitionKinds,
+            @namespace,
             ordering,
             bytes[21] == 1,
             nextOrdinal);
@@ -853,6 +925,7 @@ public static class LibraryInspectionOperation
         LibraryTypeAccessibility Accessibility,
         LibraryTypeDeclarationSelection DeclarationSelection,
         ApiTypeInventoryKinds DefinitionKinds,
+        string? Namespace,
         LibraryTypePopulationOrdering Ordering,
         bool IncludeMemberCount,
         int NextOrdinal);
