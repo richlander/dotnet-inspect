@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -899,6 +900,28 @@ public sealed class CSharpDeclarationRepresentabilityTests
     }
 
     [Fact]
+    public void CDR005_InvalidAttributeConstructorTagIsUnavailable()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            refLikeMarker: RefLikeMarkerKind.InvalidConstructorTag);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        Assert.IsType<MetadataTypeDeclarationResult.Rejected>(
+            post.ContainingType);
+
+        var unavailable = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unavailable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+
+        Assert.Equal(
+            CSharpDeclarationUnavailableReason.ContainingTypeRejected,
+            unavailable.Reason);
+    }
+
+    [Fact]
     public void CDR004_ParameterSpellingProducesUniqueIdentifiers()
     {
         MetadataParameterMarkerEvidence markers =
@@ -1352,6 +1375,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
         None,
         NestedLookalike,
         UnresolvedOwner,
+        InvalidConstructorTag,
     }
 
     sealed class AuthoredFixture : IDisposable
@@ -1656,6 +1680,8 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     declaration);
             MemberReferenceHandle unresolvedAttributeConstructor =
                 default;
+            CustomAttributeHandle invalidAttributeConstructor =
+                default;
             if (refLikeMarker != RefLikeMarkerKind.None)
             {
                 EntityHandle constructorOwner;
@@ -1699,14 +1725,20 @@ public sealed class CSharpDeclarationRepresentabilityTests
                         metadata.GetOrAddString(".ctor"),
                         metadata.GetOrAddBlob(
                             constructorSignature));
-                metadata.AddCustomAttribute(
-                    target,
-                    constructor,
-                    AddBlob(metadata, 0x01, 0x00, 0x00, 0x00));
+                CustomAttributeHandle attribute =
+                    metadata.AddCustomAttribute(
+                        target,
+                        constructor,
+                        AddBlob(metadata, 0x01, 0x00, 0x00, 0x00));
                 if (refLikeMarker
                     == RefLikeMarkerKind.UnresolvedOwner)
                 {
                     unresolvedAttributeConstructor = constructor;
+                }
+                else if (refLikeMarker
+                    == RefLikeMarkerKind.InvalidConstructorTag)
+                {
+                    invalidAttributeConstructor = attribute;
                 }
             }
             int effectiveInterfaceArity =
@@ -1773,6 +1805,12 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 PatchMemberReferenceParentToNil(
                     image,
                     unresolvedAttributeConstructor);
+            }
+            if (!invalidAttributeConstructor.IsNil)
+            {
+                PatchCustomAttributeConstructorToInvalidTag(
+                    image,
+                    invalidAttributeConstructor);
             }
             File.WriteAllBytes(
                 path,
@@ -1933,6 +1971,43 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     ? sizeof(ushort)
                     : sizeof(uint);
             image.AsSpan(offset, parentIndexSize).Clear();
+        }
+
+        static void PatchCustomAttributeConstructorToInvalidTag(
+            byte[] image,
+            CustomAttributeHandle handle)
+        {
+            using var pe = new PEReader(
+                new MemoryStream(image, writable: false));
+            MetadataReader reader = pe.GetMetadataReader();
+            int rowOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.CustomAttribute)
+                + ((MetadataTokens.GetRowNumber(handle) - 1)
+                    * reader.GetTableRowSize(
+                        TableIndex.CustomAttribute));
+            int constructorIndexSize =
+                Math.Max(
+                    reader.GetTableRowCount(TableIndex.MethodDef),
+                    reader.GetTableRowCount(TableIndex.MemberRef))
+                    < (1 << (16 - 3))
+                        ? sizeof(ushort)
+                        : sizeof(uint);
+            int blobIndexSize =
+                reader.GetHeapSize(HeapIndex.Blob)
+                    > ushort.MaxValue
+                        ? sizeof(uint)
+                        : sizeof(ushort);
+            int parentIndexSize =
+                reader.GetTableRowSize(TableIndex.CustomAttribute)
+                - constructorIndexSize
+                - blobIndexSize;
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    rowOffset + parentIndexSize,
+                    sizeof(ushort)),
+                1);
         }
     }
 }

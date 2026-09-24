@@ -2412,6 +2412,7 @@ public static partial class AttributeReader
                 constructor,
                 fullTypeName,
                 beforeMaterialize,
+                chargeRelationship: null,
                 out declaringType)
             == AttributeTypeIdentityDisposition.Match;
     }
@@ -2422,6 +2423,7 @@ public static partial class AttributeReader
             EntityHandle constructor,
             string fullTypeName,
             Action<int>? beforeMaterialize,
+            Action<int>? chargeRelationship,
             out EntityHandle declaringType)
     {
         MetadataTypeDefinitionName? expected =
@@ -2432,7 +2434,15 @@ public static partial class AttributeReader
             return AttributeTypeIdentityDisposition.Unresolved;
         }
 
-        declaringType = constructor.Kind switch
+        HandleKind constructorKind = constructor.Kind;
+        if (constructorKind is
+            HandleKind.MemberReference
+            or HandleKind.MethodDefinition)
+        {
+            chargeRelationship?.Invoke(1);
+        }
+
+        declaringType = constructorKind switch
         {
             HandleKind.MemberReference =>
                 reader.GetMemberReference(
@@ -2457,7 +2467,8 @@ public static partial class AttributeReader
                 MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeDefinitionHandle)declaringType,
-                    beforeMaterialize));
+                    beforeMaterialize,
+                    chargeChain: chargeRelationship));
         }
 
         return declaringType.Kind == HandleKind.TypeReference
@@ -2465,7 +2476,8 @@ public static partial class AttributeReader
                 MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeReferenceHandle)declaringType,
-                    beforeMaterialize))
+                    beforeMaterialize,
+                    chargeChain: chargeRelationship))
             : AttributeTypeIdentityDisposition.Unresolved;
 
         AttributeTypeIdentityDisposition Classify(

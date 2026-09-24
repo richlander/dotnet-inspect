@@ -135,6 +135,69 @@ public sealed class MetadataTypeDeclarationEvidenceTests
     }
 
     [Fact]
+    public void InvalidAttributeConstructorTagRejectsRefLikeEvidence()
+    {
+        using Fixture fixture =
+            Fixture.CreateRefLikeMarker(
+                RefLikeMarkerKind.InvalidConstructorTag);
+
+        var rejected = Assert.IsType<
+            MetadataTypeDeclarationResult.Rejected>(
+                Run(fixture.Path, fixture["Struct"]));
+
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataTypeDeclarationStage.CategoryClassification,
+            rejected.Failure.Stage);
+    }
+
+    [Fact]
+    public void NestedAttributeOwnerTraversalChargesRelationshipBudget()
+    {
+        using Fixture shorter = Fixture.CreateRefLikeMarker(
+            RefLikeMarkerKind.NestedTypeReferenceLookalike,
+            nestedReferenceDepth: 2);
+        using Fixture longer = Fixture.CreateRefLikeMarker(
+            RefLikeMarkerKind.NestedTypeReferenceLookalike,
+            nestedReferenceDepth: 3);
+
+        var shorterPosted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(shorter.Path, shorter["Struct"]));
+        var longerPosted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(longer.Path, longer["Struct"]));
+        Assert.Equal(
+            shorterPosted.Counters.RelationshipEdges + 1,
+            longerPosted.Counters.RelationshipEdges);
+
+        long exactLimit = longerPosted.Counters.RelationshipEdges;
+        Assert.IsType<MetadataTypeDeclarationResult.Posted>(
+            Run(
+                longer.Path,
+                longer["Struct"],
+                new MetadataOperationPolicy(
+                    long.MaxValue,
+                    maxRelationshipEdges: exactLimit)));
+        var rejected = Assert.IsType<
+            MetadataTypeDeclarationResult.Rejected>(
+                Run(
+                    longer.Path,
+                    longer["Struct"],
+                    new MetadataOperationPolicy(
+                        long.MaxValue,
+                        maxRelationshipEdges: exactLimit - 1)));
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason.BudgetExceeded,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataOperationDimension.RelationshipEdges,
+            rejected.Failure.BudgetDimension);
+    }
+
+    [Fact]
     public void CoreCategoryRootsRemainClasses()
     {
         string path = typeof(int).Assembly.Location;
@@ -1091,7 +1154,8 @@ public sealed class MetadataTypeDeclarationEvidenceTests
         }
 
         internal static Fixture CreateRefLikeMarker(
-            RefLikeMarkerKind markerKind)
+            RefLikeMarkerKind markerKind,
+            int nestedReferenceDepth = 2)
         {
             var metadata = CreateBuilder(
                 "ref-like-marker.dll",
@@ -1132,6 +1196,46 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 metadata.AddNestedType(nested, outer);
                 constructorOwner = nested;
             }
+            else if (markerKind
+                == RefLikeMarkerKind.NestedTypeReferenceLookalike)
+            {
+                if (nestedReferenceDepth is not 2 and not 3)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(nestedReferenceDepth));
+                }
+
+                AssemblyReferenceHandle markerAssembly =
+                    AddAssemblyReference(
+                        metadata,
+                        "Lookalike.Attributes",
+                        recognized: false);
+                TypeReferenceHandle current =
+                    nestedReferenceDepth == 2
+                        ? metadata.AddTypeReference(
+                            markerAssembly,
+                            metadata.GetOrAddString(
+                                "System.Runtime"),
+                            metadata.GetOrAddString(
+                                "CompilerServices"))
+                        : metadata.AddTypeReference(
+                            markerAssembly,
+                            metadata.GetOrAddString("System"),
+                            metadata.GetOrAddString("Runtime"));
+                if (nestedReferenceDepth == 3)
+                {
+                    current = metadata.AddTypeReference(
+                        current,
+                        default,
+                        metadata.GetOrAddString(
+                            "CompilerServices"));
+                }
+                constructorOwner = metadata.AddTypeReference(
+                    current,
+                    default,
+                    metadata.GetOrAddString(
+                        "IsByRefLikeAttribute"));
+            }
             else
             {
                 constructorOwner = target;
@@ -1147,11 +1251,12 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                     metadata.GetOrAddString(".ctor"),
                     metadata.GetOrAddBlob(
                         constructorSignature));
-            metadata.AddCustomAttribute(
-                target,
-                constructor,
-                metadata.GetOrAddBlob(
-                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+            CustomAttributeHandle attribute =
+                metadata.AddCustomAttribute(
+                    target,
+                    constructor,
+                    metadata.GetOrAddBlob(
+                        new byte[] { 0x01, 0x00, 0x00, 0x00 }));
 
             return Write(
                 metadata,
@@ -1159,14 +1264,24 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 {
                     ["Struct"] = target,
                 },
-                markerKind == RefLikeMarkerKind.UnresolvedOwner
-                    ? (image, pe, reader) =>
+                markerKind switch
+                {
+                    RefLikeMarkerKind.UnresolvedOwner =>
+                        (image, pe, reader) =>
                         PatchMemberReferenceParentToNil(
                             image,
                             pe,
                             reader,
-                            constructor)
-                    : null);
+                            constructor),
+                    RefLikeMarkerKind.InvalidConstructorTag =>
+                        (image, pe, reader) =>
+                        PatchCustomAttributeConstructorToInvalidTag(
+                            image,
+                            pe,
+                            reader,
+                            attribute),
+                    _ => null,
+                });
         }
 
         internal static Fixture CreateDuplicateName()
@@ -1830,6 +1945,42 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             image.AsSpan(offset, parentIndexSize).Clear();
         }
 
+        static void PatchCustomAttributeConstructorToInvalidTag(
+            byte[] image,
+            PEReader pe,
+            MetadataReader reader,
+            CustomAttributeHandle handle)
+        {
+            int rowOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.CustomAttribute)
+                + ((MetadataTokens.GetRowNumber(handle) - 1)
+                    * reader.GetTableRowSize(
+                        TableIndex.CustomAttribute));
+            int constructorIndexSize =
+                Math.Max(
+                    reader.GetTableRowCount(TableIndex.MethodDef),
+                    reader.GetTableRowCount(TableIndex.MemberRef))
+                    < (1 << (16 - 3))
+                        ? sizeof(ushort)
+                        : sizeof(uint);
+            int blobIndexSize =
+                reader.GetHeapSize(HeapIndex.Blob)
+                    > ushort.MaxValue
+                        ? sizeof(uint)
+                        : sizeof(ushort);
+            int parentIndexSize =
+                reader.GetTableRowSize(TableIndex.CustomAttribute)
+                - constructorIndexSize
+                - blobIndexSize;
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    rowOffset + parentIndexSize,
+                    sizeof(ushort)),
+                1);
+        }
+
         static Fixture Write(
             MetadataBuilder metadata,
             IReadOnlyDictionary<
@@ -1893,5 +2044,7 @@ public ref struct TypeDeclarationRefStruct
 enum RefLikeMarkerKind
 {
     NestedLookalike,
+    NestedTypeReferenceLookalike,
     UnresolvedOwner,
+    InvalidConstructorTag,
 }

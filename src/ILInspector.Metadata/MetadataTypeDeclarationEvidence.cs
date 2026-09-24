@@ -355,21 +355,30 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             CustomAttribute attribute = Read(
                 site with { Handle = attributeHandle },
                 () => _reader.GetCustomAttribute(attributeHandle));
+            EntityHandle constructor = Read(
+                site with { Handle = attributeHandle },
+                () => attribute.Constructor);
+            MetadataTypeDeclarationSite constructorSite =
+                site with { Handle = constructor };
             AttributeTypeIdentityDisposition disposition = Read(
-                site with { Handle = attribute.Constructor },
+                constructorSite,
                 () => AttributeReader.ClassifyTopLevelAttributeType(
                     _reader,
-                    attribute.Constructor,
+                    constructor,
                     KnownAttributeNames.IsByRefLikeAttribute,
                     beforeMaterialize: amount => Charge(
                         site,
                         MetadataOperationDimension.StructuredNodes,
                         amount),
+                    chargeRelationship: amount => Charge(
+                        constructorSite,
+                        MetadataOperationDimension.RelationshipEdges,
+                        amount),
                     out _));
             if (disposition == AttributeTypeIdentityDisposition.Unresolved)
             {
                 throw Refuse(
-                    site with { Handle = attribute.Constructor },
+                    constructorSite,
                     MetadataTypeDeclarationFailureReason.MalformedMetadata,
                     "A custom-attribute constructor owner could not be resolved.");
             }
