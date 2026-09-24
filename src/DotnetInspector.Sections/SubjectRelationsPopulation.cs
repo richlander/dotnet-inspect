@@ -499,7 +499,7 @@ public static class SubjectRelationsPopulationOperation
             return SubjectRelationPopulationRowsRejection
                 .InvalidContinuation;
         }
-        if (!ReferenceEquals(request.Focus, authority.Focus)
+        if (request.Focus != authority.Focus
             || !ReferenceEquals(
                 request.Population,
                 authority.Population))
@@ -675,15 +675,19 @@ public static class SubjectRelationsPopulationOperation
                 .SelectMany(static producer => producer.Relationships)
                 .ToHashSet<InspectionGraphRelationshipDescriptor>(
                     ReferenceEqualityComparer.Instance);
+        var identities = new HashSet<CanonicalRelationIdentity>();
         foreach (SubjectRelationRow row in rows.Items)
         {
-            if (!ReferenceEquals(
-                    row.Correspondence.Focus,
-                    request.Focus)
+            if (row.Correspondence.Focus != request.Focus
                 || !ReferenceEquals(
                     row.Correspondence.Population,
                     request.Population)
                 || !relationships.Contains(row.Relationship)
+                || !identities.Add(
+                    new(
+                        row.Relationship,
+                        row.Source,
+                        row.Target))
                 || !request.Request.Selection.Matches(row))
             {
                 throw new ArgumentException(
@@ -695,4 +699,9 @@ public static class SubjectRelationsPopulationOperation
 
         return startOrdinal;
     }
+
+    private readonly record struct CanonicalRelationIdentity(
+        InspectionGraphRelationshipDescriptor Relationship,
+        InspectionGraphSubject Source,
+        InspectionGraphSubject Target);
 }

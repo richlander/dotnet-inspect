@@ -539,6 +539,16 @@ public sealed class SubjectRelationProducerOutcome
                 "Producer diagnostics cannot contain null.",
                 nameof(diagnostics));
         }
+        if (disposition == SubjectRelationProducerDisposition.Complete
+            && (coverage.Unavailable != 0
+                || coverage.Limited != 0
+                || diagnosticCopy.Length != 0))
+        {
+            throw new ArgumentException(
+                "A complete relation producer cannot retain unavailable or "
+                + "limited coverage or completion diagnostics.",
+                nameof(disposition));
+        }
 
         Producer = producer;
         Disposition = disposition;

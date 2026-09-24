@@ -309,7 +309,9 @@ SubjectRelationsInspectionRequest
 The in-process request pairs one detached plan with the exact live focus and
 candidate population. Source-specific paths, package coordinates, CLI options,
 Browser DTOs, streams, readers, and rendering settings do not enter the
-population plan.
+population plan. Reconstructing an equal `StructuralSubjectIdentity` wrapper
+does not change that exact subject; process-local candidate-population
+authority remains reference-bound to its captured generation.
 
 Public population facets select producer work and become part of population
 identity. They are not duplicated as a second set of public `request-*` keys.
@@ -362,7 +364,11 @@ in-memory array.
 Rows may contain only relationships covered by producer outcomes that are
 Complete or Partial. An Unavailable or Failed producer remains visible in the
 population evidence but cannot contribute successful rows merely because a
-different producer was usable.
+different producer was usable. A Complete producer has no unavailable or
+limited candidates and no limit or failure completion diagnostic. Each Rows
+segment contains at most one canonical row for a relationship, source, and
+target; multiple occurrences and Integration associations remain inside that
+single row.
 
 `Integration` is a named classified view over the same relation population.
 Every matching row retains its producer-issued Integration associations.

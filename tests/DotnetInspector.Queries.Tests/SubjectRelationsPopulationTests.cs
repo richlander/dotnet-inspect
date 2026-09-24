@@ -790,6 +790,127 @@ public sealed class SubjectRelationsPopulationTests
             SubjectRelationsPopulationOperation.ContinuationRejection(
                 request,
                 authority));
+
+        StructuralSubjectIdentity.LibrarySubject library =
+            StructuralSubjectIdentity.ForLibrary(
+                context.Focus,
+                Library(context.Focus.Coordinate));
+        StructuralSubjectIdentity.TypeSubject firstType =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("Sample", "Widget"));
+        StructuralSubjectIdentity.TypeSubject secondType =
+            StructuralSubjectIdentity.ForType(
+                library,
+                TypeName("Sample", "OtherWidget"));
+        SubjectRelationPopulationContinuationAuthority typeAuthority =
+            SubjectRelationPopulationContinuationAuthority.Capture(
+                continuation,
+                firstType,
+                context.Population,
+                selection,
+                SubjectRelationPopulationOrdering.Producer,
+                SubjectRelationRowProjection.Canonical,
+                nextOrdinal: 1);
+        SubjectRelationsInspectionRequest changedSubjectRequest =
+            new(
+                SubjectRelationsRouteKind.Type,
+                secondType,
+                context.Population,
+                new(
+                    selection,
+                    rows: new(
+                        10,
+                        continuation: continuation)));
+
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection.StaleContinuation,
+            SubjectRelationsPopulationOperation.ContinuationRejection(
+                changedSubjectRequest,
+                typeAuthority));
+    }
+
+    [Fact]
+    public void EquivalentStructuralSubjectRetainsContinuationAndRows()
+    {
+        Context context = CreateContext();
+        StructuralSubjectIdentity.PackageSubject equalFocus =
+            StructuralSubjectIdentity.ForPackage(
+                context.Focus.Workspace,
+                context.Focus.Occurrence);
+        var continuation = new SubjectRelationPopulationContinuation(
+            new InertString(TextPolicy.Field, "relations-next"));
+        var selection = new SubjectRelationPopulationSelection();
+        SubjectRelationPopulationContinuationAuthority authority =
+            SubjectRelationPopulationContinuationAuthority.Capture(
+                continuation,
+                context.Focus,
+                context.Population,
+                selection,
+                SubjectRelationPopulationOrdering.Producer,
+                SubjectRelationRowProjection.Canonical,
+                nextOrdinal: 1);
+        SubjectRelationsInspectionRequest request =
+            new(
+                SubjectRelationsRouteKind.Package,
+                equalFocus,
+                context.Population,
+                new(
+                    selection,
+                    rows: new(
+                        10,
+                        continuation: continuation)));
+
+        Assert.Equal(context.Focus, equalFocus);
+        Assert.Null(
+            SubjectRelationsPopulationOperation.ContinuationRejection(
+                request,
+                authority));
+        _ = SubjectRelationsPopulationOperation.Settle(
+            request,
+            PopulationEvidence(context, complete: true),
+            count: null,
+            new SubjectRelationPopulationRowsOutcome.Read(
+                SubjectRelationPopulationOrdering.Producer,
+                [Row(context, "2.0.0", integration: false)],
+                continuation: null),
+            authority);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    public void CompleteProducerRejectsIncompleteCoverage(
+        int unavailable,
+        int limited)
+    {
+        Assert.Throws<ArgumentException>(
+            () => new SubjectRelationProducerOutcome(
+                Producer,
+                SubjectRelationProducerDisposition.Complete,
+                new(
+                    considered: 2,
+                    examined: 1,
+                    excluded: 1 - unavailable - limited,
+                    unavailable,
+                    limited),
+                [Relationship]));
+    }
+
+    [Fact]
+    public void CompleteProducerRejectsCompletionDiagnostic()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new SubjectRelationProducerOutcome(
+                Producer,
+                SubjectRelationProducerDisposition.Complete,
+                new(1, 1, 0, 0, 0),
+                [Relationship],
+                [
+                    SubjectRelationProducerDiagnostic.Create(
+                        SubjectRelationProducerDiagnosticKind.Limit,
+                        new object()),
+                ]));
     }
 
     [Fact]
@@ -915,6 +1036,71 @@ public sealed class SubjectRelationsPopulationTests
                     SubjectRelationPopulationOrdering.Producer,
                     [row],
                     continuation: null)));
+    }
+
+    [Fact]
+    public void RowsRejectRepeatedCanonicalRelation()
+    {
+        Context context = CreateContext();
+        SubjectRelationRow first = Row(
+            context,
+            "2.0.0",
+            integration: false);
+        SubjectRelationRow duplicate = Row(
+            context,
+            "2.0.0",
+            integration: true);
+        SubjectRelationsInspectionRequest request =
+            InspectionRequest(
+                context,
+                new(
+                    new(),
+                    new SubjectRelationPopulationCountRequest(),
+                    new SubjectRelationPopulationRowsRequest(10)));
+
+        Assert.Throws<ArgumentException>(
+            () => SubjectRelationsPopulationOperation.Settle(
+                request,
+                PopulationEvidence(context, complete: true),
+                new SubjectRelationPopulationCountOutcome.Counted(2),
+                new SubjectRelationPopulationRowsOutcome.Read(
+                    SubjectRelationPopulationOrdering.Producer,
+                    [first, duplicate],
+                    continuation: null)));
+    }
+
+    [Fact]
+    public void RowsRetainDistinctCanonicalRelations()
+    {
+        Context context = CreateContext();
+        SubjectRelationRow first = Row(
+            context,
+            "2.0.0",
+            integration: false);
+        SubjectRelationRow second = Row(
+            context,
+            "3.0.0",
+            integration: false);
+        SubjectRelationPopulationResult settled =
+            SubjectRelationsPopulationOperation.Settle(
+                InspectionRequest(
+                    context,
+                    new(
+                        new(),
+                        new SubjectRelationPopulationCountRequest(),
+                        new SubjectRelationPopulationRowsRequest(10))),
+                PopulationEvidence(context, complete: true),
+                new SubjectRelationPopulationCountOutcome.Counted(2),
+                new SubjectRelationPopulationRowsOutcome.Read(
+                    SubjectRelationPopulationOrdering.Producer,
+                    [first, second],
+                    continuation: null));
+
+        Assert.Equal(
+            [first, second],
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Read>(
+                    settled.Rows).Items);
     }
 
     private static SubjectRelationsInspectionRequest InspectionRequest(
