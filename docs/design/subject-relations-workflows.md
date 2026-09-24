@@ -7,6 +7,8 @@ on 2026-09-12. Focused design: [#6760](https://github.com/richlander/dotnet-insp
 End-to-end adoption: [#6761](https://github.com/richlander/dotnet-inspect/issues/6761).
 The QuerySpace-native composition reframe is tracked by
 [#8124](https://github.com/richlander/dotnet-inspect/issues/8124).
+The request-driven population reconciliation is tracked by
+[#8184](https://github.com/richlander/dotnet-inspect/issues/8184).
 Nothing in this document is a claim that the proposed commands or defaults ship.
 The local-throw refinement is tracked by
 [#6960](https://github.com/richlander/dotnet-inspect/issues/6960).
@@ -266,52 +268,122 @@ subject-first entrance; top-level Graph is the operation-first entrance. Both
 consume the same typed Graph request and retain the same relationship
 directions and physical evidence.
 
-## QuerySpace-native composition
+## Request-driven QuerySpace composition
 
-Subject Relations registers one host-neutral Query Operation with Package,
-Library, Type, and Member subject roles. It has no top-level `relations`
-command. A subject section binds the already resolved focus, retained context,
-candidate population, operation profile, participating row sets, and terminal.
-The CLI and Browser/Wasm lower their gestures to the same accepted QuerySpace
-request.
+Subject Relations owns one reusable relation-population contract for exact
+Package, Library, Type, and Member subjects. It has no top-level `relations`
+command and does not define parallel Package, Library, Type, or Member document
+families. Each singular subject document adopts the population under its own
+owner when that document exists. A Library relation inventory, for example, is
+a requested population inside one `LibraryDocument`, not a
+`SubjectRelationsContent` or `RelationsDocument`.
 
-The operation scope owns facts that authorize or bound work: the exact focus,
-candidate population identity, requested relation families and directions,
-producer demand, and completion consequences. A row-query scope may select,
-order, or limit completed logical rows, but it cannot authorize acquisition or
-producer execution. A public facet that changes work therefore needs an
-operation binding even when an equivalent value is also visible on result
-rows.
+The portable plan describes semantic work independently from process-local
+subject authority:
 
-`Relations` declares one canonical logical-relation row set. Each row preserves:
+```text
+SubjectRelationPopulationRequest
+  canonical facet selection
+    form
+    relationship
+    direction
+    evidence
+    Integration association
+    ecosystem
+    concept
+  optional Count request
+  optional Rows request
+
+SubjectRelationPopulationRowsRequest
+  ordering
+  row projection
+  maximum returned rows
+  optional continuation
+
+SubjectRelationsInspectionRequest
+  exact StructuralSubjectIdentity authority
+  exact candidate-population authority
+  SubjectRelationPopulationRequest
+```
+
+The in-process request pairs one detached plan with the exact live focus and
+candidate population. Source-specific paths, package coordinates, CLI options,
+Browser DTOs, streams, readers, and rendering settings do not enter the
+population plan. Reconstructing an equal `StructuralSubjectIdentity` wrapper
+does not change that exact subject; process-local candidate-population
+authority remains reference-bound to its captured generation.
+
+Public population facets select producer work and become part of population
+identity. They are not duplicated as a second set of public `request-*` keys.
+A compatible row-query binding may apply residual shaping to a returned
+segment, but it cannot widen acquisition, authorize another producer, change
+the canonical population, or strengthen completion. Sections and convenience
+commands lower their gestures to the same typed population request.
+
+The canonical row unit is one logical relation. Each row preserves:
 
 - exact source and target identities;
-- the producer-issued relation and evidence identities;
+- the producer-issued relationship and evidence identities;
 - direction relative to the focused subject;
 - typed occurrence or match-site evidence when the producer supplies it;
 - zero or more owner-issued Integration associations; and
-- the correspondence needed to relate the row to its retained subject and
-  population.
+- the correspondence needed to relate the row to its exact focus and
+  candidate population.
 
-The content result separately preserves producer availability, failures,
-coverage, and completion. A missing or failed producer cannot become an empty
-successful row set. The completed host-neutral boundary is
-`InspectionEnvelope<SubjectRelationsContent>`; the content type remains owned
-here, while the envelope retains its existing Share and diagnostic contract.
-Rows shaping must carry that source disposition and completion evidence with
-the selected rows. A partial source may contribute useful rows only while
-remaining visibly incomplete. Count succeeds only from exact completion or
-another owner-accepted exact witness; an observed partial cardinality,
-including zero, is a typed non-count outcome rather than an exact Count.
+One population result preserves its exact binding, producer availability,
+failures, finite coverage, completion, and independently requested terminal
+outcomes:
 
-`Integration` is a classified projection of the same composition result. It
-keeps only logical rows carrying producer-issued Integration associations and
-does not run a second scanner, infer classification from package membership, or
-change the physical occurrence count. `Relations` and `Integration` therefore
-use distinct declared row sets with the same schema and executable row-query
-scope. The section owner forms the classified row set from the same completed
-content before row-query execution; it does not depend on the still-unverified
-general QuerySpace projection stage.
+```text
+SubjectRelationPopulationResult
+  binding
+  producer outcomes and coverage
+  optional Count outcome
+  optional Rows outcome
+```
+
+Count and Rows execute the same canonical facet selection but remain
+independent terminals. Count succeeds only from exact completion or another
+owner-accepted exact witness. Rows may retain a useful bounded segment while
+remaining visibly incomplete. Count success does not conceal Rows failure, and
+Rows success does not turn a partial observed cardinality, including zero, into
+exact Count.
+
+Rows continuation is an opaque producer-issued receipt bound to the exact
+focus, candidate-population generation, canonical facets, ordering, row
+projection, and next population ordinal. Maximum returned rows is a physical
+segment bound, not population identity. After resolving that opaque value, the
+producer retains process-local continuation authority carrying those exact
+bindings; generic composition can reject invalid, stale, or incompatible
+continuation without owning the producer's encoding. Settlement uses the
+resolved next ordinal when checking whole-population Count against a final
+continued segment. A section-row executor may shape a producer-returned segment
+but must not manufacture source continuation from a previously completed
+in-memory array.
+
+Rows may contain only relationships covered by producer outcomes that are
+Complete or Partial. An Unavailable or Failed producer remains visible in the
+population evidence but cannot contribute successful rows merely because a
+different producer was usable. A Complete producer has no unavailable or
+limited candidates and no limit or failure completion diagnostic. Each Rows
+segment contains at most one canonical row for a relationship, source, and
+target; multiple occurrences and Integration associations remain inside that
+single row.
+
+`Integration` is a named classified view over the same relation population.
+Every matching row retains its producer-issued Integration associations.
+Selecting the Integration view, an ecosystem, or a concept narrows the
+population through those intrinsic associations; it does not run a second
+scanner, infer classification from package membership, create a second source,
+or change physical occurrence identity. Incomplete Integration-association
+evidence remains incomplete and cannot establish that an unclassified row is a
+negative match.
+
+The completed host boundary remains the singular subject document's
+`InspectionEnvelope<TOutcome>`. Step 8 defines the reusable relation population
+request, binding, canonical row, terminal outcomes, and exact-subject
+composition contract. It does not invent placeholder subject documents or a
+temporary standalone envelope that later hosts must retire.
 
 Curated local sections remain deliberate views rather than aliases for the
 canonical row set. `Extensions`, `Implementers`, `Derived Types`,
@@ -329,20 +401,26 @@ unit. A predicate accepted by `Relations`, `Integration`, or `Extensions` is
 not silently applied to incompatible neighboring sections; the mixed request
 fails before producer execution.
 
-The verified QuerySpace path resolves one explicit row-intent association for
-complete or source-qualified rows. It preserves typed source disposition and
-completion through Rows, admits only Rows-usable sets to residual shaping, and
-refuses exact Count before residual execution when any participating source is
-insufficient. Initial Subject Relations sections can consume that path without
-depending on unverified multiple-association execution or accepted upstream
-Count. A future gesture that truly needs one atomic request over heterogeneous
-row-query scopes must first land that separately owned QuerySpace and
-section-row composition support.
+The verified QuerySpace path remains usable for residual shaping of one
+producer-returned row segment. It preserves typed source disposition and
+completion through Rows and refuses exact Count from an insufficient source.
+It does not replace the producer-owned Count/Rows request, population binding,
+or continuation contract. A future gesture that truly needs one atomic request
+over heterogeneous row-query scopes must first land that separately owned
+QuerySpace and section-row composition support.
 
 Depends hierarchies and Graph topology remain their owners' results. Relations
 may preserve the same direct evidence and endpoint identities, but it does not
 flatten rooted occurrences, graph connectedness, paths, or traversal
 characteristics into one-hop logical rows.
+
+The [Inspection Graph focus projection](inspection-graph-focus-projection.md)
+is likewise separate. It projects an already-produced finite graph into
+internal, exit-frontier, or target-corridor topology and may retain multi-hop
+connectors to an Integration target. Subject Relations exposes direct logical
+incidence at one exact subject. An Integration-classified relation row is not a
+target corridor, and a corridor must not be flattened into a fabricated direct
+relation.
 
 ## Worked example: replace the verbs, keep the workflows
 
@@ -1354,14 +1432,14 @@ map, not a specification of the participating components' internals.
 | Workspace | [Registration handoff](workspace-ecosystem-registration-handoff.md) and [scope](workspace-scope-and-expansion.md) retain inert registrations, finite realization, revision and coverage; solve the capacity boundary before claiming complete broad execution. |
 | Source Selection / search binding | [Source intent](search-scope-domain.md) and [search scope](search-scope-resolution.md) preserve explicit selection, authority and bounded prefix expansion; adopt the new default and ecosystem selector in their owners. |
 | Locator | [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) proposes the exact finite-population type-declaration query; its [adoption map](reverse-type-locator-adoption.md) tracks the source/context and host prerequisites. The current [Find service](find-search-service.md) remains CLI-local; member/signature locator adoption is separate. |
-| QuerySpace | [Query Operation Infrastructure](query-operation-infrastructure.md) registers the Relations operation and routes; [Query Space Composition](query-space-composition.md) binds operation and typed row scopes without merging their vocabularies; [section-row shaping](section-row-shaping.md) executes declared rows and terminals. The initial Relations path requires typed source disposition and completion through Rows and exactness enforcement for Count. Multiple explicit row-intent associations remain a separate unverified substrate adoption. |
+| QuerySpace | [Query Operation Infrastructure](query-operation-infrastructure.md) registers exact-subject Relations routes; [Query Space Composition](query-space-composition.md) supplies population and continuation semantics; [section-row shaping](section-row-shaping.md) may apply compatible residual shaping to producer-returned segments. The relation owner defines one typed population request with independent Count and Rows, exact binding, source disposition/completion, and producer-issued continuation. |
 | Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints. Signature discovery additionally needs parameter/return roles, constructed shapes and match sites; name matching alone is not endpoint correspondence or general assignability. |
 | Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. [Local-throw evidence](analysis-local-throw-evidence.md) owns member/type/site associations and visible evidence limits. Existing [throw counts and constructed-exception signals](graph-signal-annotations.md#exception-risk) are not that projection. |
 | Integration | [Integration](integrations.md) supplies concepts, classified currency and opportunity evidence; adopt annotations on composed declaration/use evidence without redefining call semantics. |
 | Dependencies | [Dependency inspection](dependency-inspection-command.md) owns the retained top-level Depends operation, direct evidence, rooted hierarchy, and heterogeneous asset roots. Subject sections adopt curated Depends or Graph invocations without retiring `depends`; existing package/restored-project evidence and traversal owners remain unchanged. |
 | Language patterns | A focused producer must own candidate identity, checked shape and applicability limits before pattern rows can enter the view. |
-| Graph / Relations composition | [Graph documents](inspection-graph-document.md) and [modes](inspection-graph-modes.md) retain canonical endpoints/occurrences; this owner selects and composes evidence relative to the focused subject and population. |
-| Presentation / hosts | [Output shapes](output-shapes.md) lower one typed row set; CLI and browser consume shared results and coverage rather than inferring relations from text. The [query-discovery owner](progressive-disclosure.md#query-discovery) must adopt section-specific result-unit and shortcut disclosure from the same accepted bindings. |
+| Graph / Relations composition | [Graph documents](inspection-graph-document.md) and [modes](inspection-graph-modes.md) retain canonical endpoints/occurrences; this owner selects and composes direct evidence relative to the focused subject and population. [Graph focus projection](inspection-graph-focus-projection.md) separately owns internal, exit-frontier, and target-corridor topology without flattening connectors into direct relation rows. |
+| Presentation / hosts | [Output shapes](output-shapes.md) lower one requested population result; CLI and browser consume the same subject document, binding, terminals, continuation, and coverage rather than inferring relations from text. The [query-discovery owner](progressive-disclosure.md#query-discovery) must adopt section-specific result-unit and shortcut disclosure from the same accepted bindings. |
 | Workspace Definitions / sharing | [Workspace definitions](workspace-definitions.md), [sharing](cli-workspace-sharing.md) and [plan projections](inspection-plan-projections.md) retain exact portable state or refuse it. |
 
 The host-neutral composition lives at the query layer. CLI parsing and browser
@@ -1466,8 +1544,8 @@ count, not hide several unreviewable changes inside a nominal slice.
 | 4 | **Complete:** Ecosystems-owned platform and all-known-pack factories/manifests (#6786, #6787; plan-factory adoption #6791, #6800), preserving empty raw Workspace construction. |
 | 5 | **Complete:** Search Scope Resolution broad-versus-explicit candidate intent (#6931, #6932). |
 | 6 | Find's exact host-neutral locator/context handoff, including CLI and Browser reopening. |
-| 7 | **Complete for the initial Relations path:** Query Operation registration, descriptors/bindings, one explicit row-intent association, typed source disposition/completion through Rows, and Count exactness enforcement (#7712, #8007, #8042, #8073, #8139). Multiple explicit associations and accepted upstream Count without row handoff remain unverified and are not required by the initial Relations sections. |
-| 8 | Subject Relations operation, Package/Library/Type/Member routes, canonical logical-row query scope, content result, and `InspectionEnvelope<SubjectRelationsContent>`, consuming the completed source-outcome path from step 7. |
+| 7 | **Complete substrate:** Query Operation registration, typed row binding, source disposition/completion through Rows, and Count exactness enforcement (#7712, #8007, #8042, #8073, #8139). The request-driven Library population in #8333, #8385, and #8397 additionally establishes independent Count/Rows requests, exact population binding, producer-issued continuation, and intrinsic classification facets. |
+| 8 | Subject Relations population request, Package/Library/Type/Member exact-subject composition, canonical logical-row shape, population binding, independent Count/Rows outcomes, producer coverage, and Integration-association selection. This step does not define placeholder subject documents or `SubjectRelationsContent`. |
 | 9 | Metadata-owned hierarchy, extension, reference, and signature adapters, including constructed shapes and return/parameter match sites. |
 | 10 | Analysis-owned invocation and exact correspondence adapters. |
 | 11 | Local-throw relation adapter consuming the **complete** typed local-throw producer (#6961, #6992) without expanding its evidence claim. |

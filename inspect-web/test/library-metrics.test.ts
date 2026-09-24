@@ -24,6 +24,27 @@ const data: BrowserLibraryMetrics = {
     maximum: 1,
   }],
   asyncStateMachinePresence: null,
+  typeSummaries: [{
+    typeKey: "Example.Core.Engine",
+    typeDisplay: "Example.Core.Engine",
+    namespace: "Example.Core",
+    name: "Engine",
+    bodyCount: 1,
+    instructionCount: 12,
+    complexityTotal: 3,
+    loopCount: 1,
+    directCallCount: 2,
+    allocationCount: 1,
+  }],
+  entangledRelationships: [{
+    sourceTypeKey: "Example.Core.Engine",
+    sourceTypeDisplay: "Example.Core.Engine",
+    targetTypeKey: "Example.Core.Store",
+    targetTypeDisplay: "Example.Core.Store",
+    callSiteCount: 4,
+    sourceDegree: 2,
+    targetDegree: 1,
+  }],
   diagnostics: ["One method body could not be analyzed."],
   failure: null,
   compileLibrary: {
@@ -72,4 +93,97 @@ test("fully profiled complete results do not render a qualification warning", ()
     },
   });
   assert.doesNotMatch(html, /Metrics are qualified|metadata-warning/);
+});
+
+test("renders the complexity and relationship visual evidence", () => {
+  const html = render();
+  assert.match(html, /Complexity Explorer/);
+  assert.match(html, /Example\.Core\.Engine/);
+  assert.match(html, /Relationship Crossing/);
+  assert.match(html, /Example\.Core\.Store/);
+});
+
+test("treemap rectangle area remains proportional to instruction volume", () => {
+  const html = render({
+    data: {
+      ...data,
+      typeSummaries: [
+        {
+          ...data.typeSummaries[0]!,
+          typeKey: "Example.Core.Large",
+          typeDisplay: "Example.Core.Large",
+          name: "Large",
+          instructionCount: 200_000,
+        },
+        {
+          ...data.typeSummaries[0]!,
+          typeKey: "Example.Core.Small",
+          typeDisplay: "Example.Core.Small",
+          name: "Small",
+          instructionCount: 1,
+        },
+      ],
+    },
+  });
+  const rectangles = [...html.matchAll(
+    /<rect x="[^"]+" y="[^"]+" width="([^"]+)" height="([^"]+)"/g,
+  )].map(match => Number(match[1]) * Number(match[2]));
+
+  assert.equal(rectangles.length, 2);
+  assert.ok(rectangles[1]! > 0);
+  const totalArea = rectangles.reduce((sum, area) => sum + area, 0);
+  assert.ok(
+    Math.abs(rectangles[0]! / totalArea - 200_000 / 200_001) < .000001,
+  );
+  assert.ok(
+    Math.abs(rectangles[1]! / totalArea - 1 / 200_001) < .000001,
+  );
+});
+
+test("relationship topology keeps same-display generic arities distinct", () => {
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: [{
+        sourceTypeKey: "Target.Box`1",
+        sourceTypeDisplay: "Target.Box",
+        targetTypeKey: "Target.Box`2",
+        targetTypeDisplay: "Target.Box",
+        callSiteCount: 3,
+        sourceDegree: 1,
+        targetDegree: 1,
+      }],
+    },
+  });
+  const edge = html.match(
+    /<path class="metrics-relationship-edge" d="M ([\d.]+) \d+ C [^"]+, ([\d.]+) \d+"/,
+  );
+
+  assert.ok(edge);
+  assert.notEqual(edge[1], edge[2]);
+  assert.match(html, /2 most connected types/);
+});
+
+test("relationship topology renders the complete Research projection", () => {
+  const relationships = Array.from({ length: 16 }, (_, index) => ({
+    sourceTypeKey: "Example.Hub",
+    sourceTypeDisplay: "Example.Hub",
+    targetTypeKey: `Example.Leaf${index}`,
+    targetTypeDisplay: `Example.Leaf${index}`,
+    callSiteCount: index + 1,
+    sourceDegree: 16,
+    targetDegree: 1,
+  }));
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: relationships,
+    },
+  });
+
+  assert.equal(
+    html.match(/class="metrics-relationship-edge"/g)?.length,
+    relationships.length,
+  );
+  assert.match(html, /17 most connected types · 16 retained relationships/);
 });

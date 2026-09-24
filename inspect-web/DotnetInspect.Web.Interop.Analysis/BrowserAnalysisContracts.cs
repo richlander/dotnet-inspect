@@ -264,6 +264,8 @@ public sealed record BrowserLibraryMetrics(
     BrowserLibraryMetricsPopulation? Population,
     BrowserLibraryMetricsDistribution[] Distributions,
     BrowserLibraryMetricsBooleanDisposition? AsyncStateMachinePresence,
+    BrowserLibraryMetricsType[] TypeSummaries,
+    BrowserLibraryMetricsRelationship[] EntangledRelationships,
     string[] Diagnostics,
     string? Failure,
     BrowserCompileLibraryAvailability CompileLibrary);
@@ -290,6 +292,27 @@ public sealed record BrowserLibraryMetricsBooleanDisposition(
     int CompleteBodyCount,
     int PresentCount,
     int AbsentCount);
+
+public sealed record BrowserLibraryMetricsType(
+    string TypeKey,
+    string TypeDisplay,
+    string Namespace,
+    string Name,
+    int BodyCount,
+    int InstructionCount,
+    int ComplexityTotal,
+    int LoopCount,
+    int DirectCallCount,
+    int AllocationCount);
+
+public sealed record BrowserLibraryMetricsRelationship(
+    string SourceTypeKey,
+    string SourceTypeDisplay,
+    string TargetTypeKey,
+    string TargetTypeDisplay,
+    int CallSiteCount,
+    int SourceDegree,
+    int TargetDegree);
 
 public sealed record BrowserPerformanceMember(
     string Assembly,

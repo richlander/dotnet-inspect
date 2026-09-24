@@ -146,6 +146,78 @@ public sealed class PackageRangedRealizationTests
     }
 
     /// <summary>
+    /// A source that refuses ranged requests with an error status, or answers
+    /// them with a malformed partial response, still serves the whole
+    /// archive: the realization falls back to the complete fetch on the same
+    /// authority and commits it.
+    /// </summary>
+    [Theory]
+    [InlineData(HttpStatusCode.RequestedRangeNotSatisfiable, false)]
+    [InlineData(HttpStatusCode.NotImplemented, false)]
+    [InlineData(HttpStatusCode.BadRequest, false)]
+    [InlineData(null, true)]
+    public async Task RangedRealize_RangeErrorOrMalformedPartial_FallsBackToComplete(
+        HttpStatusCode? rangedStatus,
+        bool truncate)
+    {
+        var server = new RangeFeed(PclStorage, PclStorageVersion, ReadPclStorage())
+        {
+            RangedStatus = rangedStatus,
+            TruncateRanges = truncate,
+        };
+        var store = new InMemoryPackageStore();
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                store,
+                PackagePayloadAccess.Ranged,
+                "net45"));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.True(server.RangedRequests >= 1);
+        Assert.Equal(1, server.FullRequests);
+        Assert.NotNull(store.TryGetCached(
+            PclStorage,
+            PclStorageVersion,
+            [acquired.Payload.ProducerKey]));
+    }
+
+    /// <summary>
+    /// A refused credential is not a range problem: the complete fetch would
+    /// be refused the same way, so the source's failure is reported and no
+    /// complete request is made.
+    /// </summary>
+    [Fact]
+    public async Task RangedRealize_AuthenticationRefused_DoesNotFallBack()
+    {
+        var server = new RangeFeed(PclStorage, PclStorageVersion, ReadPclStorage())
+        {
+            RangedStatus = HttpStatusCode.Unauthorized,
+        };
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        PackageHouseSettlement settlement = await environment.RealizeAsync(
+            new InMemoryPackageStore(),
+            PackagePayloadAccess.Ranged,
+            "net45");
+
+        Assert.IsNotType<PackageHouseSettlement.Acquired>(settlement);
+        Assert.Contains(
+            settlement.Result.Evidence.Failures,
+            failure => failure is PackageHouseFailure.Authority
+                {
+                    Failure.Kind: PackageAuthorityFailureKind.AuthenticationRequired,
+                }
+                || failure is PackageHouseFailure.Source
+                {
+                    Failure.Kind: PackageSourceFailureKind.AuthenticationRequired,
+                });
+        Assert.Equal(0, server.FullRequests);
+    }
+
+    /// <summary>
     /// An authorized cache still answers first under ranged access; no
     /// package request is made.
     /// </summary>
@@ -335,6 +407,12 @@ public sealed class PackageRangedRealizationTests
 
         public bool IgnoreRange { get; init; }
 
+        /// <summary>A status every ranged request is answered with instead of 206.</summary>
+        public HttpStatusCode? RangedStatus { get; init; }
+
+        /// <summary>Answer ranged requests with a 206 one byte short of the range.</summary>
+        public bool TruncateRanges { get; init; }
+
         public int RangedRequests => Volatile.Read(ref _rangedRequests);
 
         public int FullRequests => Volatile.Read(ref _fullRequests);
@@ -361,6 +439,12 @@ public sealed class PackageRangedRealizationTests
                 return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
 
             RangeItemHeaderValue? range = request.Headers.Range?.Ranges.SingleOrDefault();
+            if (range is not null && RangedStatus is { } refused)
+            {
+                Interlocked.Increment(ref _rangedRequests);
+                return Task.FromResult(Respond(request, refused, new ByteArrayContent([])));
+            }
+
             if (IgnoreRange || range is null)
             {
                 Interlocked.Increment(ref _fullRequests);
@@ -385,6 +469,8 @@ public sealed class PackageRangedRealizationTests
             }
 
             Interlocked.Increment(ref _rangedRequests);
+            if (TruncateRanges)
+                end--;
             var content = new ByteArrayContent(
                 archive, (int)start, checked((int)(end - start + 1)));
             content.Headers.ContentRange =
