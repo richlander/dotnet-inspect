@@ -16,11 +16,12 @@ import {
   renderMemberSourceDiff,
   type MemberDiffExplorerSourceState,
 } from "../src/member-diff-explorer.ts";
-import type {
-  BrowserSourceComparisonEndpoint,
-  BrowserSourceComparisonRequest,
-  BrowserSourceComparisonResult,
-  BrowserSourceDiff,
+import {
+  sourceDiffPayloadDecoder,
+  type BrowserSourceComparisonEndpoint,
+  type BrowserSourceComparisonRequest,
+  type BrowserSourceComparisonResult,
+  type BrowserSourceDiff,
 } from "../src/source-diff-transport.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -318,12 +319,69 @@ test("Member Diff Explore renders all three evidence panes from typed evidence",
 
 test("unified Source rendering uses transported relations and mappings", () => {
   const html = renderMemberSourceDiff(sourceDiff(), String);
+
   assert.match(html, /data-side="before" data-line="0"/);
   assert.match(html, /data-side="after" data-line="0"/);
-  assert.match(html, /data-before-line="1" data-after-line="1"/);
+  assert.match(html, /Unchanged correspondence · Stable · 1 Before line ↔ 1 After line/);
   assert.match(html, /Mapped change evidence/);
   assert.match(html, /Before 0:1 → After 0:1/);
   assert.match(html, /Warning/);
+});
+
+test("decoded N:M moved correspondence remains one relation with independent populations", () => {
+  const value = context();
+  const asymmetric: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["same", "same"],
+      finalLineTerminator: "Present",
+    },
+    after: {
+      label: "After",
+      lines: ["same"],
+      finalLineTerminator: "Present",
+    },
+    relations: [{
+      kind: "Correspondence",
+      beforeCoordinates: [0, 1],
+      afterCoordinates: [0],
+      content: "Unchanged",
+      placement: "Moved",
+    }],
+    statistics: {
+      added: 0,
+      removed: 0,
+      changedBefore: 0,
+      changedAfter: 0,
+      movedBefore: 2,
+      movedAfter: 1,
+    },
+    changes: [],
+  };
+  const decoded = sourceDiffPayloadDecoder.decode(JSON.stringify(
+    sourceResult(value, asymmetric),
+  ));
+  assert.equal(decoded.kind, "decoded");
+  if (decoded.kind !== "decoded"
+    || decoded.value.value?.diff === null
+    || decoded.value.value === null) {
+    throw new Error("Expected a decoded Source diff.");
+  }
+
+  const html = renderMemberSourceDiff(decoded.value.value.diff, String);
+  assert.equal(
+    (html.match(/class="member-diff-source-relation"/g) ?? []).length,
+    1,
+  );
+  assert.match(
+    html,
+    /Unchanged correspondence · Moved · 2 Before lines ↔ 1 After line/,
+  );
+  assert.equal((html.match(/data-side="before"/g) ?? []).length, 2);
+  assert.equal((html.match(/data-side="after"/g) ?? []).length, 1);
+  assert.match(html, /2 Before moved/);
+  assert.match(html, /1 After moved/);
 });
 
 test("one-sided destinations omit that Source endpoint intentionally", () => {

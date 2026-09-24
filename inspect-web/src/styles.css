@@ -1924,6 +1924,10 @@ kbd {
 .member-diff-source-line { display: grid; min-width: max-content; grid-template-columns: 44px 44px 18px minmax(0, 1fr); }
 .member-diff-source-line-before { background: color-mix(in srgb, var(--red) 9%, transparent); }
 .member-diff-source-line-after { background: color-mix(in srgb, var(--green) 9%, transparent); }
+.member-diff-source-relation { border-block-start: 1px solid var(--line); }
+.member-diff-source-relation:first-child { border-block-start: 0; }
+.member-diff-source-relation-label { padding: 3px 10px; background: var(--panel-raised); color: var(--muted); font-size: 10px; }
+.member-diff-source-line-correspondence { background: transparent; }
 .member-diff-source-number { padding: 0 6px; border-right: 1px solid var(--line); color: var(--dim); text-align: right; user-select: none; }
 .member-diff-source-marker { padding-left: 6px; color: var(--muted); user-select: none; }
 .member-diff-source-line code { padding: 0 10px 0 2px; white-space: pre; }

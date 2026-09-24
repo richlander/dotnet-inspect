@@ -292,8 +292,13 @@ function diffLine(
   const text = sequence.lines[index] ?? "";
   const beforeNumber = side === "before" ? String(index + 1) : "";
   const afterNumber = side === "after" ? String(index + 1) : "";
-  const marker = side === "before" ? "−" : "+";
-  return `<div class="member-diff-source-line member-diff-source-line-${side}" data-side="${side}" data-line="${index}" data-relation-kind="${relationKind}" data-placement="${placement ?? ""}">
+  const marker = relationKind === "Correspondence"
+    ? placement === "Moved" ? "↕" : "↔"
+    : side === "before" ? "−" : "+";
+  const correspondenceClass = relationKind === "Correspondence"
+    ? " member-diff-source-line-correspondence"
+    : "";
+  return `<div class="member-diff-source-line member-diff-source-line-${side}${correspondenceClass}" data-side="${side}" data-line="${index}" data-relation-kind="${relationKind}" data-placement="${placement ?? ""}">
     <span class="member-diff-source-number">${beforeNumber}</span>
     <span class="member-diff-source-number">${afterNumber}</span>
     <span class="member-diff-source-marker" aria-hidden="true">${marker}</span>
@@ -345,26 +350,38 @@ export function renderMemberSourceDiff(
 ): string {
   const rows: string[] = [];
   for (const relation of diff.relations) {
-    const unchanged = relation.kind === "Correspondence"
-      && relation.content === "Unchanged";
-    if (unchanged) {
-      const count = Math.max(
-        relation.beforeCoordinates.length,
-        relation.afterCoordinates.length,
-      );
-      for (let index = 0; index < count; index++) {
-        const before = relation.beforeCoordinates[index];
-        const after = relation.afterCoordinates[index];
-        const text = after === undefined
-          ? diff.before.lines[before ?? -1] ?? ""
-          : diff.after.lines[after] ?? "";
-        rows.push(`<div class="member-diff-source-line member-diff-source-line-same${relation.placement === "Moved" ? " member-diff-source-line-moved" : ""}" data-before-line="${before ?? ""}" data-after-line="${after ?? ""}" data-relation-kind="Correspondence" data-placement="${relation.placement}">
-          <span class="member-diff-source-number">${before === undefined ? "" : before + 1}</span>
-          <span class="member-diff-source-number">${after === undefined ? "" : after + 1}</span>
-          <span class="member-diff-source-marker" aria-hidden="true">${relation.placement === "Moved" ? "↕" : " "}</span>
-          <code>${escapeHtml(text)}</code>
-        </div>`);
-      }
+    if (relation.kind === "Correspondence") {
+      const content = relation.content ?? "Correspondence";
+      const placement = relation.placement ?? "Unplaced";
+      const beforeCount = relation.beforeCoordinates.length;
+      const afterCount = relation.afterCoordinates.length;
+      const label = `${content} correspondence · ${placement} · ${
+        beforeCount.toLocaleString()
+      } Before ${beforeCount === 1 ? "line" : "lines"} ↔ ${
+        afterCount.toLocaleString()
+      } After ${afterCount === 1 ? "line" : "lines"}`;
+      const relationRows = [
+        ...relation.beforeCoordinates.map(coordinate => diffLine(
+          "before",
+          coordinate,
+          diff,
+          escapeHtml,
+          relation.kind,
+          relation.placement,
+        )),
+        ...relation.afterCoordinates.map(coordinate => diffLine(
+          "after",
+          coordinate,
+          diff,
+          escapeHtml,
+          relation.kind,
+          relation.placement,
+        )),
+      ];
+      rows.push(`<section class="member-diff-source-relation" data-relation-kind="Correspondence" data-content="${content}" data-placement="${placement}" aria-label="${label}">
+        <div class="member-diff-source-relation-label">${label}</div>
+        ${relationRows.join("")}
+      </section>`);
       continue;
     }
     for (const coordinate of relation.beforeCoordinates) {
@@ -394,7 +411,8 @@ export function renderMemberSourceDiff(
     <span>${statistics.removed.toLocaleString()} removed</span>
     <span>${statistics.changedBefore.toLocaleString()} Before changed</span>
     <span>${statistics.changedAfter.toLocaleString()} After changed</span>
-    <span>${statistics.movedAfter.toLocaleString()} moved</span>
+    <span>${statistics.movedBefore.toLocaleString()} Before moved</span>
+    <span>${statistics.movedAfter.toLocaleString()} After moved</span>
   </div>
   <div class="member-diff-source-diff" role="table" aria-label="Unified authored Source diff">${rows.join("")}</div>
   <p class="member-diff-source-terminators">Final line terminators: Before ${escapeHtml(diff.before.finalLineTerminator)}; After ${escapeHtml(diff.after.finalLineTerminator)}.</p>
