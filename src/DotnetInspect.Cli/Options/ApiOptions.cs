@@ -455,6 +455,14 @@ public record MemberOptions : ApiOptions
         get;
         init;
     }
+    public InspectionEnvelope<
+        AssemblyContextEntry<
+            AssemblyImplementationProfileFamilyInspection>>?
+        ImplementationProfileFamilyInspection
+    {
+        get;
+        init;
+    }
     public MemberSourceDiffPresentationResult? MemberSourceDiffPresentation
     {
         get;

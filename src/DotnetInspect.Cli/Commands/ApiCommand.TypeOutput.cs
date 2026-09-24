@@ -517,25 +517,41 @@ public partial class ApiCommand
                 && SectionNames.IncludesBodyMetrics(
                     GetRequestedMemberSections(type, options)))
             {
-                bool restrictImplementationProfiles =
-                    ApiMemberSectionPipelines
-                        .UsesDetailPipeline(options)
-                    || ApiMemberSectionPipelines
-                        .UsesOverloadInventoryPipeline(options);
-                ApiOutputFormatter.PopulateImplementationProfiles(
-                    view,
-                    restrictImplementationProfiles
-                        ? BuildFilteredTypeForBodyShapes(
-                            type,
-                            options)
-                        : type,
-                    TypeAnalysisIndex(),
-                            options is MemberOptions,
-                            restrictToModelMembers:
-                        restrictImplementationProfiles,
-                    selectedMethodToken:
-                        (options as MemberOptions)?
-                            .SelectedBodyMethodToken);
+                if (options is MemberOptions
+                    {
+                        ImplementationProfileFamilyInspection.Content:
+                            AssemblyContextEntry<
+                                AssemblyImplementationProfileFamilyInspection>
+                                .Available family
+                    })
+                {
+                    ApiOutputFormatter.PopulateImplementationProfiles(
+                        view,
+                        type,
+                        family.Value);
+                }
+                else
+                {
+                    bool restrictImplementationProfiles =
+                        ApiMemberSectionPipelines
+                            .UsesDetailPipeline(options)
+                        || ApiMemberSectionPipelines
+                            .UsesOverloadInventoryPipeline(options);
+                    ApiOutputFormatter.PopulateImplementationProfiles(
+                        view,
+                        restrictImplementationProfiles
+                            ? BuildFilteredTypeForBodyShapes(
+                                type,
+                                options)
+                            : type,
+                        TypeAnalysisIndex(),
+                                options is MemberOptions,
+                                restrictToModelMembers:
+                            restrictImplementationProfiles,
+                        selectedMethodToken:
+                            (options as MemberOptions)?
+                                .SelectedBodyMethodToken);
+                }
             }
 
             // Source code (already resolved in command layer)
