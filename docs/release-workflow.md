@@ -79,6 +79,13 @@ release unit:
   CoreCLR cohort from that exact product SHA and compares it with the exact
   compiler-async artifact promoted to production.
 
+Main-push staging is rolling-latest. One active run completes while GitHub
+retains only the newest pending run, replacing older pending runs as `main`
+advances. This lets staging make progress during sustained merge traffic
+without building and deploying every intermediate commit. A release still
+requires a successful staging run for its exact commit; manually dispatch that
+commit if its push-triggered run was coalesced.
+
 Publish and promote together. Do not publish a new package version without
 promoting its matching site, and do not promote a site from a commit that is
 not the package release commit. The staging run's `head_sha` must exactly equal
