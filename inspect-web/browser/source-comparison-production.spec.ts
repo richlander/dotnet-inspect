@@ -394,6 +394,10 @@ test.describe("published authored Source comparison transport", () => {
 
       const authoredMember = await memberSource(page, "1.0.0");
       const authoredType = await typeSource(page, "1.0.0");
+      const decompiledType = await typeSource(
+        page,
+        "1.0.0",
+        "decompiler-source");
       const apiType = await typeSource(page, "1.0.0", "api-declarations");
       const allType = await typeSource(page, "1.0.0", "all-declarations");
       if (apiType.value?.kind !== "apiDeclarations"
@@ -721,6 +725,12 @@ test.describe("published authored Source comparison transport", () => {
       }).click();
       await expect(applicationPage).toHaveURL(typeSourceUrl);
       await expect(applicationPage.locator("#explore-source")).toBeFocused();
+      await typeView.selectOption("decompiler-source");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(decompiledType.value?.kind === "source"
+          ? decompiledType.value.value.text
+          : null);
+      await expect(applicationPage.locator("#explore-source")).toHaveCount(1);
       await typeView.selectOption("api-declarations");
       await expect.poll(() => sourceCode.textContent())
         .toBe(apiDeclarations.content.text);
@@ -747,7 +757,8 @@ test.describe("published authored Source comparison transport", () => {
       const fallbackType = await typeSource(unavailablePage, "2.0.0");
       await unavailablePage.close();
       const evidence = {
-        authoredMember, fallbackMember, authoredType, fallbackType, apiType, allType,
+        authoredMember, fallbackMember, authoredType, decompiledType,
+        fallbackType, apiType, allType,
         initializedGetter, declinedGetter,
         changed, exact, moved, movedAndEdited, unavailable,
       };
@@ -780,6 +791,15 @@ test.describe("published authored Source comparison transport", () => {
       expect(authoredType.value.value.text).toContain("1 + 2");
       expect(authoredType.value.value.pdbSourceLimitation).toBeNull();
       expect(authoredType.value.value.url).toBeTruthy();
+      expect(decompiledType.kind).toBe("Succeeded");
+      expect(decompiledType.value?.kind).toBe("source");
+      if (decompiledType.value?.kind !== "source")
+        throw new Error("Expected an explicit decompiler type source code view.");
+      expect(decompiledType.value.value.provider).toBe("decompiled");
+      expect(decompiledType.value.value.text).toContain("class Counter");
+      expect(decompiledType.value.value.text).not.toContain("1 + 2");
+      expect(decompiledType.value.value.pdbSourceLimitation).toBeNull();
+      expect(decompiledType.value.value.url).toBeNull();
       expect(fallbackType.kind).toBe("Succeeded");
       expect(fallbackType.value?.kind).toBe("source");
       if (fallbackType.value?.kind !== "source")
