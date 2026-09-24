@@ -1199,8 +1199,31 @@ public static partial class AttributeReader
         out JsonWireIgnoreCondition defaultIgnoreCondition,
         out bool useStringEnumConverter,
         Action<int>? beforeMaterialize = null)
+        => TryGetJsonSourceGenerationWireOptions(
+            reader,
+            attributes,
+            out namingPolicy,
+            out generationMode,
+            out defaultIgnoreCondition,
+            out useStringEnumConverter,
+            out _,
+            beforeMaterialize);
+
+    public static bool TryGetJsonSourceGenerationWireOptions(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out JsonWireNamingPolicy? namingPolicy,
+        out JsonSourceGenerationMode generationMode,
+        out JsonWireIgnoreCondition defaultIgnoreCondition,
+        out bool useStringEnumConverter,
+        out JsonSourceGenerationDefaultIgnoreConditionEvidence
+            defaultIgnoreConditionEvidence,
+        Action<int>? beforeMaterialize = null)
     {
         bool found = false;
+        int attributeCount = 0;
+        JsonWireIgnoreCondition? supportedDefaultIgnoreCondition = null;
+        bool hasUnsupportedRow = false;
         namingPolicy = null;
         generationMode = JsonSourceGenerationMode.Default;
         defaultIgnoreCondition = JsonWireIgnoreCondition.Never;
@@ -1218,6 +1241,7 @@ public static partial class AttributeReader
                 continue;
             }
 
+            attributeCount++;
             bool hasExpectedConstructor =
                 HasExpectedConstructor(
                     reader,
@@ -1240,6 +1264,13 @@ public static partial class AttributeReader
                         JsonSourceGenerationMode.Default,
                         JsonWireIgnoreCondition.Never,
                         UseStringEnumConverter: false);
+            bool isUnsupported =
+                current.NamingPolicy == JsonWireNamingPolicy.Unsupported;
+            hasUnsupportedRow |= isUnsupported;
+            supportedDefaultIgnoreCondition =
+                !found && !isUnsupported
+                    ? current.DefaultIgnoreCondition
+                    : null;
             namingPolicy = found
                 ? JsonWireNamingPolicy.Unsupported
                 : current.NamingPolicy;
@@ -1254,6 +1285,10 @@ public static partial class AttributeReader
             found = true;
         }
 
+        defaultIgnoreConditionEvidence = new(
+            attributeCount,
+            supportedDefaultIgnoreCondition,
+            hasUnsupportedRow);
         return found;
     }
 
