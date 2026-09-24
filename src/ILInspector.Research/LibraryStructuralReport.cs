@@ -278,7 +278,7 @@ public static class LibraryStructuralReport
             .ThenByDescending(
                 pair => callSiteVolumes[pair.Key])
             .ThenBy(
-                static pair => pair.Key.ToQualifiedDisplayString(),
+                static pair => QualifiedTypeIdentity(pair.Key),
                 StringComparer.Ordinal)
             .Take(MaximumEntangledTypeCount)
             .Select(static pair => pair.Key)
@@ -298,10 +298,10 @@ public static class LibraryStructuralReport
                     neighbors[edge.Target].Count))
                 .OrderByDescending(static edge => edge.CallSiteCount)
                 .ThenBy(
-                    static edge => edge.Source.ToQualifiedDisplayString(),
+                    static edge => QualifiedTypeIdentity(edge.Source),
                     StringComparer.Ordinal)
                 .ThenBy(
-                    static edge => edge.Target.ToQualifiedDisplayString(),
+                    static edge => QualifiedTypeIdentity(edge.Target),
                     StringComparer.Ordinal),
         ];
 
@@ -321,6 +321,12 @@ public static class LibraryStructuralReport
             callSiteVolumes[type] = volume + callSiteCount;
         }
     }
+
+    static string QualifiedTypeIdentity(TypeRef type) =>
+        type.Resolution?.Type.ToEscapedFullName()
+            ?? (string.IsNullOrEmpty(type.Namespace)
+                ? type.Name
+                : $"{type.Namespace}.{type.Name}");
 
     static LibraryStructuralReportResult.Unavailable Unavailable(
         LibraryStructuralReportUnavailableReason reason,

@@ -230,13 +230,64 @@ public sealed class LibraryStructuralReportTests
                     relationship.CallSiteCount)
                 .ThenBy(
                     static relationship =>
-                        relationship.Source.ToQualifiedDisplayString(),
+                        ExactTypeIdentity(relationship.Source),
                     StringComparer.Ordinal)
                 .ThenBy(
                     static relationship =>
-                        relationship.Target.ToQualifiedDisplayString(),
+                        ExactTypeIdentity(relationship.Target),
                     StringComparer.Ordinal),
             available.Document.EntangledRelationships);
+    }
+
+    [Fact]
+    public void LibraryStructuralReport_UsesExactIdentityAtRelationshipTypeCutoff()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+
+        var available = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(execution));
+        MethodIdentity oneArgument = Assert.Single(
+            execution.CallGraph.DeclaredMethods,
+            static method =>
+                method.Name == "Touch"
+                && ExactTypeIdentity(method.DeclaringType)
+                    == "Target.RankingBox`1");
+        MethodIdentity twoArguments = Assert.Single(
+            execution.CallGraph.DeclaredMethods,
+            static method =>
+                method.Name == "Touch"
+                && ExactTypeIdentity(method.DeclaringType)
+                    == "Target.RankingBox`2");
+        Assert.Equal(
+            oneArgument.DeclaringType.ToQualifiedDisplayString(),
+            twoArguments.DeclaringType.ToQualifiedDisplayString());
+
+        HashSet<TypeRef> retainedTypes =
+        [
+            .. available.Document.EntangledRelationships.SelectMany(
+                static relationship =>
+                new[]
+                {
+                    relationship.Source,
+                    relationship.Target,
+                }),
+        ];
+        Assert.Equal(
+            LibraryStructuralReport.MaximumEntangledTypeCount,
+            retainedTypes.Count);
+        Assert.Contains(oneArgument.DeclaringType, retainedTypes);
+        Assert.DoesNotContain(twoArguments.DeclaringType, retainedTypes);
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                ExactTypeIdentity(relationship.Source)
+                    == "Target.RankingBox`1"
+                && relationship.Target.Name == "RelationshipRankingSink");
     }
 
     [Fact]
@@ -306,6 +357,12 @@ public sealed class LibraryStructuralReportTests
         LibraryStructuralReportDocument document,
         LibraryStructuralMetric metric) =>
         Assert.Single(document.Distributions, distribution => distribution.Metric == metric);
+
+    static string ExactTypeIdentity(TypeRef type) =>
+        type.Resolution?.Type.ToEscapedFullName()
+            ?? (string.IsNullOrEmpty(type.Namespace)
+                ? type.Name
+                : $"{type.Namespace}.{type.Name}");
 
     static MethodImplementationProfile FakeProfileValue(
         string methodName,

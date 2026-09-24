@@ -188,8 +188,9 @@ admitted; loading a method address with `ldftn` or `ldvirtftn` is not a call
 relationship. Relationships are aggregated by source type, target type, and
 call-site count. The report selects at most
 `MaximumEntangledTypeCount` types by distinct neighboring-type degree, then
-call-site volume, then qualified type identity, and retains the relationships
-whose endpoints are both selected. The result is a bounded relationship
+call-site volume, then qualified metadata type identity (including generic
+arity), and retains the relationships whose endpoints are both selected. The
+result is a bounded relationship
 projection, not a complete call graph and not a measure of bad design,
 severity, or refactoring priority. Without call-graph evidence, the report
 retains an empty relationship projection while preserving the available type
