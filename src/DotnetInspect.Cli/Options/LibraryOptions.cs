@@ -110,6 +110,11 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public string? TypeNamespace { get; init; }
 
+    /// <summary>
+    /// Include the selected namespace and its descendant namespaces.
+    /// </summary>
+    public bool IncludeNamespaceChildren { get; init; }
+
     /// <summary>The typed request admitted by the Library Coordinate child.</summary>
     internal LibraryCoordinateRequest? CoordinateRequest { get; init; }
 

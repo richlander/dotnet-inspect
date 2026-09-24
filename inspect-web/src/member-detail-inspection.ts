@@ -9,6 +9,7 @@ import type {
 } from "./annotated-source-session.ts";
 import type {
   CompiledDocumentationOutcome,
+  DocumentationQueryFieldSettlement,
   DocumentationQueryOutcome,
   DocumentationQueryTextFieldEvidence,
 } from "./facades/inspect-web-package.d.ts";
@@ -253,6 +254,11 @@ export function createMemberDetailInspectionCoordinator(
         switch (outcome.kind) {
           case "completed": {
             const { fields } = outcome;
+            if (!isCompleteDocumentationFieldSettlement(fields)) {
+              state.memberDocumentationError =
+                "The documentation response was incomplete.";
+              break;
+            }
             const parameters = new Map(
               fields.parameters.map(
                 parameter => [
@@ -271,7 +277,8 @@ export function createMemberDetailInspectionCoordinator(
               ...parameter,
               description: parameters.get(parameter.name) ?? null,
             }));
-            const completedError = completedDocumentationError(outcome);
+            const completedError =
+              completedDocumentationError(outcome, fields);
             if (completedError) {
               state.memberDocumentationError = completedError;
             } else {
@@ -281,6 +288,11 @@ export function createMemberDetailInspectionCoordinator(
           }
           case "available": {
             const { documentation } = outcome;
+            if (!documentation) {
+              state.memberDocumentationError =
+                "The documentation response was incomplete.";
+              break;
+            }
             const parameters = new Map(
               documentation.parameters.map(
                 parameter => [parameter.name, parameter.description]));
@@ -452,6 +464,41 @@ export function createMemberDetailInspectionCoordinator(
   };
 }
 
+type CompleteDocumentationFieldSettlement =
+  Omit<
+    DocumentationQueryFieldSettlement,
+    "summary" | "remarks" | "returns" | "parameters" | "exceptions" | "samples"
+  > & {
+    readonly summary: DocumentationQueryTextFieldEvidence;
+    readonly remarks: DocumentationQueryTextFieldEvidence;
+    readonly returns: DocumentationQueryTextFieldEvidence;
+    readonly parameters: ReadonlyArray<
+      Omit<
+        DocumentationQueryFieldSettlement["parameters"][number],
+        "evidence"
+      > & {
+        readonly evidence: DocumentationQueryTextFieldEvidence;
+      }>;
+    readonly exceptions: NonNullable<
+      DocumentationQueryFieldSettlement["exceptions"]
+    >;
+    readonly samples: NonNullable<
+      DocumentationQueryFieldSettlement["samples"]
+    >;
+  };
+
+function isCompleteDocumentationFieldSettlement(
+  fields: DocumentationQueryFieldSettlement | undefined,
+): fields is CompleteDocumentationFieldSettlement {
+  return fields !== undefined
+    && fields.summary !== undefined
+    && fields.remarks !== undefined
+    && fields.returns !== undefined
+    && fields.exceptions !== undefined
+    && fields.samples !== undefined
+    && fields.parameters.every(parameter => parameter.evidence !== undefined);
+}
+
 function firstTextContribution(
   evidence: DocumentationQueryTextFieldEvidence,
 ): string | null {
@@ -460,14 +507,15 @@ function firstTextContribution(
 
 function completedDocumentationError(
   outcome: Extract<DocumentationQueryOutcome, { readonly kind: "completed" }>,
+  fields: CompleteDocumentationFieldSettlement,
 ): string | null {
-  if (outcome.fields.summary.contributions.length > 0
-    || outcome.fields.remarks.contributions.length > 0
-    || outcome.fields.returns.contributions.length > 0
-    || outcome.fields.parameters.some(
+  if (fields.summary.contributions.length > 0
+    || fields.remarks.contributions.length > 0
+    || fields.returns.contributions.length > 0
+    || fields.parameters.some(
       parameter => parameter.evidence.contributions.length > 0)
-    || outcome.fields.exceptions.contributions.length > 0
-    || outcome.fields.samples.contributions.length > 0) {
+    || fields.exceptions.contributions.length > 0
+    || fields.samples.contributions.length > 0) {
     return null;
   }
 

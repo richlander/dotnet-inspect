@@ -104,6 +104,8 @@ public partial class LibraryCommand
             NamesakeLibrary =
                 selection is PackageLibraryTarget.Namesake,
             TypeNamespace = options.TypeNamespace,
+            IncludeNamespaceChildren =
+                options.IncludeNamespaceChildren,
             PackageLibrary = selection switch
             {
                 PackageLibraryTarget.Namesake => "",

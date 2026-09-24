@@ -380,6 +380,45 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Library_DirectEnvelope_NamespaceChildrenBindSelfAndDescendants()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--envelope",
+            "--compact",
+            "--namespace",
+            "World.Blue.Nodes",
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement types =
+            json.RootElement.GetProperty("content")
+                .GetProperty("document")
+                .GetProperty("types");
+        Assert.Equal(
+            "World.Blue.Nodes",
+            types.GetProperty("binding")
+                .GetProperty("namespace")
+                .GetString());
+        Assert.Equal(
+            "ExactOrDescendant",
+            types.GetProperty("binding")
+                .GetProperty("namespaceMatch")
+                .GetString());
+        Assert.Equal(
+            2,
+            types.GetProperty("count")
+                .GetProperty("total")
+                .GetInt32());
+    }
+
+    [Fact]
+    public async Task
         Library_NamespaceSuffixRendersMarkdownTypeTables()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -411,6 +450,43 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "World.Blue.Nodes.More.Descendant",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "2 types",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_NamespaceChildrenRenderSelfAndDescendantTypeTables()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--namespace",
+            "World.Blue.Nodes",
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "`World.Blue.Nodes.Foo`",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`World.Blue.Nodes.More.Descendant`",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Blue.MyNodes.NearName",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Green.Nodes.Bar",
             output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -474,6 +550,47 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains(
                 "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Library Info",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceChildrenReachDescendantNamespaces()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "DotnetInspect.Cli.Tests",
+                "--children",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.Parsers.TypeOptionsParserTests`",
                 output,
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
@@ -607,6 +724,45 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains(
             "namespace suffix",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Library_NamespaceChildrenRequireNamespace()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--children requires --namespace",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_NamespaceChildrenRejectLeadingDotSuffix()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--namespace",
+            ".Nodes",
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--children cannot be combined",
             error,
             StringComparison.Ordinal);
     }

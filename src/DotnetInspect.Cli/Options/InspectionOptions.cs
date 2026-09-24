@@ -89,6 +89,8 @@ public record InspectionOptions : IProjectionOptions
 
     internal string? TypeNamespace { get; init; }
 
+    internal bool IncludeNamespaceChildren { get; init; }
+
     internal WorkspaceLibrarySelection? WorkspaceLibrarySelection { get; init; }
 
     internal string[]? WorkspaceLibraryAssetPaths { get; init; }

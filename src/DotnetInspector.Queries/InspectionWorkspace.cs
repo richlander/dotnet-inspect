@@ -413,6 +413,34 @@ public sealed class AssemblyContextGroup : IDisposable
             snapshot => snapshot.RetainAssemblyReference(assembly));
     }
 
+    internal ResolvedAssemblyReference CreateSnapshotBackedReference(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        _ = FindParticipant(assembly);
+        return assembly.WithSnapshotSource(() =>
+        {
+            AssemblyImageAccessResult<AssemblyImageSnapshot> access =
+                UseSnapshot(
+                    assembly,
+                    static snapshot => snapshot);
+            return access switch
+            {
+                AssemblyImageAccessResult<AssemblyImageSnapshot>
+                    .Available available =>
+                    available.Value,
+                AssemblyImageAccessResult<AssemblyImageSnapshot>
+                    .Rejected rejected =>
+                    throw new IOException(
+                        $"Assembly snapshot unavailable "
+                        + $"({rejected.Failure.Kind}): "
+                        + rejected.Failure.Detail),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly image access result."),
+            };
+        });
+    }
+
     internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyInspectionSession, TResult> callback)
