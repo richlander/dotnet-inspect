@@ -67,6 +67,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
         MetadataTypeDeclarationEvidence containing = Assert.IsType<
             MetadataTypeDeclarationResult.Posted>(post.ContainingType)
             .Evidence;
+        Assert.False(containing.IsByRefLike);
         Assert.Equal(
             containing.PrimitiveAlias ?? containing.OpenSelfIdentity,
             represented.Request.ContainingTypeIdentity);
@@ -573,6 +574,22 @@ public sealed class CSharpDeclarationRepresentabilityTests
         }
     }
 
+    public interface IRefStructAddition<TSelf>
+        where TSelf : IRefStructAddition<TSelf>, allows ref struct
+    {
+        static abstract TSelf operator +(TSelf left, TSelf right);
+    }
+
+    public ref struct RefStructAddition :
+        IRefStructAddition<RefStructAddition>
+    {
+        static RefStructAddition
+            IRefStructAddition<RefStructAddition>.operator +(
+                RefStructAddition left,
+                RefStructAddition right) =>
+            left;
+    }
+
     [Theory]
     [InlineData(SpellingCollisionKind.CompleteDefinition)]
     [InlineData(SpellingCollisionKind.NamespaceNestedDefinition)]
@@ -798,6 +815,38 @@ public sealed class CSharpDeclarationRepresentabilityTests
             CSharpDeclarationRepresentability.Decide(
                 post,
                 new(CSharpLanguageVersion.CSharp11));
+        Assert.True(
+            accepted is
+                CSharpDeclarationRepresentabilityResult.Representable,
+            accepted.ToString());
+    }
+
+    [Fact]
+    public void CDR005_RefStructInterfacesRequireCSharp13()
+    {
+        CSharpMethodDeclarationPost post =
+            CaptureCompilerProducedRefStructOperator();
+        MetadataTypeDeclarationEvidence containing = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(post.ContainingType)
+            .Evidence;
+        Assert.True(containing.IsByRefLike);
+
+        var refused = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unrepresentable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+        Assert.Equal(
+            CSharpDeclarationRefusalReason.UnsupportedLanguageProfile,
+            refused.Reason);
+        Assert.Equal(
+            CSharpLanguageVersion.CSharp11,
+            refused.Profile.Version);
+
+        CSharpDeclarationRepresentabilityResult accepted =
+            CSharpDeclarationRepresentability.Decide(
+                post,
+                new(CSharpLanguageVersion.CSharp13));
         Assert.True(
             accepted is
                 CSharpDeclarationRepresentabilityResult.Representable,
@@ -1082,6 +1131,35 @@ public sealed class CSharpDeclarationRepresentabilityTests
             declarations,
             type,
             method,
+            TestContext.Current.CancellationToken);
+    }
+
+    static CSharpMethodDeclarationPost
+        CaptureCompilerProducedRefStructOperator()
+    {
+        string path = typeof(RefStructAddition).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type =
+            MetadataTokens.TypeDefinitionHandle(
+                typeof(RefStructAddition).MetadataToken
+                    & 0x00ff_ffff);
+        MethodDefinitionHandle method = reader.GetTypeDefinition(type)
+            .GetMethods()
+            .Single(handle => reader.GetString(
+                    reader.GetMethodDefinition(handle).Name)
+                .EndsWith(".op_Addition", StringComparison.Ordinal));
+
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+        return CSharpMethodDeclarationPost.Capture(
+            declarations,
+            MetadataTypeDefinitionAddress.FromHandle(reader, type),
+            MetadataMethodAddress.Create(reader, method),
             TestContext.Current.CancellationToken);
     }
 

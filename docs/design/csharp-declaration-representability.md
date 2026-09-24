@@ -135,7 +135,8 @@ required by the declaration category:
 - the complete MethodImpl result for the selected body;
 - one explicitly paired InterfaceImpl request and result for each MethodImpl
   declaration owner whose interface association participates in the decision;
-- the containing type shape needed by the requested C# form;
+- the containing type shape needed by the requested C# form, including
+  authoritative ref-likeness;
 - complete signature, modifier-marker, declaration-category, accessibility,
   modifier, and special-name evidence required by that form; and
 - for property, indexer, or event forms, one complete MethodSemantics
@@ -263,7 +264,8 @@ associated static explicit-interface `op_Addition` operator:
   participate;
 - the declaration is an authenticated two-operand `op_Addition` with a
   non-void return, a containing-type operand, plain complete parameter
-  evidence, and a C# 11-or-later profile; and
+  evidence, and a C# 11-or-later profile;
+- a ref-like containing declaration requires a C# 13-or-later profile; and
 - the containing declaration is not a static class, and no spelled type
   position contains `void` or a C# restricted runtime type; and
 - the accepted immutable request carries qualified type spellings, parameter

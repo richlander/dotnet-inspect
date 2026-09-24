@@ -38,6 +38,7 @@ public sealed class MetadataTypeDeclarationEvidenceTests
         Assert.Equal(
             MetadataTypeDeclarationCategory.Struct,
             posted.Evidence.Category);
+        Assert.False(posted.Evidence.IsByRefLike);
         Assert.True(posted.Evidence.DefinesCoreLibraryRoot);
         Assert.Null(posted.Evidence.DeclaringType);
         Assert.Equal(
@@ -69,6 +70,33 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 MetadataMethodImplementationConsumerCanary.PostType(
                     path,
                     address)));
+    }
+
+    [Fact]
+    public void CompilerProducedRefStructPostsModifierEvidence()
+    {
+        string path =
+            typeof(TypeDeclarationRefStruct).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "ILInspector.Metadata.Tests",
+            nameof(TypeDeclarationRefStruct));
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Struct,
+            posted.Evidence.Category);
+        Assert.True(posted.Evidence.IsByRefLike);
     }
 
     [Fact]
@@ -1716,4 +1744,8 @@ public sealed class TypeDeclarationGenericOuter<T>
     public sealed class Inner<U>
     {
     }
+}
+
+public ref struct TypeDeclarationRefStruct
+{
 }

@@ -633,7 +633,11 @@ public static class CSharpDeclarationRepresentability
                     .OutsideInitialBoundary);
         }
 
-        if (profile.Version < CSharpLanguageVersion.CSharp11)
+        CSharpLanguageVersion minimumVersion =
+            containingType.Evidence.IsByRefLike
+                ? CSharpLanguageVersion.CSharp13
+                : CSharpLanguageVersion.CSharp11;
+        if (profile.Version < minimumVersion)
         {
             return Refuse(
                 post,
