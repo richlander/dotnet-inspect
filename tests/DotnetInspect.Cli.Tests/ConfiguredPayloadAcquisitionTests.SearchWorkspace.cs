@@ -851,13 +851,22 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         byte[] package,
         ConcurrentQueue<string>? requests = null)
     {
+        requests ??= new();
         CoreHttpClientFactory.SetAuthenticationDecorator(
             _ => new PayloadFeedHandler(
                 FirstFeed,
                 packageId,
                 () => new ByteArrayContent(package),
-                requests ?? new()));
+                requests));
         CoreHttpClientFactory.ResetSharedForTesting();
+        // The House path reaches a configured HTTP source through its
+        // credential-free package-source transport, not the shared client.
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ => new PayloadFeedHandler(
+                FirstFeed,
+                packageId,
+                () => new ByteArrayContent(package),
+                requests));
     }
 
     private static byte[] BuildDuplicateTypeDefinitionAssembly()

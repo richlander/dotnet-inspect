@@ -524,6 +524,9 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Packages.IPackageContentEntryManifest",
             "DotnetInspector.Packages.InMemoryPackageContent",
             "DotnetInspector.Packages.NuGetCache",
+            // Package-relative entry paths, like the in-memory content
+            // (docs/design/package-source-model.md#ranged-payload-realization).
+            "DotnetInspector.Packages.RangedPackageContent",
             "DotnetInspector.Packages.PackageCoordinateResolver",
             "DotnetInspector.Packages.PackageExtractor",
             "DotnetInspector.Packages.SymbolPackageDownloader",
