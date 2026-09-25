@@ -195,11 +195,14 @@ not construct kinds and are not used.
 `FindingComparison<T>` compares the two sides' findings in `Ordered` mode, in
 census order. The `descriptor` tier's confidence is 80 and the comparison's
 acceptance threshold is 80, a deliberate consumer acceptance of soft matches.
-The matcher scores move candidates at most 75, so no move candidate is ever
-accepted, and no pair carries a moved difference. Each pair covers one fact
+The matcher scores the move candidates it leaves unpromoted at most 75, so
+no such fringe candidate is ever accepted. Each pair covers one fact
 on one side or one fact on each side:
 
-- **Present**: a fact on each side with the same identity.
+- **Present**: a fact on each side with the same identity. When the matcher
+  commits a run of two or more contiguous facts that relocated as a block, the
+  pair carries a **Moved** difference with its offset, such as `moved +2`; that
+  is a proven block relocation from the matcher's committed core, not a guess.
 - **Added**: a fact only on the After side, such as an allocation or a throw
   the new version introduced.
 - **Removed**: a fact only on the Before side.
@@ -321,3 +324,7 @@ or a throw.
     After facts `call X`, `alloc List<int>`, confirm `call X` is Present, the
     allocations are two Removed and one Added, no allocation is
     paired by position, and no pair carries a moved difference.
+12. With Before facts `alloc A`, `alloc B`, `call C`, `call D` and After facts
+    `call C`, `call D`, `alloc A`, `alloc B`, confirm the calls are Present
+    without a difference and both allocations are Present with a Moved
+    difference of `moved +2`.
