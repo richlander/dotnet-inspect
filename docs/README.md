@@ -112,6 +112,7 @@ root README remains current without cataloging every focused capability.
 | Session and tmux state | [Agent Session State](agent-session-state.md) |
 | GitHub automation | [GitHub API Operations](github-api-operations.md) and [GitHub Status Queries](github-status-queries.md) |
 | Multi-PR work | [Stacked PRs](stacked-prs.md) |
+| Release candidate identity and readiness | [Nightly Release Candidate](release-candidate.md) |
 | Release certification and publication | [Release Workflow](release-workflow.md) |
 | TLA+ setup and modeling | [TLA+ Methodology](tla-plus-methodology.md) and [TLA+ Setup](runbooks/tla-plus-setup.md) |
 | Markout co-development | [Markout Co-development](markout-co-development.md) |
