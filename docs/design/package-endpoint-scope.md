@@ -140,27 +140,23 @@ never retain a participant after the scope is disposed.
 
 1. This document.
 2. **The host-neutral scope and its first consumer.** `PackageEndpointScope`
-   is built in PackageQueries. The API views of CLI pairwise `diff --package`
-   move onto it with `Surface` demand, ranged: Library API Diff, API changes,
-   and API Finding Transitions. Each endpoint opens one scope, and the
-   comparison runs over participants. This slice keeps byte-identical parity
-   with the legacy path, so the CLI admits a request only when:
+   is built in PackageQueries. Library API Diff, the default view of CLI
+   pairwise `diff --package`, moves onto it with `Surface` demand, ranged.
+   Each endpoint opens one scope, and the comparison runs over the two
+   participants. This slice keeps byte-identical parity with the legacy path,
+   so the CLI admits a request only when:
    - both versions are exact, `--tfm` names one framework, and the host is
-     online; body views and body Finding descriptors stay legacy;
+     online;
+   - the request selects Library API Diff: no member target, no Finding, and
+     no section but Changes; and
    - for each endpoint, the legacy selector applied to the archive directory
-     picks exactly the scope's surface assets; and
-   - for the merged surface of API changes and API Finding Transitions,
-     every assembly reference of every participant names another participant
-     or a trusted platform assembly. The legacy surface resolves generic
-     constraints through a path-based resolver whose other tiers depend on
-     machine state, and reports a constraint it can't bind as an inspection
-     failure. Within the two deterministic tiers that binding succeeds and
-     adds no row, and the comparison never reads the resolved type-parameter
-     kind, so the scope's surface is extracted without it. Library API Diff
-     resolves no constraints on either path and doesn't need this rule.
+     picks exactly the scope's surface assets, and that is one Library.
 
-   Every other request takes the legacy path unchanged. Both endpoints open
-   concurrently, and the first that falls back cancels the other.
+   Library API Diff resolves no generic constraints on either path, so its
+   parity doesn't depend on the host. Every other request, including API
+   changes and API Finding Transitions, takes the legacy path unchanged,
+   decided before any package read. Both endpoints open concurrently, and the
+   first that falls back cancels the other.
 
    The selector rule is decided from the archive directory before any
    surface folder is read. The House reads a directory by range only for a
@@ -175,17 +171,6 @@ never retain a participant after the scope is disposed.
      a second directory tail (65,557 bytes) and the root folder (about 2 KB
      for `System.Text.Json`). That is one more request round before the
      Realize, which rereads the cached directory's tail.
-
-   The reference rule needs surfaces, so its fallback pays the surface read
-   before the legacy download. For `MediatR` 12.2.0..12.4.1, which is below
-   the ranged size cut, that is 49 KB and 0.3 s more than main, cold. Larger
-   packages cost more. Cold under JIT on nuget.org, against main:
-   - `Microsoft.Extensions.Hosting` 8.0.0..9.0.0 with `--member`, also below
-     the cut, receives 1.16 MB instead of 0.58 MB and takes 0.93 s instead of
-     0.64 s. Both archives are downloaded twice, and disk doubles to 5.0 MB.
-   - `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 with `--member`, read by
-     range, receives 43.4 MB instead of 34.4 MB and takes 4.7 s instead of
-     3.8 s. Disk grows from 148 MB to 175 MB.
 
    Evidence for the selector rule: with `--tfm`,
    `TfmSelector.SelectAssembliesByTfmFromPackage`
@@ -206,6 +191,30 @@ never retain a participant after the scope is disposed.
    - The legacy `AssemblySet` endpoint path for `diff` then retires.
    - This also fixes a current gap: without `--tfm`, a package that ships
      `ref/` has its implementation compared against reference stubs.
+   - API changes and API Finding Transitions move with them, over the
+     scope's merged surface, as an intentional output change. The legacy
+     merged surface binds generic-constraint dependencies through
+     `AssemblyDependencyResolver`, and its answer depends on the host and the
+     machine. Platform-key references bind through the trusted platform
+     assemblies under JIT, which include the tool's own closure. Under
+     NativeAOT there are none, and those references bind through installed
+     runtimes found from `DOTNET_ROOT` and standard locations. Other
+     references also reach local NuGet caches. An unbound constraint becomes
+     an inspection-failure row. For example, `NUnit` 4.1.0..4.2.2
+     `--tfm net6.0 --type NUnit.Framework.Assert --finding api.member` is
+     clean under JIT. Under NativeAOT with no installed runtime, it adds 4
+     unbound-constraint rows and exits 1. The scope's surface drops those
+     machine-dependent rows.
+   - Step 2 first tried to admit these views while references stayed inside
+     the endpoint and the trusted platform assemblies, and abandoned the
+     rule. It had no NativeAOT answer, and it couldn't be decided before the
+     surface read, so its fallbacks cost more than main. Cold under JIT on
+     nuget.org:
+     - `MediatR` 12.2.0..12.4.1 `--finding api.type`: 49 KB and 0.3 s more;
+     - `Microsoft.Extensions.Hosting` 8.0.0..9.0.0 `--member`: 1.16 MB
+       instead of 0.58 MB received, and 0.93 s instead of 0.64 s;
+     - `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 `--member`: 43.4 MB
+       instead of 34.4 MB received, and 4.7 s instead of 3.8 s.
 5. **Inspect Web adopts it.** `BrowserPackageWorkspace.OpenScopeAsync` opens
    its package endpoints through `PackageEndpointScope`. It keeps its browser
    store and complete acquisition until Inspect Web adopts ranged access
@@ -227,7 +236,7 @@ All gates run in Release.
 | 2. `SurfaceAndImplementation` | implementation participants with their surface correspondence | contract suite |
 | 3. A coordinate that doesn't exist, or no compatible framework | typed non-success, never an empty scope | contract suite |
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
-| 5. `diff --package ID@A..B` Library API Diff, API changes, and Finding Transitions | output byte-identical to the legacy path; both endpoints read only their surface folders by range; a request outside the step-2 admission rule stays on the legacy path | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 and `MediatR` 12.2.0..12.4.1 for the fallbacks |
+| 5. `diff --package ID@A..B` Library API Diff | output byte-identical to the legacy path; both endpoints read only their surface and root folders by range; API changes, API Finding Transitions, and a selector mismatch stay on the legacy path, and the first two read nothing by range | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 for the selector fallback |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |

@@ -10,9 +10,10 @@ namespace DotnetInspect.Cli.Tests;
 /// <summary>
 /// Package endpoint scope gates 5 to 7
 /// (docs/design/package-endpoint-scope.md#pathological-cases-and-gates):
-/// the API views of pairwise <c>diff --package ID@A..B</c> open each endpoint
-/// as a package endpoint scope read by range, and their output is
-/// byte-identical to the legacy extraction path, which is the oracle.
+/// Library API Diff over pairwise <c>diff --package ID@A..B</c> opens each
+/// endpoint as a package endpoint scope read by range, every other API view
+/// keeps the legacy endpoints, and all output is byte-identical to the legacy
+/// extraction path, which is the oracle.
 /// </summary>
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
@@ -20,29 +21,40 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     private static readonly string[] SystemTextJsonVersions = ["9.0.0", "10.0.0"];
 
     /// <summary>
-    /// The three API views over the real System.Text.Json 9.0.0 and 10.0.0
+    /// Library API Diff over the real System.Text.Json 9.0.0 and 10.0.0
     /// archives (1.9 MB and 2.2 MB, one Library in <c>lib/net8.0</c>, no
-    /// <c>ref/</c>): Library API Diff, API changes (a member target leaves
-    /// the Library API Diff route), and API Finding Transitions.
+    /// <c>ref/</c>): the whole comparison, and the same comparison narrowed
+    /// to one Type.
     /// </summary>
-    private static readonly string[][] SystemTextJsonApiViews =
+    private static readonly string[][] SystemTextJsonLibraryApiDiffs =
     [
         [],
+        ["--type", "System.Text.Json.JsonSerializer"],
+    ];
+
+    /// <summary>
+    /// The merged-surface API views over the same archives, which the
+    /// endpoint scope doesn't serve at this step: API changes (a member target
+    /// leaves the Library API Diff route) and API Finding Transitions.
+    /// </summary>
+    private static readonly string[][] SystemTextJsonMergedSurfaceViews =
+    [
         ["--member", "System.Text.Json.JsonSerializer.SerializeAsync:1"],
         ["--type", "System.Text.Json.JsonSerializer", "--finding", "api.member"],
     ];
 
     /// <summary>
-    /// Gates 5 and 6: each API view's output equals the legacy path's; the
-    /// cold run reads each endpoint's <c>lib/net8.0</c> folder and nothing
-    /// else by range, and every later run answers from the entry cache with
-    /// no package request.
+    /// Gates 5 and 6: Library API Diff output equals the legacy path's; the
+    /// cold run reads each endpoint's <c>lib/net8.0</c> and root folders and
+    /// nothing else by range, and the next run answers from the entry cache
+    /// with no package request.
     /// </summary>
     [Fact]
-    public async Task PairwiseDiff_ApiViews_ReadOnlyTheSurfaceFolderByRangeAndEqualLegacy()
+    public async Task PairwiseDiff_LibraryApiDiff_ReadsOnlyTheSurfaceFolderByRangeAndEqualsLegacy()
     {
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
-        string[][] requests = [.. SystemTextJsonApiViews.Select(PairwiseSystemTextJsonDiff)];
+        string[][] requests =
+            [.. SystemTextJsonLibraryApiDiffs.Select(PairwiseSystemTextJsonDiff)];
         string[] legacy = await RunLegacyPairwiseDiffsAsync(
             SystemTextJsonId, packages, requests);
 
@@ -63,7 +75,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             if (view == 0)
             {
                 // One abandoned size probe per endpoint, then ranged reads of
-                // the surface folder only.
+                // the root folder (the admission check) and the surface
+                // folder only.
                 Assert.Equal(SystemTextJsonVersions.Length, feed.FullPackageResponses);
                 AssertEachCellReadsOnly(feed, packages, ["lib/net8.0", ""]);
                 continue;
@@ -82,6 +95,33 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
+    /// API changes and API Finding Transitions take the legacy path before
+    /// any package read, under every host: nothing is read by range, and the
+    /// output equals the legacy path's.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_MergedSurfaceViews_ReadNothingByRangeAndEqualLegacy()
+    {
+        Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
+        string[][] requests =
+            [.. SystemTextJsonMergedSurfaceViews.Select(PairwiseSystemTextJsonDiff)];
+        string[] legacy = await RunLegacyPairwiseDiffsAsync(
+            SystemTextJsonId, packages, requests);
+
+        var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, SystemTextJsonId, packages);
+        UseFeed(feed);
+        for (int view = 0; view < requests.Length; view++)
+        {
+            var result = await RunCommandAsync([.. requests[view], "--verbose"]);
+
+            Assert.True(legacy[view] == result.Output, result.Error);
+            Assert.DoesNotContain(
+                "package endpoint", result.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, feed.RangedResponses);
+        }
+    }
+
+    /// <summary>
     /// Gate 7: offline, with both endpoints in the local package cache, the
     /// API views give the same output; offline requests take the legacy path.
     /// </summary>
@@ -89,7 +129,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     public async Task PairwiseDiff_OfflineWithCachedEndpoints_GivesTheSameOutput()
     {
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
-        string[][] requests = [.. SystemTextJsonApiViews.Select(PairwiseSystemTextJsonDiff)];
+        string[][] requests =
+            [.. SystemTextJsonLibraryApiDiffs.Concat(SystemTextJsonMergedSurfaceViews)
+                .Select(PairwiseSystemTextJsonDiff)];
         string[] online = await RunLegacyPairwiseDiffsAsync(
             SystemTextJsonId, packages, requests, keepCache: true);
 
@@ -130,7 +172,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "diff",
             "--package", $"{AvaloniaId}@{AvaloniaHistoryVersions[0]}..{AvaloniaHistoryVersions[1]}",
             "--type", "Avalonia.Controls.Button",
-            "--finding", "api.member",
             "--tfm", "net8.0",
             "--source", FirstFeed,
             "--tips", "q",
@@ -152,59 +193,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.NotEmpty(read);
         AssertEachCellReadsOnly(feed, read, [""]);
         Assert.Contains(
-            $"Package endpoint {AvaloniaId}@{AvaloniaHistoryVersions[0]} takes the legacy path: "
-                + "the legacy selector picks [lib/net8.0/Avalonia.Base.dll",
-            result.Error,
-            StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// The reference-closure rule: the real MediatR 12.2.0 and 12.4.1
-    /// libraries reference <c>MediatR.Contracts</c>, which is neither in the
-    /// endpoint nor a trusted platform assembly, so a merged-surface view
-    /// (API Finding Transitions) takes the legacy path and its output equals
-    /// the legacy oracle's.
-    /// </summary>
-    [Fact]
-    public async Task PairwiseDiff_ReferencesBeyondTheEndpointAndPlatform_TakeTheLegacyPath()
-    {
-        const string MediatRId = "MediatR";
-        var hashes = new Dictionary<string, string>
-        {
-            ["12.2.0"] = "675f2594d587a752f6a8c03994ec3d5818e5226e02d8dbf4aea23dc10a37479f",
-            ["12.4.1"] = "26d70fd8f5211a0c5ff145f475f8f71f79c18dc02212851bebe4cd8d5bd51c49",
-        };
-        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        foreach ((string version, string hash) in hashes)
-        {
-            byte[] package = await File.ReadAllBytesAsync(
-                Path.Combine(
-                    AppContext.BaseDirectory,
-                    "RealAssets",
-                    "PackageEndpointScope",
-                    $"mediatr.{version}.nupkg"),
-                TestContext.Current.CancellationToken);
-            Assert.Equal(hash, Convert.ToHexStringLower(SHA256.HashData(package)));
-            packages.Add(version, package);
-        }
-        string[] request =
-        [
-            "diff",
-            "--package", $"{MediatRId}@12.2.0..12.4.1",
-            "--type", "MediatR.IRequestHandler`2",
-            "--finding", "api.type",
-            "--tfm", "net6.0",
-            "--source", FirstFeed,
-            "--tips", "q",
-        ];
-        string[] legacy = await RunLegacyPairwiseDiffsAsync(MediatRId, packages, [request]);
-
-        UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, MediatRId, packages));
-        var result = await RunCommandAsync([.. request, "--verbose"]);
-
-        Assert.True(legacy[0] == result.Output, result.Error);
-        Assert.Contains(
-            "references reach past their Libraries and the platform",
+            "takes the legacy path: the legacy selector picks [lib/net8.0/Avalonia.Base.dll",
             result.Error,
             StringComparison.Ordinal);
     }

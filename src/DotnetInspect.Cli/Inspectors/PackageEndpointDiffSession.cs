@@ -11,10 +11,10 @@ namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// CLI host policy for the two endpoints of a pairwise
-/// <c>diff --package ID@A..B</c> API view opened as package endpoint scopes
-/// (docs/design/package-endpoint-scope.md, adoption step 2): ranged House
-/// access, the per-authority durable store, and the admission rule that keeps
-/// the output identical to the legacy extraction path.
+/// <c>diff --package ID@A..B</c> Library API Diff opened as package endpoint
+/// scopes (docs/design/package-endpoint-scope.md, adoption step 2): ranged
+/// House access, the per-authority durable store, and the admission rule that
+/// keeps the output identical to the legacy extraction path.
 /// </summary>
 internal sealed class PackageEndpointDiffSession : IAsyncDisposable
 {
@@ -26,36 +26,17 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         DesktopPackageSourceComposition composition,
         SearchPackageStores stores,
         PackageEndpointScope from,
-        PackageEndpointScope to,
-        bool referencesClose)
+        PackageEndpointScope to)
     {
         _composition = composition;
         _stores = stores;
         From = from;
         To = to;
-        ReferencesClose = referencesClose;
     }
 
     internal PackageEndpointScope From { get; }
 
     internal PackageEndpointScope To { get; }
-
-    /// <summary>
-    /// Whether every assembly reference of every surface participant, on
-    /// both endpoints, names another participant of its endpoint or a
-    /// trusted platform assembly of this process.
-    /// </summary>
-    /// <remarks>
-    /// The legacy merged API surface resolves generic constraints through a
-    /// path-based dependency resolver whose other tiers (package dependencies
-    /// in local caches, shared frameworks) depend on machine state, and it
-    /// reports a constraint it cannot bind as an inspection failure. A merged
-    /// endpoint surface (API changes, API Finding Transitions) is admitted
-    /// only when the references close over the two deterministic tiers, where
-    /// legacy binding succeeds and adds no row. Library API Diff reads no
-    /// constraint resolution on either path and does not need this.
-    /// </remarks>
-    internal bool ReferencesClose { get; }
 
     /// <summary>
     /// Whether one pairwise package diff request may take the scope route:
@@ -81,8 +62,9 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     /// <summary>
     /// Opens both endpoints with the <c>Surface</c> demand by range, or
     /// returns <see langword="null"/> when either endpoint must take the
-    /// legacy path: it did not open, or the legacy selector would pick other
-    /// assemblies from its archive than the scope's surface participants.
+    /// legacy path: it did not open, the legacy selector would pick other
+    /// assemblies from its archive than the scope's surface participants, or
+    /// its surface is not one Library.
     /// </summary>
     internal static async Task<PackageEndpointDiffSession?> TryOpenAsync(
         HttpClient httpClient,
@@ -156,11 +138,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 }
             }
 
-            bool referencesClose =
-                await ReferencesCloseAsync(from, cancellationToken).ConfigureAwait(false)
-                && await ReferencesCloseAsync(to, cancellationToken).ConfigureAwait(false);
-            return new PackageEndpointDiffSession(
-                composition, stores, from, to, referencesClose);
+            return new PackageEndpointDiffSession(composition, stores, from, to);
         }
         catch
         {
@@ -246,7 +224,8 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 .Select(static participant => participant.Asset.Path)
                 .Order(StringComparer.Ordinal),
         ];
-        if (!legacy.SequenceEqual(selected, StringComparer.Ordinal))
+        if (!legacy.SequenceEqual(selected, StringComparer.Ordinal)
+            || selected.Length != 1)
         {
             logger.Log(
                 $"Package endpoint {packageId}@{version} takes the legacy path: the legacy "
@@ -340,7 +319,15 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 .Order(StringComparer.Ordinal),
         ];
         if (legacy.SequenceEqual(surface, StringComparer.Ordinal))
-            return true;
+        {
+            if (surface.Length == 1)
+                return true;
+            logger.Log(
+                $"Package endpoint {packageId}@{version} takes the legacy path: its surface "
+                    + $"has {surface.Length} Libraries, and the endpoint scope serves "
+                    + "single-Library API Diff only.");
+            return false;
+        }
 
         logger.Log(
             $"Package endpoint {packageId}@{version} takes the legacy path: the legacy "
@@ -382,78 +369,6 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         logger.Log(
             $"Package endpoint {packageId}@{version} {phase}: {requests}, "
                 + $"{elapsed.TotalMilliseconds:F0} ms.");
-    }
-
-    static async Task<bool> ReferencesCloseAsync(
-        PackageEndpointScope scope,
-        CancellationToken cancellationToken)
-    {
-        HashSet<string> platform = TrustedPlatformAssemblyNames.Value;
-        ArtifactRootResult<bool> result = await scope.UseSurfaceAsync(
-                (group, participants, token) =>
-                {
-                    var names = new HashSet<string>(
-                        participants.Select(static participant =>
-                            participant.Participant.Assembly.Identity.Name),
-                        StringComparer.OrdinalIgnoreCase);
-                    foreach (PackageEndpointBoundParticipant participant in participants)
-                    {
-                        token.ThrowIfCancellationRequested();
-                        if (AssemblyContextReferencesQuery.ExecuteParticipant(
-                                group,
-                                participant.Participant)
-                            is not AssemblyContextEntry<
-                                System.Collections.Immutable.ImmutableArray<
-                                    AssemblyReferenceIdentity>>.Available available
-                            || available.Value.Any(reference =>
-                                !names.Contains(reference.Name)
-                                && !platform.Contains(reference.Name)))
-                        {
-                            return ValueTask.FromResult(false);
-                        }
-                    }
-                    return ValueTask.FromResult(true);
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
-        return result is ArtifactRootResult<bool>.Available { Value: true };
-    }
-
-    static readonly Lazy<HashSet<string>> TrustedPlatformAssemblyNames = new(() =>
-        new HashSet<string>(
-            (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-                .Where(static path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                .Select(Path.GetFileNameWithoutExtension)
-                .OfType<string>(),
-            StringComparer.OrdinalIgnoreCase));
-
-    /// <summary>Projects one endpoint's merged Library-population API surface.</summary>
-    internal static ApiSurface ExtractSurface(
-        PackageEndpointScope scope,
-        string name,
-        string targetFramework,
-        bool includeAll,
-        VerboseLogger logger)
-    {
-        ArtifactRootResult<ApiSurface> result =
-            PackageEndpointApiSurface.ExtractAsync(
-                    scope,
-                    includeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public,
-                    name,
-                    targetFramework,
-                    logger.Log)
-                .AsTask()
-                .GetAwaiter()
-                .GetResult();
-        return result switch
-        {
-            ArtifactRootResult<ApiSurface>.Available available => available.Value,
-            ArtifactRootResult<ApiSurface>.Rejected rejected =>
-                throw new InvalidOperationException(
-                    "The package endpoint rejected its API surface query: " + rejected.Failure),
-            _ => throw new InvalidOperationException("Unknown package Root query outcome."),
-        };
     }
 
     public async ValueTask DisposeAsync()

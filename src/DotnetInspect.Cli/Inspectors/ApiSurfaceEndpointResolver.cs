@@ -18,17 +18,16 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
     }
 
     /// <summary>
-    /// An endpoint opened as a package endpoint scope. Its surface is
-    /// projected from the scope's participants on first use; it has no
-    /// extracted file paths, so only API views read it. The scope's owner
-    /// disposes it.
+    /// An endpoint opened as a package endpoint scope. Only Library API Diff
+    /// reads it, through the scope's participants; it has no merged surface
+    /// and no extracted file paths. The scope's owner disposes it.
     /// </summary>
     internal ApiSurfaceEndpoint(
-        DotnetInspector.PackageQueries.PackageEndpointScope packageScope,
-        Func<ApiSurface> surface)
+        DotnetInspector.PackageQueries.PackageEndpointScope packageScope)
     {
         PackageScope = packageScope;
-        _surface = new(surface);
+        _surface = new(static () => throw new InvalidOperationException(
+            "A package endpoint scope serves Library API Diff only; it has no merged API surface."));
     }
 
     internal ApiSurfaceEndpoint(

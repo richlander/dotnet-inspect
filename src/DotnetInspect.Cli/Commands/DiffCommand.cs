@@ -952,24 +952,21 @@ public class DiffCommand
     internal static readonly AsyncLocal<bool> LegacyPackageEndpointsForTesting = new();
 
     /// <summary>
-    /// Whether a pairwise package request selects only API views, which the
-    /// package endpoint scope can serve: Library API Diff, API changes, and
-    /// API Finding Transitions. Body views keep the legacy endpoints until
-    /// they adopt the scope (docs/design/package-endpoint-scope.md, step 4).
+    /// Whether a pairwise package request selects Library API Diff, the one
+    /// view the package endpoint scope serves at this step: its parity with
+    /// the legacy path doesn't depend on the host. API changes, Finding
+    /// Transitions, and body views keep the legacy endpoints, decided before
+    /// any package read (docs/design/package-endpoint-scope.md, steps 2 and 4).
+    /// The endpoints' one-Library requirement is checked from each archive
+    /// directory.
     /// </summary>
     static bool AdmitsPackageEndpointScope(
         DiffOptions options,
         bool implementationTransport)
         => !LegacyPackageEndpointsForTesting.Value
             && !implementationTransport
-            && !SelectsAnalysisDiff(options)
-            && !SelectsImplementationDiff(options)
-            && !SelectsComplexityContext(options)
-            && !SelectsStructuralContext(options)
             && !options.IncludePdbSource
-            && (!SelectsFindingTransitions(options)
-                || !IsMemberBodyFindingDescriptor(
-                    ResolveFindingDescriptor(options)));
+            && UsesSharedLibraryApiDiff(1, 1, options);
 
     /// <summary>
     /// Opens both endpoints as package endpoint scopes, or returns neither
@@ -1007,29 +1004,10 @@ public class DiffCommand
                 cancellationToken);
         if (session is null)
             return (null, null);
-        if (!session.ReferencesClose
-            && !UsesSharedLibraryApiDiff(
-                session.From.SurfaceParticipants.Length,
-                session.To.SurfaceParticipants.Length,
-                options))
-        {
-            logger.Log(
-                "The package endpoints' references reach past their Libraries and the "
-                    + "platform; the merged API surface takes the legacy path.");
-            await session.DisposeAsync();
-            return (null, null);
-        }
 
-        string tfm = options.Tfm!;
         return (new DiffInputs(
-            new ApiSurfaceEndpoint(
-                session.From,
-                () => PackageEndpointDiffSession.ExtractSurface(
-                    session.From, packageName, tfm, options.IncludeAll, logger)),
-            new ApiSurfaceEndpoint(
-                session.To,
-                () => PackageEndpointDiffSession.ExtractSurface(
-                    session.To, packageName, tfm, options.IncludeAll, logger)),
+            new ApiSurfaceEndpoint(session.From),
+            new ApiSurfaceEndpoint(session.To),
             fromVersion,
             toVersion,
             packageName,
