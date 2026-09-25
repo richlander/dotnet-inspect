@@ -3,7 +3,7 @@ using static CiChangeDetection.YamlContractAssertions;
 
 namespace CiChangeDetection;
 
-internal static class PromotionWorkflowContract
+internal static class InspectWebDeploymentWorkflowContract
 {
     private const string AzureAction =
         "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
@@ -51,11 +51,6 @@ internal static class PromotionWorkflowContract
         """;
     internal static void AssertMutations(string repository)
     {
-        string promotionPath = Path.Combine(
-            repository,
-            ".github",
-            "workflows",
-            "promote-inspect-web.yml");
         string stagingPath = Path.Combine(
             repository,
             ".github",
@@ -84,7 +79,6 @@ internal static class PromotionWorkflowContract
             repository,
             "eng",
             "InspectWebAsyncLoweringReceipt.targets");
-        string promotionWorkflow = File.ReadAllText(promotionPath);
         string stagingWorkflow = File.ReadAllText(stagingPath);
         string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
         string runtimeCohortWorkflow = File.ReadAllText(runtimeCohortPath);
@@ -93,7 +87,6 @@ internal static class PromotionWorkflowContract
         string asyncVerifier = File.ReadAllText(asyncVerifierPath);
         string asyncLoweringReceiptTarget =
             File.ReadAllText(asyncLoweringReceiptTargetPath);
-        ValidatePromotion(promotionWorkflow);
         ValidateStaging(stagingWorkflow);
         ValidateCoreClrStaging(coreClrStagingWorkflow);
         ValidateRuntimeSdkGlobalJsonOverride(
@@ -128,29 +121,6 @@ internal static class PromotionWorkflowContract
                 "runtime pin proposal"),
             "Runtime pin proposal contract accepted the repository SDK in the candidate SDK root.");
 
-        const string trustedCheckout =
-            """
-                steps:
-                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-                  - name: Setup .NET
-            """;
-        const string candidateCheckout =
-            """
-                steps:
-                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-                    with:
-                      ref: ${{ needs.resolve.outputs.sha }}
-
-                  - name: Setup .NET
-            """;
-        AssertMutationRejected(
-            promotionWorkflow,
-            trustedCheckout,
-            candidateCheckout,
-            ValidatePromotion,
-            "Promotion workflow contract accepted candidate-controlled production checkout.");
-
         const string stagingDownload =
             """
                 steps:
@@ -171,30 +141,6 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted candidate code in the deployment job.");
 
         AssertMutationRejected(
-            promotionWorkflow,
-            "      - name: Setup .NET\n        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0",
-            "      - name: Setup .NET\n        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
-            ValidatePromotion,
-            "Promotion workflow contract accepted an alternate setup action.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "            \"$EXPECTED_DIGEST\"\n",
-            "            \"$EXPECTED_DIGEST\" || true\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted disabled revalidation.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "          ALLOW_MANUAL_STAGING: ${{ inputs.allow_manual_staging }}\n",
-            "",
-            ValidatePromotion,
-            "Promotion workflow contract accepted an unpinned manual-staging override.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      - name: Revalidate staged site\n",
-            "      - name: Download staged site artifact\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted download before revalidation.");
-        AssertMutationRejected(
             stagingWorkflow,
             "          test \"$import_map_line\" -lt \"$module_line\"\n",
             "          test \"$import_map_line\" -lt \"$module_line\" || true\n",
@@ -212,12 +158,6 @@ internal static class PromotionWorkflowContract
             "",
             ValidateStaging,
             "Staging workflow contract accepted a deleted Vite asset path constraint.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "            and .method == \"InspectionEngine.AsyncLoweringCanary\"\n",
-            "",
-            ValidatePromotion,
-            "Promotion workflow contract accepted a receipt without the exact canary method.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            and .result == \"inspect-web-async-lowering-ok\"\n",
@@ -393,12 +333,6 @@ internal static class PromotionWorkflowContract
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted an artifact without hidden Function dependencies.");
         AssertMutationRejected(
-            promotionWorkflow,
-            "          test -f \"$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll\"\n",
-            "",
-            ValidatePromotion,
-            "Promotion workflow contract accepted an artifact without the Function extension loader.");
-        AssertMutationRejected(
             coreClrStagingWorkflow,
             "          skip_app_build: true\n",
             "",
@@ -419,45 +353,6 @@ internal static class PromotionWorkflowContract
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted removal of the paired receipt comparison.");
-
-        const string productionJob =
-            """
-                environment:
-                  name: inspect-web-production-promotion
-                  url: https://dotnet-inspect.net
-                runs-on: ubuntu-26.04
-                steps:
-            """;
-        const string productionBashEnv =
-            """
-                environment:
-                  name: inspect-web-production-promotion
-                  url: https://dotnet-inspect.net
-                runs-on: ubuntu-26.04
-                env:
-                  BASH_ENV: artifacts/inspect-web-publish/wwwroot/payload.sh
-                steps:
-            """;
-        AssertMutationRejected(
-            promotionWorkflow,
-            productionJob,
-            productionBashEnv,
-            ValidatePromotion,
-            "Promotion workflow contract accepted inherited BASH_ENV.");
-
-        AssertRejected(
-            promotionWorkflow +
-            """
-
-              bypass:
-                name: Bypass production
-                environment: inspect-web-production-promotion
-                runs-on: ubuntu-26.04
-                steps:
-                  - run: echo bypass
-            """,
-            ValidatePromotion,
-            "Promotion workflow contract accepted an extra environment-scoped job.");
 
         AssertMutationRejected(
             stagingWorkflow,
@@ -559,227 +454,6 @@ internal static class PromotionWorkflowContract
         }
     }
 
-    private static void ValidatePromotion(string workflow)
-    {
-        using TextReader reader = new StringReader(workflow);
-        YamlStream yaml = [];
-        yaml.Load(reader);
-        if (yaml.Documents.Count != 1)
-        {
-            throw new InvalidOperationException(
-                $"Expected one promotion workflow document, found {yaml.Documents.Count}.");
-        }
-
-        YamlMappingNode root = RequireMapping(
-            yaml.Documents[0].RootNode,
-            "promotion workflow root");
-        RequireExactKeys(
-            root,
-            ["name", "on", "permissions", "concurrency", "jobs"],
-            "promotion workflow");
-        RequireScalarValue(root, "name", "Promote inspect-web", "promotion workflow");
-        ValidatePromotionTrigger(
-            GetRequiredMapping(root, "on", "promotion workflow"));
-        RequireExactScalarValues(
-            GetRequiredMapping(root, "permissions", "promotion workflow"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["actions"] = "read",
-                ["contents"] = "read",
-            },
-            "promotion workflow.permissions");
-        RequireExactScalarValues(
-            GetRequiredMapping(root, "concurrency", "promotion workflow"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["group"] = "promote-inspect-web",
-                ["cancel-in-progress"] = "false",
-            },
-            "promotion workflow.concurrency");
-        YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "promotion workflow");
-        RequireExactKeys(jobs, ["resolve", "deploy"], "promotion jobs");
-        YamlMappingNode resolve = GetRequiredMapping(jobs, "resolve", "promotion jobs");
-        RequireExactKeys(
-            resolve,
-            ["name", "runs-on", "outputs", "steps"],
-            "jobs.resolve");
-        RequireScalarValue(
-            resolve,
-            "name",
-            "Validate staging evidence",
-            "jobs.resolve");
-        RequireScalarValue(resolve, "runs-on", "ubuntu-26.04", "jobs.resolve");
-        RequireExactScalarValues(
-            GetRequiredMapping(resolve, "outputs", "jobs.resolve"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["sha"] = "${{ steps.evidence.outputs.sha }}",
-                ["run_attempt"] = "${{ steps.evidence.outputs.run_attempt }}",
-                ["artifact_id"] = "${{ steps.evidence.outputs.artifact_id }}",
-                ["artifact_digest"] =
-                    "${{ steps.evidence.outputs.artifact_digest }}",
-            },
-            "jobs.resolve.outputs");
-        ValidateResolveSteps(
-            GetRequiredSequence(resolve, "steps", "jobs.resolve"));
-        YamlMappingNode deploy = GetRequiredMapping(jobs, "deploy", "promotion jobs");
-        RequireExactKeys(
-            deploy,
-            ["name", "needs", "environment", "runs-on", "steps"],
-            "jobs.deploy");
-        RequireScalarValue(
-            deploy,
-            "name",
-            "Promote to production",
-            "jobs.deploy");
-        RequireScalarValue(deploy, "needs", "resolve", "jobs.deploy");
-        RequireScalarValue(deploy, "runs-on", "ubuntu-26.04", "jobs.deploy");
-
-        YamlMappingNode environment =
-            GetRequiredMapping(deploy, "environment", "jobs.deploy");
-        RequireExactScalarValues(
-            environment,
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["name"] = "inspect-web-production-promotion",
-                ["url"] = "https://dotnet-inspect.net",
-            },
-            "jobs.deploy.environment");
-
-        YamlSequenceNode steps = GetRequiredSequence(deploy, "steps", "jobs.deploy");
-        if (steps.Children.Count != 6)
-        {
-            throw new InvalidOperationException(
-                "Production deployment must contain checkout, setup, revalidation, " +
-                "artifact download, artifact verification, and deploy steps.");
-        }
-
-        YamlMappingNode checkout = RequireStep(steps, 0, null);
-        RequireExactKeys(checkout, ["uses"], "jobs.deploy checkout");
-        RequireScalarValue(
-            checkout,
-            "uses",
-            CheckoutAction,
-            "jobs.deploy checkout");
-
-        YamlMappingNode setup = RequireStep(steps, 1, "Setup .NET");
-        RequireExactKeys(setup, ["name", "uses", "with"], "production setup step");
-        RequireScalarValue(
-            setup,
-            "uses",
-            SetupDotnetAction,
-            "production setup step");
-        RequireExactScalarValues(
-            GetRequiredMapping(setup, "with", "production setup step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
-            },
-            "production setup step.with");
-
-        YamlMappingNode revalidate =
-            RequireStep(steps, 2, "Revalidate staged site");
-        RequireExactKeys(
-            revalidate,
-            ["name", "shell", "env", "run"],
-            "revalidation step");
-        RequireScalarValue(revalidate, "shell", "bash", "revalidation step");
-        RequireExactScalarValues(
-            GetRequiredMapping(revalidate, "env", "revalidation step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
-                ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
-                ["ALLOW_MANUAL_STAGING"] = "${{ inputs.allow_manual_staging }}",
-                ["EXPECTED_SHA"] = "${{ needs.resolve.outputs.sha }}",
-                ["EXPECTED_ATTEMPT"] = "${{ needs.resolve.outputs.run_attempt }}",
-                ["EXPECTED_ARTIFACT_ID"] =
-                    "${{ needs.resolve.outputs.artifact_id }}",
-                ["EXPECTED_DIGEST"] =
-                    "${{ needs.resolve.outputs.artifact_digest }}",
-            },
-            "revalidation step.env");
-        string revalidationCommand = GetRequiredScalar(
-            revalidate,
-            "run",
-            "revalidation step");
-        const string ExpectedRevalidation =
-            """
-            bash eng/validate-inspect-web-promotion.sh \
-              "$STAGING_RUN_ID" \
-              720 \
-              "$RUNNER_TEMP/revalidated-inspect-web" \
-              "$ALLOW_MANUAL_STAGING" \
-              "$EXPECTED_SHA" \
-              "$EXPECTED_ATTEMPT" \
-              "$EXPECTED_ARTIFACT_ID" \
-              "$EXPECTED_DIGEST"
-            """;
-        if (revalidationCommand.TrimEnd() != ExpectedRevalidation)
-        {
-            throw new InvalidOperationException(
-                "Production revalidation command does not match the trusted contract.");
-        }
-
-        YamlMappingNode download =
-            RequireStep(steps, 3, "Download staged site artifact");
-        RequireExactKeys(
-            download,
-            ["name", "uses", "with"],
-            "artifact download step");
-        RequireScalarValue(
-            download,
-            "uses",
-            DownloadArtifactAction,
-            "artifact download step");
-        YamlMappingNode downloadWith =
-            GetRequiredMapping(download, "with", "artifact download step");
-        RequireExactScalarValues(
-            downloadWith,
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["artifact-ids"] = "${{ needs.resolve.outputs.artifact_id }}",
-                ["github-token"] = "${{ secrets.GITHUB_TOKEN }}",
-                ["repository"] = "${{ github.repository }}",
-                ["run-id"] = "${{ inputs.staging_run_id }}",
-                ["path"] = "artifacts/inspect-web-publish",
-                ["digest-mismatch"] = "error",
-            },
-            "artifact download step.with");
-
-        YamlMappingNode verify =
-            RequireStep(steps, 4, "Verify staged site artifact");
-        ValidateDeploymentArtifactVerification(
-            verify,
-            "artifact verification step");
-
-        YamlMappingNode deployStep =
-            RequireStep(steps, 5, "Deploy to production");
-        RequireExactKeys(
-            deployStep,
-            ["name", "uses", "with"],
-            "production deploy step");
-        RequireScalarValue(
-            deployStep,
-            "uses",
-            AzureAction,
-            "production deploy step");
-        RequireExactScalarValues(
-            GetRequiredMapping(deployStep, "with", "production deploy step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["azure_static_web_apps_api_token"] =
-                    "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION }}",
-                ["action"] = "upload",
-                ["app_location"] = "artifacts/inspect-web-publish/wwwroot",
-                ["api_location"] = "artifacts/inspect-web-publish/api",
-                ["output_location"] = "",
-                ["skip_app_build"] = "true",
-                ["skip_api_build"] = "true",
-            },
-            "production deploy step.with");
-
-    }
 
     private static void ValidateStaging(string workflow)
     {
@@ -2105,56 +1779,6 @@ internal static class PromotionWorkflowContract
             .TrimEnd();
     }
 
-    private static void ValidatePromotionTrigger(YamlMappingNode on)
-    {
-        RequireExactKeys(on, ["workflow_dispatch"], "promotion workflow.on");
-        YamlMappingNode dispatch =
-            GetRequiredMapping(on, "workflow_dispatch", "promotion workflow.on");
-        RequireExactKeys(dispatch, ["inputs"], "promotion workflow_dispatch");
-        YamlMappingNode inputs =
-            GetRequiredMapping(dispatch, "inputs", "promotion workflow_dispatch");
-        RequireExactKeys(
-            inputs,
-            ["staging_run_id", "allow_manual_staging", "confirm"],
-            "promotion workflow_dispatch.inputs");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                inputs,
-                "staging_run_id",
-                "promotion workflow_dispatch.inputs"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["description"] =
-                    "Successful main staging run whose site artifact will be promoted",
-                ["required"] = "true",
-            },
-            "promotion staging_run_id input");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                inputs,
-                "allow_manual_staging",
-                "promotion workflow_dispatch.inputs"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["description"] =
-                    "Allow an operator-dispatched staging run instead of a main-push run",
-                ["required"] = "true",
-                ["default"] = "false",
-                ["type"] = "boolean",
-            },
-            "promotion allow_manual_staging input");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                inputs,
-                "confirm",
-                "promotion workflow_dispatch.inputs"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["description"] = "Type \"promote\" to confirm production deployment",
-                ["required"] = "true",
-            },
-            "promotion confirm input");
-    }
 
     private static void ValidateStagingTrigger(YamlMappingNode on)
     {
@@ -2238,105 +1862,6 @@ internal static class PromotionWorkflowContract
             "CoreCLR artifact_id input");
     }
 
-    private static void ValidateResolveSteps(YamlSequenceNode steps)
-    {
-        if (steps.Children.Count != 4)
-        {
-            throw new InvalidOperationException(
-                "Promotion resolution must contain intent, checkout, setup, " +
-                "and staging validation steps.");
-        }
-
-        YamlMappingNode intent =
-            RequireStep(steps, 0, "Validate dispatch intent", "jobs.resolve");
-        RequireExactKeys(
-            intent,
-            ["name", "shell", "env", "run"],
-            "dispatch intent step");
-        RequireScalarValue(intent, "shell", "bash", "dispatch intent step");
-        RequireExactScalarValues(
-            GetRequiredMapping(intent, "env", "dispatch intent step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["CONFIRM"] = "${{ inputs.confirm }}",
-            },
-            "dispatch intent step.env");
-        const string ExpectedIntent =
-            """
-            set -euo pipefail
-            if [ "$GITHUB_REF" != refs/heads/main ]; then
-              echo "::error::Production promotion must be dispatched from main." >&2
-              exit 1
-            fi
-            if [ "$CONFIRM" != promote ]; then
-              echo "::error::Type promote to confirm production deployment." >&2
-              exit 1
-            fi
-            """;
-        if (GetRequiredScalar(intent, "run", "dispatch intent step").TrimEnd() !=
-            ExpectedIntent)
-        {
-            throw new InvalidOperationException(
-                "Dispatch intent command does not match the trusted contract.");
-        }
-
-        YamlMappingNode checkout =
-            RequireStep(steps, 1, null, "jobs.resolve");
-        RequireExactKeys(checkout, ["uses"], "resolution checkout");
-        RequireScalarValue(
-            checkout,
-            "uses",
-            CheckoutAction,
-            "resolution checkout");
-
-        YamlMappingNode setup =
-            RequireStep(steps, 2, "Setup .NET", "jobs.resolve");
-        RequireExactKeys(setup, ["name", "uses", "with"], "resolution setup step");
-        RequireScalarValue(
-            setup,
-            "uses",
-            SetupDotnetAction,
-            "resolution setup step");
-        RequireExactScalarValues(
-            GetRequiredMapping(setup, "with", "resolution setup step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
-            },
-            "resolution setup step.with");
-
-        YamlMappingNode validate =
-            RequireStep(steps, 3, "Validate staged site", "jobs.resolve");
-        RequireExactKeys(
-            validate,
-            ["name", "id", "shell", "env", "run"],
-            "staging evidence step");
-        RequireScalarValue(validate, "id", "evidence", "staging evidence step");
-        RequireScalarValue(validate, "shell", "bash", "staging evidence step");
-        RequireExactScalarValues(
-            GetRequiredMapping(validate, "env", "staging evidence step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
-                ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
-                ["ALLOW_MANUAL_STAGING"] = "${{ inputs.allow_manual_staging }}",
-            },
-            "staging evidence step.env");
-        const string ExpectedValidation =
-            """
-            bash eng/validate-inspect-web-promotion.sh \
-              "$STAGING_RUN_ID" \
-              720 \
-              "$GITHUB_OUTPUT" \
-              "$ALLOW_MANUAL_STAGING"
-            """;
-        if (GetRequiredScalar(validate, "run", "staging evidence step").TrimEnd() !=
-            ExpectedValidation)
-        {
-            throw new InvalidOperationException(
-                "Staging evidence command does not match the trusted contract.");
-        }
-    }
 
     private static void ExpectFailure(Action action, string message)
     {

@@ -609,7 +609,7 @@ public class IlToolsActivationTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void ReleaseCertificationValidator_SelfTest()
+    public void ReleaseCandidateValidator_SelfTest()
     {
         var info = new ProcessStartInfo("dotnet")
         {
@@ -619,7 +619,7 @@ public class IlToolsActivationTests
             WorkingDirectory = RepoRoot,
         };
         info.ArgumentList.Add("run");
-        info.ArgumentList.Add(Path.Combine("eng", "validate-release-certification.cs"));
+        info.ArgumentList.Add(Path.Combine("eng", "validate-release-candidate.cs"));
         info.ArgumentList.Add("--");
         info.ArgumentList.Add("--self-test");
 
@@ -630,7 +630,7 @@ public class IlToolsActivationTests
 
         Assert.True(
             process.ExitCode == 0,
-            $"Certification validator self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+            $"Candidate validator self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
         Assert.Contains("self-test passed", stdout);
     }
 

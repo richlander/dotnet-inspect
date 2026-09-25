@@ -269,9 +269,9 @@ internal sealed class ChangeRoutingPolicy
             state.Code = true;
             state.Web = true;
         }
-        else if (BytePattern.Matches(
+        else if (BytePattern.MatchesAny(
             path,
-            "eng/CiChangeDetection/PromotionWorkflowContract.cs"))
+            "eng/CiChangeDetection/InspectWebDeploymentWorkflowContract.cs"))
         {
             state.Code = true;
             state.Web = true;
@@ -279,6 +279,13 @@ internal sealed class ChangeRoutingPolicy
         else if (BytePattern.Matches(
             path,
             "eng/CiChangeDetection/ReleaseCandidateWorkflowContract.cs"))
+        {
+            state.Code = true;
+            state.Web = true;
+        }
+        else if (BytePattern.Matches(
+            path,
+            "eng/CiChangeDetection/ReleasePublicationWorkflowContract.cs"))
         {
             state.Code = true;
             state.Web = true;
@@ -327,10 +334,11 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-inspect-web-package-adoption-gate.sh",
             "eng/test-inspect-web-published-application.sh",
             "eng/test-inspect-web-source-comparison-gate.sh",
-            "eng/validate-inspect-web-promotion.cs",
-            "eng/validate-inspect-web-promotion.sh",
+            "eng/validate-release-candidate.cs",
+            "eng/validate-release-candidate.sh",
             "eng/generate-inspect-web-engine-facade.sh",
             "eng/InspectWebAsyncLoweringReceipt.targets",
+            "eng/verify-release-candidate-artifact.sh",
             "eng/verify-inspect-web-site-artifact.sh",
             "eng/verify-inspect-web-async-deployment.sh"))
         {
@@ -380,14 +388,14 @@ internal sealed class ChangeRoutingPolicy
             path,
             ".github/workflows/deploy-inspect-web.yml",
             ".github/workflows/deploy-inspect-web-coreclr.yml",
-            ".github/workflows/deploy-inspect-web-runtime-sites.yml",
-            ".github/workflows/promote-inspect-web.yml"))
+            ".github/workflows/deploy-inspect-web-runtime-sites.yml"))
         {
             state.Web = true;
         }
-        else if (BytePattern.Matches(
+        else if (BytePattern.MatchesAny(
             path,
-            ".github/workflows/release-candidate.yml"))
+            ".github/workflows/release-candidate.yml",
+            ".github/workflows/release.yml"))
         {
             state.Code = true;
             state.Web = true;
@@ -560,6 +568,11 @@ internal sealed class ChangeRoutingPolicy
             "Directory.Packages.props",
             "src/Directory.Build.props",
             "global.json",
+            "eng/CiChangeDetection/ReleaseCandidateWorkflowContract.cs",
+            "eng/CiChangeDetection/ReleasePublicationWorkflowContract.cs",
+            "eng/validate-release-candidate.cs",
+            "eng/validate-release-candidate.sh",
+            "eng/verify-release-candidate-artifact.sh",
             ".github/workflows/ci.yml",
             ".github/workflows/release-candidate.yml",
             ".github/workflows/release.yml"))
