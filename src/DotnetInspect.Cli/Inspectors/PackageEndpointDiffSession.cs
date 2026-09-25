@@ -91,14 +91,26 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                     access: PackagePayloadAccess.Ranged),
                 sourceOptions,
                 logger.Log);
+            // The admission check reads by range whatever the archive's size:
+            // a zero size cut, so a fallback never downloads an archive the
+            // legacy path then downloads again. Realization keeps size first.
+            PackageHouse checkHouse = composition.CreateRealizationHouse(
+                new PackagePayloadAcquisitionPlan(
+                    stores.GetStore,
+                    PackagePayloadLimits.Default,
+                    log: logger.Log,
+                    access: PackagePayloadAccess.Ranged,
+                    rangedSizeCut: 0),
+                sourceOptions,
+                logger.Log);
             // Admission first: both directory checks run to completion at once,
             // neither cancelling the other, so each archive's directory and
             // root folder reach the entry cache and a repeated request makes
             // no package request, whichever endpoint falls back.
             Task<bool> fromCheck = AdmitsAsync(
-                composition, house, packageId, fromVersion, targetFramework, logger, cancellationToken);
+                composition, checkHouse, packageId, fromVersion, targetFramework, logger, cancellationToken);
             Task<bool> toCheck = AdmitsAsync(
-                composition, house, packageId, toVersion, targetFramework, logger, cancellationToken);
+                composition, checkHouse, packageId, toVersion, targetFramework, logger, cancellationToken);
             try
             {
                 await Task.WhenAll(fromCheck, toCheck).ConfigureAwait(false);
@@ -249,34 +261,12 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             return null;
         }
 
+        // Admission already matched the legacy selection and one Library
+        // over this archive's directory.
         PackageEndpointScope scope = ((PackageEndpointScopeOutcome.Opened)outcome).Scope;
-        string[] legacy =
-        [
-            .. scope.Root.Root.UseContent(content =>
-                TfmSelector.SelectAssembliesByTfmFromEntries(
-                    content.EnumerateEntries(),
-                    targetFramework)),
-        ];
-        string[] selected =
-        [
-            .. scope.SurfaceParticipants
-                .Select(static participant => participant.Asset.Path)
-                .Order(StringComparer.Ordinal),
-        ];
-        if (!legacy.SequenceEqual(selected, StringComparer.Ordinal)
-            || selected.Length != 1)
-        {
-            logger.Log(
-                $"Package endpoint {packageId}@{version} takes the legacy path: the legacy "
-                    + $"selector picks [{string.Join(", ", legacy)}], the endpoint scope's "
-                    + $"surface is [{string.Join(", ", selected)}].");
-            await scope.DisposeAsync().ConfigureAwait(false);
-            return null;
-        }
-
         logger.Log(
             $"Using package endpoint scope for {packageId}@{version} "
-                + $"({selected.Length} surface assemblies; payload {scope.Payload.Origin}).");
+                + $"({scope.SurfaceParticipants.Length} surface assembly; payload {scope.Payload.Origin}).");
         return scope;
     }
 

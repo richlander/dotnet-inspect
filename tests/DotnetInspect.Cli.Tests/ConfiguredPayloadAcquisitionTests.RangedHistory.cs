@@ -287,6 +287,60 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         }
     }
 
+    /// <summary>A read-only archive body that reports every byte a client reads.</summary>
+    private sealed class CountingStream(byte[] content, Action<int> onRead) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => content.Length;
+
+        public override long Position
+        {
+            get => _position;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            int read = Math.Min(buffer.Length, content.Length - _position);
+            content.AsSpan(_position, read).CopyTo(buffer);
+            _position += read;
+            onRead(read);
+            return read;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(Read(buffer.Span));
+
+        public override Task<int> ReadAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Read(buffer.AsSpan(offset, count)));
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
     private sealed record RangeRead(string Version, long Start, long End, bool Suffix);
 
     /// <summary>
@@ -357,6 +411,24 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         public int FullPackageResponses => Volatile.Read(ref _fullPackageResponses);
 
+        private long _fullBodyBytesRead;
+
+        /// <summary>
+        /// The bytes clients read from complete-archive response bodies: a
+        /// complete download reads the whole archive, an abandoned size probe
+        /// at most what was buffered before it was abandoned.
+        /// </summary>
+        public long FullBodyBytesRead => Interlocked.Read(ref _fullBodyBytesRead);
+
+        private readonly ConcurrentQueue<(string Response, int Count)> _fullBodyReads = new();
+
+        /// <summary>The bytes read from each complete response, as version#response=bytes.</summary>
+        public IEnumerable<string> FullBodyReadsByResponse() =>
+            _fullBodyReads
+                .GroupBy(static read => read.Response)
+                .OrderBy(static group => group.Key, StringComparer.Ordinal)
+                .Select(static group => $"{group.Key}={group.Sum(static read => (long)read.Count)}");
+
         public ConcurrentQueue<RangeRead> Reads { get; } = new();
 
         protected override Task<HttpResponseMessage> SendAsync(
@@ -396,11 +468,17 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             RangeItemHeaderValue? range = request.Headers.Range?.Ranges.SingleOrDefault();
             if (ignoreRange || range is null)
             {
-                Interlocked.Increment(ref _fullPackageResponses);
+                int responseId = Interlocked.Increment(ref _fullPackageResponses);
                 HttpResponseMessage full = Respond(
                     request,
                     HttpStatusCode.OK,
-                    new ByteArrayContent(package));
+                    new StreamContent(new CountingStream(
+                        package,
+                        count =>
+                        {
+                            Interlocked.Add(ref _fullBodyBytesRead, count);
+                            _fullBodyReads.Enqueue(($"{version}#{responseId}", count));
+                        })));
                 full.Content.Headers.ContentLength = package.Length;
                 full.Headers.ETag = etag;
                 return Task.FromResult(full);

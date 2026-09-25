@@ -992,6 +992,20 @@ public class DiffCommand
             return (null, null);
         }
 
+        // The legacy path answers both endpoints from local caches with no
+        // network request, which the House authority stores don't read yet
+        // (docs/design/package-endpoint-scope.md, steps 2 and 4).
+        if (await DotnetInspector.Packages.PackageExtractor.IsExactPackageCachedAsync(
+                $"{packageName}@{fromVersion}", options.SourceOptions, cancellationToken)
+            && await DotnetInspector.Packages.PackageExtractor.IsExactPackageCachedAsync(
+                $"{packageName}@{toVersion}", options.SourceOptions, cancellationToken))
+        {
+            logger.Log(
+                $"Both {packageName} endpoints are in the local package cache; "
+                    + "the legacy path answers them with no request.");
+            return (null, null);
+        }
+
         PackageEndpointDiffSession? session =
             await PackageEndpointDiffSession.TryOpenAsync(
                 httpClient,

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 
 using DotnetInspect.Cli.Commands;
@@ -208,6 +209,129 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(ranged, feed.RangedResponses);
         Assert.Equal(full, feed.FullPackageResponses);
         Assert.Equal(served, feed.PackageBytesServed);
+    }
+
+    /// <summary>
+    /// A fallback below the ranged size cut: the real NUnit 4.1.0 and 4.2.2
+    /// archives (0.7 MB each) ship two Libraries in <c>lib/net6.0</c>, so
+    /// Library API Diff doesn't apply. The admission check reads each
+    /// directory by range whatever the size, so no archive is downloaded
+    /// before the legacy path downloads it once; the output equals the
+    /// legacy oracle's.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_FallbackBelowTheSizeCut_DownloadsEachArchiveOnce()
+    {
+        const string NUnitId = "NUnit";
+        var hashes = new Dictionary<string, string>
+        {
+            ["4.1.0"] = "b2bce3d257f645e2b0e354e78a06707fcaea28a373191455ae0377851fef463a",
+            ["4.2.2"] = "fb4392ebb2136a5986f5aad80a0405ffe61b98f467077a4823291ec3492fa027",
+        };
+        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach ((string version, string hash) in hashes)
+        {
+            byte[] package = await File.ReadAllBytesAsync(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "PackageEndpointScope",
+                    $"nunit.{version}.nupkg"),
+                TestContext.Current.CancellationToken);
+            Assert.Equal(hash, Convert.ToHexStringLower(SHA256.HashData(package)));
+            Assert.True(package.Length < 1_000_000);
+            packages.Add(version, package);
+        }
+        string[] request =
+        [
+            "diff",
+            "--package", $"{NUnitId}@4.1.0..4.2.2",
+            "--tfm", "net6.0",
+            "--source", FirstFeed,
+            "--tips", "q",
+        ];
+        string[] legacy = await RunLegacyPairwiseDiffsAsync(NUnitId, packages, [request]);
+
+        var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, NUnitId, packages);
+        UseFeed(feed);
+        var result = await RunCommandAsync([.. request, "--verbose"]);
+
+        Assert.True(legacy[0] == result.Output, result.Error);
+        Assert.Equal(
+            2,
+            CountOccurrences(result.Error, "takes the legacy path: its surface has 2 Libraries"));
+        // Each archive's body is read whole once, by the legacy download; the
+        // admission check read only its directory and root folder by range.
+        long archives = packages.Values.Sum(static package => (long)package.Length);
+        Assert.True(
+            feed.FullBodyBytesRead >= archives
+                && feed.FullBodyBytesRead <= archives + (archives / 4),
+            $"complete-response bodies read {feed.FullBodyBytesRead} bytes: "
+                + string.Join(", ", feed.FullBodyReadsByResponse()));
+        AssertEachCellReadsOnly(feed, packages, [""]);
+    }
+
+    /// <summary>
+    /// Both endpoints already in a NuGet global-packages folder: the legacy
+    /// path answers Library API Diff from it with no network, so the scope
+    /// route steps aside before any request and the output equals the
+    /// legacy oracle's.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_EndpointsInGlobalPackages_MakeNoRequest()
+    {
+        Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
+        string globalRoot = Path.Combine(_root, "global-packages");
+        foreach ((string version, byte[] package) in packages)
+        {
+            string directory = Path.Combine(
+                globalRoot, SystemTextJsonId.ToLowerInvariant(), version);
+            Directory.CreateDirectory(directory);
+            await File.WriteAllBytesAsync(
+                Path.Combine(directory, $"{SystemTextJsonId.ToLowerInvariant()}.{version}.nupkg"),
+                package,
+                TestContext.Current.CancellationToken);
+            using (var archive = new ZipArchive(new MemoryStream(package)))
+                archive.ExtractToDirectory(directory);
+            await File.WriteAllTextAsync(
+                Path.Combine(directory, ".nupkg.metadata"),
+                "{\"version\":2,\"source\":\"" + FirstFeed + "\"}",
+                TestContext.Current.CancellationToken);
+        }
+
+        string? previousGlobalRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable("NUGET_PACKAGES", globalRoot);
+        NuGetCache.Initialize(
+            "dotnet-inspect-test", Path.Combine(_root, "cache-global"), skipNuGetCache: false);
+        try
+        {
+            UseFeed(new RejectNetworkHandler(new HttpClientHandler()));
+            string[] request = PairwiseSystemTextJsonDiff([]);
+            DiffCommand.LegacyPackageEndpointsForTesting.Value = true;
+            (int Exit, string Output, string Error) legacy;
+            try
+            {
+                legacy = await RunCommandAsync(request);
+            }
+            finally
+            {
+                DiffCommand.LegacyPackageEndpointsForTesting.Value = false;
+            }
+            Assert.True(legacy.Exit == 0, legacy.Error);
+
+            var result = await RunCommandAsync([.. request, "--verbose"]);
+
+            Assert.True(result.Exit == 0, result.Error);
+            Assert.Equal(legacy.Output, result.Output);
+            Assert.Contains(
+                "endpoints are in the local package cache",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", previousGlobalRoot);
+        }
     }
 
     private static string[] PairwiseSystemTextJsonDiff(string[] view) =>

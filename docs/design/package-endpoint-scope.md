@@ -152,6 +152,13 @@ never retain a participant after the scope is disposed.
    - for each endpoint, the legacy selector applied to the archive directory
      picks exactly the scope's surface assets, and that is one Library.
 
+   Before any read, the CLI checks the local caches the legacy path answers
+   from with no network request: the application cache and a NuGet
+   global-packages folder. The check reuses the legacy extraction's own cache
+   lookup (`PackageExtractor.IsExactPackageCachedAsync`) and makes no request.
+   If both endpoint coordinates are cached there, the request takes the
+   legacy path. The House authority stores read neither cache yet.
+
    Library API Diff resolves no generic constraints on either path, so its
    parity doesn't depend on the host. Every other request, including API
    changes and API Finding Transitions, takes the legacy path unchanged,
@@ -164,8 +171,11 @@ never retain a participant after the scope is disposed.
    surface folder is read. The House reads a directory by range only for a
    Realize or a document demand, so the check is a ranged Acquire whose
    document demand names the nuspec. That demand also reads the archive's
-   root folder. This is a transitional admission cost, and it retires with the
-   legacy selector in step 4. Measured on nuget.org:
+   root folder. The check's plan has a zero size cut, so it reads by range
+   whatever the archive's size, and a fallback below the cut never downloads
+   an archive the legacy path downloads again. This is a transitional
+   admission cost, and it retires with the legacy selector in step 4. It
+   holds for every size. Measured on nuget.org:
    - A fallback pays, per endpoint and on top of main, the size probe, one
      directory tail (65,557 bytes), and the root folder (about 17 KB for
      `Avalonia`).
@@ -173,6 +183,13 @@ never retain a participant after the scope is disposed.
      a second directory tail (65,557 bytes) and the root folder (about 2 KB
      for `System.Text.Json`). That is one more request round before the
      Realize, which rereads the cached directory's tail.
+   - Below the size cut, the Realize finds the check's cached directory and
+     reads its surface by range too, not the complete archive. For a very
+     small archive the two directory tails outweigh the saving: `MediatR`
+     12.2.0..12.4.1 receives 383 KB cold instead of main's 195 KB, while
+     disk falls from 0.70 MB to 0.41 MB. A fallback below the cut, such as
+     `NUnit` 4.1.0..4.2.2 (two Libraries), receives 1.67 MB instead of
+     1.44 MB and downloads each archive once.
 
    Evidence for the selector rule: with `--tfm`,
    `TfmSelector.SelectAssembliesByTfmFromPackage`
@@ -193,6 +210,11 @@ never retain a participant after the scope is disposed.
    - The legacy `AssemblySet` endpoint path for `diff` then retires.
    - This also fixes a current gap: without `--tfm`, a package that ships
      `ref/` has its implementation compared against reference stubs.
+   - Prerequisite: before the legacy path retires, the
+     [package cache policy](package-cache-policy.md) owner decides whether
+     and how House authorities serve a package already in a NuGet
+     global-packages folder. Step 2 defers to the legacy path when both
+     endpoints are there, and this document doesn't decide it.
    - API changes and API Finding Transitions move with them, over the
      scope's merged surface, as an intentional output change. The legacy
      merged surface binds generic-constraint dependencies through
