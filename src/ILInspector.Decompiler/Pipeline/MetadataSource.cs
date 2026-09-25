@@ -143,15 +143,44 @@ public sealed class MetadataSource : IDisposable
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
     {
+        AssemblyImageSnapshotResult snapshotResult =
+            AssemblyImageSnapshot.FromRetainedContent(
+                _assembly,
+                Pe.GetEntireImage().GetContent());
+        AssemblyImageSnapshot snapshot = snapshotResult switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                ready.Snapshot,
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw new InvalidDataException(
+                    "The already-open assembly image could not be retained "
+                    + $"({rejected.Failure.Kind}): "
+                    + rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly snapshot result."),
+        };
+
         using var catalog = new TypeResolutionCatalog();
-        return ApiSurfaceExtractor.Extract(
-            Pe,
-            _assembly,
-            catalog,
-            _bindingPolicy,
-            includeAll,
-            typesOnly,
-            includeCompilerGenerated);
+        catalog.RegisterRetainedSnapshot(_assembly, snapshot);
+        ResolutionAwareApiSurfaceOutcome outcome =
+            catalog.ExtractApiSurface(
+                _assembly,
+                _bindingPolicy,
+                includeAll,
+                typesOnly,
+                includeCompilerGenerated);
+        return outcome switch
+        {
+            ResolutionAwareApiSurfaceOutcome.Read read =>
+                read.Surface,
+            ResolutionAwareApiSurfaceOutcome.Rejected rejected =>
+                throw new InvalidDataException(
+                    "Resolution-aware API extraction failed "
+                    + $"({rejected.Failure.Kind}): "
+                    + rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown resolution-aware API extraction outcome."),
+        };
     }
 
     /// <summary>
