@@ -5,15 +5,19 @@ An inspection analysis needs two independent boundaries:
 - the **report surface** says what domain the answer is about; and
 - the **analysis universe** says which evidence may inform that answer.
 
-This document owns that separation, targeted versus census question mode, and
-host-neutral capability introspection. It stops at a validated pre-execution
-request plan. Producer execution, result semantics, and presentation remain
+This document owns that separation, targeted versus census question mode,
+host-neutral capability introspection, and
+[operation participation](#operation-participation): which named analyses an
+orchestrating operation such as Diff may select. It stops at a validated
+pre-execution request plan. Producer execution, result semantics, and presentation remain
 with their existing owners.
 [Analysis universe realization](analysis-universe-realization.md) owns the
 separate operation-scoped handoff from that plan to executable provider
 capabilities and lifetimes.
 
-Tracking: [#4967](https://github.com/richlander/dotnet-inspect/issues/4967).
+Tracking: [#4967](https://github.com/richlander/dotnet-inspect/issues/4967);
+operation participation:
+[#8545](https://github.com/richlander/dotnet-inspect/issues/8545).
 
 ## Status
 
@@ -22,6 +26,10 @@ rejections, and retained validated plan are implemented in
 `src/DotnetInspector.Queries/AnalysisRequest.cs`. The properties in
 [Verification](#verification) are enforced by the named gates in
 `tests/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
+
+[Operation participation](#operation-participation) is designed, not
+implemented. Diff is its first adopter; its properties are **unverified** until
+the gates listed under [Verification](#verification) exist.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -36,7 +44,9 @@ It does not transfer ownership from the `ILInspector.Analysis` component.
 - targeted and census question modes;
 - structural capability descriptors;
 - request-specific capability validation; and
-- the declaration of a requested result-projection kind.
+- the declaration of a requested result-projection kind; and
+- operation participation: stable analysis identity, per-operation
+  participation declarations, and analysis-set validation.
 
 The expected implementation is host-neutral and normally belongs in
 `DotnetInspector.Queries`. The architecture owner is this contract, not a
@@ -64,6 +74,10 @@ This owner references rather than restates adjacent contracts.
 | [Output shapes](output-shapes.md) | Section payload and row-unit semantics. |
 | [Inspection graph modes](inspection-graph-modes.md) | Graph-specific seed, peer-seed, and induced-set semantics. |
 | [Integrations](integrations.md) | Integration descriptors, evidence, candidate identity, and admission policy. |
+| [Analysis diff](analysis-diff.md) | `AnalysisDiff<T>` relation topology and correspondence classification. |
+| [Finding coordinates](finding-coordinates.md) | `FindingKey` identity, scope, and soft keys. |
+| [Inspection capability composition](inspection-capability-composition.md) | Static producer registration, capability modules, and the composed discovery graph. |
+| [Command transition model](command-transition-model.md#diff-operation-and-subject-section-adoption) | Diff operation, admission, default analysis set, and CLI adoption. |
 
 Active PR #4859 implements the Findings topology accepted in PR #4800. Issue
 [#4777](https://github.com/richlander/dotnet-inspect/issues/4777) separately
@@ -272,6 +286,104 @@ Section discovery may project capability declarations for a host, but Section
 registration is not the source of analysis capability. Section applicability
 and rendering remain downstream.
 
+## Operation participation
+
+Orchestrating operations such as Diff, Graph, and Query add arity or topology
+to subjects: Diff pairs endpoints, Graph relates nodes, and Query defines a
+population and its predicates. An analysis supplies the facts. This section
+owns how an operation selects analyses by name without knowing their internals.
+Its exact claim is:
+
+> An analysis descriptor has one stable identity and declares, per operation
+> kind, the owner-issued binding through which it participates. An operation
+> selects an ordered set of those identities, and the set is validated
+> completely against the declarations before any producer executes.
+
+The model follows the conventional split between a small operation core and an
+open set of described kinds: kubectl verbs act on any resource whose discovery
+entry declares that verb, and `explain` reads the same discovery data. The
+analogy is evidence for the separation, not a transferred schema. Here the
+kinds are compiled in. Registration uses the static capability modules of
+[Inspection capability composition](inspection-capability-composition.md),
+with no runtime plugins, reflection, or assembly scanning. That keeps it
+NativeAOT- and Browser/Wasm-safe.
+
+### Analysis identity
+
+An analysis identity is the descriptor's owner-issued ID. It is a stable
+compatibility surface in the same sense as a view-facet ID in
+[Workspace Definitions](workspace-definitions.md#valid-subject-facet-and-query-combinations),
+so a portable record can later name an analysis set durably.
+
+- The ID is one or more lowercase ASCII words joined by `-`, such as `api`,
+  `allocation`, or `call-site`. It is not a display label, and it does not
+  repeat the word *analysis*.
+- A host accepts the exact ID. A host may present a title, but it does not
+  mint aliases, slugs, or case-folded spellings.
+- One analysis may issue several Finding descriptors. Analysis identity and
+  Finding descriptor identity are separate: `api` issues `api.type`,
+  `api.member`, and `api.attribute`.
+- The only existing descriptor, `analysis.integrations`, adopts the grammar
+  when Graph adopts operation participation.
+
+### Participation declarations
+
+A descriptor declares zero or more operation participations. An operation
+kind enters the closed participation vocabulary only with its first adopter.
+
+| Operation kind | Declared binding | Admission rule |
+| --- | --- | --- |
+| Compare | Per supported report-surface kind, the ordered Finding descriptors the analysis issues for each endpoint and the producer route that yields each descriptor's old and new census | Every declared descriptor has `FindingKey` correspondence under [Finding coordinates](finding-coordinates.md), so the comparison is an `AnalysisDiff<T>` with no analysis-specific matching |
+
+Participation is declared per report surface because comparability depends on
+the report surface. For example, member-body allocation Findings are compared
+for one Member, and API Findings for a Type or its Members. Comparing a whole
+Library by body analysis is a Census question that must declare its own
+surface; it is not implied by Member support.
+
+Graph characteristic targets and Query predicate keys join this vocabulary when
+their adopters land.
+
+The declaration references owner-issued values; it does not restate them. The
+Compare row does not define correspondence, relation classification, or
+matching; [Analysis diff](analysis-diff.md) and
+[Finding coordinates](finding-coordinates.md) keep those. An analysis whose
+observations lack `FindingKey` correspondence cannot declare Compare. It
+becomes comparable by becoming a keyed Finding producer, not through a
+Compare-specific adapter.
+
+Cost remains the descriptor's existing cost declaration. A participation
+declaration does not grant cost authorization, and it does not place the
+analysis in any operation's default set.
+
+### Analysis sets
+
+An operation request carries an ordered, duplicate-free, non-empty analysis set
+or omits it. Omission selects the operation's own default set. The default set
+is operation-owned curation, not an analysis declaration.
+
+Validation is complete and precedes producer execution. The set is rejected as
+a whole with one typed reason per offending entry when an entry:
+
+- names no configured descriptor;
+- names a descriptor with no participation for the requesting operation kind;
+- names a descriptor whose participation does not support the request's
+  report-surface kind, using the existing unsupported-surface rejection; or
+- repeats an earlier entry.
+
+Validation does not drop an entry, substitute a similar ID, reorder the set, or
+narrow it to the supported subset. Cost authorization and user-gesture
+provenance for each selected analysis remain host preflight under
+[Progressive disclosure](progressive-disclosure.md).
+
+### Discovery
+
+Participation declarations are part of structural capability. They are
+registered through Inspection Capability Composition producer registration, so
+`explain`, `-D`, and capability search list the analyses an operation can
+select from the same registrations the operation dispatches on. No second
+analysis inventory exists.
+
 ## Outcome boundary
 
 This owner does not define or generalize producer outcomes.
@@ -340,6 +452,12 @@ The request owner must distinguish:
 | Same analysis offered as rows and graph | Two supported projections, not two producer identities |
 | Producer returns no observations | Producer outcome; structural capability is unchanged |
 | Universe provider reports failure or truncation | Retained input to planning/producer policy; never silently removed |
+| Analysis set names an unconfigured ID | Typed rejection of the whole set before execution |
+| Analysis set names an analysis that does not participate in the operation | Typed rejection of the whole set before execution; no narrowing to the supported subset |
+| Analysis set mixes an analysis unsupported at the request's report surface | Typed unsupported-surface rejection for that entry; the set is not narrowed |
+| Analysis set repeats an ID | Typed rejection before execution; no silent deduplication |
+| Analysis set omitted | Operation-owned default set; not an empty set |
+| Unkeyed analysis requested for Compare | No Compare participation exists to select; typed rejection, not an empty diff |
 
 ## Boundaries and non-claims
 
@@ -361,9 +479,13 @@ This owner does not define:
 - Integration descriptors, detection, candidate identity, disposition, or
   admission;
 - graph seed, traversal, relationship, subject-lens, or induced-set semantics;
-- Section applicability, selection, cost, or rendering; or
+- Section applicability, selection, cost, or rendering;
 - output payload, row-unit, aggregation, projection implementation, or format
-  behavior.
+  behavior;
+- any operation's default analysis set, result composition, or CLI grammar;
+- comparison correspondence, relation classification, or Finding identity; or
+- a universal result type, type-keyed result bag, service locator, or runtime
+  plugin model.
 
 The owner validates references to adjacent-owner declarations. It does not copy
 their inventories or reinterpret their outcomes.
@@ -406,6 +528,15 @@ The runtime implementation is verified by these named gates:
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`
 - `AnalysisUniverseProviderKindDoesNotChangeRequestFieldSemantics`
+
+Operation participation adds these gates with its first adoption:
+
+- `AnalysisIdentity_ConformsToGrammarAndIsUniquePerBuild`
+- `AnalysisParticipation_CompareRequiresKeyedFindingDescriptors`
+- `AnalysisSet_RejectsUnknownNonParticipatingAndDuplicateEntriesBeforeProducerExecution`
+- `AnalysisSet_RejectionReportsEveryOffendingEntryWithoutNarrowing`
+- `AnalysisSet_OmissionSelectsOperationDefaultNotEmptySet`
+- `AnalysisParticipation_DiscoveryAndDispatchShareOneRegistration`
 
 The expected request fields, report-surface kinds, question modes, and
 rejection reasons should be derived from their declarations so missing and

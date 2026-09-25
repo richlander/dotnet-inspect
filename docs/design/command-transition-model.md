@@ -822,6 +822,126 @@ owner-issued content outside that envelope. Markout remains the default CLI
 lowering for typed Diff content and Count; a specialized source-text or
 body-diff lowering requires its own explicit rendering boundary.
 
+### Analysis selection
+
+Diff is the first adopter of
+[operation participation](analysis-surfaces-and-universes.md#operation-participation),
+tracked by [#8545](https://github.com/richlander/dotnet-inspect/issues/8545).
+Diff owns the pairing of two endpoints. Each selected analysis owns its facts,
+and the Finding owners own correspondence. The exact claim of this adoption
+is:
+
+> A Diff request selects an ordered set of Compare-participating analyses by
+> analysis identity, or omits the set to select Diff's default set, and
+> returns each selected analysis's typed comparison in selection order without
+> Diff knowing any analysis's internals.
+
+This is how the "observation" of an authored Diff section preset (see
+[Equivalent requests](#equivalent-requests)) is expressed. An operation-first
+request and a subject-section preset that select the same analysis set lower
+to the same semantic plan.
+
+#### Selection grammar
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --member "Serialize:1" \
+  --analysis api,call-site,allocation
+```
+
+- `--analysis` takes one or more analysis identities, separated by commas.
+  It may be repeated, and repeated values concatenate in order.
+- The combined list is validated by the analysis-set rules of its owner.
+  Unknown, non-participating, surface-unsupported, and duplicate entries reject
+  the request before acquisition-dependent producer work, naming every
+  offending entry.
+- There are no aliases. Help, completion, `-D`, and `explain` list the
+  Compare-participating identities from the same registration that Diff
+  dispatches on.
+
+#### Initial registrations
+
+Diff's existing keyed Finding Transitions routes become the first registered
+Compare participations:
+
+| Analysis | Finding descriptors | Compare report surfaces |
+| --- | --- | --- |
+| `api` | `api.type`, `api.member`, `api.attribute` | Type, Member |
+| `allocation` | `analysis.allocation` | Member |
+| `call-site` | `analysis.call-site` | Member |
+| `unsafety` | `analysis.unsafety` | Member |
+| `csharp` | `csharp.line` | Member |
+| `il` | `il.op` | Member |
+
+`--finding` then retires without an alias. It is replaced, not superseded by
+a compatibility bridge, under
+[CLI change classification](cli-change-classification.md). Within `api`,
+choosing between the Type and Member descriptors remains the existing
+report-surface rule. It is not a second selector.
+
+The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
+Structural Context routes are not keyed Finding comparisons and are
+unchanged here. Their migration stays under #7703 step 6 and #8545, and none
+of them is a Compare participation until its producer issues keyed Findings.
+`Analysis Diff` currently reaches allocation evidence through Research's
+body-signal comparison as well. That overlap is recorded, not resolved, by
+this adoption.
+
+#### Default set and default view
+
+Diff's default set is `api` alone, because API comparison is metadata-only and
+is the current default `Changes` view. Omitting `--analysis` therefore does not
+change existing output.
+
+A body analysis joins the default set only with measured cost evidence and a
+decision under CLI change classification. Its participation declaration does
+not add it automatically.
+
+The default view follows the single-high-value-section rule:
+
+- With one selected analysis, the default view is that analysis's comparison
+  view: `Changes` for `api` at a Type scope, and Finding Transitions scoped to
+  that analysis otherwise.
+- With more than one selected analysis, the default view is one `Summary`
+  section.
+  - It has one row per selected analysis, in selection order.
+  - Each row shows the analysis's outcome and its relation counts, projected
+    from the [Analysis diff](analysis-diff.md) classification vocabulary.
+  - Each analysis's detail view is available through `-S`.
+
+`Summary` projects no analysis-specific columns.
+
+#### Content and failure
+
+A multi-analysis result is not a new Diff content type. Research already keeps
+typed comparisons in one descriptor-keyed container
+([Research composition](finding-nomenclature.md#research-composition)).
+Selecting analyses selects entries of that container, and each retains its
+native `AnalysisDiff<T>` or `PairFinding<T>` comparison.
+
+- Each analysis keeps its own typed outcome. An unavailable or failed analysis
+  is reported as that analysis's outcome, and it neither erases nor empties
+  another analysis's result.
+- An analysis with no observation at either endpoint is a successful empty
+  comparison only when both endpoint censuses are complete. Otherwise it keeps
+  its incomplete or failed inspection state.
+- `--envelope` carries the same composed Content. Browser/Wasm adoption
+  consumes the same validation and container, with C# and TypeScript call
+  sites.
+
+#### Demo and evidence
+
+The motivating real case is the member-scoped request above, over
+`System.Text.Json@9.0.0..10.0.0`.
+
+Current production output for the equivalent single-descriptor
+`--finding analysis.call-site` request reports that no selected Finding exists
+at either endpoint, even though `member … -S "Finding Census"` shows direct
+calls in the same 10.0.0 body. That discrepancy must be diagnosed before this
+case can serve as the adoption demo. The complete-census rule under
+[Content and failure](#content-and-failure) forbids reporting it as a
+successful empty comparison.
+
 ### Migration and production path
 
 Top-level `diff` is a permanent part of the go-forward command architecture,
@@ -858,7 +978,8 @@ Production adoption is tracked by
 5. Adopt Type and Member History and changed-version Count through the shared
    result from #7229; retire the standalone predecessor after complete parity.
 6. Migrate Analysis, Implementation, PDB/source, and Finding routes in focused
-   owner slices.
+   owner slices. Finding routes migrate first, through
+   [Analysis selection](#analysis-selection).
 7. Reconcile CLI help, completion, README, skills, Share, structured output,
    release notes, and Browser/Wasm consumers as each executable adoption lands.
 
