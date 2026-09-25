@@ -859,35 +859,52 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   Compare-participating identities from the same registration that Diff
   dispatches on.
 
-#### Initial registrations
+#### Producers and views
 
-Diff's existing keyed comparison routes become the first registered Compare
-participations. Each row names the route the analysis's comparison view
-already runs:
+`--analysis` selects producers. `-S` selects views of the result. A Diff
+section never chooses a producer. It is a projection of the envelope Content
+that the selected analyses produced, which is the original role of sections.
+One request therefore runs each selected analysis's comparison once, and any
+combination of views may be selected over it.
 
-| Analysis | Compare report surfaces | Finding descriptors per surface | Comparison route and view |
+Diff's existing keyed comparisons become the first registered Compare
+participations. Each row names the owner-issued comparison the analysis
+produces:
+
+| Analysis | Compare report surfaces | Finding descriptors per surface | Producer |
 | --- | --- | --- | --- |
-| `api` | Library, Type, Member | Library and Type: `api.type`, `api.member`; Member: `api.member` | `ApiComparisonQuery` producing `ApiFindingComparison`; view `Changes` |
-| `api-attribute` | Type | `api.attribute` | Finding Transitions route for `api.attribute` |
-| `allocation` | Member | `analysis.allocation` | Finding Transitions route for `analysis.allocation` |
-| `call-site` | Member | `analysis.call-site` | Finding Transitions route for `analysis.call-site` |
-| `unsafety` | Member | `analysis.unsafety` | Finding Transitions route for `analysis.unsafety` |
-| `csharp` | Member | `csharp.line` | Finding Transitions route for `csharp.line` |
-| `il` | Member | `il.op` | Finding Transitions route for `il.op` |
+| `api` | Library, Type, Member | Library and Type: `api.type`, `api.member`; Member: `api.member` | `ApiComparisonQuery` producing `ApiFindingComparison` |
+| `api-attribute` | Type | `api.attribute` | `MetadataFindings.CompareApiAttributes` |
+| `allocation` | Member | `analysis.allocation` | `AnalysisFindings.CompareAllocations` |
+| `call-site` | Member | `analysis.call-site` | `AnalysisFindings.CompareCallSites` |
+| `unsafety` | Member | `analysis.unsafety` | `AnalysisFindings.CompareUnsafety` |
+| `csharp` | Member | `csharp.line` | `CSharpFindings.Compare` |
+| `il` | Member | `il.op` | `IlFindings.Compare` |
 
 `api` binds the existing `Changes` producer at every surface, including the
-filterless Library surface of `diff A B`. `ApiFindingComparison` already
-carries keyed `api.type` and `api.member` comparisons beside Metadata's
-compatibility classification. The existing single-Library envelope terminal
-remains that view's delivery under
-[Envelope-complete adoption](#envelope-complete-adoption). The
-`api.type`/`api.member` Finding Transitions lens is an endpoint-confirmation
-view of the same analysis, selected with `-S "Finding Transitions"`, not a
-second analysis. That lens emits every descriptor the analysis declares for
-the request's surface, in declaration order: `api.type` then `api.member` at
-Type, and `api.member` at Member. It therefore covers today's
-`--finding api.type` and `--finding api.member` selections at those surfaces. Attribute comparison is not part of `ApiFindingComparison`,
-so it is the separate `api-attribute` analysis and stays reachable.
+filterless Library surface of `diff A B`. `ApiFindingComparison` carries keyed
+`api.type` and `api.member` comparisons beside Metadata's compatibility
+classification. The existing single-Library envelope terminal remains its
+delivery under [Envelope-complete adoption](#envelope-complete-adoption).
+Attribute comparison is not part of `ApiFindingComparison`, so it is the
+separate `api-attribute` analysis.
+
+Diff offers these views over the result:
+
+| View | Projects |
+| --- | --- |
+| `Summary` | One row per selected analysis: outcome and transition counts |
+| `Changes` | `api`'s compatibility-classified changes |
+| `Finding Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
+
+`Finding Transitions` is a view, not a route. Today it is a command-owned
+route: it declares no query, runs its own per-type API comparison, and must be
+selected alone. As a view of the `api` result, its API rows follow the `api`
+producer's scope and member matching instead of that separate comparison,
+including under `-a`. That is an **intentionally breaking** change under
+[CLI change classification](cli-change-classification.md). The view stays
+available at the Type and Member surfaces, as today. Offering it at the
+Library surface is a later decision.
 
 #### Retiring pairwise `--finding`
 
@@ -903,8 +920,10 @@ retires `--finding` entirely, in its own #8545 slice.
 
 The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
 Structural Context routes are not keyed Finding comparisons and are
-unchanged here. Their migration stays under #7703 step 6 and #8545, and none
-of them is a Compare participation until its producer issues keyed Findings.
+unchanged here. They keep their current selection rules, including
+exclusive selection, and are not views of the analysis-set result. Their
+migration stays under #7703 step 6 and #8545, and none of them is a Compare
+participation until its producer issues keyed Findings.
 `Analysis Diff` currently reaches allocation evidence through Research's
 body-signal comparison as well. That overlap is recorded, not resolved, by
 this adoption.
@@ -922,8 +941,8 @@ not add it automatically.
 
 The default view follows the single-high-value-section rule:
 
-- With one selected analysis, the default view is that analysis's comparison
-  view from the registration table.
+- With one selected analysis, the default view is `Changes` for `api`, and
+  `Finding Transitions` for any other analysis.
 - With more than one selected analysis, the default view is one `Summary`
   section.
   - It has one row per selected analysis, in selection order.
