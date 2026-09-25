@@ -2630,10 +2630,13 @@ build code never runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-`.github/workflows/deploy-inspect-web-runtime-sites.yml` runs nightly at
-00:47 UTC from one exact green `main` commit. It calls the controlled runtime
-cohort to build Mono, CoreCLR IL, and non-composite CoreCLR ReadyToRun with one
-shared frontend, then publishes the exact accepted CoreCLR artifacts to:
+`.github/workflows/deploy-inspect-web-runtime-sites.yml` runs automatically
+after each completed nightly release candidate. It validates that exact
+candidate run and attempt, passes the candidate SHA through every controlled
+runtime-cohort checkout, and records the run, attempt, and SHA in retained
+evidence and each deployment receipt. The cohort builds Mono, CoreCLR IL, and
+non-composite CoreCLR ReadyToRun with one shared frontend, then publishes the
+exact accepted CoreCLR artifacts to:
 
 | Site | Runtime artifact | GitHub environment |
 | --- | --- | --- |

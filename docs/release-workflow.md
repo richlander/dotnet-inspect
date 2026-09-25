@@ -145,9 +145,10 @@ The production job depends on successful package/GitHub publication. In the
 downloads, and verifies the same artifact ID and digest, then uploads
 `site/wwwroot` and `site/api` with Azure's app and API builds disabled.
 
-Comparison websites are independent automatic evidence built from the
-candidate SHA. Their success or failure neither authorizes nor supplies
-production publication.
+Comparison websites are independent automatic evidence built after candidate
+completion from that run's exact SHA. Their artifacts and deployment receipts
+record the candidate run, attempt, and SHA. Their success or failure neither
+authorizes nor supplies production publication.
 
 ## Package publication order and reach
 

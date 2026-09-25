@@ -388,8 +388,9 @@ internal sealed class ChangeRoutingPolicy
         else if (BytePattern.MatchesAny(
             path,
             ".github/workflows/deploy-inspect-web.yml",
-            ".github/workflows/deploy-inspect-web-coreclr.yml",
-            ".github/workflows/deploy-inspect-web-runtime-sites.yml"))
+            ".github/workflows/deploy-inspect-web-runtime-sites.yml",
+            ".github/workflows/inspect-web-runtime-cohort-nightly.yml",
+            ".github/workflows/inspect-web-runtime-pin-proposal.yml"))
         {
             state.Web = true;
         }
