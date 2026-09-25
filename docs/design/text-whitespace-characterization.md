@@ -444,11 +444,15 @@ always select the other policy explicitly.
 Insensitive presentation applies the Suppress mode with two constraints from
 line correspondence:
 
-- A `WhitespaceOnly` change with no `LineBreaks` and no `FinalLineTerminator`
-  edit is suppressed: its lines render as unchanged context. Every edit then
-  has equal boundary counts, so line *i* of one side corresponds to line *i*
-  of the other and the two differ only within the line or in terminator
-  spelling, which is the `diff -w` notion of an unchanged line.
+- A `WhitespaceOnly` change is suppressed when both sides have the same
+  nonzero number of lines and it has no `LineBreaks` and no
+  `FinalLineTerminator` edit: its lines render as unchanged context. Every
+  edit then has equal boundary counts over the same lines, so line *i* of one
+  side corresponds to line *i* of the other and the two differ only within
+  the line or in terminator spelling, which is the `diff -w` notion of an
+  unchanged line. Equal boundary counts alone are not enough: a change whose
+  text is empty on one side, such as `""` against a lone `␠␠` line, has no
+  boundary on either side but zero lines against one.
 - Any other `WhitespaceOnly` change cannot pair its lines as context. The
   common case is a blank line that authored code has and decompiled code
   lacks; a brace moved onto its own line is another. A line re-cut keeps the
@@ -706,10 +710,9 @@ defaults and their hosts:
   selection for this endpoint pair, and S7 leaves it unchanged.
 - S7 replaces every `NormalizeBody` comparison in the probe with the pair
   outcome: Correct holds when the outcome is `Identical` or `WhitespaceOnly`.
-  Printer exact compares a separate printer-body extraction that differs from
-  the Correct body only in whitespace, and normalizes only line terminators;
-  terminator spelling and a final terminator are whitespace edits, so every
-  Printer exact body stays Correct and the nesting holds. S7 reports a body
+  The probe records Printer exact only for a body that is already Correct,
+  as it does today, so the nesting holds by construction; Printer exact
+  compares its own printer-body extraction and is otherwise unchanged. S7 reports a body
   that is not Correct with the line-diff facts: `Changed` lines, moved blocks,
   and `WhitespaceOnly` lines counted separately. `NormalizeBody` removes every
   .NET `\s` character, which includes U+00A0, U+000B, U+000C, U+0085, other
