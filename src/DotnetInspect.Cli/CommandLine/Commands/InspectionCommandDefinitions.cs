@@ -484,20 +484,10 @@ public static class InspectionCommandDefinitions
             opts.Trace,
             opts.Count,
             opts.Effective,
-            opts.Source,
-            opts.AddSource,
-            opts.NuGetConfig,
             referencesOption,
             dependenciesOption,
             referenceDepthOption,
-            asmPlatformOption,
-            asmPackageOption,
             workspaceOption,
-            namesakeLibraryOption,
-            asmPrereleaseOption,
-            asmFrameworkOption,
-            asmVersionOption,
-            asmTfmOption,
             typeFilterOption,
             metadataRootOption,
             detailsOption,
@@ -516,12 +506,43 @@ public static class InspectionCommandDefinitions
                 return;
             }
 
+            bool exactLibraryMetrics =
+                string.Equals(
+                    result.GetValue(opts.Select)?.Trim(),
+                    SectionNames.LibraryMetrics,
+                    StringComparison.OrdinalIgnoreCase);
             if (result.GetResult(opts.Select)
-                is { Implicit: false })
+                    is { Implicit: false }
+                && !exactLibraryMetrics)
             {
                 result.AddError(
-                    "library --envelope does not accept section "
-                        + "selection.");
+                    "library --envelope accepts only the exact "
+                        + "\"Library Metrics\" section selection.");
+            }
+            if (exactLibraryMetrics)
+                return;
+
+            Option[] directEnvelopeIncompatibleOptions =
+            [
+                opts.Source,
+                opts.AddSource,
+                opts.NuGetConfig,
+                asmPlatformOption,
+                asmPackageOption,
+                namesakeLibraryOption,
+                asmPrereleaseOption,
+                asmFrameworkOption,
+                asmVersionOption,
+                asmTfmOption,
+            ];
+            foreach (Option option
+                in directEnvelopeIncompatibleOptions)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {option.Name}.");
+                }
             }
         });
         assemblyCommand.Subcommands.Add(
@@ -610,7 +631,13 @@ public static class InspectionCommandDefinitions
                         + "combined with an exact Library source.");
                 return 1;
             }
-            if (parseResult.GetValue(opts.Envelope))
+            bool libraryMetricsEnvelope =
+                parseResult.GetValue(opts.Envelope)
+                && HasExactLibraryMetricsSelector(
+                    parseResult,
+                    opts);
+            if (parseResult.GetValue(opts.Envelope)
+                && !libraryMetricsEnvelope)
             {
                 assemblyPath = source;
             }
@@ -1006,6 +1033,31 @@ public static class InspectionCommandDefinitions
                     lowering));
 
         return assemblyCommand;
+    }
+
+    private static bool HasExactLibraryMetricsSelector(
+        ParseResult parseResult,
+        SharedOptions opts)
+        => HasExactLibraryMetricsSelector(
+            opts.ParseSelect(parseResult),
+            opts.ParseSelectDefault(parseResult));
+
+    private static bool HasExactLibraryMetricsSelector(
+        string[]? select,
+        bool selectDefault)
+    {
+        if (selectDefault)
+            return false;
+
+        string[] selectors =
+        [
+            .. (select ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.LibraryMetrics,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool TryParseMetadataRoot(

@@ -424,6 +424,9 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public bool EnvelopeOutput { get; init; }
 
+    /// <summary>Output minified envelope JSON.</summary>
+    public bool CompactJson { get; init; }
+
     /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>

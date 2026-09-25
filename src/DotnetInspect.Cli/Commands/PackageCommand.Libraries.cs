@@ -878,6 +878,8 @@ public partial class PackageCommand
             TypeFilter = options.TypeFilter,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,
+            EnvelopeOutput = options.EnvelopeOutput,
+            CompactJson = options.CompactJson,
             PlainText = options.Format == OutputFormat.PlainText,
             Tabular = options.Tabular,
             Tsv = options.Tsv,

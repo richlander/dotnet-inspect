@@ -402,5 +402,5 @@ public record LibraryOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
+    public bool IsRawOutput => EnvelopeOutput || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
 }

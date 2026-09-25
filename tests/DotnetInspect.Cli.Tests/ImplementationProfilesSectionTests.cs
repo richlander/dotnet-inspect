@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -745,23 +746,167 @@ public class MetricSectionTests
 
     [Fact]
     public async Task
-        LibraryMetrics_RejectsDocumentJson()
+        LibraryMetrics_JsonAndEnvelopePreserveCompleteDocument()
     {
-        var result = await ConsoleCapture.RunAsync(
-            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+        string fixture =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var contentResult = await RunCommand(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--json");
+        var envelopeResult = await RunCommand(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--envelope");
+
+        Assert.Equal(0, contentResult.ExitCode);
+        Assert.Empty(contentResult.Error);
+        Assert.Equal(0, envelopeResult.ExitCode);
+        Assert.Empty(envelopeResult.Error);
+        using JsonDocument content =
+            JsonDocument.Parse(contentResult.Output);
+        using JsonDocument envelope =
+            JsonDocument.Parse(envelopeResult.Output);
+        JsonElement envelopeRoot = envelope.RootElement;
+        Assert.Equal(
+            "library-metrics",
+            envelopeRoot.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            1,
+            envelopeRoot.GetProperty("schema_version").GetInt32());
+        Assert.True(
+            JsonElement.DeepEquals(
+                content.RootElement,
+                envelopeRoot.GetProperty("content")));
+        Assert.Equal(
+            "nonProjectable",
+            envelopeRoot
+                .GetProperty("share")
+                .GetProperty("kind")
+                .GetString());
+
+        JsonElement root = content.RootElement;
+        Assert.Equal(
+            LibraryStructuralReport.CurrentMethodologyVersion,
+            root.GetProperty("methodologyVersion").GetString());
+        Assert.NotEmpty(
+            root.GetProperty("population")
+                .GetProperty("coverage")
+                .GetProperty("declaredMethods")
+                .EnumerateArray());
+        Assert.All(
+            root.GetProperty("distributions").EnumerateArray(),
+            static distribution =>
             {
-                AssemblyName =
-                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                IncludeSections =
-                    [SectionNames.LibraryMetrics],
-                JsonOutput = true,
-            }));
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    distribution
+                        .GetProperty("completeBodyCount")
+                        .ValueKind);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    distribution.GetProperty("maximum").ValueKind);
+            });
+
+        JsonElement[] typeSummaries =
+        [
+            .. root.GetProperty("typeSummaries").EnumerateArray(),
+        ];
+        Assert.NotEmpty(typeSummaries);
+        HashSet<string> typeKeys =
+        [
+            .. typeSummaries.Select(summary =>
+                summary.GetProperty("typeKey").GetString()!),
+        ];
+        Assert.Contains(
+            typeSummaries
+                .GroupBy(summary =>
+                    summary.GetProperty("display").GetString())
+                .Select(group => group
+                    .Select(summary =>
+                        summary.GetProperty("typeKey").GetString())
+                    .Distinct(StringComparer.Ordinal)
+                    .Count()),
+            count => count > 1);
+        JsonElement[] relationships =
+        [
+            .. root.GetProperty("entangledRelationships")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(relationships);
+        Assert.All(
+            relationships,
+            relationship =>
+            {
+                Assert.Contains(
+                    relationship
+                        .GetProperty("sourceTypeKey")
+                        .GetString()!,
+                    typeKeys);
+                Assert.Contains(
+                    relationship
+                        .GetProperty("targetTypeKey")
+                        .GetString()!,
+                    typeKeys);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    relationship
+                        .GetProperty("callSiteCount")
+                        .ValueKind);
+            });
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_CompleteJsonRejectsProjectionBeforeAcquisition()
+    {
+        var result = await RunCommand(
+            "library",
+            "missing-library.dll",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--json",
+            "--fields",
+            "Metric");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Library Metrics analysis.",
+            "Complete Library Metrics JSON does not support",
             result.Error);
+        Assert.DoesNotContain(
+            "does not exist",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void
+        LibraryMetrics_EnvelopeAcceptsExactPackageCoordinates()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] arguments =
+        [
+            "library",
+            "Markout.dll",
+            "--package",
+            "Markout@0.35.2",
+            "--tfm",
+            "net10.0",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--envelope",
+            "--compact",
+        ];
+
+        var result = root.Parse(
+            CommandLineBuilder.PreprocessArgs(arguments, root));
+
+        Assert.Empty(result.Errors);
     }
 
     [Fact]
@@ -785,4 +930,16 @@ public class MetricSectionTests
             int.TryParse(result.Output.Trim(), out int count));
         Assert.True(count > 0);
     }
+
+    private static Task<(int ExitCode, string Output, string Error)>
+        RunCommand(params string[] args) =>
+        ConsoleCapture.RunAsync(() =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed =
+                CommandLineBuilder.PreprocessArgs(args, root);
+            return CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
 }

@@ -56,6 +56,14 @@ public partial class LibraryCommand
                     + "assembly within the package.");
             return 1;
         }
+        if (RequestsLibraryMetricsTransport(options)
+            && selection is PackageLibraryTarget.Aggregate)
+        {
+            CommandError.Write(
+                "Complete Library Metrics JSON requires one exact Library. "
+                    + "Name the Library or use --namesake-library.");
+            return 1;
+        }
 
         InspectionOptions packageOptions =
             CreatePackageOptions(
@@ -121,6 +129,8 @@ public partial class LibraryCommand
             IntegrationQuery = options.IntegrationQuery,
             MetadataRoot = options.MetadataRoot,
             JsonOutput = options.JsonOutput,
+            EnvelopeOutput = options.EnvelopeOutput,
+            CompactJson = options.CompactJson,
             Format = options.Format,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,

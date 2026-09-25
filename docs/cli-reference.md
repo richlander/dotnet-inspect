@@ -1212,6 +1212,29 @@ that population, without requiring `--all`. If an aggregate result identifies
 a non-public body and you follow it into an API-level command, that separate
 command may require `--all` to resolve the declaration.
 
+Exact `library ... -S "Library Metrics" --json` emits the complete Research
+`LibraryStructuralReportDocument`: the Analysis receipt and coverage,
+numeric distributions and maximum-body identities, async disposition, typed
+type summaries, cross-type relationships, and Analysis diagnostics.
+`--envelope` emits identical `content` plus Share and operation diagnostics:
+
+```bash
+dotnet-inspect library Markout.dll --package Markout@0.35.2 \
+  --tfm net10.0 -S "Library Metrics" --json
+dotnet-inspect library Markout.dll --package Markout@0.35.2 \
+  --tfm net10.0 -S "Library Metrics" --envelope
+```
+
+This complete transport is separate from Markout lowering. Markdown, table,
+TSV, and JSONL retain their existing Library Metrics row contracts. Complete
+JSON requires one exact Library, one target framework, and the exact singleton
+section; it rejects row, field, column, Count, discovery, payload, and
+competing presentation projections rather than truncating Content. Type
+summaries carry exact metadata keys separately from display labels, and every
+relationship endpoint names a retained summary, so a Copilot App can render an
+SVG without recovering identity from display text. Library Metrics Share is
+currently `nonProjectable`.
+
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
 package-library selection.

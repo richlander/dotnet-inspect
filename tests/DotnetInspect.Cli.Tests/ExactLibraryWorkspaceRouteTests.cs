@@ -1,13 +1,17 @@
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
@@ -357,6 +361,132 @@ public sealed class ExactLibraryWorkspaceRouteTests
         Assert.Equal(
             "available",
             root.GetProperty("share").GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetricsEnvelopePreservesExactPackageDocument()
+    {
+        const string packageId = "library-metrics-cli.test";
+        const string version = "1.0.0";
+        const string framework = "net11.0";
+        const string library =
+            "ILInspector.Analysis.CallerGraphTarget.dll";
+        using var directory =
+            new TemporaryTestDirectory("library-metrics-package-");
+        string packagePath = Path.Combine(
+            directory.FullName,
+            $"{packageId}.{version}.nupkg");
+        byte[] package = Archive(
+            ($"lib/{framework}/{library}",
+                await File.ReadAllBytesAsync(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath(),
+                    TestContext.Current.CancellationToken)),
+            ($"{packageId}.nuspec",
+                Encoding.UTF8.GetBytes(
+                    $"""
+                    <package>
+                      <metadata>
+                        <id>{packageId}</id>
+                        <version>{version}</version>
+                        <authors>dotnet-inspect</authors>
+                        <description>Library Metrics CLI test package.</description>
+                      </metadata>
+                    </package>
+                    """)));
+        await File.WriteAllBytesAsync(
+            packagePath,
+            package,
+            TestContext.Current.CancellationToken);
+        var options = new LibraryOptions
+        {
+            PackagePath = packagePath,
+            AssemblyName = library,
+            Tfm = framework,
+            Select = [SectionNames.LibraryMetrics],
+            IncludeSections = [SectionNames.LibraryMetrics],
+            ExactIncludeSectionsOverride =
+                [SectionNames.LibraryMetrics],
+            SelectExplicitlySet = true,
+            EnvelopeOutput = true,
+            CompactJson = true,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => LibraryCommand.ExecuteAsync(
+                    options,
+                    workspaceLoadOptions: null));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        Assert.Equal(
+            "library-metrics",
+            root.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            LibraryStructuralReport.CurrentMethodologyVersion,
+            root.GetProperty("content")
+                .GetProperty("methodologyVersion")
+                .GetString());
+        Assert.Equal(
+            library[..^4],
+            root.GetProperty("content")
+                .GetProperty("analysisReceipt")
+                .GetProperty("moduleIdentity")
+                .GetProperty("assemblyIdentity")
+                .GetProperty("name")
+                .GetString());
+        JsonElement content = root.GetProperty("content");
+        JsonElement[] summaries =
+        [
+            .. content.GetProperty("typeSummaries").EnumerateArray(),
+        ];
+        HashSet<string> typeKeys =
+        [
+            .. summaries.Select(summary =>
+                summary.GetProperty("typeKey").GetString()!),
+        ];
+        Assert.NotEmpty(typeKeys);
+        Assert.All(
+            summaries,
+            summary => Assert.Equal(
+                JsonValueKind.Object,
+                summary.GetProperty("type").ValueKind));
+        JsonElement[] relationships =
+        [
+            .. content.GetProperty("entangledRelationships")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(relationships);
+        Assert.All(
+            relationships,
+            relationship =>
+            {
+                Assert.Contains(
+                    relationship.GetProperty("sourceTypeKey")
+                        .GetString()!,
+                    typeKeys);
+                Assert.Contains(
+                    relationship.GetProperty("targetTypeKey")
+                        .GetString()!,
+                    typeKeys);
+            });
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Equal(
+            "library-metrics/share",
+            root.GetProperty("share").GetProperty("path").GetString());
+        Assert.Contains(
+            "cannot yet restore an exact Library Metrics inspection",
+            root.GetProperty("share").GetProperty("reason").GetString()!,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            JsonValueKind.Array,
+            root.GetProperty("diagnostics").ValueKind);
     }
 
     [Fact]
