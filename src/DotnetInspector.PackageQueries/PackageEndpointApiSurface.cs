@@ -13,7 +13,8 @@ namespace DotnetInspector.PackageQueries;
 /// </summary>
 /// <remarks>
 /// Participants are merged in ordinal package-asset-path order, each
-/// extracted with generic-constraint resolution over its own binding, and
+/// extracted from its own metadata without generic-constraint resolution
+/// (the comparisons never read the resolved type-parameter kind), and
 /// labeled with its package asset path rather than a file path. A participant
 /// that cannot be read is recorded as an inspection failure, never dropped.
 /// </remarks>

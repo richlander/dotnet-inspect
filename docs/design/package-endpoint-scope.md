@@ -178,7 +178,14 @@ never retain a participant after the scope is disposed.
 
    The reference rule needs surfaces, so its fallback pays the surface read
    before the legacy download. For `MediatR` 12.2.0..12.4.1, which is below
-   the ranged size cut, that is 49 KB and 0.3 s more than main, cold.
+   the ranged size cut, that is 49 KB and 0.3 s more than main, cold. Larger
+   packages cost more. Cold under JIT on nuget.org, against main:
+   - `Microsoft.Extensions.Hosting` 8.0.0..9.0.0 with `--member`, also below
+     the cut, receives 1.16 MB instead of 0.58 MB and takes 0.93 s instead of
+     0.64 s. Both archives are downloaded twice, and disk doubles to 5.0 MB.
+   - `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 with `--member`, read by
+     range, receives 43.4 MB instead of 34.4 MB and takes 4.7 s instead of
+     3.8 s. Disk grows from 148 MB to 175 MB.
 
    Evidence for the selector rule: with `--tfm`,
    `TfmSelector.SelectAssembliesByTfmFromPackage`
