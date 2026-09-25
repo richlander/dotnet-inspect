@@ -91,8 +91,20 @@ document.
 
 ## Sides
 
-Each side is a closed outcome, following `FindingInspection<T>`, and derives
-from the correspondence:
+Correspondence is computed per terminal domain, the assembly a Member's
+declaring type finally resolves to. The document takes the correspondence
+outcomes for the terminal domains of both sides' composition receipts:
+
+- When both receipts name one terminal domain, or only one side has a
+  receipt and its domain is the only one with an outcome for the Member,
+  that domain's outcome decides both sides, as in the table below.
+- When the two sides' terminal domains differ, or the Member has more than
+  one non-`Absent` outcome, both sides are Unavailable with the typed
+  outcomes, as Implementation Diff's handoff reports it. A Member whose type
+  moved to another assembly is therefore never shown as added or removed; a
+  cross-domain pairing would be the correspondence owner's decision.
+
+Each side is a closed outcome, following `FindingInspection<T>`:
 
 | Correspondence | Before side | After side |
 | --- | --- | --- |
@@ -166,19 +178,26 @@ A body fact and a header fact never share an identity key, because the
 origin is part of it.
 
 A C# node's **construct path** is the kinds of the C# nodes that contain its
-spans and whose kind is a construct statement in the Annotated Source node
-catalog, such as `TryStatement`, `CatchClause`, `ForeachStatement`,
-`ForStatement`, `WhileStatement`, `DoStatement`, `SwitchStatement`, and
-`IfStatement`, ordered outermost first, as in `TryStatement>ForeachStatement`.
-Nodes form a laminar family, so containment defines one path per node. A
-fact's scope key is the longest common prefix of its C# target nodes' paths,
-so a fact whose targets sit in different constructs keeps only the scope
-they share. Regions carry roles but not construct kinds and are not used.
+spans and whose kind is one of these catalog kinds: `TryStatement`,
+`CatchClause`, `ForStatement`, `ForeachStatement`, `WhileStatement`,
+`DoStatement`, `IfStatement`, `SwitchStatement`, `SwitchSection`,
+`LockStatement`, `UsingStatement`, `FixedStatement`, `CheckedStatement`,
+`LambdaExpression`, and `LocalFunctionStatement`. The list is closed; a new
+catalog kind joins it only by a change to this design. The path is ordered
+outermost first, as in `TryStatement>ForeachStatement`. Production nodes come
+from the printed body map, whose constructor enforces that node extents form
+a laminar family, so containment defines one path per node; this design
+depends on that producer guarantee. A fact's scope key is the longest common
+prefix of its C# target nodes' paths, so a fact whose targets sit in
+different constructs keeps only the scope they share. Regions carry roles but
+not construct kinds and are not used.
 
 `FindingComparison<T>` compares the two sides' findings in `Ordered` mode, in
-census order, and accepts the `descriptor` tier as a deliberate consumer
-acceptance: the tier's confidence and the comparison's acceptance threshold
-are both 50. Each pair covers one fact on one side or one fact on each side:
+census order. The `descriptor` tier's confidence is 80 and the comparison's
+acceptance threshold is 80, a deliberate consumer acceptance of soft matches.
+The matcher scores move candidates at most 75, so no move candidate is ever
+accepted, and no pair carries a moved difference. Each pair covers one fact
+on one side or one fact on each side:
 
 - **Present**: a fact on each side with the same identity.
 - **Added**: a fact only on the After side, such as an allocation or a throw
@@ -193,7 +212,8 @@ retained and not promoted. Three allocations of `List<int>` before and four
 after, with no other facts between them, produce three Present and one
 Added, never a guessed pairing of a particular one; when other facts
 interleave, the alignment may pair fewer and report more Added and Removed,
-which is still no guess. The scope key corroborates ambiguous pairs; it
+which is still no guess. The scope key raises the score of retained move
+candidates that a consumer may choose to promote; it
 never creates identity.
 
 Each pair names its facts by side and original fact id, so a host reaches
@@ -273,8 +293,10 @@ or a throw.
    a text comparison.
 2. Build it for an added Member and confirm the Before side is Absent and no
    comparison is present.
-3. Build it for a Member whose declaring type is forwarded in one version
-   and confirm the forwarder provenance and both sides' resolved identities.
+3. Build it for a Member whose declaring type is forwarded in one version to
+   the assembly that defines it in the other, so both sides share a terminal
+   domain, and confirm the forwarder provenance and both sides' resolved
+   identities.
 4. Build it for a Member whose IL exceeds the admission limits and confirm
    IL records Too complex while C# keeps its comparison.
 5. With a version that adds an allocation, confirm the fact comparison has
@@ -291,3 +313,11 @@ or a throw.
    comparison of the two overloads.
 9. With a version that changes an allocated type, confirm one Changed pair
    with the `descriptor` tier's match provenance.
+10. Build it for a Member whose declaring type moved to a different assembly
+    between versions, so the sides' terminal domains differ, and confirm both
+    sides are Unavailable with the typed outcomes and the Member is not shown
+    as added or removed.
+11. With Before facts `alloc List<int>`, `alloc List<int>`, `call X` and
+    After facts `call X`, `alloc List<int>`, confirm `call X` is Present, the
+    allocations are one Removed pair of two and one Added, no allocation is
+    paired by position, and no pair carries a moved difference.
