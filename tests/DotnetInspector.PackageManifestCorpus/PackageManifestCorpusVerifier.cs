@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml;
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using NuGet.Frameworks;
 using NuGet.Packaging;

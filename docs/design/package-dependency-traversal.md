@@ -59,8 +59,9 @@ It does not own the facts or effects it composes:
   source mapping, candidate completeness, exact payload authority,
   source-result association, authentication, deadlines, and typed source
   failures.
-- `PackageManifestFactsQuery` owns bounded manifest decoding, package-identity
-  validation, declaration validation, and `PackageManifestFailure`.
+- `PackageManifestFactsProjection` owns bounded manifest decoding,
+  package-identity validation, declaration validation, and
+  `PackageManifestFailure`; `PackageManifestFactsQuery` is its query facade.
 - `PackageDependencyGroupsQuery` owns target-framework group selection and the
   distinction among a selected group, no dependency groups, and no matching
   target framework.
@@ -129,9 +130,9 @@ policy. That Workspace-specific state is not part of the shared candidate
 resolver consumed here.
 
 Issue #5996 also supplies a Queries-owned manifest-bytes adapter. It projects
-`PackageSourceManifest` through `PackageManifestFactsQuery`, the existing
-facts-to-groups projection, and `PackageDependencyEvidenceQuery`; it never
-downloads a `.nupkg` merely to read one already-acquired manifest.
+`PackageSourceManifest` through the `PackageManifestFactsQuery` facade, the
+existing facts-to-groups projection, and `PackageDependencyEvidenceQuery`; it
+never downloads a `.nupkg` merely to read one already-acquired manifest.
 
 ## Question answered
 
@@ -340,10 +341,11 @@ retains the candidate association and returns one of:
 - a typed source, acquisition, manifest, or projection failure; or
 - typed incomplete completion evidence.
 
-The admitted root is produced through `PackageManifestFactsQuery`, the
-facts-to-groups projection owned by `PackageDependencyGroupsQuery`, and
-`PackageDependencyEvidenceQuery`. The traversal query never implements a
-second nuspec parser or acquires a package archive for manifest-only work.
+The admitted root is produced through the `PackageManifestFactsQuery` facade
+over package-owned facts, the facts-to-groups projection owned by
+`PackageDependencyGroupsQuery`, and `PackageDependencyEvidenceQuery`. The
+traversal query never implements a second nuspec parser or acquires a package
+archive for manifest-only work.
 
 The candidate and returned root must correspond through owner-issued typed
 identity. Artifact-authored package ID or version disagreement is a manifest

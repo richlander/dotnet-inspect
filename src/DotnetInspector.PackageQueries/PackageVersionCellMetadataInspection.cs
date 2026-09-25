@@ -83,11 +83,17 @@ public sealed class PackageVersionCellMetadataInspectionRequest
         Limits = limits;
         WorkspaceDeadline = workspaceDeadline;
         ApiInspection = apiInspection;
+        // Every Metadata finding (the image overview and the API surfaces
+        // behind api.type, api.member, and api.attribute) reads the compile
+        // surface group only, so the cell is realized surface-only: a ranged
+        // read fetches the surface folders, and the package Root prepares no
+        // implementation role (docs/design/package-read-demand.md).
         HouseExecution = cell.PrepareExecution(
             operation,
             targetContext,
             PackageHouseAssetSelectionKind.Compile,
-            PackageHouseLibraryHandoffMode.PackageOnly);
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            PackageAssetDemand.Surface);
     }
 
     public PackageHouseVersionPopulationCell Cell { get; }

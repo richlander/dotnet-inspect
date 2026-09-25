@@ -97,10 +97,11 @@ will be composed.
 assembly workspace query. It streams bounded typed match, failure, and
 completion events from source-owned search metadata and exact manifests.
 Search supplies owners and candidate provenance; the manifest supplies authors
-and declared dependency groups. A network-free `PackageManifestFactsQuery`
-validates each bounded manifest and projects one immutable fact model that both
-package-profile and package-content dependency queries consume. In addition to
-the 1 MiB transport and 512 KiB decoded-document bounds, that projection admits
+and declared dependency groups. Package-owned
+`PackageManifestFactsProjection` validates each bounded manifest and projects
+one immutable fact model; the network-free `PackageManifestFactsQuery` facade
+and direct package consumers share it. In addition to the 1 MiB transport and
+512 KiB decoded-document bounds, that projection admits
 at most 32,768 UTF-16 code units per scalar value, 128 package types, 1,024
 dependency groups, and 4,096 dependencies; a violation is an invalid-manifest
 failure rather than a partial fact set. Root and metadata elements accept the
