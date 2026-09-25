@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 using UntrustedDocuments;
 
 namespace DotnetInspector.Services;

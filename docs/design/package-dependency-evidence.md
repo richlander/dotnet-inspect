@@ -275,13 +275,14 @@ identity trust provenance may differ. #5316 extends the manifest-facts owner
 with typed self-attested identity for direct nuspec content; the adapter does
 not parse nuspec identity independently.
 
-`PackageManifestFactsQuery` remains the owner of bounded XML projection,
-manifest identity validation, dependency-contract validation, and
-`PackageManifestFailure`. `PackageDependencyGroupsQuery` remains the owner of
-declared groups, exact target-framework selection, implicit manifest-group
-identity, and the distinction among selected, no dependency groups, and no
-matching target framework. The evidence query preserves those states; it does
-not turn either absence state into an empty selected group. Its
+`PackageManifestFactsProjection` owns bounded XML projection, manifest identity
+validation, dependency and framework-reference contract validation, and
+`PackageManifestFailure`; `PackageManifestFactsQuery` is its network-free query
+facade. `PackageDependencyGroupsQuery` remains the owner of exact
+target-framework selection, implicit manifest-group identity, and the
+distinction among selected, no dependency groups, and no matching target
+framework. The evidence query preserves those states; it does not turn either
+absence state into an empty selected group. Its
 `DependencyFrameworkScopeIdentity` never recomputes that selection:
 `SelectedGroupIndex` identifies the exact owner-issued source occurrence,
 which normalization maps to one logical group. The canonical framework
