@@ -326,8 +326,15 @@ Back, by drilling down from Type, or by switching lenses. It is discarded when
 a new Diff result carries a different identity for that Member, when the
 baseline changes, or when the Package model is replaced or removed. A failed,
 rejected, or canceled result is not retained, and the action offers it again.
-Explore may use a retained result with the same identity instead of running
-the comparison again.
+
+Compare owns one authored-Source comparison per request identity, shared by
+the inline section and Explore's **Text** mode. Either may start it: the
+inline action, or opening **Text** mode, which is also an explicit request.
+Either attaches to a comparison already pending or settled for the same
+identity instead of starting another, so one identity never has two
+comparisons in flight. Opening or closing Explore does not supersede it, and a
+result that settles while Explore is open is the inline section's result on
+return.
 
 A property, field, or event Member has no Authored Source section until a
 product-issued accessor-level comparison exists; its What changed section and
