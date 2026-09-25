@@ -220,6 +220,35 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         await AssertReleased(id, packageId);
     }
 
+    [Fact]
+    public async Task DecompilerSource_UsesExplicitDecompilationWithoutPdbFallbackDisclosure()
+    {
+        const string packageId = "Type.Source.Bridge.Decompiler";
+        await RegisterSourcePackageAsync(packageId);
+        string id = Guid.NewGuid().ToString();
+        BrowserTypeSourceResult result = Read(
+            await SourceExports.QueryTypeSource(
+                id,
+                packageId,
+                "1.0.0",
+                "net11.0",
+                "TsJsExport.Contracts.dll",
+                "TsJsExport.JsExportRootAttribute",
+                "[]",
+                "decompiler-source"));
+
+        Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
+        var sourceView =
+            Assert.IsType<BrowserTypeCodeView.Source>(result.Value);
+        Assert.Equal("decompiled", sourceView.Value.Provider);
+        Assert.Contains("JsExportRootAttribute", sourceView.Value.Text);
+        Assert.Null(sourceView.Value.Url);
+        Assert.Null(sourceView.Value.PdbSourceLimitation);
+        Assert.IsType<InspectionShare.NonProjectable>(sourceView.Share);
+        Assert.Empty(sourceView.Diagnostics);
+        await AssertReleased(id, packageId);
+    }
+
 #if DEBUG
     [Fact]
     public async Task

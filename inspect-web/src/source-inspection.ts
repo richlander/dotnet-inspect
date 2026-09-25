@@ -41,10 +41,15 @@ export interface TypeSourceQuery extends SourceCoordinates {
   view: TypeSourceView;
 }
 
-export type TypeSourceView = "source" | "api-declarations" | "all-declarations";
+export type TypeSourceView =
+  | "source"
+  | "decompiler-source"
+  | "api-declarations"
+  | "all-declarations";
 
 export function typeSourceView(value: string): TypeSourceView | null {
   return value === "source"
+    || value === "decompiler-source"
     || value === "api-declarations"
     || value === "all-declarations"
     ? value
