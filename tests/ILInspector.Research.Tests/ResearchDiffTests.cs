@@ -1516,14 +1516,14 @@ public class ResearchDiffTests
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(oldSource, partial),
+                new ResearchAssemblyContent(oldSource, partial.CallGraphAnalysis),
             ],
         };
         var newInput = new ResearchDiffInput([])
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(newSource, actual),
+                new ResearchAssemblyContent(newSource, actual.CallGraphAnalysis),
             ],
         };
 
@@ -1586,14 +1586,14 @@ public class ResearchDiffTests
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(oldSource, partial),
+                new ResearchAssemblyContent(oldSource, partial.CallGraphAnalysis),
             ],
         };
         var newInput = new ResearchDiffInput([])
         {
             AssemblyContents =
             [
-                new ResearchAssemblyContent(newSource, actual),
+                new ResearchAssemblyContent(newSource, actual.CallGraphAnalysis),
             ],
         };
 
@@ -1915,7 +1915,7 @@ public class ResearchDiffTests
     [Theory]
     [InlineData(LibraryBodyAnalysisFeatures.None)]
     [InlineData(LibraryBodyAnalysisFeatures.MethodEvidence)]
-    public void BodyIndexIdentity_AcceptsMatchingImageRegardlessOfCapabilities(
+    public void MethodPopulationIdentity_AcceptsMatchingImageRegardlessOfCapabilities(
         LibraryBodyAnalysisFeatures features)
     {
         byte[] image = File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath());
@@ -1931,7 +1931,7 @@ public class ResearchDiffTests
     [Theory]
     [InlineData(LibraryBodyAnalysisFeatures.None)]
     [InlineData(LibraryBodyAnalysisFeatures.MethodEvidence)]
-    public void BodyIndexIdentity_RejectsDifferentImageRegardlessOfCapabilities(
+    public void MethodPopulationIdentity_RejectsDifferentImageRegardlessOfCapabilities(
         LibraryBodyAnalysisFeatures features)
     {
         byte[] image = File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath());
@@ -1947,13 +1947,13 @@ public class ResearchDiffTests
     [Theory]
     [InlineData(LibraryBodyAnalysisFeatures.None)]
     [InlineData(LibraryBodyAnalysisFeatures.MethodEvidence)]
-    public void BodyIndexIdentity_AcceptsMatchingMethodlessImage(
+    public void MethodPopulationIdentity_AcceptsMatchingMethodlessImage(
         LibraryBodyAnalysisFeatures features)
     {
         byte[] image = BuildIdentityAssembly("Identity", Guid.NewGuid());
         var input = IdentityInput(image, image, features);
-        Assert.Empty(input.BodyIndex.DeclaredMethods);
-        Assert.Empty(input.BodyIndex.Methods);
+        Assert.Empty(input.CallGraph.DeclaredMethods);
+        Assert.Empty(input.CallGraph.Methods);
 
         var result = ImplementationDiff.Compare([input], [input]);
 
@@ -1966,7 +1966,7 @@ public class ResearchDiffTests
     [InlineData("culture")]
     [InlineData("public-key")]
     [InlineData("mvid")]
-    public void BodyIndexIdentity_RejectsMethodlessIdentityMismatch(string difference)
+    public void MethodPopulationIdentity_RejectsMethodlessIdentityMismatch(string difference)
     {
         Guid mvid = Guid.NewGuid();
         byte[] image = BuildIdentityAssembly("Identity", mvid);
@@ -1977,7 +1977,7 @@ public class ResearchDiffTests
             culture: difference == "culture" ? "fr" : null,
             publicKey: difference == "public-key" ? [1, 2, 3, 4] : null);
         var input = IdentityInput(image, other, LibraryBodyAnalysisFeatures.MethodEvidence);
-        Assert.Empty(input.BodyIndex.DeclaredMethods);
+        Assert.Empty(input.CallGraph.DeclaredMethods);
 
         var error = Assert.Throws<ArgumentException>(() =>
             ImplementationDiff.Compare([input], []));
@@ -1989,7 +1989,7 @@ public class ResearchDiffTests
     [InlineData(ResearchChangeMechanism.BodySignals, false)]
     [InlineData(ResearchChangeMechanism.IlBody, false)]
     [InlineData(ResearchChangeMechanism.IlBody, true)]
-    public void BodyIndexIdentity_MethodlessGroupingIgnoresDisplayPaths(
+    public void MethodPopulationIdentity_MethodlessGroupingIgnoresDisplayPaths(
         ResearchChangeMechanism mechanism,
         bool retainOperations)
     {
@@ -1998,13 +1998,17 @@ public class ResearchDiffTests
         LibraryBodyIndex Index(byte[] image, string label) =>
             LibraryBodyIndex.OpenFromPrefetchedImage(
                 label, [.. image], LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyIndex[] oldIndexes =
+            [Index(firstImage, "shared.dll"), Index(secondImage, "shared.dll")];
+        LibraryBodyIndex[] newIndexes =
+            [Index(firstImage, "renamed-first.dll"), Index(secondImage, "renamed-second.dll")];
         var oldInput = new ResearchDiffInput([])
         {
-            BodyIndexes = [Index(firstImage, "shared.dll"), Index(secondImage, "shared.dll")],
+            CallGraphs = [.. oldIndexes.Select(index => index.CallGraphAnalysis)],
         };
         var newInput = new ResearchDiffInput([])
         {
-            BodyIndexes = [Index(firstImage, "renamed-first.dll"), Index(secondImage, "renamed-second.dll")],
+            CallGraphs = [.. newIndexes.Select(index => index.CallGraphAnalysis)],
         };
         if (mechanism == ResearchChangeMechanism.BodySignals)
         {
@@ -2012,7 +2016,7 @@ public class ResearchDiffTests
             {
                 BodySignalAnalyses =
                 [
-                    .. oldInput.BodyIndexes.Select(
+                    .. oldIndexes.Select(
                         BodySignalAnalysisTestInput.FromIndex),
                 ],
             };
@@ -2020,7 +2024,7 @@ public class ResearchDiffTests
             {
                 BodySignalAnalyses =
                 [
-                    .. newInput.BodyIndexes.Select(
+                    .. newIndexes.Select(
                         BodySignalAnalysisTestInput.FromIndex),
                 ],
             };
@@ -2035,16 +2039,16 @@ public class ResearchDiffTests
             {
                 AssemblyContents =
                 [
-                    new(firstSource, oldInput.BodyIndexes[0]),
-                    new(secondSource, oldInput.BodyIndexes[1]),
+                    new(firstSource, oldInput.CallGraphs[0]),
+                    new(secondSource, oldInput.CallGraphs[1]),
                 ],
             };
             newInput = newInput with
             {
                 AssemblyContents =
                 [
-                    new(firstSource, newInput.BodyIndexes[0]),
-                    new(secondSource, newInput.BodyIndexes[1]),
+                    new(firstSource, newInput.CallGraphs[0]),
+                    new(secondSource, newInput.CallGraphs[1]),
                 ],
             };
         }
@@ -2060,7 +2064,7 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void BodyIndexIdentity_StandaloneModuleDoesNotAcquireAKeyFromItsLabel()
+    public void MethodPopulationIdentity_StandaloneModuleDoesNotAcquireAKeyFromItsLabel()
     {
         LibraryBodyIndex index = LibraryBodyIndex.OpenFromPrefetchedImage(
             "pretend-assembly.dll",
@@ -2076,7 +2080,7 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void BodyIndexIdentity_VersionAndMvidChangesRemainComparable()
+    public void MethodPopulationIdentity_VersionAndMvidChangesRemainComparable()
     {
         byte[] oldImage = BuildIdentityAssembly(
             "Versioned", Guid.NewGuid(), new Version(1, 0, 0, 0), returnValue: 1);
@@ -2084,10 +2088,10 @@ public class ResearchDiffTests
             "Versioned", Guid.NewGuid(), new Version(2, 0, 0, 0), returnValue: 2);
         var before = IdentityInput(oldImage, oldImage, LibraryBodyAnalysisFeatures.MethodEvidence);
         var after = IdentityInput(newImage, newImage, LibraryBodyAnalysisFeatures.MethodEvidence);
-        Assert.NotEqual(before.BodyIndex.ModuleIdentity.ModuleVersionId,
-            after.BodyIndex.ModuleIdentity.ModuleVersionId);
-        Assert.NotEqual(before.BodyIndex.ModuleIdentity.AssemblyIdentity!.Version,
-            after.BodyIndex.ModuleIdentity.AssemblyIdentity!.Version);
+        Assert.NotEqual(before.CallGraph.ModuleIdentity.ModuleVersionId,
+            after.CallGraph.ModuleIdentity.ModuleVersionId);
+        Assert.NotEqual(before.CallGraph.ModuleIdentity.AssemblyIdentity!.Version,
+            after.CallGraph.ModuleIdentity.AssemblyIdentity!.Version);
 
         var result = ImplementationDiff.Compare(
             [before], [after],
@@ -2429,7 +2433,7 @@ public class ResearchDiffTests
     [Fact]
     public void ImplementationDiff_MismatchedProfileAnalysisIdentity_ThrowsArgumentException()
     {
-        // Regression coverage: only BodyIndex identity was validated against
+        // Regression coverage: only call-graph identity was validated against
         // the opened assembly; a caller-supplied ProfileAnalysis for a
         // different assembly passed through unchecked.
         const LibraryBodyAnalysisFeatures features =
@@ -2930,13 +2934,16 @@ public class ResearchDiffTests
         var reference = ResolvedAssemblyReference.Create(
             identity, "display-only.dll",
             () => new MemoryStream(image, writable: false),
-            AssemblyResolutionProvenance.Local("Research body-index identity fixture"));
+            AssemblyResolutionProvenance.Local("Research method-population identity fixture"));
         return new(
             reference,
             DecompilerMetadataSource.DefaultAssemblyReferenceResolver(
                 FixtureCatalog.DiffPair.OldAssemblyPath()),
-            LibraryBodyIndex.OpenFromPrefetchedImage(
-                "unrelated-index-label.dll", [.. indexedImage], features),
+            LibraryBodyAnalysisService.ExecuteImage(
+                    "unrelated-index-label.dll",
+                    [.. indexedImage],
+                    LibraryBodyAnalysisRequest.Create(features))
+                .CallGraph,
             LibraryBodyAnalysisService.ExecuteImage(
                 "profile-analysis.dll",
                 [.. image],
@@ -3036,13 +3043,16 @@ public class ResearchDiffTests
         var reference = ResolvedAssemblyReference.Create(
             identity, "display-only.dll",
             () => new MemoryStream(image, writable: false),
-            AssemblyResolutionProvenance.Local("Research body-index identity fixture"));
+            AssemblyResolutionProvenance.Local("Research method-population identity fixture"));
         return new(
             reference,
             DecompilerMetadataSource.DefaultAssemblyReferenceResolver(
                 FixtureCatalog.DiffPair.OldAssemblyPath()),
-            LibraryBodyIndex.OpenFromPrefetchedImage(
-                "unrelated-index-label.dll", [.. indexedImage], features),
+            LibraryBodyAnalysisService.ExecuteImage(
+                    "unrelated-index-label.dll",
+                    [.. indexedImage],
+                    LibraryBodyAnalysisRequest.Create(features))
+                .CallGraph,
             features.HasFlag(
                 LibraryBodyAnalysisFeatures.ImplementationProfiles)
                 ? LibraryBodyAnalysisService.ExecuteImage(

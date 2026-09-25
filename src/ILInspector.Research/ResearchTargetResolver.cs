@@ -491,7 +491,7 @@ public static class ResearchTargetResolver
                         planned,
                         surface,
                         reader,
-                        occurrence.BodyIndex.ModuleIdentity);
+                        occurrence.CallGraph.ModuleIdentity);
                 }
                 catch (Exception exception) when (
                     IsExpectedTargetResolutionFailure(exception))
@@ -687,7 +687,7 @@ public static class ResearchTargetResolver
 
         MethodIdentity? method = null;
         foreach (MethodIdentity candidate
-            in occurrence.BodyIndex.DeclaredMethods)
+            in occurrence.CallGraph.DeclaredMethods)
         {
             if (candidate.MetadataToken != metadataToken)
                 continue;

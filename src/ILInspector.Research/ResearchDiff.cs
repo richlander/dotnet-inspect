@@ -27,14 +27,14 @@ public sealed record ResearchDiffOptions(
 public sealed record ResearchDiffInput(
     IReadOnlyList<string> AssemblyPaths,
     ApiSurface? ApiSurface = null,
-    IReadOnlyList<LibraryBodyIndex>? BodyIndexes = null)
+    IReadOnlyList<LibraryCallGraphAnalysisResult>? CallGraphs = null)
 {
     internal IReadOnlyList<ResearchAssemblyContent>? AssemblyContents { get; init; }
     public IReadOnlyList<BodySignalAnalysisInput>? BodySignalAnalyses
     { get; init; }
 
-    public static ResearchDiffInput FromAssembly(string assemblyPath, ApiSurface? apiSurface = null, LibraryBodyIndex? bodyIndex = null)
-        => new([assemblyPath], apiSurface, bodyIndex is null ? null : [bodyIndex]);
+    public static ResearchDiffInput FromAssembly(string assemblyPath, ApiSurface? apiSurface = null, LibraryCallGraphAnalysisResult? callGraph = null)
+        => new([assemblyPath], apiSurface, callGraph is null ? null : [callGraph]);
 
     public static ResearchDiffInput FromAssemblies(IReadOnlyList<string> assemblyPaths)
         => new(assemblyPaths);
@@ -45,7 +45,7 @@ public sealed record ResearchDiffInput(
 
 internal sealed record ResearchAssemblyContent(
     MetadataSource Source,
-    LibraryBodyIndex BodyIndex);
+    LibraryCallGraphAnalysisResult CallGraph);
 
 public static class ResearchDiff
 {
@@ -898,10 +898,10 @@ public static class ResearchDiff
             : new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
                 StringComparer.Ordinal);
 
-        foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
+        foreach (var pair in PairedMethodPopulationEntries(oldInput, newInput))
         {
-            var oldMethods = DeclaredMethodLookup(pair.Old.Index);
-            var newMethods = DeclaredMethodLookup(pair.New.Index);
+            var oldMethods = DeclaredMethodLookup(pair.Old.CallGraph);
+            var newMethods = DeclaredMethodLookup(pair.New.CallGraph);
             IReadOnlySet<string> returnTypeCollisions =
                 ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
                     oldMethods.Values.Concat(newMethods.Values));
@@ -1022,11 +1022,11 @@ public static class ResearchDiff
     {
         var retained = new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
             StringComparer.Ordinal);
-        foreach (var pair in UnionBodyIndexEntries(oldInput, newInput))
+        foreach (var pair in UnionMethodPopulationEntries(oldInput, newInput))
         {
             IEnumerable<MethodIdentity> methods =
-                (pair.Old?.Index.DeclaredMethods ?? [])
-                    .Concat(pair.New?.Index.DeclaredMethods ?? []);
+                (pair.Old?.CallGraph.DeclaredMethods ?? [])
+                    .Concat(pair.New?.CallGraph.DeclaredMethods ?? []);
             IReadOnlySet<string> returnTypeCollisions =
                 ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
                     methods);
@@ -1126,7 +1126,7 @@ public static class ResearchDiff
     }
 
     static FindingInspection<CanonicalIlOperation> MissingIlInspection(
-        BodyIndexEntry? entry,
+        MethodPopulationEntry? entry,
         ResearchSubjectKey researchSubject,
         FindingSubject subject,
         string side)
@@ -1138,10 +1138,10 @@ public static class ResearchDiff
                 "Member is absent.");
         }
 
-        var declaredTokens = entry.Index.DeclaredMethods
+        var declaredTokens = entry.CallGraph.DeclaredMethods
             .Select(static method => method.MetadataToken)
             .ToHashSet();
-        var failures = entry.Index.Diagnostics
+        var failures = entry.CallGraph.Diagnostics
             .Where(diagnostic =>
                 !declaredTokens.Contains(diagnostic.MethodToken)
                 && (diagnostic.DeclaringType is null
@@ -1170,11 +1170,11 @@ public static class ResearchDiff
     }
 
     static Dictionary<string, IlRetentionMethod> IlRetentionMethodLookup(
-        BodyIndexEntry entry,
+        MethodPopulationEntry entry,
         IReadOnlySet<string> returnTypeCollisions)
     {
         var methods = new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal);
-        foreach (var method in entry.Index.DeclaredMethods)
+        foreach (var method in entry.CallGraph.DeclaredMethods)
         {
             var subject = SubjectFromMethod(
                 method,
@@ -1666,22 +1666,22 @@ public static class ResearchDiff
         }
     }
 
-    static IEnumerable<(BodyIndexEntry Old, BodyIndexEntry New)> PairedBodyIndexEntries(ResearchDiffInput oldInput, ResearchDiffInput newInput)
+    static IEnumerable<(MethodPopulationEntry Old, MethodPopulationEntry New)> PairedMethodPopulationEntries(ResearchDiffInput oldInput, ResearchDiffInput newInput)
     {
-        var oldIndexes = BodyIndexEntries(oldInput).ToDictionary(entry => entry.Key, StringComparer.Ordinal);
-        var newIndexes = BodyIndexEntries(newInput).ToDictionary(entry => entry.Key, StringComparer.Ordinal);
+        var oldIndexes = MethodPopulationEntries(oldInput).ToDictionary(entry => entry.Key, StringComparer.Ordinal);
+        var newIndexes = MethodPopulationEntries(newInput).ToDictionary(entry => entry.Key, StringComparer.Ordinal);
         foreach (var key in oldIndexes.Keys.Intersect(newIndexes.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
             yield return (oldIndexes[key], newIndexes[key]);
     }
 
-    static IEnumerable<UnionBodyIndexEntry> UnionBodyIndexEntries(
+    static IEnumerable<UnionMethodPopulationEntry> UnionMethodPopulationEntries(
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput)
     {
-        var oldIndexes = BodyIndexEntries(oldInput).ToDictionary(
+        var oldIndexes = MethodPopulationEntries(oldInput).ToDictionary(
             entry => entry.Key,
             StringComparer.Ordinal);
-        var newIndexes = BodyIndexEntries(newInput).ToDictionary(
+        var newIndexes = MethodPopulationEntries(newInput).ToDictionary(
             entry => entry.Key,
             StringComparer.Ordinal);
         foreach (string key in oldIndexes.Keys
@@ -1690,36 +1690,51 @@ public static class ResearchDiff
         {
             oldIndexes.TryGetValue(key, out var oldIndex);
             newIndexes.TryGetValue(key, out var newIndex);
-            yield return new UnionBodyIndexEntry(key, oldIndex, newIndex);
+            yield return new UnionMethodPopulationEntry(key, oldIndex, newIndex);
         }
     }
 
-    static IEnumerable<BodyIndexEntry> BodyIndexEntries(ResearchDiffInput input)
+    static IEnumerable<MethodPopulationEntry> MethodPopulationEntries(ResearchDiffInput input)
     {
         if (input.AssemblyContents is { Count: > 0 } contents)
         {
             foreach (var content in contents)
             {
-                yield return new BodyIndexEntry(
-                    AssemblyKey(content.BodyIndex),
+                yield return new MethodPopulationEntry(
+                    AssemblyKey(content.CallGraph),
                     content.Source.Path,
-                    content.BodyIndex,
+                    content.CallGraph,
                     content.Source);
             }
             yield break;
         }
 
-        if (input.BodyIndexes is { Count: > 0 } bodyIndexes)
+        if (input.CallGraphs is { Count: > 0 } callGraphs)
         {
-            foreach (var index in bodyIndexes)
-                yield return new BodyIndexEntry(AssemblyKey(index), index.Path, index);
+            foreach (var callGraph in callGraphs)
+            {
+                yield return new MethodPopulationEntry(
+                    AssemblyKey(callGraph),
+                    callGraph.Receipt.SourceName,
+                    callGraph);
+            }
             yield break;
         }
 
         foreach (var path in input.AssemblyPaths)
         {
-            var index = LibraryBodyIndex.Open(path);
-            yield return new BodyIndexEntry(AssemblyKey(index), path, index);
+            // The default feature set preserves the path fallback's prior
+            // declared-method and diagnostic coverage.
+            LibraryCallGraphAnalysisResult callGraph =
+                LibraryBodyAnalysisService.ExecutePath(
+                        path,
+                        LibraryBodyAnalysisRequest.Create(
+                            LibraryBodyAnalysisFeatures.Default))
+                    .CallGraph;
+            yield return new MethodPopulationEntry(
+                AssemblyKey(callGraph),
+                path,
+                callGraph);
         }
     }
 
@@ -1882,10 +1897,10 @@ public static class ResearchDiff
         => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static Dictionary<string, MethodIdentity> DeclaredMethodLookup(
-        LibraryBodyIndex index)
+        LibraryCallGraphAnalysisResult callGraph)
     {
         var methods = new Dictionary<string, MethodIdentity>(StringComparer.Ordinal);
-        foreach (var method in index.DeclaredMethods)
+        foreach (var method in callGraph.DeclaredMethods)
             methods.TryAdd(MethodMatchKey(method), method);
         return methods;
     }
@@ -1963,12 +1978,12 @@ public static class ResearchDiff
            && type.ElementType is { } definition
            && definition.Equals(TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"));
 
-    static string AssemblyKey(LibraryBodyIndex index)
-        => index.ModuleIdentity.AssemblyIdentity?.Name
+    static string AssemblyKey(LibraryCallGraphAnalysisResult callGraph)
+        => callGraph.ModuleIdentity.AssemblyIdentity?.Name
             ?? throw new ArgumentException(
-                "Body-index assembly comparison requires an assembly identity; "
-                + "a standalone module has no assembly pairing key.",
-                nameof(index));
+                "Method-population assembly comparison requires an assembly "
+                + "identity; a standalone module has no assembly pairing key.",
+                nameof(callGraph));
 
     static string AssemblyKey(LibraryBodyAnalysisReceipt receipt)
         => receipt.ModuleIdentity.AssemblyIdentity?.Name
@@ -2006,15 +2021,15 @@ public static class ResearchDiff
             _ => ToKebabCase(kind.ToString()),
         };
 
-    sealed record BodyIndexEntry(
+    sealed record MethodPopulationEntry(
         string Key,
         string Path,
-        LibraryBodyIndex Index,
+        LibraryCallGraphAnalysisResult CallGraph,
         MetadataSource? Source = null);
-    sealed record UnionBodyIndexEntry(
+    sealed record UnionMethodPopulationEntry(
         string Key,
-        BodyIndexEntry? Old,
-        BodyIndexEntry? New);
+        MethodPopulationEntry? Old,
+        MethodPopulationEntry? New);
     sealed record IlRetentionMethod(
         ResearchSubjectKey Subject,
         int MetadataToken);
@@ -2081,7 +2096,7 @@ public static class ResearchDiff
             _ownsReaders = true;
         }
 
-        public MethodBodyLookup(BodyIndexEntry entry)
+        public MethodBodyLookup(MethodPopulationEntry entry)
         {
             if (entry.Source is null)
             {

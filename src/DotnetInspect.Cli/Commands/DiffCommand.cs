@@ -1738,7 +1738,7 @@ public class DiffCommand
         IReadOnlySet<int> metadataTokens,
         ISet<string> identities)
     {
-        foreach (MethodIdentity method in assembly.BodyIndex.DeclaredMethods)
+        foreach (MethodIdentity method in assembly.CallGraph.DeclaredMethods)
         {
             if (metadataTokens.Contains(method.MetadataToken))
             {
@@ -1762,7 +1762,7 @@ public class DiffCommand
         return new(
             assembly,
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            session.BodyIndex,
+            session.CallGraphAnalysis,
             session.AnalysisExecution.ImplementationProfiles);
     }
 
@@ -2145,17 +2145,17 @@ public class DiffCommand
         var indexed =
             new List<(
                 string Path,
-                LibraryBodyIndex Index,
+                LibraryCallGraphAnalysisResult Index,
                 AssemblyContextParticipant Participant)>();
         foreach (string path in paths)
         {
             try
             {
-                LibraryBodyIndex index = MethodBodyInspectionSession.Open(
+                LibraryCallGraphAnalysisResult index = MethodBodyInspectionSession.Open(
                         path,
                         includeAllocations: false,
                         includeOpportunities: false)
-                    .BodyIndex;
+                    .CallGraphAnalysis;
                 AssemblyContextParticipant participant =
                     CreateSourceParticipant(
                         path,
@@ -2188,7 +2188,7 @@ public class DiffCommand
         var sourceContext = CreateSourceQueryContext(options, httpClient, logger);
         await using var workspace = new InspectionWorkspace();
 
-        foreach ((string path, LibraryBodyIndex index,
+        foreach ((string path, LibraryCallGraphAnalysisResult index,
             AssemblyContextParticipant participant) in indexed)
         {
             foreach (string failure in PdbSourceDeclarationIndexFailures(

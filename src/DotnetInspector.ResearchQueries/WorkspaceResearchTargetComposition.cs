@@ -499,7 +499,7 @@ internal static class WorkspaceResearchTargetCompositionValidator
                 || admitted.Occurrence is not ImplementationComparisonInputOccurrence occurrence
                 || !ReferenceEquals(occurrence.Assembly, input.Binding.Assembly)
                 || !ReferenceEquals(occurrence.Resolver, input.Binding.Resolver)
-                || !ReferenceEquals(occurrence.BodyIndex, input.Binding.BodyIndex))
+                || !ReferenceEquals(occurrence.CallGraph, input.Binding.CallGraph))
                 return false;
         }
         return true;
@@ -627,7 +627,7 @@ internal static class WorkspaceResearchTargetCompositionValidator
             || !definition.Type.Equals(request.DeclaringType)
             || !definition.Type.Equals(target.Target.ApiType.DefinitionName)
             || target.Target.ApiType.MetadataToken != address.Definition.Value
-            || !ReferenceEquals(target.Module, input.BodyIndex.ModuleIdentity)
+            || !ReferenceEquals(target.Module, input.CallGraph.ModuleIdentity)
             || !AssemblyReferenceIdentity.EquivalentComparer.Equals(target.Module.AssemblyIdentity, assembly.Identity)
             || target.Module.ModuleVersionId != address.ModuleVersionId
             || assembly.Registration.ModuleVersionId is { } boundMvid && boundMvid != address.ModuleVersionId

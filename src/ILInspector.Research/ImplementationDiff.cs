@@ -173,7 +173,7 @@ public sealed record ImplementationComplexityDiff(
 public sealed record ImplementationAssemblyInput(
     ResolvedAssemblyReference Assembly,
     IAssemblyReferenceResolver Resolver,
-    LibraryBodyIndex BodyIndex,
+    LibraryCallGraphAnalysisResult CallGraph,
     LibraryImplementationProfileAnalysisResult? ProfileAnalysis = null);
 
 public sealed record ImplementationDiffResult(
@@ -364,18 +364,18 @@ public static partial class ImplementationDiff
                 ArgumentNullException.ThrowIfNull(assembly);
                 ArgumentNullException.ThrowIfNull(assembly.Assembly);
                 ArgumentNullException.ThrowIfNull(assembly.Resolver);
-                ArgumentNullException.ThrowIfNull(assembly.BodyIndex);
+                ArgumentNullException.ThrowIfNull(assembly.CallGraph);
                 var source = MetadataSource.OpenWithoutSymbols(
                     assembly.Assembly,
                     assembly.Resolver);
                 try
                 {
-                    ValidateBodyIndex(source, assembly.BodyIndex);
+                    ValidateCallGraph(source, assembly.CallGraph);
                     if (assembly.ProfileAnalysis is not null)
                         ValidateProfileAnalysis(source, assembly.ProfileAnalysis);
                     contents.Add(new ResearchAssemblyContent(
                         source,
-                        assembly.BodyIndex));
+                        assembly.CallGraph));
                 }
                 catch
                 {
@@ -400,11 +400,11 @@ public static partial class ImplementationDiff
             content.Source.Dispose();
     }
 
-    static void ValidateBodyIndex(
+    static void ValidateCallGraph(
         MetadataSource source,
-        LibraryBodyIndex bodyIndex)
+        LibraryCallGraphAnalysisResult callGraph)
     {
-        LibraryBodyModuleIdentity indexedModule = bodyIndex.ModuleIdentity;
+        LibraryBodyModuleIdentity indexedModule = callGraph.ModuleIdentity;
         AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
             ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
             : null;
@@ -419,9 +419,9 @@ public static partial class ImplementationDiff
         }
 
         throw new ArgumentException(
-            $"The body index for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
+            $"The call-graph Analysis result for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
             + $"assembly content '{source.AssemblyName}'.",
-            nameof(bodyIndex));
+            nameof(callGraph));
     }
 
     static void ValidateProfileAnalysis(

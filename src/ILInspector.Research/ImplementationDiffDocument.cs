@@ -235,7 +235,7 @@ public static partial class ImplementationDiff
     static ImplementationDiffEndpoint CreateEndpoint(
         ImplementationAssemblyInput input)
     {
-        LibraryBodyModuleIdentity module = input.BodyIndex.ModuleIdentity;
+        LibraryBodyModuleIdentity module = input.CallGraph.ModuleIdentity;
         if (module.AssemblyIdentity is null)
         {
             throw new ArgumentException(

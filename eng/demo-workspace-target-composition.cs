@@ -234,10 +234,13 @@ sealed class DemoContext : IAsyncDisposable
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local("in-memory workspace composition demo"));
             participants.Add(new(assembly, Policy));
-            // This label is presentation only; the index consumes the supplied immutable image.
-            var index = LibraryBodyIndex.OpenFromPrefetchedImage(
-                identity.Name + ".dll", [.. image], LibraryBodyAnalysisFeatures.MethodEvidence);
-            bindings.Add(new(assembly, Policy, index));
+            // This label is presentation only; Analysis consumes the supplied immutable image.
+            var callGraph = LibraryBodyAnalysisService.ExecuteImage(
+                    identity.Name + ".dll",
+                    [.. image],
+                    LibraryBodyAnalysisRequest.Create(LibraryBodyAnalysisFeatures.MethodEvidence))
+                .CallGraph;
+            bindings.Add(new(assembly, Policy, callGraph));
         }
         Bindings = bindings.ToArray();
         Root = participants[0];

@@ -38,11 +38,13 @@ public abstract class ResearchComparisonInputOccurrence
 
 /// <summary>
 /// One occurrence of a borrowed implementation-comparison input: an acquired
-/// assembly descriptor, its reference resolver, and its body index.
+/// assembly descriptor, its reference resolver, and its Analysis call-graph
+/// result (the method-population evidence).
 /// </summary>
 /// <remarks>
 /// Admission borrows these values as evidence. It does not open the assembly,
-/// inspect its content or path, resolve references, or read the body index.
+/// inspect its content or path, resolve references, or read the call-graph
+/// result.
 /// Direct constructor arguments are validated at construction. The overload
 /// taking an already-constructed <see cref="ImplementationAssemblyInput"/>
 /// deliberately retains incomplete nested evidence, so that shape reaches
@@ -62,8 +64,8 @@ public sealed class ImplementationComparisonInputOccurrence :
     public ImplementationComparisonInputOccurrence(
         ResolvedAssemblyReference assembly,
         IAssemblyReferenceResolver resolver,
-        LibraryBodyIndex bodyIndex)
-        : this(Complete(assembly, resolver, bodyIndex))
+        LibraryCallGraphAnalysisResult callGraph)
+        : this(Complete(assembly, resolver, callGraph))
     {
     }
 
@@ -76,50 +78,52 @@ public sealed class ImplementationComparisonInputOccurrence :
     /// <summary>The borrowed assembly-reference resolver.</summary>
     public IAssemblyReferenceResolver Resolver => Input.Resolver;
 
-    /// <summary>The borrowed Analysis body index.</summary>
-    public LibraryBodyIndex BodyIndex => Input.BodyIndex;
+    /// <summary>The borrowed Analysis call-graph result.</summary>
+    public LibraryCallGraphAnalysisResult CallGraph => Input.CallGraph;
 
     internal override string? MissingEvidenceMember
         => Input.Assembly is null
             ? nameof(ImplementationAssemblyInput.Assembly)
             : Input.Resolver is null
                 ? nameof(ImplementationAssemblyInput.Resolver)
-                : Input.BodyIndex is null
-                    ? nameof(ImplementationAssemblyInput.BodyIndex)
+                : Input.CallGraph is null
+                    ? nameof(ImplementationAssemblyInput.CallGraph)
                     : null;
 
     static ImplementationAssemblyInput Complete(
         ResolvedAssemblyReference assembly,
         IAssemblyReferenceResolver resolver,
-        LibraryBodyIndex bodyIndex)
+        LibraryCallGraphAnalysisResult callGraph)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(resolver);
-        ArgumentNullException.ThrowIfNull(bodyIndex);
-        return new ImplementationAssemblyInput(assembly, resolver, bodyIndex);
+        ArgumentNullException.ThrowIfNull(callGraph);
+        return new ImplementationAssemblyInput(assembly, resolver, callGraph);
     }
 }
 
 /// <summary>
 /// One occurrence of a borrowed body-signal input. The body-signal profile
-/// admits only an Analysis body index today.
+/// admits only an Analysis call-graph result today.
 /// </summary>
 /// <remarks>
-/// Admission never opens <see cref="LibraryBodyIndex.Path"/> or inspects the
-/// index content.
+/// Admission never opens the result's
+/// <see cref="LibraryBodyAnalysisReceipt.SourceName"/> or inspects the
+/// result content.
 /// </remarks>
 public sealed class BodySignalComparisonInputOccurrence :
     ResearchComparisonInputOccurrence
 {
-    public BodySignalComparisonInputOccurrence(LibraryBodyIndex bodyIndex)
+    public BodySignalComparisonInputOccurrence(
+        LibraryCallGraphAnalysisResult callGraph)
         : base(ResearchComparisonProfile.BodySignal)
     {
-        ArgumentNullException.ThrowIfNull(bodyIndex);
-        BodyIndex = bodyIndex;
+        ArgumentNullException.ThrowIfNull(callGraph);
+        CallGraph = callGraph;
     }
 
-    /// <summary>The borrowed Analysis body index.</summary>
-    public LibraryBodyIndex BodyIndex { get; }
+    /// <summary>The borrowed Analysis call-graph result.</summary>
+    public LibraryCallGraphAnalysisResult CallGraph { get; }
 
     internal override string? MissingEvidenceMember => null;
 }

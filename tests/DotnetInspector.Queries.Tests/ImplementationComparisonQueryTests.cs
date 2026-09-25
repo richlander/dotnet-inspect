@@ -72,7 +72,7 @@ public sealed class ImplementationComparisonQueryTests
                     [
                         oldContent with
                         {
-                            BodyIndex = LibraryBodyIndex.Open(newPath),
+                            CallGraph = LibraryBodyIndex.Open(newPath).CallGraphAnalysis,
                         },
                     ],
                     [StreamBackedInput(newPath, "new.dll")])));
@@ -118,7 +118,7 @@ public sealed class ImplementationComparisonQueryTests
             oldInput.Assembly.Identity,
             document.Before.AssemblyIdentity);
         Assert.Equal(
-            oldInput.BodyIndex.ModuleIdentity.ModuleVersionId,
+            oldInput.CallGraph.ModuleIdentity.ModuleVersionId,
             document.Before.ModuleVersionId);
         Assert.Equal(
             ImplementationDiffEndpointProvenanceKind.Local,
@@ -127,7 +127,7 @@ public sealed class ImplementationComparisonQueryTests
             newInput.Assembly.Identity,
             document.After.AssemblyIdentity);
         Assert.Equal(
-            newInput.BodyIndex.ModuleIdentity.ModuleVersionId,
+            newInput.CallGraph.ModuleIdentity.ModuleVersionId,
             document.After.ModuleVersionId);
 
         ImplementationDiffDocumentMember member = Assert.Single(
@@ -1626,6 +1626,6 @@ public sealed class ImplementationComparisonQueryTests
         return new ImplementationAssemblyInput(
             contentReference,
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            LibraryBodyIndex.Open(path));
+            LibraryBodyIndex.Open(path).CallGraphAnalysis);
     }
 }
