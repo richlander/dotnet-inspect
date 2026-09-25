@@ -483,6 +483,32 @@ public sealed class MetadataRelationGraphAdapterTests
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(sourcePath);
 
+        StructuralSubjectIdentity.TypeSubject differentFocus =
+            StructuralSubjectIdentity.ForType(
+                focus.Library,
+                TypeName(
+                    "System.Reflection.Metadata",
+                    "MetadataBuilder"));
+        ArgumentException mismatchedFocus =
+            Assert.Throws<ArgumentException>(
+                () =>
+                    MetadataExtensionSubjectRelationsOperation.Execute(
+                        session,
+                        source,
+                        receiver,
+                        new(
+                            SubjectRelationsRouteKind.Type,
+                            differentFocus,
+                            population,
+                            new(
+                                selection,
+                                count:
+                                    new SubjectRelationPopulationCountRequest())),
+                        MetadataOperationPolicy.Unbounded,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+        Assert.Equal("request", mismatchedFocus.ParamName);
+
         MetadataExtensionSubjectRelationsExecution execution =
             MetadataExtensionSubjectRelationsOperation.Execute(
                 session,
@@ -620,7 +646,7 @@ public sealed class MetadataRelationGraphAdapterTests
                 differentReceiver,
                 new(
                     SubjectRelationsRouteKind.Type,
-                    focus,
+                    differentFocus,
                     population,
                     new(
                         selection,

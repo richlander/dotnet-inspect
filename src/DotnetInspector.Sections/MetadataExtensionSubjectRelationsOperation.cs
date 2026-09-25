@@ -105,7 +105,7 @@ public static class MetadataExtensionSubjectRelationsOperation
         ArgumentNullException.ThrowIfNull(receiver);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(policy);
-        ValidateRequest(source, request);
+        ValidateRequest(source, receiver, request);
 
         Guid sourceModuleVersionId =
             source.Registration.ModuleVersionId
@@ -430,6 +430,7 @@ public static class MetadataExtensionSubjectRelationsOperation
 
     private static void ValidateRequest(
         ResolvedAssemblyReference source,
+        MetadataExtensionReceiverSelection receiver,
         SubjectRelationsInspectionRequest request)
     {
         if (source.Registration.ModuleVersionId is null)
@@ -440,10 +441,15 @@ public static class MetadataExtensionSubjectRelationsOperation
                 nameof(source));
         }
         if (request.Route != SubjectRelationsRouteKind.Type
-            || request.Focus.Kind != StructuralSubjectKind.Type)
+            || request.Focus
+                is not StructuralSubjectIdentity.TypeSubject focus
+            || !focus.Library.Identity.Assembly.IsEquivalentTo(
+                receiver.Assembly)
+            || focus.Identity.Type != receiver.Type)
         {
             throw new ArgumentException(
-                "Extension relation execution requires exact Type focus.",
+                "Extension relation execution requires receiver selection "
+                    + "for the exact Type focus.",
                 nameof(request));
         }
 
