@@ -31,14 +31,14 @@ The library CLI, package `--all-libraries`, `extensions`, `implements`, and
 `find` now host workspace-backed queries. Independent search fan-out remains
 sequential and bounded to one retained participant at a time; group-scoped
 Integrations and extension reachability retain compatible participants for
-cross-assembly composition. The components below are the current hosts, shared
-substrates, and inspection producers that will extend that space.
+cross-assembly composition.
 
 Three shared systems keep the command core small while inspection stays deep:
 
 - a **registry** of installed capability:
   [Inspection Capability Composition](design/inspection-capability-composition.md)
-  and the analysis descriptors under
+  and [analysis descriptors](design/analysis-surfaces-and-universes.md#analysis)
+  with their
   [operation participation](design/analysis-surfaces-and-universes.md#operation-participation);
 - a **subject** system:
   [Inspection Subject Navigation](design/inspection-subject-navigation.md) and
@@ -48,10 +48,11 @@ Three shared systems keep the command core small while inspection stays deep:
 | Structure | Role |
 | --- | --- |
 | [`InspectionEnvelope<TContent>`](design/inspection-envelope.md) | Delivery of Content, Share, and diagnostics |
-| `Finding<T>` with `FindingKey` and `PairFinding<T>` ([Finding nomenclature](design/finding-nomenclature.md)) | Observation, identity, and correspondence |
-| [`AnalysisDiff<T>`](design/analysis-diff.md) and [`ComparisonDocument<T>`](design/comparison-document.md) | Pairing |
+| `Finding<T>` and `PairFinding<T>` ([Finding nomenclature](design/finding-nomenclature.md)), with `FindingKey` ([Finding coordinates](design/finding-coordinates.md)) | Observation, identity, and correspondence |
+| [`AnalysisDiff<T>`](design/analysis-diff.md) | Relation partition of two compared sequences |
+| [`ComparisonDocument<T>`](design/comparison-document.md) | Composition of compared subjects and their comparison payloads |
 | [`InspectionGraphDocument`](design/inspection-graph-document.md) | Topology |
-| `AnnotatedSourceDocument` | Placement at source and IL coordinates |
+| `AnnotatedSourceDocument` ([Member body substrate](design/member-body-substrate.md)) | Placement at source and IL coordinates |
 | Markout | Format lowering |
 
 New analyses and operations reach users through these structures. An analysis
@@ -60,6 +61,9 @@ operation delivers them as envelope Content. It does not add an
 operation-specific result shape or an adapter written for one analysis. A
 deliberate exception names its payload or host, its rationale, and its
 lowering boundary in its owning design.
+
+The components below are the current hosts, shared substrates, and inspection
+producers that will extend that space.
 
 - `src/DotnetInspect.Cli/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
