@@ -38,7 +38,7 @@ It consumes and does not redefine:
 | Owner | Contract consumed |
 | --- | --- |
 | [Inspect Web source-diff transport](inspect-web-source-diff-transport.md) | The complete, bounded, typed payload: sequences with terminator assertions, relations, statistics, mapped changes with inner mappings and annotations, provenance, and optional Open destinations |
-| [Text whitespace characterization](text-whitespace-characterization.md) | Whitespace-only and moved change outcomes, move ids and ends, whitespace edits, and the [whitespace policy](text-whitespace-characterization.md#whitespace-policy) defaults, delivered by its transport slice S4 |
+| [Text whitespace characterization](text-whitespace-characterization.md) | Whitespace-only and moved change outcomes, move ids and ends, whitespace edits, and the [whitespace policy](text-whitespace-characterization.md#whitespace-policy) defaults, with the insensitive statistics that Presentation computes, delivered by its transport slice S4 |
 | Markout [`MappedTextDiff`](https://github.com/richlander/markout/blob/main/docs/design/mapped-text-diff.md) | Ordered, non-overlapping changes; equal-cardinality unchanged gaps; single-line inner-mapping spans in UTF-16 units |
 | [Surface composition](inspect-web-surface-composition.md) | Placement of the viewer and its action region on the Member Diff surface |
 | [Inspect Web Compare Experience](inspect-web-compare-experience.md) and [Inspect Web Compare Explore](inspect-web-compare-explore.md) | Placement on Member Compare and in the full-bleed Explore destination |
@@ -140,7 +140,7 @@ navigable. **Previous** and **Next** move to
 the adjacent navigable change, scroll its first row into view, and move focus
 to it; they are disabled, not wrapped, at either end. The position reads
 `3 of 7`. With no navigable change, both are disabled and the position reads
-`No changes`. Keys `n` and `p` do the same while focus is inside the viewer
+`No navigable changes`. Keys `n` and `p` do the same while focus is inside the viewer
 and not in a text field. Each move announces the position and the change's
 line ranges through a polite live region.
 
@@ -180,12 +180,19 @@ retained across diffs, so a new comparison never opens with differences
 hidden. **Mark** and **Highlight** are retained as a preference for the page
 session, and a new diff opens in the last of the two that was chosen.
 
-Under **Hide**, the summary states, per side, every whitespace-only line it
-suppresses, whether rendered as context or hidden, as the policy's two-sided
-insensitive summary requires. When every change of the diff is whitespace-only,
-the frame reads **No differences except whitespace**, never **Identical**,
-even when every such change renders as context and no row is hidden. A color
-shade is always paired with a label or glyphs, never the only cue.
+Under **Hide**, the frame shows the policy's two-sided insensitive summary:
+the changed, added, and removed counts without the lines of whitespace-only
+changes, and, per side, every whitespace-only line it suppresses, whether
+rendered as context or hidden. Those counts are statistics, so the producer
+computes them in the shared Presentation layer, which the CLI's insensitive
+summary also uses, and transport slice S4 carries them beside the sensitive
+statistics; the viewer selects which set to show and never computes either.
+When every change of the diff is whitespace-only, the frame reads **No
+differences except whitespace**, never **Identical**, even when every such
+change renders as context and no row is hidden. A hidden change that holds a
+side's unterminated final line keeps that side's **No newline at end**
+statement on its omission row. A color shade is always paired with a label or
+glyphs, never the only cue.
 
 Without whitespace facts the control is absent, and the viewer shows the
 changes as the mapped diff issues them.
@@ -216,7 +223,8 @@ ids are the producer's ids; the viewer never assigns or renumbers them.
 
 Every outcome keeps one frame with both endpoint labels and the statistics
 the payload carries, extended by whitespace-only lines and moved blocks when
-the facts are present.
+the facts are present. Under **Hide** it shows the insensitive statistics
+instead, as the whitespace presentation section states.
 
 | Outcome | Frame content |
 | --- | --- |
@@ -313,7 +321,8 @@ either.
 5. With whitespace facts, confirm the Mark default and Highlight glyphs and
    escapes. Under Hide on Scrutor `Decorate`, whose one whitespace-only change
    renders as context, confirm the summary counts its suppressed line on each
-   side and the frame reads **No differences except whitespace**; open another
+   side, that its changed counts exclude that line, and that the frame reads
+   **No differences except whitespace**; open another
    comparison and confirm Hide was not retained.
 6. Under Highlight, confirm a brace reflow (`class Foo {` → `class Foo` /
    `{`) shows its segments and a line-break marker, and a removed blank line
