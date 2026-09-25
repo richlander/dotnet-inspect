@@ -858,6 +858,12 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 - There are no aliases. Help, completion, `-D`, and `explain` list the
   Compare-participating identities from the same registration that Diff
   dispatches on.
+- For validation, a pairwise request's report-surface kind comes from its
+  filters, exactly as today's `--finding` admission derives it: no filter is
+  Library, `--type` is Type, and exactly one type-qualified `--member` is
+  Member. This is a surface kind, which mints no identity. It does not turn a
+  filter into exact subject identity, so [Equivalent
+  requests](#equivalent-requests) is unchanged.
 
 #### Producers and views
 
@@ -897,6 +903,12 @@ Diff offers these views over the result:
 | `Changes` | `api`'s compatibility-classified changes |
 | `Finding Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
 
+A view is admitted only when the selected set contains an analysis it
+projects. `Changes` requires `api`, and `Finding Transitions` requires a
+selected analysis that supports the request's surface. Otherwise the request
+is rejected before execution, naming the view and the missing analysis. A view
+never adds an analysis and never renders an empty success.
+
 `Finding Transitions` is a view, not a route. Today it is a command-owned
 route: it declares no query, runs its own per-type API comparison, and must be
 selected alone. As a view of the `api` result, its API rows follow the `api`
@@ -920,8 +932,10 @@ retires `--finding` entirely, in its own #8545 slice.
 
 The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
 Structural Context routes are not keyed Finding comparisons and are
-unchanged here. They keep their current selection rules, including
-exclusive selection, and are not views of the analysis-set result. Their
+unchanged here. They keep their current selection and execution rules and
+are not views of the analysis-set result. A request that selects only these
+routes carries no analysis set and runs as it does today. Combining
+`--analysis` with them is rejected until they migrate. Their
 migration stays under #7703 step 6 and #8545, and none of them is a Compare
 participation until its producer issues keyed Findings.
 `Analysis Diff` currently reaches allocation evidence through Research's
@@ -947,7 +961,7 @@ The default view follows the single-high-value-section rule:
   section.
   - It has one row per selected analysis, in selection order.
   - Each row shows the analysis's outcome and its transition counts,
-    projected from its keyed comparison's owner-issued classification.
+    aggregated across the descriptors it declares for the request's surface.
   - Each analysis's detail view is available through `-S`.
 
 `Summary` projects no analysis-specific columns.
