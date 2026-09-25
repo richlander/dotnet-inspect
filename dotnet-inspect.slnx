@@ -73,6 +73,7 @@
     <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1/InspectWeb.SourceComparisonFixtures.V1.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2/InspectWeb.SourceComparisonFixtures.V2.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures/ILInspector.JsExportSurface.DirectionalJsonValueFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures/ILInspector.JsExportSurface.MemberConverterFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures/ILInspector.JsExportSurface.NestedContextConstructorFixtures.csproj" />

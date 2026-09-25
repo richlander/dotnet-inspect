@@ -1,6 +1,7 @@
 using ILInspector.CSharp;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Metadata;
@@ -1372,6 +1373,11 @@ public class MemberCodeView
 
     [MarkoutIgnore]
     public int? CallGraphRowCount { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal InspectionEnvelope<InspectionGraphDocument>? CallGraphInspection
+        { get; set; }
 
     [MarkoutIgnore]
     internal CallGraphRenderedFieldEvidence CallGraphRenderedFieldEvidence { get; set; } =

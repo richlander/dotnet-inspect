@@ -650,6 +650,20 @@ test.describe("published authored Source comparison transport", () => {
       await expect(
         applicationPage.locator("#annotated-modal-title"),
       ).toBeFocused();
+      await expect(
+        applicationPage.locator(".annotated-source-signature"),
+      ).toContainText("public int Value()");
+      await expect(
+        applicationPage.locator(".annotated-source-signature"),
+      ).not.toContainText("M:");
+      await applicationPage
+        .locator("#annotated-source-backdrop [data-annotated-action='copy']")
+        .click();
+      await expect.poll(() => applicationPage.evaluate(() =>
+        (window as typeof window & {
+          __copiedMemberSource?: string;
+        }).__copiedMemberSource,
+      )).toContain("public int Value()");
       await expect(applicationPage).toHaveURL(
         typeExplorerBeforeInspect.url);
       await applicationPage.locator("#annotated-modal-close").click();

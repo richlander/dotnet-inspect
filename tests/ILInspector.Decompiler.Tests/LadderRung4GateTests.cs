@@ -93,14 +93,10 @@ public class LadderRung4GateTests
 
         var localBodyCapture = Body("LocalFunctionCapturingWithLocal");
         Assert.Equal(DecompilationFidelity.Partial, Fidelity("LocalFunctionCapturingWithLocal"));
-        Assert.Contains("DisplayClass", localBodyCapture);
-        // This local function is NOT raised — the leaked display class above is the
-        // tell, and the Partial fidelity is already asserted. So no declaration of
-        // AddSquare is emitted, and the call must not claim that source spelling: it
-        // would be a call to a method that exists nowhere (#3631). Contrast the raised
-        // cases above, which assert both the call *and* the declaration.
-        Assert.DoesNotContain("AddSquare(3", localBodyCapture);
-        Assert.Contains("_g__AddSquare_", localBodyCapture);
+        Assert.Contains("return AddSquare(3);", localBodyCapture);
+        Assert.Contains("int AddSquare(int item)", localBodyCapture);
+        Assert.DoesNotContain("DisplayClass", localBodyCapture);
+        Assert.DoesNotContain("g__", localBodyCapture);
 
         var recursiveLocal = Body("RecursiveLocalFunction");
         Assert.Contains("return Fact(value);", recursiveLocal);

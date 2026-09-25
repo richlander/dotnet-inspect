@@ -38,7 +38,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         nameof(DirectionalAccessorInputDto),
         JsonWireDirection.Deserialize)]
     [InlineData(
-        nameof(DirectionalRoundTripDto),
+        nameof(DirectionalServerNoteDto),
         JsonWireDirection.Both)]
     [InlineData(
         nameof(DirectionalNote),

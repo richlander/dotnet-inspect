@@ -134,7 +134,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Contains("DirectionalSharedInputDto", recordNames);
         Assert.Contains("DirectionalInactiveInputDto", recordNames);
         Assert.Contains("DirectionalAccessorInputDto", recordNames);
-        Assert.Contains("DirectionalRoundTripDto", recordNames);
+        Assert.Contains("DirectionalServerNoteDto", recordNames);
         Assert.Contains("DirectionalNote", recordNames);
         Assert.Contains("DirectionalConditionalNote", recordNames);
         Assert.Contains(nameof(ClosedGenericRootDto), recordNames);
