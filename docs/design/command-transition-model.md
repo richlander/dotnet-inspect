@@ -898,11 +898,6 @@ equivalent `--analysis` identity.
 Compare participation in this adoption. It adopts analysis selection, and
 retires `--finding` entirely, in its own #8545 slice.
 
-The implementing change updates every shipped product skill that teaches
-pairwise `--finding`: the compatibility, correctness, and performance skills.
-It does so under the release-managed-file authorization rule, so that the
-skills match the behavior that ships.
-
 The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
 Structural Context routes are not keyed Finding comparisons and are
 unchanged here. Their migration stays under #7703 step 6 and #8545, and none
