@@ -574,24 +574,41 @@ outcomes remain owned by
 #### Graph Explore
 
 Member Call graph retains its inline default and exposes `Explore` in the
-working-surface action row when a graph result is available. Explore places
-the existing interactive result in a full-viewport dialog. Its shared header
-centers the active subject: graph kind and result summary are quiet metadata,
-the selected overload signature is the primary heading, its package and
-declaring-type path is secondary context, and Close remains a stable action.
-These are structured values supplied by the graph consumer, not strings parsed
-from rendered content. The duplicate inline graph heading and summary do not
-appear in Explore.
+Member surface header when a graph result is available, one row below the
+persistent inspected-subject path. This associates the action with the active
+Member inspector rather than the broader subject coordinate. Package
+Dependencies and Type Metadata retain Explore in their existing
+working-surface action region.
+
+Explore places the existing interactive result in a full-viewport dialog. Its
+shared header is one compact application bar: graph kind and result summary
+identify the active tool first; the selected subject and its package and
+declaring-type context form one secondary address; optional interaction guidance
+and the stable Close action complete the row. These are structured values
+supplied by the graph consumer, not strings parsed from rendered content. The
+full subject and context remain available to assistive technology and pointer
+tooltips, but the visual address truncates rather than growing into additional
+title rows at constrained widths. The duplicate inline graph heading and
+summary do not appear in Explore. The graph occupies an inset canvas whose
+boundary, subtle grid, controls, scope, and legend make the full-page
+interaction distinct from a stretched inline card.
 
 The diagram takes the remaining space rather than retaining the inline
-fixed-height card. An untouched graph automatically reframes when its viewport
-changes, including relocation into Explore. Automatic framing uses a 92% inset,
-may enlarge a sparse graph to at most 1.5x, and retains a 0.2x legibility floor.
-Explicit Fit may scale as far as 0.05x to reveal more of the complete bounded
-graph; when that floor still exceeds a narrow viewport, the remaining extent
-stays pannable. Wheel, button, keyboard, or pointer pan/zoom makes the view
+fixed-height card. An untouched sparse graph automatically reframes when its
+viewport changes, including relocation into Explore. Automatic whole-graph
+framing uses a 92% inset and may enlarge a sparse graph to at most 1.5x.
+
+A Call graph that would require less than 0.65x to show its complete extent
+instead opens Explore at 0.65x with its typed target node centered. This is a
+readable starting view, not a different graph or a filtered projection: the
+complete bounded graph remains pannable. `Target` restores that centered,
+readable framing; `Fit` switches to the complete-extent overview and may scale
+as far as 0.05x. When that floor still exceeds a narrow viewport, the remaining
+extent stays pannable. The inline Call graph and sparse Dependency and Type
+graphs retain whole-graph automatic framing with the existing 0.2x legibility
+floor. Wheel, Zoom in, Zoom out, keyboard, or pointer pan/zoom makes the view
 user-adjusted; that exact transform survives later relocation and viewport
-changes until Fit restores automatic framing.
+changes until Target or Fit selects a framing mode.
 
 The inspected subject uses the shell-purple family in dark and light themes.
 Other graph roles retain their existing distinct fills, strokes, and availability
@@ -710,13 +727,22 @@ placement change bypasses Markout for the interactive browser canvas, adds no
 graph-analysis substrate, and does not change CLI output, query scope, traversal,
 acquisition, or layout algorithms.
 
+`Microsoft.AspNetCore.App.Ref@10.0.12` supplies the motivating dense production
+case: the Platform `AddHttpClient` overload on
+`HttpClientFactoryServiceCollectionExtensions` has 18 callers and 21 callees,
+and complete-extent framing makes its labels unreadable even in a full
+viewport. `Microsoft.Extensions.AI.OpenAI@10.10.0` is the neighboring sparse
+control: its two-package Dependency graph should continue to fit and center as
+one immediately legible whole.
+
 The browser gate covers live DOM and interaction retention across placement
 changes, result replacement, pending completion, no-body/failure visibility,
 dialog focus and dismissal, structured header content, pristine and
 user-adjusted resize behavior across wheel, button, keyboard, and pointer
-inputs, bounded sparse-graph enlargement, explicit lower-floor Fit, connector
-contrast, graph-specific legends outside the transform, complete
-narrow-width wrapping, content-first scope placement, and narrow geometry.
+inputs, bounded sparse-graph enlargement, dense Call-graph target framing,
+Target restoration, explicit lower-floor Fit, connector contrast,
+graph-specific legends outside the transform, complete narrow-width wrapping,
+content-first scope placement, and narrow geometry.
 Published Wasm evidence covers
 the production action row and destination navigation. Dependency coverage also
 exercises group changes, empty groups, pending completion, truncation geometry,
