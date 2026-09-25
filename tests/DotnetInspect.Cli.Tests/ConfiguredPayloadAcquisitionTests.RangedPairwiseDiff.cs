@@ -160,8 +160,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// the real Avalonia archives (<c>ref/net8.0</c> beside
     /// <c>lib/net8.0</c>) it selects more than the endpoint scope's surface.
     /// Those requests are excluded from the scope route before any surface
-    /// folder is read, and stay byte-identical because the legacy path serves
-    /// them.
+    /// folder is read, stay byte-identical because the legacy path serves
+    /// them, and cost no network when repeated.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_LegacySelectionBeyondTheSurface_TakesTheLegacyPath()
@@ -183,19 +183,31 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync([.. request, "--verbose"]);
 
         Assert.True(legacy[0] == result.Output, result.Error);
-        // Admission is decided from the archive directory: the ranged reads
-        // before the legacy download touch the root folder only, never a
-        // surface folder. The first endpoint to fall back cancels its
-        // sibling, which may not have read at all.
-        Dictionary<string, byte[]> read = packages
-            .Where(package => feed.Reads.Any(entry => entry.Version == package.Key))
-            .ToDictionary(StringComparer.Ordinal);
-        Assert.NotEmpty(read);
-        AssertEachCellReadsOnly(feed, read, [""]);
-        Assert.Contains(
-            "takes the legacy path: the legacy selector picks [lib/net8.0/Avalonia.Base.dll",
-            result.Error,
-            StringComparison.Ordinal);
+        // Admission is decided from the archive directory: both endpoints'
+        // checks run to completion, and their ranged reads before the legacy
+        // download touch the root folder only, never a surface folder.
+        AssertEachCellReadsOnly(feed, packages, [""]);
+        foreach (string version in AvaloniaHistoryVersions)
+        {
+            Assert.Contains(
+                $"Package endpoint {AvaloniaId}@{version} takes the legacy path: "
+                    + "the legacy selector picks [lib/net8.0/Avalonia.Base.dll",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+
+        // The same request again makes no package request at all: both
+        // directories are in the entry cache and both archives in the
+        // legacy cache.
+        int ranged = feed.RangedResponses;
+        int full = feed.FullPackageResponses;
+        long served = feed.PackageBytesServed;
+        var warm = await RunCommandAsync([.. request, "--verbose"]);
+
+        Assert.True(legacy[0] == warm.Output, warm.Error);
+        Assert.Equal(ranged, feed.RangedResponses);
+        Assert.Equal(full, feed.FullPackageResponses);
+        Assert.Equal(served, feed.PackageBytesServed);
     }
 
     private static string[] PairwiseSystemTextJsonDiff(string[] view) =>

@@ -91,7 +91,38 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                     access: PackagePayloadAccess.Ranged),
                 sourceOptions,
                 logger.Log);
-            // Both endpoints open at once. The first that falls back or fails
+            // Admission first: both directory checks run to completion at once,
+            // neither cancelling the other, so each archive's directory and
+            // root folder reach the entry cache and a repeated request makes
+            // no package request, whichever endpoint falls back.
+            Task<bool> fromCheck = AdmitsAsync(
+                composition, house, packageId, fromVersion, targetFramework, logger, cancellationToken);
+            Task<bool> toCheck = AdmitsAsync(
+                composition, house, packageId, toVersion, targetFramework, logger, cancellationToken);
+            try
+            {
+                await Task.WhenAll(fromCheck, toCheck).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Each check's outcome is inspected below.
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (new[] { fromCheck, toCheck }
+                    .Where(static task => task.IsFaulted)
+                    .Select(static task => task.Exception!.InnerException!)
+                    .FirstOrDefault() is { } checkFailure)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(checkFailure);
+            }
+            if (!fromCheck.Result || !toCheck.Result)
+            {
+                closed = true;
+                await CloseAsync(null, null, composition, stores).ConfigureAwait(false);
+                return null;
+            }
+
+            // Then both surfaces realize at once. A realization that fails
             // cancels its sibling, whose work the legacy path would discard.
             using var sibling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             Task<PackageEndpointScope?> fromTask = OpenOrCancelSiblingAsync(fromVersion);
@@ -148,6 +179,32 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         }
     }
 
+    static async Task<bool> AdmitsAsync(
+        DesktopPackageSourceComposition composition,
+        PackageHouse house,
+        string packageId,
+        string version,
+        string targetFramework,
+        VerboseLogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = PackageSourceCoordinate.Create(packageId, version);
+            _ = PackageHouseTargetContext.Exact(targetFramework);
+        }
+        catch (ArgumentException exception)
+        {
+            logger.Log(
+                $"Package endpoint {packageId}@{version} takes the legacy path: {exception.Message}");
+            return false;
+        }
+
+        return await LegacySelectionMatchesAsync(
+                composition, house, packageId, version, targetFramework, logger, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     static async Task<PackageEndpointScope?> OpenAsync(
         DesktopPackageSourceComposition composition,
         PackageHouse house,
@@ -157,28 +214,10 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         VerboseLogger logger,
         CancellationToken cancellationToken)
     {
-        PackageEndpointScopeRequest request;
-        try
-        {
-            request = new PackageEndpointScopeRequest(
-                PackageSourceCoordinate.Create(packageId, version),
-                targetFramework,
-                PackageAssetDemand.Surface);
-            _ = PackageHouseTargetContext.Exact(targetFramework);
-        }
-        catch (ArgumentException exception)
-        {
-            logger.Log(
-                $"Package endpoint {packageId}@{version} takes the legacy path: {exception.Message}");
-            return null;
-        }
-
-        if (!await LegacySelectionMatchesAsync(
-                composition, house, packageId, version, targetFramework, logger, cancellationToken)
-                .ConfigureAwait(false))
-        {
-            return null;
-        }
+        var request = new PackageEndpointScopeRequest(
+            PackageSourceCoordinate.Create(packageId, version),
+            targetFramework,
+            PackageAssetDemand.Surface);
 
         long realizing = System.Diagnostics.Stopwatch.GetTimestamp();
         PackageEndpointScopeOutcome outcome =

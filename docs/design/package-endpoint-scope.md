@@ -155,8 +155,10 @@ never retain a participant after the scope is disposed.
    Library API Diff resolves no generic constraints on either path, so its
    parity doesn't depend on the host. Every other request, including API
    changes and API Finding Transitions, takes the legacy path unchanged,
-   decided before any package read. Both endpoints open concurrently, and the
-   first that falls back cancels the other.
+   decided before any package read. Both endpoints' admission checks run
+   concurrently to completion, so both directories reach the entry cache and
+   a repeated request makes no package request. Only then do both surfaces
+   realize concurrently, and a realization that fails cancels the other.
 
    The selector rule is decided from the archive directory before any
    surface folder is read. The House reads a directory by range only for a
