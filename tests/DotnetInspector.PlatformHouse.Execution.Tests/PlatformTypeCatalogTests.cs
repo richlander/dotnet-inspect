@@ -329,6 +329,40 @@ public partial class PlatformLibraryRealizationTests
             Assert.IsType<InspectionShare.NonProjectable>(
                 namespaceInspection.Share);
 
+            InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>
+                descendantInspection =
+                    PlatformNamespaceDiscoveryInspection.Execute(
+                        catalog,
+                        new(
+                            "System.Text.Json.Serialization",
+                            MetadataNamespaceMatch.ExactOrDescendant),
+                        cancellationToken);
+            var foundDescendants = Assert.IsType<
+                PlatformNamespaceDiscoveryOutcome.Found>(
+                    descendantInspection.Content);
+            PlatformNamespaceDiscoveryDeclaration[] descendantDeclarations =
+            [
+                .. foundDescendants.Hits.SelectMany(
+                    static hit => hit.Declarations),
+            ];
+            Assert.Contains(
+                descendantDeclarations,
+                static declaration =>
+                    declaration.Type.Namespace
+                        == "System.Text.Json.Serialization");
+            Assert.Contains(
+                descendantDeclarations,
+                static declaration =>
+                    declaration.Type.Namespace
+                        == "System.Text.Json.Serialization.Metadata");
+            Assert.All(
+                descendantDeclarations,
+                static declaration =>
+                    Assert.True(
+                        declaration.Type.IsInNamespace(
+                            "System.Text.Json.Serialization",
+                            MetadataNamespaceMatch.ExactOrDescendant)));
+
             string namespaceJson = JsonSerializer.Serialize(
                 namespaceInspection,
                 PlatformNamespaceDiscoveryInspectionJsonContext.Default
