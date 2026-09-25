@@ -13,6 +13,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageDownload Include="Microsoft.Azure.SignalR"
+                     Version="[1.33.1]" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
@@ -22,5 +24,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)microsoft.azure.signalr/1.33.1/microsoft.azure.signalr.1.33.1.nupkg"
+          Link="RealAssets/FrameworkReferences/microsoft.azure.signalr.1.33.1.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
