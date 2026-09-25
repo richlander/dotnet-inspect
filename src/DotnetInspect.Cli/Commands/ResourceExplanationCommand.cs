@@ -71,8 +71,14 @@ public static class ResourceExplanationCommand
                 structuralCatalog,
                 capabilityExplanation);
         string normalizedOperand = operand.Trim();
-        ResourcePathResolution resolution = catalog.Resolve(normalizedOperand);
-        if (resolution is ResourcePathResolution.Resolved resolved)
+        ResourcePath.TryCreate(
+            normalizedOperand,
+            out ResourcePath? canonicalPath,
+            out _);
+        if (canonicalPath is not null
+            && catalog.TryResolveExact(
+                canonicalPath,
+                out ResourcePathResolution.Resolved? resolved))
         {
             if (maximumResults is not null)
             {
@@ -90,14 +96,11 @@ public static class ResourceExplanationCommand
                 outputPath);
         }
 
-        if (ResourcePath.TryCreate(
-                normalizedOperand,
-                out ResourcePath? canonicalPath,
-                out _)
-            && canonicalPath is not null
+        if (canonicalPath is not null
             && canonicalPath.Value.Contains('/'))
         {
-            return WriteResolutionFailure(resolution);
+            return WriteResolutionFailure(
+                catalog.Resolve(normalizedOperand));
         }
 
         if (depthExplicitlySet)

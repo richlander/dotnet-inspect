@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using DotnetInspector.Networking;
@@ -351,6 +352,25 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Empty(result.Output);
         Assert.Contains("was not found", result.Error);
         Assert.DoesNotContain("No installed capabilities", result.Error);
+    }
+
+    [Fact]
+    public async Task OversizedSearchText_IsRejectedBeforePathSuggestions()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var result = await RunAsync(
+            "explain",
+            new string('a', 100_000));
+        stopwatch.Stop();
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "must not exceed 128 UTF-16 code units",
+            result.Error);
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+            $"Oversized search rejection took {stopwatch.Elapsed}.");
     }
 
     [Fact]

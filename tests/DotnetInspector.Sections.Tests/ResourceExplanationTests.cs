@@ -62,6 +62,23 @@ public class ResourceExplanationTests
     }
 
     [Fact]
+    public void ExactProbe_ReturnsOnlyRegisteredPaths()
+    {
+        ResourceExplanationCatalog catalog = StructuralCatalog();
+
+        Assert.True(
+            catalog.TryResolveExact(
+                new("library"),
+                out ResourcePathResolution.Resolved? resolved));
+        Assert.Equal("library", resolved.Path.Value);
+        Assert.False(
+            catalog.TryResolveExact(
+                new("library/not-real"),
+                out resolved));
+        Assert.Null(resolved);
+    }
+
+    [Fact]
     public void StructuralCatalog_ProjectsTheCompleteAuthoritativeDomain()
     {
         (DiscoveryDocument discovery, StructuralResourcePathRegistration[]

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using QuerySpace;
 using QuerySpace.Composition;
 using QuerySpace.Operations;
@@ -790,13 +791,10 @@ public sealed class ResourceExplanationCatalog
                 error!);
         }
 
-        if (_resourcesByPath.TryGetValue(
-                path!.Value,
-                out ResourceExplanationResource? resource))
+        ResourcePath canonicalPath = path!;
+        if (TryResolveExact(canonicalPath, out var resolved))
         {
-            return new ResourcePathResolution.Resolved(
-                resource.Path,
-                resource.Identity);
+            return resolved;
         }
 
         ImmutableArray<ResourcePath> suggestions =
@@ -804,7 +802,7 @@ public sealed class ResourceExplanationCatalog
             .. _resources
                 .OrderBy(resource =>
                     EditDistance(
-                        path.Value,
+                        canonicalPath.Value,
                         resource.Path.Value))
                 .ThenBy(
                     resource => resource.Path.Value,
@@ -815,6 +813,24 @@ public sealed class ResourceExplanationCatalog
         return new ResourcePathResolution.Unknown(
             requestedPath,
             suggestions);
+    }
+
+    public bool TryResolveExact(
+        ResourcePath path,
+        [NotNullWhen(true)]
+        out ResourcePathResolution.Resolved? resolved)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (!_resourcesByPath.TryGetValue(
+                path.Value,
+                out ResourceExplanationResource? resource))
+        {
+            resolved = null;
+            return false;
+        }
+
+        resolved = new(resource.Path, resource.Identity);
+        return true;
     }
 
     private static IReadOnlyDictionary<
