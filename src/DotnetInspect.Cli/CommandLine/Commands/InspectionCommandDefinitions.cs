@@ -911,6 +911,8 @@ public static class InspectionCommandDefinitions
                 Jsonl = opts.ResolveJsonl(parseResult),
                 TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
                 FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+                FormatFlagExplicitlySet =
+                    opts.IsFormatFlagExplicitlySet(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Trace = parseResult.GetValue(opts.Trace),

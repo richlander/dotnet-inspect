@@ -885,6 +885,90 @@ public class MetricSectionTests
     }
 
     [Fact]
+    public async Task
+        LibraryMetrics_CompleteJsonRejectsCountBeforeAcquisition()
+    {
+        var result = await RunCommand(
+            "library",
+            "missing-library.dll",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--json",
+            "--count");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Complete Library Metrics JSON does not support",
+            result.Error);
+        Assert.DoesNotContain(
+            "does not exist",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    public async Task
+        LibraryMetrics_EnvelopeIgnoresAmbientFormat(string format)
+    {
+        string? previous =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                format);
+            var result = await RunCommand(
+                "library",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                "-S",
+                SectionNames.LibraryMetrics,
+                "--envelope");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using JsonDocument envelope =
+                JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "library-metrics",
+                envelope.RootElement
+                    .GetProperty("result_kind")
+                    .GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                previous);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_EnvelopeRejectsExplicitFormatBeforeAcquisition()
+    {
+        var result = await RunCommand(
+            "library",
+            "missing-library.dll",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--envelope",
+            "--markdown");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("--envelope", result.Error);
+        Assert.Contains("--markdown", result.Error);
+        Assert.DoesNotContain(
+            "does not exist",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void
         LibraryMetrics_EnvelopeAcceptsExactPackageCoordinates()
     {

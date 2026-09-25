@@ -172,6 +172,8 @@ public partial class LibraryCommand
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet =
+                options.FormatFlagExplicitlySet,
             NoHeader = options.NoHeader,
             OutputPath = options.OutputPath,
         };

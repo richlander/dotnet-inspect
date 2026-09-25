@@ -886,6 +886,8 @@ public partial class PackageCommand
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet =
+                options.FormatFlagExplicitlySet,
             Format = options.Format,
             Verbose = options.Verbose,
             Trace = options.Trace,

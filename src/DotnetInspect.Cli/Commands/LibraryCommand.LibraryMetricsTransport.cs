@@ -49,8 +49,7 @@ public partial class LibraryCommand
     internal static bool RequestsLibraryMetricsTransport(
         LibraryOptions options) =>
         IsExactLibraryMetricsSelection(options)
-        && (options.EnvelopeOutput
-            || options.JsonOutput && !options.Count);
+        && (options.EnvelopeOutput || options.JsonOutput);
 
     internal static bool ValidateLibraryMetricsTransport(
         LibraryOptions options)
@@ -69,11 +68,7 @@ public partial class LibraryCommand
             || options.Urls
             || options.Paths
             || options.JsonArray
-            || options.Tabular
-            || options.Tsv
-            || options.Jsonl
             || options.Tree
-            || options.PlainText
             || options.NoHeader
             || options.Discover is not null
             || options.Schema
@@ -89,8 +84,7 @@ public partial class LibraryCommand
         }
 
         if (options.EnvelopeOutput
-            && (options.JsonOutput
-                || options.FormatExplicitlySet))
+            && options.FormatFlagExplicitlySet)
         {
             CommandError.Write(
                 "Library Metrics --envelope cannot be combined with another "
