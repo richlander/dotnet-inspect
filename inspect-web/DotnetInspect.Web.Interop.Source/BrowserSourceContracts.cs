@@ -669,6 +669,7 @@ public sealed record BrowserMemberFindingCensus
         FindingCensusReceipt? receipt,
         IReadOnlyList<FactRow>? facts,
         AnnotatedSourceDocument document,
+        InertString signature,
         IReadOnlyList<AnnotatedSourceFactIdentity>? sourceFactIdentities,
         InertString provenance,
         string? contextLimitation,
@@ -825,6 +826,7 @@ public sealed record BrowserMemberFindingCensus
             projectedFacts,
             BrowserAnnotatedSource.Create(
                 document,
+                signature,
                 provenance,
                 contextLimitation,
                 invocationDestinations,
@@ -1219,6 +1221,7 @@ public sealed record BrowserAnnotatedSource
 
     private BrowserAnnotatedSource(
         JsonElement Document,
+        InertString Signature,
         BrowserAnnotatedSourceViewerCatalog ViewerCatalog,
         InertString Provenance,
         string? ContextLimitation,
@@ -1228,6 +1231,7 @@ public sealed record BrowserAnnotatedSource
         BrowserAnnotatedSourceCallRelationship[] CallRelationships)
     {
         this.Document = Document;
+        this.Signature = Signature;
         this.ViewerCatalog = ViewerCatalog;
         this.Provenance = Provenance;
         this.ContextLimitation = ContextLimitation;
@@ -1237,6 +1241,8 @@ public sealed record BrowserAnnotatedSource
     }
 
     public JsonElement Document { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Signature { get; }
     public BrowserAnnotatedSourceViewerCatalog ViewerCatalog { get; }
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString Provenance { get; }
@@ -1250,6 +1256,7 @@ public sealed record BrowserAnnotatedSource
 
     internal static BrowserAnnotatedSource Create(
         AnnotatedSourceDocument document,
+        InertString signature,
         InertString provenance,
         string? contextLimitation,
         BrowserAnnotatedSourceInvocationDestination[]?
@@ -1296,12 +1303,16 @@ public sealed record BrowserAnnotatedSource
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(
+            signature.ToString(),
+            nameof(signature));
+        ArgumentException.ThrowIfNullOrWhiteSpace(
             provenance.ToString(),
             nameof(provenance));
 
         JsonElement serialized = SerializeDocument(document)!.Value;
         return new BrowserAnnotatedSource(
             serialized,
+            signature,
             BrowserAnnotatedSourceViewerCatalogFactory.Create(
                 document,
                 invocationDestinations,

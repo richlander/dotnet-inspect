@@ -150,6 +150,28 @@ export function renderAnnotatedSourcePageActions(enabled: boolean): string {
       data-annotated-action="explore"${disabled}>Explore</button>`;
 }
 
+export function annotatedSourcePresentationText(
+  result: AnnotatedSourceResult,
+  session: AnnotatedSourceSession,
+): string {
+  const visible = new Set(session.visibleMedia);
+  const view = buildAnnotatedView(result.document, {
+    media: {
+      CSharp: visible.has("CSharp"),
+      Il: visible.has("Il"),
+    },
+  });
+  const body = view.lines
+    .map(line => line.segments
+      .filter(segment => segment.visible)
+      .map(segment => segment.text)
+      .join(""))
+    .join("\n");
+  return body.length > 0
+    ? `${result.signature}\n${body}`
+    : result.signature;
+}
+
 export function renderAnnotatedSourceModal(
   options: AnnotatedSourceRenderOptions,
 ): string {
@@ -405,6 +427,13 @@ function renderSource(context: SourceRenderContext): string {
   return `
     <div class="annotated-source-code" data-annotated-surface="${session.surface}"
       data-annotated-scroll="${session.surface}-source-code">
+      <div class="annotated-source-line annotated-source-signature">
+        <span class="annotated-line-number"></span>
+        ${session.surface === "modal"
+          ? `<span class="annotated-medium-label">API</span>`
+          : ""}
+        <code>${escapeHtml(model.result.signature)}</code>
+      </div>
       ${view.lines.map(line => {
         const annotationRows =
           groupLineAnnotations(lineAnnotations.get(line.number) ?? []);

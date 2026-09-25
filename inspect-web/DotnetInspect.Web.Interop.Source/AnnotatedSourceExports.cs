@@ -55,6 +55,7 @@ public static partial class SourceExports
             factRows: false);
         BrowserAnnotatedSource annotated = BrowserAnnotatedSource.Create(
             source.Document,
+            source.Signature,
             source.Provenance,
             source.ContextLimitation,
             source.InvocationDestinations,
@@ -124,6 +125,7 @@ public static partial class SourceExports
             source.Projection.FactCensusReceipt,
             source.Projection.Facts,
             source.Document,
+            source.Signature,
             source.Projection.SourceDocumentFactIdentities,
             source.Provenance,
             source.ContextLimitation,
@@ -163,7 +165,6 @@ public static partial class SourceExports
         string styleOptionsJson,
         bool factRows)
     {
-        _ = memberSignature;
         await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
@@ -432,6 +433,7 @@ public static partial class SourceExports
         return new MemberSourceProjection(
             projection.Projection,
             document,
+            new InertString(TextPolicy.Field, memberSignature),
             PackageProvenance("Annotated by dotnet-inspect from", participant),
             projection.ContextLimitation is { } limitation
                 ? $"{limitation.Kind}: {limitation.Detail}"
@@ -658,6 +660,7 @@ public static partial class SourceExports
     private sealed record MemberSourceProjection(
         MemberProjectionResult Projection,
         AnnotatedSourceDocument Document,
+        InertString Signature,
         InertString Provenance,
         string? ContextLimitation,
         BrowserAnnotatedSourceInvocationDestination[]? InvocationDestinations,

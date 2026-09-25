@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  annotatedSourcePresentationText,
   annotatedFocusSelector,
   bindAnnotatedSource,
   renderAnnotatedSource,
@@ -238,6 +239,7 @@ function escapeHtml(value: unknown) {
 
 const result: AnnotatedSourceResult = {
   document: sampleDocument,
+  signature: inertStringFixture("public void Sample()"),
   viewerCatalog: sampleViewerCatalog,
   findingEvidenceDocuments: [],
   findingEvidence: [],
@@ -263,6 +265,29 @@ function modalHtml(source: AnnotatedSourceResult = result): string {
     escapeHtml,
   });
 }
+
+test("annotated source renders the selected API signature", () => {
+  const html = embeddedHtml();
+
+  assert.match(html, /annotated-source-signature/);
+  assert.match(html, /public void Sample\(\)/);
+});
+
+test("presentation text follows visible media and includes the signature", () => {
+  const model = createAnnotatedSourceViewerModel(result);
+  const session = createEmbeddedSession(model);
+  const copied = annotatedSourcePresentationText(result, session);
+
+  assert.ok(copied.startsWith("public void Sample()\n"));
+  assert.ok(copied.includes("return"));
+  assert.ok(!copied.includes("IL_"));
+
+  const withIl = annotatedSourcePresentationText(result, {
+    ...session,
+    visibleMedia: ["CSharp", "Il"],
+  });
+  assert.ok(withIl.includes("IL_"));
+});
 
 function invocationResult(): AnnotatedSourceResult {
   return {
@@ -390,6 +415,7 @@ function callCycleRelationshipResult(
     factId,
     source: {
       document,
+      signature: inertStringFixture("public void Sample()"),
       viewerCatalog: {
         ...sampleViewerCatalog,
         callRelationships: {
@@ -1895,6 +1921,7 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
       facts: [],
       targets: [],
     },
+    signature: inertStringFixture("public void Sample()"),
     viewerCatalog: {
       defaultFindingIds: [],
       supportedMedia: ["CSharp", "Il"],
@@ -1970,6 +1997,7 @@ test("source text is escaped while source actions and chrome remain separate", (
       facts: [],
       targets: [],
     },
+    signature: inertStringFixture("<img src=x onerror=alert(1)>"),
     viewerCatalog: csharpOnlyEmptyViewerCatalog,
     findingEvidenceDocuments: [],
     findingEvidence: [],
@@ -1980,7 +2008,9 @@ test("source text is escaped while source actions and chrome remain separate", (
   const html = embeddedHtml(source);
 
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.doesNotMatch(html, /<script>alert/);
+  assert.doesNotMatch(html, /<img src=x/);
   assert.doesNotMatch(html, /data-annotated-action="(?:copy|explore)"/);
 });
 

@@ -156,9 +156,11 @@ public static class IrPasses
         // `recv?.M() ?? x` store the structuring pass can consume. The sibling of
         // the or-chain folds for the shared-true-arm-with-prologue case.
         new NullConditionalCoalescePass(),
-        // Fold a prologue guard left flat only because the method body is
-        // EH-entangled (issue #1089, slice 4) — must run before StructuringPass,
-        // which declines the whole container for leave-target-in-container.
+        // Fold csc's dup/branch/pop shape for an effectful receiver used by a
+        // void ?. call before structuring consumes the surrounding blocks.
+        new VoidNullConditionalPass(),
+        // Fold an independently owned leading guard-return slice even when
+        // later control flow keeps the rest of the container flat.
         new PrologueGuardReturnPass(),
         // Collapse flat lazy delegate-cache artifacts before shared slot-store
         // diamonds try to inline their true-arm temporaries.

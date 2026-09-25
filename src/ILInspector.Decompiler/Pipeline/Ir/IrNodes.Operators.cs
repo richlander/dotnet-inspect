@@ -240,16 +240,16 @@ public sealed class NullCoalescingPropertyAssignment : IrNode
 /// child is the member access (a <see cref="Call"/>, <see cref="LoadProperty"/>,
 /// or <see cref="LoadField"/>) whose receiver IS the <c>?.</c> target; the
 /// printer prints that receiver, then <c>?</c>, then the member suffix. The
-/// NullConditionalPass raises this only from the <c>recv is not null ? recv.M :
-/// null</c> shape, where the literal-null false arm proves the member result is
-/// a reference type — so the access carries the member's own result type with no
-/// Nullable wrapping, and the lowered receiver spill collapses into the target.
+/// raising passes recover either the expression-valued
+/// <c>recv is not null ? recv.M : null</c> shape or csc's void-call
+/// <c>dup; brtrue call; pop</c> shape. The member carries its own result type;
+/// surrounding nodes carry any nullable wrapping or coalesce.
 /// </summary>
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundConditionalAccess,
     naming: Inverse.NameProvenance.Native,
     forwardName: "BoundConditionalAccess / ?.",
-    precondition: "result is the member's unwrapped type (`Member.ResultType`); raised from the ?. null-check pattern (surrounding nodes carry any nullable wrapping / coalesce)",
+    precondition: "result is the member's unwrapped type (`Member.ResultType`); raised from a fully owned ?. null-check pattern (surrounding nodes carry any nullable wrapping / coalesce)",
     witness: "corpus compile-back")]
 public sealed class NullConditional : IrExpression
 {
