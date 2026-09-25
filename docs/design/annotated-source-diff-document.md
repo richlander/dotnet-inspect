@@ -13,7 +13,8 @@ Its normative claim is:
 
 > For one Member resolved in two package versions, the Annotated Source diff
 > document holds both versions' annotated source documents, a text comparison
-> per medium, a map from each compared line to its document text, and a fact
+> for C# and, when requested, for IL, a map from each compared line to its
+> document text, and a fact
 > comparison that pairs each side's observations across versions. It is a
 > representation: it contains no presentation, and every host renders from it.
 
@@ -125,29 +126,37 @@ source.
 
 ## Media and line maps
 
-A present side has two media:
+The request names the media. C# is always included; IL is included only
+when the request asks for it. A C#-only document is the default and is a
+complete document, not a reduced one.
 
 - **C#** is the side's lines that Annotated Source C# projection keeps: the
   lines not fully owned by IL instruction nodes.
 - **IL** is the ordered text lines that the side's IL instruction nodes
   cover, one line per non-empty IL instruction.
 
-For each side and medium, the document holds a **line map**: sequence line
-*i* ↔ the range of the side's original document text it came from. It is
-the document's equivalent of a PDB sequence-point table. Every id and range
-in the diff document refers to the side's original document: its fact ids,
-node ids, and text. The C# projection only selects which lines form the C#
-medium; its renumbered ids never appear. A fact reaches a compared line
-through exact typed coordinates: fact → target → node → span → line map →
-sequence line. No step reads displayed text.
+A present side's **side document** is the annotated document the diff
+document contains for it. With IL requested, it is the side's complete
+annotated document. For a C#-only document, it is that document's C#
+projection, which keeps C# nodes, regions, facts, and targets under the
+projection's own ids; the diff document then holds no IL text, node, or
+line anywhere.
 
-A medium with no lines on a present side is empty, not unavailable: the
-byte-faithful default style always emits both media for a member with a
-body.
+For each side and included medium, the document holds a **line map**:
+sequence line *i* ↔ the range of the side document's text it came from. It
+is the document's equivalent of a PDB sequence-point table. Every id and
+range in the diff document refers to the side document it contains: its fact
+ids, node ids, and text. A fact reaches a compared line through exact typed
+coordinates: fact → target → node → span → line map → sequence line. No step
+reads displayed text.
+
+A requested medium with no lines on a present side is empty, not
+unavailable: the byte-faithful default style always emits both media for a
+member with a body.
 
 ## Text comparison
 
-For each medium, when both sides are Present, the document holds the
+For each included medium, when both sides are Present, the document holds the
 `AnalysisDiff<string>` from `TextFindings.CreateAnalysisDiff` over the two
 sides' sequences, with its whitespace and move characterization. That is the
 same comparison and characterization the member source diff uses. The
@@ -195,11 +204,14 @@ not construct kinds and are not used.
 `FindingComparison<T>` compares the two sides' findings in `Ordered` mode, in
 census order. The `descriptor` tier's confidence is 80 and the comparison's
 acceptance threshold is 80, a deliberate consumer acceptance of soft matches.
-The matcher scores move candidates at most 75, so no move candidate is ever
-accepted, and no pair carries a moved difference. Each pair covers one fact
+The matcher scores the move candidates it leaves unpromoted at most 75, so
+no such fringe candidate is ever accepted. Each pair covers one fact
 on one side or one fact on each side:
 
-- **Present**: a fact on each side with the same identity.
+- **Present**: a fact on each side with the same identity. When the matcher
+  commits a run of two or more contiguous facts that relocated as a block, the
+  pair carries a **Moved** difference with its offset, such as `moved +2`; that
+  is a proven block relocation from the matcher's committed core, not a guess.
 - **Added**: a fact only on the After side, such as an allocation or a throw
   the new version introduced.
 - **Removed**: a fact only on the Before side.
@@ -229,8 +241,8 @@ The document holds, in canonical order:
 - the style used;
 - type-forwarder provenance per side;
 - both sides' outcomes and present documents;
-- per medium, both sides' line maps and the text comparison or its Too
-  complex outcome; and
+- the included media, and per included medium, both sides' line maps and the
+  text comparison or its Too complex outcome; and
 - the fact comparison.
 
 Canonical order is not presentation order. The constructor validates every
@@ -244,7 +256,7 @@ an agent receives exactly what the host received.
 
 | Host | Presentation |
 | --- | --- |
-| Agent | The complete document as JSON through the CLI |
+| Agent | The complete document as JSON through the CLI; C#-only unless an explicit option requests IL |
 | CLI text | The text comparison per medium through Markout's GNU-style lowering; facts are not shown |
 | Inspect Web | The Decompiler mode of Compare Explore: the diff viewer over the text comparison, with facts as code lenses on their lines, owned by the Inspect Web decompiler diff design |
 
@@ -321,3 +333,14 @@ or a throw.
     After facts `call X`, `alloc List<int>`, confirm `call X` is Present, the
     allocations are two Removed and one Added, no allocation is
     paired by position, and no pair carries a moved difference.
+12. With Before facts `alloc A`, `alloc B`, `call C`, `call D` and After facts
+    `call C`, `call D`, `alloc A`, `alloc B`, confirm the calls are Present
+    without a difference and both allocations are Present with a Moved
+    difference of `moved +2`.
+13. Build a C#-only document, the default, and confirm each side document is
+    the C# projection, that the document contains no IL text, node, or line,
+    that its line maps and fact ids refer to the projected side documents,
+    and that a fact whose only targets were IL nodes appears as an unanchored
+    fact in the fact comparison.
+14. Build the same pair with IL requested and confirm both media and their
+    comparisons, with ids referring to the complete side documents.
