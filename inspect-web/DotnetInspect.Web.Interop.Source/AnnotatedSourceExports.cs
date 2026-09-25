@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
+using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Research;
 using InertText;
@@ -165,6 +166,7 @@ public static partial class SourceExports
         string styleOptionsJson,
         bool factRows)
     {
+        _ = memberSignature;
         await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
@@ -178,6 +180,7 @@ public static partial class SourceExports
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
         Analysis.CallGraphMemberResolution resolution = resolved.Member;
+        InertString signature = MemberDeclaration(resolution);
 
         AssemblyMemberProjection projection = BrowserSurfaceProjection.Require(
             scope.UseImplementationParticipant(
@@ -433,7 +436,7 @@ public static partial class SourceExports
         return new MemberSourceProjection(
             projection.Projection,
             document,
-            new InertString(TextPolicy.Field, memberSignature),
+            signature,
             PackageProvenance("Annotated by dotnet-inspect from", participant),
             projection.ContextLimitation is { } limitation
                 ? $"{limitation.Kind}: {limitation.Detail}"
@@ -481,6 +484,32 @@ public static partial class SourceExports
                     ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
                 : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
+    }
+
+    static InertString MemberDeclaration(
+        Analysis.CallGraphMemberResolution resolution)
+    {
+        CSharpMemberDeclarationOutcome outcome =
+            new CSharpFormatter(new CSharpFormatOptions
+            {
+                MemorySafetyLanguage =
+                    CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+            }).FormatMemberOutcome(
+                resolution.Type,
+                resolution.Member);
+        return outcome switch
+        {
+            CSharpMemberDeclarationOutcome.Rendered rendered =>
+                new InertString(
+                    TextPolicy.Field,
+                    rendered.Declaration.Text),
+            CSharpMemberDeclarationOutcome.NotRendered notRendered =>
+                throw new InvalidOperationException(
+                    "Annotated source declaration projection failed: "
+                    + notRendered.Diagnostic.Message),
+            _ => throw new InvalidOperationException(
+                "CSharp returned an unknown member declaration outcome."),
+        };
     }
 
     static string FullyQualifiedMemberName(Analysis.MethodIdentity member)
