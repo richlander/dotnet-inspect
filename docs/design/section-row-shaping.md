@@ -463,11 +463,13 @@ successful-looking aggregate. Exact zero means the available evidence proves
 that the logical request has no surviving rows.
 
 Without redefining the source owner's disposition or evidence taxonomy, L2
-consumes two independent typed facts for each participating set:
+consumes three independent typed facts for each participating set:
 
 - whether supplied row values are usable for the resolved **Rows** request and
   may enter residual shaping; and
-- whether the evidence is sufficient for an exact **Count** result.
+- whether the evidence is sufficient for an exact **Count** result; and
+- the optional owner-accepted exact cardinality when Count was satisfied
+  without a row handoff.
 
 A source result may be Rows-usable while carrying evidence that the underlying
 candidate set is incomplete and therefore Count-insufficient. Candidate-bounded
@@ -486,12 +488,15 @@ The execution and failure precedence after successful resolution is:
    semantic execution and produces no Count. A proven semantic prefix may be
    Count-sufficient without corpus exhaustion; a work, page, time, memory, or
    acquisition cutoff is not.
-3. For **Row outcomes**, retain every source disposition and completion
+3. An owner-accepted exact source cardinality contributes its Count directly
+   and enters no residual row execution. Every Count-sufficient row handoff
+   without an exact cardinality enters the existing residual Count path.
+4. For **Row outcomes**, retain every source disposition and completion
    evidence. A Rows-usable result enters residual execution with its supplied
    row values; a failed, `Absent`, or otherwise Rows-unavailable result remains
    a disposition-and-evidence-only outcome with no row values. One set's
    outcome does not suppress healthy or incomplete-but-usable companion rows.
-4. Visit entered cohorts in cohort order:
+5. Visit entered cohorts in cohort order:
    1. prepare admitted row-bearing sets in declaration order through membership
       projection, predicates, and effective baseline ordering;
    2. propagate an accessor, predicate, or baseline-order exception unchanged
@@ -499,7 +504,7 @@ The execution and failure precedence after successful resolution is:
    3. invoke one named semantic-selection operation for the prepared cohort.
       A semantic failure returns its one bound failure and skips every later
       cohort; resolver and comparer exceptions propagate unchanged.
-5. Only after every entered cohort succeeds does L2 publish a result:
+6. Only after every entered cohort succeeds does L2 publish a result:
    1. Count returns exact entries for every participating set; or
    2. Row outcomes reassemble selected rows with their source dispositions and
       completion evidence, plus disposition-and-evidence-only unavailable
