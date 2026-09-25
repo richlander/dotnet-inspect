@@ -56,7 +56,12 @@ internal static class BrowserCallGraphWireProjection
             inspectionDiagnostics?.Count(static diagnostic =>
                 diagnostic.Code
                     == "package-dependency-member-call-graph.route-unavailable")
-                ?? 0);
+                ?? 0,
+            diagnostics.HasIncompleteCorrespondence,
+            diagnostics.UnclassifiedBoundaryEdges,
+            diagnostics.UnclassifiedBoundaryNamedEdges,
+            diagnostics.UnclassifiedBoundaryAssemblies,
+            diagnostics.PhysicalOccurrenceUnavailableEdges);
 
     internal static BrowserCallGraphTarget Project(BrowserCallGraphTargetInfo target) =>
         new(

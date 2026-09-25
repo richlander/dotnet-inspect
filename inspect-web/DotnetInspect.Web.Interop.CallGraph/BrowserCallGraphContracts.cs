@@ -38,7 +38,12 @@ public sealed record BrowserCallGraphDiagnostics(
     int BindingIdentityConflicts,
     bool HasUnexploredTraversalBoundary,
     bool HasAnalysisFailureBoundary,
-    int UnavailableDependencyRoutes)
+    int UnavailableDependencyRoutes,
+    bool HasIncompleteCorrespondence,
+    int UnclassifiedBoundaryEdges,
+    int UnclassifiedBoundaryNamedEdges,
+    string[] UnclassifiedBoundaryAssemblies,
+    int PhysicalOccurrenceUnavailableEdges)
 {
     public bool IsIncomplete =>
         IncompleteNodes > 0
@@ -46,7 +51,10 @@ public sealed record BrowserCallGraphDiagnostics(
         || BindingIdentityConflicts > 0
         || HasUnexploredTraversalBoundary
         || HasAnalysisFailureBoundary
-        || UnavailableDependencyRoutes > 0;
+        || UnavailableDependencyRoutes > 0
+        || HasIncompleteCorrespondence
+        || UnclassifiedBoundaryEdges > 0
+        || PhysicalOccurrenceUnavailableEdges > 0;
 }
 
 public sealed record BrowserCallGraphTarget(
