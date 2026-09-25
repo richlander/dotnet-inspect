@@ -22,7 +22,9 @@ dotnet run --project tools/SourceCorpusCensus -c Release -- \
 
 The type mode reproduces the pinned broad package pool, acquires available
 Portable PDBs, and measures correlated physical documents per exact metadata
-type separately from single-file name inference:
+type separately from single-file name inference. Copied sweep assembly paths
+are joined back to manifest package identities before symbol acquisition, so a
+ranked directory such as `019-npgsql` does not replace the package ID:
 
 ```bash
 bash eng/prepare-evil-corpus.sh \
@@ -46,3 +48,6 @@ Run the deterministic local mechanism check with:
 ```bash
 dotnet run --project tools/SourceCorpusCensus -c Release -- --validate
 ```
+
+The check covers line and percentile semantics, bounded source reads, and the
+copied-sweep package-identity join used by type mode.

@@ -320,14 +320,15 @@ segment across the population, so the 256-row bound dominates ordinary files
 while the content bounds contain pathological lines.
 
 A separate exact PDB census reproduced the pinned 104-assembly broad package
-pool. Twenty-eight assemblies supplied Portable PDBs and 27 supplied
-SourceLink maps. Of 11,296 types with correlated document mappings, 555 mapped
-to multiple physical documents. Restricting the population to 7,428
-source-spellable exact type names, 509 (6.85%) mapped to multiple documents;
-p95 was two documents, p99 three, and the maximum 83. The 76 assemblies
-without available Portable PDBs are explicit coverage gaps and do not enter
-the mapping denominator. This evidence supports independent per-document
-navigation rather than concatenating a partial type's documents.
+pool. Seventy-seven assemblies supplied Portable PDBs and 76 supplied
+SourceLink maps. The census inspected 32,992 TypeDefs. Of 27,486 types with
+correlated document mappings, 759 mapped to multiple physical documents.
+Restricting the population to 19,659 source-spellable exact type names, 703
+(3.58%) mapped to multiple documents; p95 was one document, p99 two, and the
+maximum 83. The 27 assemblies without available Portable PDBs are explicit
+coverage gaps and do not enter the mapping denominator. This evidence supports
+independent per-document navigation rather than concatenating a partial type's
+documents.
 
 These observations are exact for the pinned populations, not claims about
 every SourceLink document or package. The authored-source corpus is biased

@@ -65,6 +65,38 @@ static class CensusValidation
         }
         Require(overLimitRejected, "over-limit source read");
 
+        string poolRoot = Path.Combine(
+            Path.GetTempPath(),
+            "source-corpus-census-validation");
+        string manifestPath = Path.Combine(
+            poolRoot,
+            "sweep-manifest.json");
+        string copiedAssembly = Path.Combine(
+            poolRoot,
+            "sweep",
+            "packages",
+            "019-npgsql",
+            "10.0.3",
+            "Npgsql.dll");
+        var sweep = new SweepManifest(
+        [
+            new(
+                ResolvedPackage: "npgsql",
+                ResolvedVersion: "10.0.3",
+                AssemblyPath:
+                    "packages/019-npgsql/10.0.3/Npgsql.dll"),
+        ]);
+        IReadOnlyDictionary<string, PackageIdentity> packages =
+            TypeMappingCensus.MapPackageIdentities(
+                sweep,
+                manifestPath,
+                [copiedAssembly]);
+        Require(
+            packages.GetValueOrDefault(
+                Path.GetFullPath(copiedAssembly))
+                == new PackageIdentity("npgsql", "10.0.3"),
+            "copied sweep package identity");
+
         Console.Error.WriteLine("Source corpus census validation passed.");
         return 0;
     }

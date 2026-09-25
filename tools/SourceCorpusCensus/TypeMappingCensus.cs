@@ -45,30 +45,14 @@ static class TypeMappingCensus
             CensusJsonContext.Default.SweepManifest)
             ?? throw new InvalidDataException(
                 "Sweep manifest decoded as null.");
-        string manifestDirectory = Path.GetDirectoryName(manifestPath)
-            ?? throw new InvalidDataException(
-                "Sweep manifest has no directory.");
-        var packageByAssemblyPath = manifest.Packages
-            .Where(static package =>
-                package.AssemblyPath is not null
-                && package.ResolvedPackage is not null
-                && package.ResolvedVersion is not null)
-            .ToDictionary(
-                package => Path.GetFullPath(
-                    Path.Combine(
-                        manifestDirectory,
-                        package.AssemblyPath!)),
-                package => new PackageIdentity(
-                    package.ResolvedPackage!,
-                    package.ResolvedVersion!),
-                StringComparer.Ordinal);
-
         string[] assemblyPaths =
         [
             .. File.ReadLines(assemblyListPath)
                 .Where(static line => !string.IsNullOrWhiteSpace(line))
                 .Select(Path.GetFullPath),
         ];
+        IReadOnlyDictionary<string, PackageIdentity> packageByAssemblyPath =
+            MapPackageIdentities(manifest, manifestPath, assemblyPaths);
         using var client = new HttpClient
         {
             Timeout = TimeSpan.FromMinutes(2),
@@ -167,6 +151,56 @@ static class TypeMappingCensus
             ]);
         CensusOutput.Write(report);
         return report.AssembliesFailed == 0 ? 0 : 1;
+    }
+
+    internal static IReadOnlyDictionary<string, PackageIdentity>
+        MapPackageIdentities(
+            SweepManifest manifest,
+            string manifestPath,
+            IReadOnlyList<string> assemblyPaths)
+    {
+        string manifestDirectory = Path.GetDirectoryName(
+            Path.GetFullPath(manifestPath))
+            ?? throw new InvalidDataException(
+                "Sweep manifest has no directory.");
+        SweepPackage[] packages =
+        [
+            .. manifest.Packages.Where(static package =>
+                package.AssemblyPath is not null
+                && package.ResolvedPackage is not null
+                && package.ResolvedVersion is not null),
+        ];
+        StringComparer pathComparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        var result = new Dictionary<string, PackageIdentity>(pathComparer);
+        foreach (string assemblyCandidate in assemblyPaths)
+        {
+            string assemblyPath = Path.GetFullPath(assemblyCandidate);
+            SweepPackage[] matches =
+            [
+                .. packages.Where(package => ManifestPathMatches(
+                    assemblyPath,
+                    manifestDirectory,
+                    package.AssemblyPath!)),
+            ];
+            if (matches.Length > 1)
+            {
+                throw new InvalidDataException(
+                    $"Assembly '{assemblyPath}' matches multiple sweep "
+                        + "manifest packages.");
+            }
+            if (matches is not [var match])
+                continue;
+
+            result.Add(
+                assemblyPath,
+                new(
+                    match.ResolvedPackage!,
+                    match.ResolvedVersion!));
+        }
+
+        return result;
     }
 
     static async Task<(
@@ -332,6 +366,37 @@ static class TypeMappingCensus
                 correlatedTypes,
                 inferredTypes),
             mappings);
+    }
+
+    static bool ManifestPathMatches(
+        string assemblyPath,
+        string manifestDirectory,
+        string manifestAssemblyPath)
+    {
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        string normalized = manifestAssemblyPath.Replace(
+            Path.AltDirectorySeparatorChar,
+            Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(normalized))
+        {
+            return assemblyPath.Equals(
+                Path.GetFullPath(normalized),
+                comparison);
+        }
+
+        string directPath = Path.GetFullPath(
+            Path.Combine(manifestDirectory, normalized));
+        if (assemblyPath.Equals(directPath, comparison))
+            return true;
+
+        string suffix =
+            Path.DirectorySeparatorChar
+            + normalized.TrimStart(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+        return assemblyPath.EndsWith(suffix, comparison);
     }
 
     static PackageIdentity? InferNuGetIdentity(string assemblyPath)
