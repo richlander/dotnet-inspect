@@ -463,6 +463,25 @@ public sealed class LayeringTests
                         forbidden)));
     }
 
+    [Fact]
+    public void Metadata_MethodSemanticsAssociationSessionOwnsPrimitiveCall()
+    {
+        string project = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "ILInspector.Metadata",
+            "ILInspector.Metadata.csproj");
+
+        Assert.Equal(
+            ["MethodSemanticsAssociationSession.cs"],
+            EvaluatedSources(project)
+                .Where(file => file.Source.Contains(
+                    "MethodSemanticsRowReader.Read(",
+                    StringComparison.Ordinal))
+                .Select(file => file.Name)
+                .Order(StringComparer.Ordinal));
+    }
+
     private static (string Name, string Source)[] EvaluatedSources(
         string project)
     {
