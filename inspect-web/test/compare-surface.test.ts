@@ -38,6 +38,7 @@ for (const mode of ["diff", "clone"] as const) {
     assert.match(html, /<h1 id="compare-title">Example\.Widget&lt;T&gt;<\/h1>/);
     const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
     assert.equal(header.match(/role="tab"/g)?.length, 2);
+    assert.match(header, /<p class="compare-status" role="status">Comparison complete\.<\/p>/);
     assert.equal(html.match(/aria-selected="true"/g)?.length, 1);
     assert.match(html, new RegExp(`data-compare-mode="${mode}" aria-selected="true" aria-controls="compare-panel" tabindex="0"`));
     assert.match(html, new RegExp(`role="tabpanel" aria-labelledby="compare-mode-${mode}"`));
@@ -45,7 +46,7 @@ for (const mode of ["diff", "clone"] as const) {
       ? /Diff baseline<\/span>\s*<span class="compare-target-value">1\.0\.0 → 2\.0\.0<\/span>/
       : /Clone scope<\/span>\s*<span class="compare-target-value">Workspace: 2 loaded Packages<\/span>/);
     assert.match(html, /id="compare-change-target">Change target</);
-    assert.match(html, /<p class="compare-status" role="status">Comparison complete\.<\/p>/);
+    assert.equal(html.match(/class="compare-status"/g)?.length, 1);
     assert.match(html, /<p>rows<\/p>/);
     // Compare explains the Package-owned target; it never renders a second editor.
     assert.doesNotMatch(html, /<select/);

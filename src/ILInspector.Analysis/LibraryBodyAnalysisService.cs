@@ -187,6 +187,9 @@ public static class LibraryBodyAnalysisService
             useReferenceResolution ? resolver : null;
         IAssemblyBindingPolicy? analysisBindingPolicy =
             useReferenceResolution ? bindingPolicy : null;
+        ImplementationMetricWorkBudget? implementationMetricWork =
+            ImplementationMetricWorkBudget.Create(
+                plan.ImplementationMetrics);
         using var builder = new LibraryBodyAnalysisBuilder(
             sourceName,
             reader,
@@ -196,7 +199,9 @@ public static class LibraryBodyAnalysisService
                 && analysisBindingPolicy is null
                     ? null
                     : rootSnapshot,
-            analysisBindingPolicy);
+            analysisBindingPolicy,
+            implementationMetricWork:
+                implementationMetricWork);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyAnalysisExecution(

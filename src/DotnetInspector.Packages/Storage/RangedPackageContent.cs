@@ -11,11 +11,15 @@ namespace DotnetInspector.Packages;
 /// <see cref="PackageEntryNotMaterializedException"/>, never a missing entry.
 /// There is no retained archive and nothing on disk, so
 /// <see cref="RootPath"/> and <see cref="NupkgPath"/> are <c>null</c> and
-/// <see cref="TryOpenArchive"/> returns <c>false</c>.
+/// <see cref="TryOpenArchive"/> returns <c>false</c>. It serves the House's
+/// pull-based payload reads for its materialized entries, whose bytes the
+/// archive reader has already checked against the directory's declared
+/// length and CRC (docs/design/package-read-demand.md#document-demand).
 /// </summary>
 public sealed class RangedPackageContent :
     IPackageContent,
-    IPackageContentEntryManifest
+    IPackageContentEntryManifest,
+    IPackageHousePayloadSource
 {
     private readonly IReadOnlyList<PackageContentEntry> _entries;
     private readonly IReadOnlyDictionary<string, ReadOnlyMemory<byte>> _materialized;
@@ -160,6 +164,19 @@ public sealed class RangedPackageContent :
 
         throw new PackageEntryNotMaterializedException(declared.Value.Path);
     }
+
+    /// <summary>
+    /// Opens a materialized entry for a House pull read. The House calls this
+    /// on the read's first non-empty read, so creating the read does no work;
+    /// the stream yields the already-checked expanded bytes as the caller
+    /// pulls them. An entry the directory lists but the acquisition did not
+    /// read is a visible <see cref="PackageEntryNotMaterializedException"/>.
+    /// </summary>
+    bool IPackageHousePayloadSource.TryOpenPayloadRead(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream) =>
+        TryOpenEntry(relativePath, maxExpandedBytes, out stream);
 
     /// <inheritdoc />
     public bool TryGetEntryLength(string relativePath, out long length)

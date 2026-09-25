@@ -286,6 +286,11 @@ internal static class InspectionGraphProjectionUtilities
                 Identity:
                     InspectionGraphTypeIdentity.AcquiredDefinition acquired,
             } => acquired.Registration,
+            InspectionGraphSubject.TypeSubject
+            {
+                Identity:
+                    InspectionGraphTypeIdentity.MetadataShape metadata,
+            } => metadata.Registration,
             InspectionGraphSubject.AssemblySubject
             {
                 Identity:

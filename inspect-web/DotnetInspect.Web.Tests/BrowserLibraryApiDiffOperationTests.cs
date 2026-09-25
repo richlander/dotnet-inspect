@@ -169,6 +169,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     member.Role);
                 Assert.NotNull(member.Before);
                 Assert.Null(member.After);
+                Assert.Equal(
+                    BrowserLibraryApiDiffExploreDestinationKind.MemberDiff,
+                    member.Explore!.Kind);
+                Assert.Equal(member.Before, member.Explore.Target.Member);
+                Assert.Null(member.Explore.Current.Member);
             });
 
         BrowserLibraryApiDiffType added = Assert.Single(
@@ -197,6 +202,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     member.Role);
                 Assert.Null(member.Before);
                 Assert.NotNull(member.After);
+                Assert.Equal(
+                    BrowserLibraryApiDiffExploreDestinationKind.MemberDiff,
+                    member.Explore!.Kind);
+                Assert.Null(member.Explore.Target.Member);
+                Assert.Equal(member.After, member.Explore.Current.Member);
             });
 
         BrowserLibraryApiDiffType definitionOnly = Assert.Single(
@@ -238,6 +248,18 @@ public sealed class BrowserLibraryApiDiffOperationTests
             extensionMoved.Role);
         Assert.Equal(receiverMoved.Before, extensionMoved.Before);
         Assert.Equal(receiverMoved.After, extensionMoved.After);
+        Assert.Equal(receiverMoved.Explore, extensionMoved.Explore);
+        Assert.Equal(receiverMoved.Before, receiverMoved.Explore!.Target.Member);
+        Assert.Equal(receiverMoved.After, receiverMoved.Explore.Current.Member);
+        Assert.Equal(fixture.PackageId, receiverMoved.Explore.Target.PackageId);
+        Assert.Equal(TargetVersion, receiverMoved.Explore.Target.Version);
+        Assert.Equal(CurrentVersion, receiverMoved.Explore.Current.Version);
+        Assert.Equal(
+            fixture.CompileAssetId,
+            receiverMoved.Explore.Target.Asset.Id);
+        Assert.Equal(
+            value.Target.Assembly,
+            receiverMoved.Explore.Target.Assembly);
         Assert.Equal(
             "LibraryApiDiffFixture.ProjectionExtensions",
             receiverMoved.Before!.DeclaringTypeIdentifier);
@@ -1147,6 +1169,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "before",
                 "changes",
                 "documentIdentifier",
+                "explore",
                 "match",
                 "pairKind",
                 "role",
