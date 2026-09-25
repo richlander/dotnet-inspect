@@ -35,7 +35,11 @@ Diff demo uses.
 
 **A narrow question describes narrow work.** A caller asks whether the library
 contains any unsafe evidence. The work description names one producer, safety
-evidence, and its one request: every method body, decoded to instructions. No
+evidence, and its one request: every method definition's declaration
+metadata, plus decoded instructions for each definition that has a managed
+body. Bodyless methods, such as interface methods with pointer-bearing
+signatures, are still visited at declaration depth, because their
+declarations are evidence too. No
 call classification, allocation, signal, or call-graph producer appears, so
 the lower levels are never asked for their data. No separate fast path is
 needed for narrow questions to be cheap.
@@ -77,16 +81,17 @@ dependency on the guard. That dependency, not the guard's position in any
 list, is what orders the guard first, so a parallel executor cannot run a
 dependent alongside it.
 
-- *Per unit.* The guard visits each body before its dependents do. When it
-  reports a violation in one body, each dependent receives a typed
-  prerequisite failure naming the guard for that body and skips it. Other
-  bodies continue. The work stays one fused pass.
-- *Per subject.* The guard's completion must finish before any dependent
-  visit starts. When it reports a violation, every dependent receives a
+- *Per unit.* Each dependent's visit depends on the guard's visit of the
+  same unit, so the guard visits each unit before its dependents do. When it
+  reports a violation in one unit, each dependent receives a typed
+  prerequisite failure naming the guard for that unit and skips it. Other
+  units continue. The work stays one fused pass.
+- *Per subject.* Each dependent's visits depend on the guard's completion, so
+  that completion finishes before any dependent visit starts. When it reports a violation, every dependent receives a
   typed prerequisite failure, level 2 schedules no dependent work, and the
   plan unwinds, with level 1 releasing the borrow once. The price is a
-  barrier: the guard reads every unit first, so dependents need a second
-  pass.
+  barrier: the guard's visits and completion form the first pass, and the
+  dependents' visits form a second pass.
 
 In both scopes, a producer that does not depend on the guard keeps running.
 Which work stops is declared, not an accident of ordering. A guard failure is
@@ -155,12 +160,13 @@ position.
 
 A **resource request** is a QuerySpace request against the subject that owns
 the data: its breadth (which units, including any declared expansion) and its
-depth (which layers of each unit, such as decoded instructions or a
-control-flow graph), with a terminal. Requests use level 2's vocabulary. This
+depth (which layers of each unit, such as declaration metadata, decoded
+instructions, or a control-flow graph), with a terminal. Requests use level 2's vocabulary. This
 level never merges them.
 
-A **unit** is what one visit covers; the first unit kind is one physical method
-body. A producer may also declare a **completion**, which runs after every unit
+A **unit** is what one visit covers; the first unit kind is one method
+definition. Its layers are its declaration metadata and, when it has a managed
+body, that body at the requested depth. A producer may also declare a **completion**, which runs after every unit
 in its scope has been visited and combines the per-unit facts into the
 published result. Whole-library facts such as leverage or a local call graph
 are completions, and a completion may depend on other producers' completed
@@ -173,16 +179,23 @@ explained, compared, and handed to level 2 before any work begins.
 
 ## The reference picture
 
-The meaning of a work description is a single-threaded loop. For each unit in
-metadata order, each producer that requested the unit is visited once, in an
-order consistent with the dependency edges. After the last unit, each
-completion runs after its inputs. Every producer's result is what it published
-during that loop.
+The meaning of a work description is a single-threaded sequence of passes.
+Each pass is a loop over units in metadata order. In each unit, each producer
+that requested the unit in that pass is visited once, in an order consistent
+with the dependency edges. At the end of a pass, the completions of the
+producers visited in it run, each after its inputs.
 
-The loop defines results; it does not prescribe execution. Level 2 may visit
+A producer's visits belong to the first pass that follows every completion
+they depend on. Visits that depend on no completion belong to the first pass.
+A work description with no dependency from a visit to a completion is
+therefore one pass: the fused loop. A dependency from a visit to a completion,
+such as a subject-scoped guard, starts a new pass. Every producer's result is
+what it published during that sequence.
+
+The passes define results; they do not prescribe execution. Level 2 may visit
 in another order, run units in parallel, answer a request from the source
 without visiting at all, or stop early when a request is settled, as long as
-each published result equals what the loop would publish, or is marked as
+each published result equals what the passes would publish, or is marked as
 stopped.
 
 ## Planning
@@ -195,7 +208,9 @@ declaration depends on a higher tier, or when two requested declarations with
 the same identity have different parameters. Validation does not drop,
 substitute, or narrow entries.
 
-Dependency edges are the only order this level imposes. Ties are broken by
+A dependency edge runs from one producer's visit or completion to another
+producer's visit or completion. Dependency edges are the only order this level
+imposes. Ties are broken by
 declaration identity, never by the order in which a consumer listed producers
 or a module registered them. Any other order is level 2's choice.
 
@@ -387,8 +402,9 @@ gap.
 1. Accept each producer's resource requests and the work description's
    dependency edges, and collapse requests across producers and other
    consumers.
-2. Visit each unit's producers in an order consistent with those edges, and
-   run each completion only after its inputs complete.
+2. Visit each unit's producers in an order consistent with those edges, run
+   each completion only after its inputs complete, and start no visit before
+   the completions it depends on.
 3. Contain a failing visit to that producer and its dependents.
 4. Publish results equal to a serial execution of the work description,
    whatever ordering, batching, collapse, or parallelism it uses.
@@ -397,7 +413,7 @@ gap.
    settled terminal, such as Exists, or an explicit fail-fast request. Mark
    each stopped producer with the stopped outcome.
 7. Keep named answers independent of scheduling. When an answer names a row,
-   such as the first violation found, it is the row the reference loop would
+   such as the first violation found, it is the row the reference passes would
    name, not whichever row a parallel executor reached first.
 
 Request collapse is tracked in #8574, and method bodies as a source in #8577.
