@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createAppMemberSurface,
   createNuGetPackageModel,
+  packageQueryAssemblyId,
   createPackageAcquisition,
   createRuntimePackageModel,
   createUploadedLibraryModel,
@@ -822,6 +823,8 @@ test("NuGet projection selects the declared assembly and preserves package total
 
   assert.equal(model.assembly, "Example.Secondary");
   assert.equal(model.assemblyId, "secondary");
+  assert.equal(model.selectedCompileAssetId, undefined);
+  assert.equal(packageQueryAssemblyId(model), "secondary");
   assert.equal(model.totalTypes, 7);
   assert.equal(model.inspectionError, "one assembly could not be inspected");
   assert.deepEqual(model.source, { kind: "nuget.org" });
@@ -856,6 +859,8 @@ test("NuGet projection loads a surface truncated to no assembly with its notice"
   assert.equal(model.assembly, "");
   assert.equal(model.assemblyId, "");
   assert.equal(model.assemblyAsset, "");
+  assert.equal(model.selectedCompileAssetId, "lib/net10.0/OpenAI.dll");
+  assert.equal(packageQueryAssemblyId(model), "lib/net10.0/OpenAI.dll");
   assert.deepEqual(model.types, []);
   assert.equal(model.totalTypes, 0);
   assert.deepEqual(model.inspectionErrors, [notice]);
