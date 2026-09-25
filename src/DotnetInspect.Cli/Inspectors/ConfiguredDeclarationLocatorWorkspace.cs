@@ -18,9 +18,10 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
     : IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace;
-    readonly WorkspaceDeclarationLocator _locator;
     readonly IReadOnlyDictionary<int, string> _sourceNames;
-    readonly List<TypeDeclarationLocatorSectionResult> _sections = [];
+    readonly List<
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult>>
+        _inspections = [];
     readonly HashSet<LocatorFailureKey> _reportedLocatorFailures = [];
     bool _closed;
 
@@ -31,7 +32,6 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
         IReadOnlyDictionary<int, string> sourceNames)
     {
         _workspace = workspace;
-        _locator = workspace.GetDeclarationLocator();
         _sourceNames = sourceNames;
         HasLoadFailures = hasFailures;
         HasFailures = hasFailures;
@@ -44,8 +44,9 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
 
     internal bool RequiresCompatibility { get; }
 
-    internal IReadOnlyList<TypeDeclarationLocatorSectionResult> Sections =>
-        _sections;
+    internal IReadOnlyList<
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult>>
+        Inspections => _inspections;
 
     internal static bool IsEligible(
         AssemblySetRequest request,
@@ -171,23 +172,20 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(patterns);
-        TypeDeclarationLocatorResult result =
-            await _locator.ExecuteAsync(
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            await TypeDeclarationLocatorInspection.ExecuteAsync(
+                _workspace,
                 [
                     .. patterns.Select(
                         static pattern =>
                             new TypeDeclarationLocatorRequest.Pattern(
                                 pattern)),
                 ],
-                // Find's visibility policy differs from the locator's public
-                // surface. Retain all declarations and apply Find policy from
-                // Metadata-issued facts during row projection.
-                includeAll: true,
+                // Find applies its compatibility visibility policy later from
+                // the same Metadata-issued declaration facts.
+                TypeDeclarationLocatorSectionPlan.All,
                 cancellationToken).ConfigureAwait(false);
-        TypeDeclarationLocatorSectionResult section =
-            TypeDeclarationLocatorSection.Project(
-                result,
-                TypeDeclarationLocatorSectionPlan.All);
+        TypeDeclarationLocatorSectionResult section = inspection.Content;
         HasFailures |= section switch
         {
             TypeDeclarationLocatorSectionResult.Rejected => true,
@@ -198,7 +196,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                 "Unknown declaration locator section result."),
         };
         WriteLocatorFailures(section);
-        _sections.Add(section);
+        _inspections.Add(inspection);
         return section;
     }
 
