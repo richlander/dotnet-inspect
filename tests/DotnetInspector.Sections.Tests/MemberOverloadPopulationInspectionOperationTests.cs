@@ -477,6 +477,32 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public async Task
+        CrossTypeAccessorAssociationFailsThePopulation()
+    {
+        byte[] content = BuildCrossTypeGetterImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionFailure.MalformedMetadata,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Failed>(
+                    Execute(
+                        library,
+                        "M",
+                        count: true,
+                        new(maximumRows: 1),
+                        declaringType: Name("N", "C"))
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
     [Theory]
     [InlineData(".ctor")]
     [InlineData(".cctor")]
@@ -703,6 +729,50 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             property,
             MethodSemanticsAttributes.Getter,
             second);
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildCrossTypeGetterImage()
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle propertyOwner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("D"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("P"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x28, 0x00, 0x01 }));
+        metadata.AddPropertyMap(propertyOwner, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            method);
         return Serialize(metadata);
     }
 

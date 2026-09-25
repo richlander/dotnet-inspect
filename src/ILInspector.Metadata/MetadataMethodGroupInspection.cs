@@ -335,7 +335,7 @@ internal static class MetadataMethodGroupInspection
         foreach (MetadataMethodSemanticsAssociation row
             in success.Associations)
         {
-            bool belongsToType =
+            bool associationBelongsToType =
                 row.AssociationKind switch
                 {
                     MetadataMethodSemanticsAssociationKind.Property =>
@@ -346,9 +346,13 @@ internal static class MetadataMethodGroupInspection
                             row.AssociationRowNumber),
                     _ => false,
                 };
-            if (!belongsToType)
+            bool methodBelongsToType =
+                methods.Contains(row.Method);
+            if (!associationBelongsToType
+                && !methodBelongsToType)
                 continue;
-            if (!methods.Contains(row.Method)
+            if (!associationBelongsToType
+                || !methodBelongsToType
                 || !TryValidateRole(row, standardRoles))
             {
                 failure =
