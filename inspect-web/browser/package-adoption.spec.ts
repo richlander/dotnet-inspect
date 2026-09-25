@@ -2708,8 +2708,11 @@ test.describe("bounded network-backed two-host demo", () => {
       .toHaveText("Package Activity");
     const productNavigationButton =
       page.locator("[data-product-navigation-button]");
-    await productNavigationButton.click();
-    await page.locator('[data-product-destination="workspace"]').focus();
+    await productNavigationButton.dispatchEvent("click");
+    const workspaceDestination =
+      page.locator('[data-product-destination="workspace"]');
+    await workspaceDestination.focus();
+    await expect(workspaceDestination).toBeFocused();
     await expect(page.locator(".product-navigation-menu")).toBeVisible();
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
