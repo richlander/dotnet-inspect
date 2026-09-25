@@ -31,6 +31,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 },
                 requests));
         string sidecar = Path.Combine(_root, "history-evidence.json");
+        string warmSidecar = Path.Combine(_root, "history-evidence-warm.json");
         string[] ordinaryArguments =
         [
             "diff", "--history", "--package", $"{Id}@1.0.0..3.0.0",
@@ -38,41 +39,26 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--source", FirstFeed, "--tips", "q",
         ];
 
-        var ordinary = await RunCommandAsync(ordinaryArguments);
         var withEvidence = await RunCommandAsync(
             [.. ordinaryArguments, "--evidence-envelope", sidecar]);
+        var ordinary = await RunCommandAsync(ordinaryArguments);
+        var warmEvidence = await RunCommandAsync(
+            [.. ordinaryArguments, "--evidence-envelope", warmSidecar]);
 
-        Assert.True(ordinary.Exit == 0, ordinary.Error);
-        Assert.Equal(0, withEvidence.Exit);
+        Assert.True(withEvidence.Exit == 0, withEvidence.Error);
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, warmEvidence.Exit);
         Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Equal(ordinary.Output, warmEvidence.Output);
         Assert.Equal(
             $"Evidence envelope: {sidecar}{Environment.NewLine}",
             withEvidence.Error);
 
-        using JsonDocument document = JsonDocument.Parse(
-            await File.ReadAllTextAsync(sidecar, TestContext.Current.CancellationToken));
-        JsonElement root = document.RootElement;
-        Assert.Equal("diff-history", root.GetProperty("result_kind").GetString());
-        Assert.True(root.TryGetProperty("content", out _));
-        Assert.False(root.TryGetProperty("inspection", out _));
-        JsonElement[] acquisitions =
-        [
-            .. root.GetProperty("evidence").GetProperty("acquisitions").EnumerateArray(),
-        ];
-        Assert.Equal(
-            ["1.0.0", "2.0.0", "3.0.0"],
-            acquisitions
-                .Select(entry => entry.GetProperty("version").GetString())
-                .Order(StringComparer.Ordinal));
-        foreach (JsonElement entry in acquisitions)
+        // Version cells are read by range, size first: each archive here is
+        // under the size cut, so the size probe's response is kept as the one
+        // complete transfer (docs/design/package-cache-policy.md#size-first).
+        foreach (JsonElement entry in await ReadHistoryAcquisitionsAsync(sidecar, Id))
         {
-            Assert.Equal(
-                Id,
-                entry.GetProperty("package_id").GetString(),
-                ignoreCase: true);
-            Assert.False(string.IsNullOrEmpty(entry.GetProperty("authority").GetString()));
-            // Diff History acquires each cell into a per-invocation store, so
-            // every cell is one complete transfer.
             Assert.Equal("Download", entry.GetProperty("origin").GetString());
             JsonElement transfer = entry.GetProperty("transfer");
             Assert.Equal("Download", transfer.GetProperty("path").GetString());
@@ -84,6 +70,51 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             Assert.Equal(size, request.GetProperty("bytes_received").GetInt32());
             Assert.Equal(size, transfer.GetProperty("bytes_received").GetInt32());
         }
+
+        // The feed is a credential-free HTTP authority, so the payloads are
+        // durable: the same history again transfers nothing, and across the
+        // three runs each version was requested once.
+        foreach (JsonElement entry in await ReadHistoryAcquisitionsAsync(warmSidecar, Id))
+        {
+            Assert.Equal("Cache", entry.GetProperty("origin").GetString());
+            JsonElement transfer = entry.GetProperty("transfer");
+            Assert.Equal("Cache", transfer.GetProperty("path").GetString());
+            Assert.Empty(transfer.GetProperty("requests").EnumerateArray());
+        }
+        Assert.Equal(
+            3,
+            requests.Count(url => url.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    private static async Task<JsonElement[]> ReadHistoryAcquisitionsAsync(
+        string sidecar,
+        string id)
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            await File.ReadAllTextAsync(sidecar, TestContext.Current.CancellationToken));
+        JsonElement root = document.RootElement;
+        Assert.Equal("diff-history", root.GetProperty("result_kind").GetString());
+        Assert.True(root.TryGetProperty("content", out _));
+        Assert.False(root.TryGetProperty("inspection", out _));
+        JsonElement[] acquisitions =
+        [
+            .. root.GetProperty("evidence").GetProperty("acquisitions").EnumerateArray()
+                .Select(static entry => entry.Clone()),
+        ];
+        Assert.Equal(
+            ["1.0.0", "2.0.0", "3.0.0"],
+            acquisitions
+                .Select(entry => entry.GetProperty("version").GetString())
+                .Order(StringComparer.Ordinal));
+        foreach (JsonElement entry in acquisitions)
+        {
+            Assert.Equal(
+                id,
+                entry.GetProperty("package_id").GetString(),
+                ignoreCase: true);
+            Assert.False(string.IsNullOrEmpty(entry.GetProperty("authority").GetString()));
+        }
+        return acquisitions;
     }
 
     [Fact]

@@ -216,7 +216,7 @@ public partial class PackageCommand
             resolution = outcome.Result!;
             version = resolution.Version ?? version;
             var nuspec =
-                DotnetInspector.Services.NuspecParser.FindAndParse(
+                DotnetInspector.Packages.NuspecParser.FindAndParse(
                     resolution.ExtractPath);
             var acquisition =
                 new PackageFileContentAcquisition(

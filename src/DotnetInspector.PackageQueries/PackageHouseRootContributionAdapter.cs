@@ -158,10 +158,14 @@ public static class PackageHouseRootContributionAdapter
                     .CoordinateNotRepresentable);
         }
 
+        // The Root records the demand it was realized with: a surface-only
+        // request yields a surface-only Root, which prepares no
+        // implementation role and so never opens an implementation entry a
+        // ranged read did not fetch (docs/design/package-read-demand.md#asset-demand).
         return new PackageHouseRootContributionOutcome.Contributed(
             new PackageHouseRootContribution(
                 result,
                 realization,
-                binding));
+                binding.WithAssetDemand(result.Request.AssetDemand)));
     }
 }
