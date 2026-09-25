@@ -43,6 +43,12 @@ worker_pid=$!
 ) &
 benchmark_pid=$!
 
+"$repo_root/eng/test-inspect-web-package-adoption-gate.sh" &
+package_pid=$!
+
+"$repo_root/eng/test-inspect-web-source-comparison-gate.sh" &
+source_pid=$!
+
 "$dotnet" run "$repo_root/eng/validate-inspect-web-promotion.cs" -- --self-test &
 promotion_pid=$!
 
@@ -51,6 +57,8 @@ for gate in \
   "published facade:$facade_pid" \
   "Worker browser gates:$worker_pid" \
   "published benchmark bridge:$benchmark_pid" \
+  "package adoption:$package_pid" \
+  "Authored Source comparison:$source_pid" \
   "promotion validation:$promotion_pid"; do
   name="${gate%%:*}"
   pid="${gate##*:}"
@@ -61,21 +69,5 @@ for gate in \
     failed=1
   fi
 done
-
-# These broad Firefox/Wasm gates share runner CPU. Run them sequentially so
-# their timeouts measure product work rather than cross-gate contention.
-if "$repo_root/eng/test-inspect-web-package-adoption-gate.sh"; then
-  echo "package adoption passed."
-else
-  echo "package adoption failed." >&2
-  failed=1
-fi
-
-if "$repo_root/eng/test-inspect-web-source-comparison-gate.sh"; then
-  echo "Authored Source comparison passed."
-else
-  echo "Authored Source comparison failed." >&2
-  failed=1
-fi
 
 exit "$failed"
