@@ -1,4 +1,6 @@
-namespace DotnetInspector.Services.Tests;
+using DotnetInspector.Packages;
+
+namespace DotnetInspector.Packages.Tests;
 
 /// <summary>
 /// Tests for NuspecParser XML parsing functionality.
