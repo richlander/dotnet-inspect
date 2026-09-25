@@ -67,11 +67,11 @@ public sealed class TsJsExportCommandTests
             string generated = File.ReadAllText(outputPath);
             Assert.NotEqual(existing, generated);
             Assert.Contains(
-                "export interface DirectionalRoundTripDtoInput {",
+                "export interface DirectionalServerNoteDtoInput {",
                 generated,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "export interface DirectionalRoundTripDtoOutput {",
+                "export interface DirectionalServerNoteDtoOutput {",
                 generated,
                 StringComparison.Ordinal);
         }

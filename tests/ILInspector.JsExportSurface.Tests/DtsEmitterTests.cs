@@ -3894,7 +3894,7 @@ public sealed class DtsEmitterTests
 
         Assert.Contains(
             """
-            export interface DirectionalRoundTripDtoInput {
+            export interface DirectionalServerNoteDtoInput {
               readonly name: string;
             }
             """,
@@ -3902,7 +3902,7 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             """
-            export interface DirectionalRoundTripDtoOutput {
+            export interface DirectionalServerNoteDtoOutput {
               readonly name: string;
               readonly serverNote: string;
             }
@@ -3910,16 +3910,16 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export declare function roundTripDirectional("
-                + "payloadJson: DirectionalRoundTripDtoInput): "
-                + "DirectionalRoundTripDtoOutput;",
+            "export declare function reemitDirectionalServerNote("
+                + "payloadJson: DirectionalServerNoteDtoInput): "
+                + "DirectionalServerNoteDtoOutput;",
             dts,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             diagnostics.UnmappedTypes,
             diagnostic =>
                 diagnostic.Location.StartsWith(
-                    "DirectionalRoundTripDto",
+                    "DirectionalServerNoteDto",
                     StringComparison.Ordinal));
     }
 

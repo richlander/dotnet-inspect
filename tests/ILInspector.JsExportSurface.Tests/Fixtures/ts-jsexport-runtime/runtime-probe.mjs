@@ -59,14 +59,12 @@ const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
 const getConditionalOutputKey =
   facadeSource.match(/"(GetConditionalOutput\.-?\d+)"/)?.[1];
-const roundTripDirectionalJsonValueKey =
-  facadeSource.match(/"(RoundTripDirectionalJsonValue\.-?\d+)"/)?.[1];
-const roundTripDirectionalKey =
-  facadeSource.match(/"(RoundTripDirectional\.-?\d+)"/)?.[1];
-const roundTripDirectionalEnvelopeKey =
-  facadeSource.match(/"(RoundTripDirectionalEnvelope\.-?\d+)"/)?.[1];
-const roundTripDirectionalOuterKey =
-  facadeSource.match(/"(RoundTripDirectionalOuter\.-?\d+)"/)?.[1];
+const addServerNoteKey =
+  facadeSource.match(/"(AddServerNote\.-?\d+)"/)?.[1];
+const reemitDirectionalEnvelopeKey =
+  facadeSource.match(/"(ReemitDirectionalEnvelope\.-?\d+)"/)?.[1];
+const reemitDirectionalOuterKey =
+  facadeSource.match(/"(ReemitDirectionalOuter\.-?\d+)"/)?.[1];
 const getDirectionalChoiceKey =
   facadeSource.match(/"(GetDirectionalChoice\.-?\d+)"/)?.[1];
 const getInspectionEvidenceKey =
@@ -161,20 +159,16 @@ assert.ok(
   "The generated GetConditionalOutput runtime dispatch key was not found.",
 );
 assert.ok(
-  roundTripDirectionalJsonValueKey,
-  "The generated RoundTripDirectionalJsonValue dispatch key was not found.",
+  addServerNoteKey,
+  "The generated AddServerNote runtime dispatch key was not found.",
 );
 assert.ok(
-  roundTripDirectionalKey,
-  "The generated RoundTripDirectional runtime dispatch key was not found.",
+  reemitDirectionalEnvelopeKey,
+  "The generated ReemitDirectionalEnvelope dispatch key was not found.",
 );
 assert.ok(
-  roundTripDirectionalEnvelopeKey,
-  "The generated RoundTripDirectionalEnvelope dispatch key was not found.",
-);
-assert.ok(
-  roundTripDirectionalOuterKey,
-  "The generated RoundTripDirectionalOuter dispatch key was not found.",
+  reemitDirectionalOuterKey,
+  "The generated ReemitDirectionalOuter dispatch key was not found.",
 );
 assert.ok(
   getDirectionalChoiceKey,
@@ -332,11 +326,6 @@ function managedExports(methods = {}) {
     ILInspector: {
       JsExportSurface: {
         TypeScriptFixtures: {
-          DirectionalJsonValueExports: {
-            [roundTripDirectionalJsonValueKey]:
-              methods.roundTripDirectionalJsonValue
-              ?? ((payloadJson) => payloadJson),
-          },
           TypeScriptFixtureExports: {
             [configureHostKey]:
               methods.configureHost ?? (() => {}),
@@ -356,17 +345,17 @@ function managedExports(methods = {}) {
                 name,
                 alwaysNullable: null,
               })),
-            [roundTripDirectionalKey]:
-              methods.roundTripDirectional
+            [addServerNoteKey]:
+              methods.addServerNote
               ?? ((payloadJson) => JSON.stringify({
                 ...JSON.parse(payloadJson),
                 serverNote: "server",
               })),
-            [roundTripDirectionalEnvelopeKey]:
-              methods.roundTripDirectionalEnvelope
+            [reemitDirectionalEnvelopeKey]:
+              methods.reemitDirectionalEnvelope
               ?? ((payloadJson) => payloadJson),
-            [roundTripDirectionalOuterKey]:
-              methods.roundTripDirectionalOuter
+            [reemitDirectionalOuterKey]:
+              methods.reemitDirectionalOuter
               ?? ((payloadJson) => payloadJson),
             [getDirectionalChoiceKey]:
               methods.getDirectionalChoice
@@ -560,7 +549,7 @@ async function freshFacade() {
         return true;
       },
       getWidgetAsync: async (name, count) => JSON.stringify({ name, count }),
-      roundTripDirectional: (payloadJson) => {
+      addServerNote: (payloadJson) => {
         directionalCalls.push(payloadJson);
         return JSON.stringify({
           ...JSON.parse(payloadJson),
@@ -645,7 +634,7 @@ async function freshFacade() {
     { name: "widget", count: 3 },
   );
   assert.deepEqual(
-    facade.roundTripDirectional({ name: "client" }),
+    facade.addServerNote({ name: "client" }),
     { name: "client", serverNote: "server" },
   );
   assert.deepEqual(directionalCalls, ['{"name":"client"}']);

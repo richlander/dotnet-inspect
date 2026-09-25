@@ -195,7 +195,7 @@ public sealed class TypeScriptFacadeEmitterTests
 
         Assert.Contains(
             """
-            export interface DirectionalRoundTripDtoInput {
+            export interface DirectionalServerNoteDtoInput {
               readonly name: string;
             }
             """,
@@ -203,7 +203,7 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             """
-            export interface DirectionalRoundTripDtoOutput {
+            export interface DirectionalServerNoteDtoOutput {
               readonly name: string;
               readonly serverNote: string;
             }
@@ -213,10 +213,10 @@ public sealed class TypeScriptFacadeEmitterTests
         Assert.Contains(
             """
             export interface DirectionalEnvelopeDtoInput {
-              readonly direct: DirectionalRoundTripDtoInput;
-              readonly items: ReadonlyArray<DirectionalRoundTripDtoInput>;
-              readonly lookup: Readonly<Record<string, DirectionalRoundTripDtoInput>>;
-              readonly box: DirectionalBox<DirectionalRoundTripDtoInput>;
+              readonly direct: DirectionalServerNoteDtoInput;
+              readonly items: ReadonlyArray<DirectionalServerNoteDtoInput>;
+              readonly lookup: Readonly<Record<string, DirectionalServerNoteDtoInput>>;
+              readonly box: DirectionalBox<DirectionalServerNoteDtoInput>;
               readonly next: DirectionalEnvelopeDtoInput | null;
             }
             """,
@@ -225,10 +225,10 @@ public sealed class TypeScriptFacadeEmitterTests
         Assert.Contains(
             """
             export interface DirectionalEnvelopeDtoOutput {
-              readonly direct: DirectionalRoundTripDtoOutput;
-              readonly items: ReadonlyArray<DirectionalRoundTripDtoOutput>;
-              readonly lookup: Readonly<Record<string, DirectionalRoundTripDtoOutput>>;
-              readonly box: DirectionalBox<DirectionalRoundTripDtoOutput>;
+              readonly direct: DirectionalServerNoteDtoOutput;
+              readonly items: ReadonlyArray<DirectionalServerNoteDtoOutput>;
+              readonly lookup: Readonly<Record<string, DirectionalServerNoteDtoOutput>>;
+              readonly box: DirectionalBox<DirectionalServerNoteDtoOutput>;
               readonly next: DirectionalEnvelopeDtoOutput | null;
             }
             """,
@@ -252,23 +252,23 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "export type DirectionalChoice = "
-                + "DirectionalRoundTripDtoOutput | string | null;",
+                + "DirectionalServerNoteDtoOutput | string | null;",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export function roundTripDirectional("
-                + "payloadJson: DirectionalRoundTripDtoInput): "
-                + "DirectionalRoundTripDtoOutput",
+            "export function addServerNote("
+                + "payloadJson: DirectionalServerNoteDtoInput): "
+                + "DirectionalServerNoteDtoOutput",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export function roundTripDirectionalEnvelope("
+            "export function reemitDirectionalEnvelope("
                 + "payloadJson: DirectionalEnvelopeDtoInput): "
                 + "DirectionalEnvelopeDtoOutput",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export function roundTripDirectionalOuter("
+            "export function reemitDirectionalOuter("
                 + "payloadJson: DirectionalOuterDtoInput): "
                 + "DirectionalOuterDtoOutput",
             source,

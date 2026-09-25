@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../src/InertText/InertText.csproj" />
+    <ProjectReference Include="../../../src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
   </ItemGroup>
 
 </Project>
