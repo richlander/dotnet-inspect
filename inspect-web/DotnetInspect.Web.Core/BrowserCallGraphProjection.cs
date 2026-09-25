@@ -58,6 +58,7 @@ internal sealed record BrowserCallGraphDiagnosticsInfo(
     bool HasAnalysisFailureBoundary,
     bool HasIncompleteCorrespondence,
     int UnclassifiedBoundaryEdges,
+    int UnclassifiedBoundaryNamedEdges,
     string[] UnclassifiedBoundaryAssemblies,
     int PhysicalOccurrenceUnavailableEdges);
 
@@ -511,7 +512,7 @@ internal static class BrowserCallGraphProjection
                     == ExternalFocusedCallGraphInspectionCatalog
                         .BoundaryClassificationIncomplete.Id),
         ];
-        string[] unclassifiedAssemblies =
+        string[] unclassifiedBoundaryAssemblyTargets =
         [
             .. unclassifiedBoundaries
                 .Select(static limit => limit.Target)
@@ -524,7 +525,11 @@ internal static class BrowserCallGraphProjection
                         graph.Nodes[
                             graph.Edges[target.Id].ToNodeId]))
                 .Where(static assembly =>
-                    !string.IsNullOrWhiteSpace(assembly))
+                    !string.IsNullOrWhiteSpace(assembly)),
+        ];
+        string[] unclassifiedAssemblies =
+        [
+            .. unclassifiedBoundaryAssemblyTargets
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Order(StringComparer.OrdinalIgnoreCase),
         ];
@@ -549,6 +554,8 @@ internal static class BrowserCallGraphProjection
                 correspondence.Length > 0,
             UnclassifiedBoundaryEdges:
                 unclassifiedBoundaries.Length,
+            UnclassifiedBoundaryNamedEdges:
+                unclassifiedBoundaryAssemblyTargets.Length,
             UnclassifiedBoundaryAssemblies:
                 unclassifiedAssemblies,
             PhysicalOccurrenceUnavailableEdges:
@@ -731,6 +738,7 @@ internal static class BrowserCallGraphProjection
                 diagnostics.IncompleteNodeCount > 0
                 || diagnostics.IncompleteEdgeCount > 0,
             UnclassifiedBoundaryEdges: 0,
+            UnclassifiedBoundaryNamedEdges: 0,
             UnclassifiedBoundaryAssemblies: [],
             PhysicalOccurrenceUnavailableEdges: 0);
 

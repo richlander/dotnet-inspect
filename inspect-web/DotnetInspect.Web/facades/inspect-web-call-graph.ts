@@ -19,6 +19,7 @@ export interface BrowserCallGraphDiagnostics {
   readonly unavailableDependencyRoutes: number;
   readonly hasIncompleteCorrespondence: boolean;
   readonly unclassifiedBoundaryEdges: number;
+  readonly unclassifiedBoundaryNamedEdges: number;
   readonly unclassifiedBoundaryAssemblies: ReadonlyArray<string>;
   readonly physicalOccurrenceUnavailableEdges: number;
   readonly isIncomplete: boolean;

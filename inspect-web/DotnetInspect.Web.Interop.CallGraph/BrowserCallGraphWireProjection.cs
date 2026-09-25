@@ -58,6 +58,7 @@ internal static class BrowserCallGraphWireProjection
                 ?? 0,
             diagnostics.HasIncompleteCorrespondence,
             diagnostics.UnclassifiedBoundaryEdges,
+            diagnostics.UnclassifiedBoundaryNamedEdges,
             diagnostics.UnclassifiedBoundaryAssemblies,
             diagnostics.PhysicalOccurrenceUnavailableEdges);
 

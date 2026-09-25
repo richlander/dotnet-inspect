@@ -342,6 +342,7 @@ function removalGraph(packages: readonly typeof alpha[]): BrowserCallGraph {
       unavailableDependencyRoutes: 0,
       hasIncompleteCorrespondence: false,
       unclassifiedBoundaryEdges: 0,
+      unclassifiedBoundaryNamedEdges: 0,
       unclassifiedBoundaryAssemblies: [],
       physicalOccurrenceUnavailableEdges: 0,
       isIncomplete: false,

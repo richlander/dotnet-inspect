@@ -44,6 +44,7 @@ internal static partial class BrowserCatalogWireProjection
             UnavailableDependencyRoutes: 0,
             diagnostics.HasIncompleteCorrespondence,
             diagnostics.UnclassifiedBoundaryEdges,
+            diagnostics.UnclassifiedBoundaryNamedEdges,
             diagnostics.UnclassifiedBoundaryAssemblies,
             diagnostics.PhysicalOccurrenceUnavailableEdges);
 

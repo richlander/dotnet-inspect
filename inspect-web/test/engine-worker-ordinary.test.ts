@@ -1483,6 +1483,7 @@ test("Platform graph transport preserves retained context selection and ordinary
             unavailableDependencyRoutes: 0,
             hasIncompleteCorrespondence: false,
             unclassifiedBoundaryEdges: 0,
+            unclassifiedBoundaryNamedEdges: 0,
             unclassifiedBoundaryAssemblies: [],
             physicalOccurrenceUnavailableEdges: 0,
             isIncomplete: false,

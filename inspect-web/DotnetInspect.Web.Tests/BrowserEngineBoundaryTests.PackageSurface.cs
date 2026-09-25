@@ -933,6 +933,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(diagnostics.HasAnalysisFailureBoundary);
         Assert.True(diagnostics.HasIncompleteCorrespondence);
         Assert.Equal(0, diagnostics.UnclassifiedBoundaryEdges);
+        Assert.Equal(0, diagnostics.UnclassifiedBoundaryNamedEdges);
         Assert.Empty(diagnostics.UnclassifiedBoundaryAssemblies);
         Assert.Equal(0, diagnostics.PhysicalOccurrenceUnavailableEdges);
     }

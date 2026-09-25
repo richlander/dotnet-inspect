@@ -1337,6 +1337,7 @@ export interface CallGraphDiagnostics {
   unavailableDependencyRoutes?: number;
   hasIncompleteCorrespondence?: boolean;
   unclassifiedBoundaryEdges?: number;
+  unclassifiedBoundaryNamedEdges?: number;
   unclassifiedBoundaryAssemblies?: readonly string[];
   physicalOccurrenceUnavailableEdges?: number;
 }
@@ -1352,14 +1353,15 @@ export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | 
   ];
   if ((diagnostics.unclassifiedBoundaryEdges ?? 0) > 0) {
     const count = diagnostics.unclassifiedBoundaryEdges ?? 0;
-    const target = unclassifiedAssemblies.length
+    const namedCount = Math.min(
+      diagnostics.unclassifiedBoundaryNamedEdges ?? 0,
+      count,
+    );
+    const target = namedCount === count && unclassifiedAssemblies.length
       ? ` in ${plainTextList(unclassifiedAssemblies)}`
       : "";
-    const singularDefinition =
-      unclassifiedAssemblies.length === 1
-      || (unclassifiedAssemblies.length === 0 && count === 1);
     evidence.push(
-      `${count} call target${count === 1 ? "" : "s"}${target} could not be classified because ${singularDefinition ? "its definition is" : "their definitions are"} not loaded`,
+      `${count} call target${count === 1 ? "" : "s"}${target} could not be classified against the loaded package definitions`,
     );
   } else if (diagnostics.hasIncompleteCorrespondence
     || (diagnostics.incompleteNodes ?? 0) > 0

@@ -29,6 +29,7 @@ public sealed record BrowserCallGraphDiagnostics(
     int UnavailableDependencyRoutes,
     bool HasIncompleteCorrespondence,
     int UnclassifiedBoundaryEdges,
+    int UnclassifiedBoundaryNamedEdges,
     string[] UnclassifiedBoundaryAssemblies,
     int PhysicalOccurrenceUnavailableEdges)
 {

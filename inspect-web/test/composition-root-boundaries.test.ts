@@ -44,13 +44,21 @@ test("call graph diagnostics distinguish failures from expected bounds", () => {
     incompleteEdges: 29467,
     hasIncompleteCorrespondence: true,
     unclassifiedBoundaryEdges: 4,
+    unclassifiedBoundaryNamedEdges: 4,
     unclassifiedBoundaryAssemblies: ["corelib"]
-  })), "Partial call graph: 4 call targets in \"corelib\" could not be classified because its definition is not loaded.");
+  })), "Partial call graph: 4 call targets in \"corelib\" could not be classified against the loaded package definitions.");
   assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
     unclassifiedBoundaryEdges: 1,
+    unclassifiedBoundaryNamedEdges: 0,
     unclassifiedBoundaryAssemblies: []
-  })), "Partial call graph: 1 call target could not be classified because its definition is not loaded.");
+  })), "Partial call graph: 1 call target could not be classified against the loaded package definitions.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
+    isIncomplete: true,
+    unclassifiedBoundaryEdges: 2,
+    unclassifiedBoundaryNamedEdges: 1,
+    unclassifiedBoundaryAssemblies: ["corelib"]
+  })), "Partial call graph: 2 call targets could not be classified against the loaded package definitions.");
   assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
     incompleteNodes: 0,
