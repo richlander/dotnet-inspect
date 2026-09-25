@@ -626,7 +626,7 @@ public static partial class ApiSurfaceExtractor
     /// <see cref="TypeParameterTypeKind"/> on the result; no generation-scoped
     /// resolution currency escapes with the surface.
     /// </remarks>
-    internal static ApiSurface Extract(
+    public static ApiSurface Extract(
         PEReader peReader,
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,

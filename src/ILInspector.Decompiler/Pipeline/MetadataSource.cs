@@ -138,6 +138,22 @@ public sealed class MetadataSource : IDisposable
     public ApiSurface ExtractApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(Pe, includeAll, typesOnly);
 
+    internal ApiSurface ExtractResolutionAwareApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+    {
+        using var catalog = new TypeResolutionCatalog();
+        return ApiSurfaceExtractor.Extract(
+            Pe,
+            _assembly,
+            catalog,
+            _bindingPolicy,
+            includeAll,
+            typesOnly,
+            includeCompilerGenerated);
+    }
+
     /// <summary>
     /// Classifies the async shape of the given MethodDef metadata token (runtime or
     /// state-machine async), or <see langword="null"/> when the token is not a MethodDef or
