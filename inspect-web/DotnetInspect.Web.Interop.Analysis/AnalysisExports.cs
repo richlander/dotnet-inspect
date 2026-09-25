@@ -6,6 +6,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using ILAnalysis = ILInspector.Analysis;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
@@ -811,10 +812,7 @@ public static partial class AnalysisExports
         };
 
     internal static string LibraryMetricsTypeKey(ILAnalysis.TypeRef type) =>
-        type.Resolution?.Type.ToEscapedFullName()
-            ?? (string.IsNullOrEmpty(type.Namespace)
-                ? type.Name
-                : $"{type.Namespace}.{type.Name}");
+        LibraryStructuralReport.TypeKey(type);
 
     static BrowserLibraryMetrics UnavailableLibraryMetrics(
         string outcome,
