@@ -97,7 +97,7 @@ public sealed class QueryComparisonPopulationTests
                     typeof(ResolvedAssemblyReference),
                 [nameof(ImplementationComparisonBinding.Resolver)] =
                     typeof(IAssemblyReferenceResolver),
-                [nameof(ImplementationComparisonBinding.CallGraph)] =
+                [nameof(ImplementationComparisonBinding.MethodPopulation)] =
                     typeof(LibraryCallGraphAnalysisResult),
             },
             PublicProperties(typeof(ImplementationComparisonBinding)));
@@ -135,7 +135,7 @@ public sealed class QueryComparisonPopulationTests
             Assert.Single(sealedImplementation.Before).Binding;
         Assert.Same(implementation.Assembly, retainedImplementation.Assembly);
         Assert.Same(implementation.Resolver, retainedImplementation.Resolver);
-        Assert.Same(implementation.CallGraph, retainedImplementation.CallGraph);
+        Assert.Same(implementation.MethodPopulation, retainedImplementation.MethodPopulation);
     }
 
     [Fact]
@@ -276,7 +276,7 @@ public sealed class QueryComparisonPopulationTests
                     occurrence);
             Assert.Same(input.Binding.Assembly, implementationOccurrence.Assembly);
             Assert.Same(input.Binding.Resolver, implementationOccurrence.Resolver);
-            Assert.Same(input.Binding.CallGraph, implementationOccurrence.CallGraph);
+            Assert.Same(input.Binding.MethodPopulation, implementationOccurrence.MethodPopulation);
 
             ResearchAdmittedInput ownerInput = admitted.GetInput(occurrence);
             QueryResearchInputCorrespondence pair =
@@ -418,10 +418,10 @@ public sealed class QueryComparisonPopulationTests
                 ResearchComparisonProfile.BodySignal,
                 [new ResearchComparisonAdmissionQuestion(
                     [
-                        new BodySignalComparisonInputOccurrence(borrowed.CallGraph),
-                        new BodySignalComparisonInputOccurrence(borrowed.CallGraph),
+                        new BodySignalComparisonInputOccurrence(borrowed.MethodPopulation),
+                        new BodySignalComparisonInputOccurrence(borrowed.MethodPopulation),
                     ],
-                    [new BodySignalComparisonInputOccurrence(borrowed.CallGraph)])]));
+                    [new BodySignalComparisonInputOccurrence(borrowed.MethodPopulation)])]));
         AssertProjectionRejected(
             QueryToResearchPopulationReceipt.Create(
                 valid.Projection,
@@ -723,10 +723,10 @@ public sealed class QueryComparisonPopulationTests
             QueryComparisonPopulationSealer.Execute(
                 new ImplementationComparisonPopulationRequest(
                     [],
-                    [implementation with { CallGraph = null! }],
+                    [implementation with { MethodPopulation = null! }],
                     null,
                     null)),
-            QueryPopulationRejectionKind.MissingCallGraph,
+            QueryPopulationRejectionKind.MissingMethodPopulation,
             QueryComparisonProfile.ImplementationComparison,
             QueryComparisonSide.After,
             0);

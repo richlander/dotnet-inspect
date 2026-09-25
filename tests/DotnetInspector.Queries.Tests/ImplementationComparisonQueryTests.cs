@@ -72,7 +72,7 @@ public sealed class ImplementationComparisonQueryTests
                     [
                         oldContent with
                         {
-                            CallGraph = LibraryBodyIndex.Open(newPath).CallGraphAnalysis,
+                            MethodPopulation = LibraryBodyIndex.Open(newPath).CallGraphAnalysis,
                         },
                     ],
                     [StreamBackedInput(newPath, "new.dll")])));
@@ -118,7 +118,7 @@ public sealed class ImplementationComparisonQueryTests
             oldInput.Assembly.Identity,
             document.Before.AssemblyIdentity);
         Assert.Equal(
-            oldInput.CallGraph.ModuleIdentity.ModuleVersionId,
+            oldInput.MethodPopulation.ModuleIdentity.ModuleVersionId,
             document.Before.ModuleVersionId);
         Assert.Equal(
             ImplementationDiffEndpointProvenanceKind.Local,
@@ -127,7 +127,7 @@ public sealed class ImplementationComparisonQueryTests
             newInput.Assembly.Identity,
             document.After.AssemblyIdentity);
         Assert.Equal(
-            newInput.CallGraph.ModuleIdentity.ModuleVersionId,
+            newInput.MethodPopulation.ModuleIdentity.ModuleVersionId,
             document.After.ModuleVersionId);
 
         ImplementationDiffDocumentMember member = Assert.Single(

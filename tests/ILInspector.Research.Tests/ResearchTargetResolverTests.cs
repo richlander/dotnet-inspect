@@ -3826,7 +3826,7 @@ public class ResearchTargetResolverTests
         public LibraryBodyModuleIdentity ModuleIdentity(int inputIndex)
             => ((ImplementationComparisonInputOccurrence)
                 Population.Inputs[inputIndex].Occurrence)
-                .CallGraph.ModuleIdentity;
+                .MethodPopulation.ModuleIdentity;
 
         public ApiSurface Surface(FixtureDefinition fixture)
         {

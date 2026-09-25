@@ -44,6 +44,14 @@ receipt's diagnostics. Research does not accept `LibraryBodyIndex`, which
 remains an Analysis compatibility adapter for consumers outside Research
 tracked by [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
 
+`LibraryCallGraphAnalysisResult` is the interim carrier of that method
+population, not the population's contract. Research inputs name the concept
+(`MethodPopulation`), and Research reads only the declared methods, module
+identity, diagnostics, and source name from it. Later Research steps must not
+depend on call-graph-specific members. When
+[Producer planning](https://github.com/richlander/dotnet-inspect/issues/8569)
+declares a population-shaped Analysis result, only the carrier type changes.
+
 The retained assembly-comparison paths consume that result's
 `ModuleIdentity`, not a sampled method or a display path.
 `ImplementationDiff.Compare` requires each supplied result to match its opened

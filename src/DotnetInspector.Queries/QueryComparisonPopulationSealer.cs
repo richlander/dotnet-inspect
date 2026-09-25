@@ -19,8 +19,8 @@ public static class QueryComparisonPopulationSealer
                 ? QueryPopulationRejectionKind.MissingAssembly
                 : binding.Resolver is null
                     ? QueryPopulationRejectionKind.MissingResolver
-                    : binding.CallGraph is null
-                        ? QueryPopulationRejectionKind.MissingCallGraph
+                    : binding.MethodPopulation is null
+                        ? QueryPopulationRejectionKind.MissingMethodPopulation
                         : null);
     }
 

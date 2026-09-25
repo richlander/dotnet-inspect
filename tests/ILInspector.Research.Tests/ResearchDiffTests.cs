@@ -1952,8 +1952,8 @@ public class ResearchDiffTests
     {
         byte[] image = BuildIdentityAssembly("Identity", Guid.NewGuid());
         var input = IdentityInput(image, image, features);
-        Assert.Empty(input.CallGraph.DeclaredMethods);
-        Assert.Empty(input.CallGraph.Methods);
+        Assert.Empty(input.MethodPopulation.DeclaredMethods);
+        Assert.Empty(input.MethodPopulation.Methods);
 
         var result = ImplementationDiff.Compare([input], [input]);
 
@@ -1977,7 +1977,7 @@ public class ResearchDiffTests
             culture: difference == "culture" ? "fr" : null,
             publicKey: difference == "public-key" ? [1, 2, 3, 4] : null);
         var input = IdentityInput(image, other, LibraryBodyAnalysisFeatures.MethodEvidence);
-        Assert.Empty(input.CallGraph.DeclaredMethods);
+        Assert.Empty(input.MethodPopulation.DeclaredMethods);
 
         var error = Assert.Throws<ArgumentException>(() =>
             ImplementationDiff.Compare([input], []));
@@ -2004,11 +2004,11 @@ public class ResearchDiffTests
             [Index(firstImage, "renamed-first.dll"), Index(secondImage, "renamed-second.dll")];
         var oldInput = new ResearchDiffInput([])
         {
-            CallGraphs = [.. oldIndexes.Select(index => index.CallGraphAnalysis)],
+            MethodPopulations = [.. oldIndexes.Select(index => index.CallGraphAnalysis)],
         };
         var newInput = new ResearchDiffInput([])
         {
-            CallGraphs = [.. newIndexes.Select(index => index.CallGraphAnalysis)],
+            MethodPopulations = [.. newIndexes.Select(index => index.CallGraphAnalysis)],
         };
         if (mechanism == ResearchChangeMechanism.BodySignals)
         {
@@ -2039,16 +2039,16 @@ public class ResearchDiffTests
             {
                 AssemblyContents =
                 [
-                    new(firstSource, oldInput.CallGraphs[0]),
-                    new(secondSource, oldInput.CallGraphs[1]),
+                    new(firstSource, oldInput.MethodPopulations[0]),
+                    new(secondSource, oldInput.MethodPopulations[1]),
                 ],
             };
             newInput = newInput with
             {
                 AssemblyContents =
                 [
-                    new(firstSource, newInput.CallGraphs[0]),
-                    new(secondSource, newInput.CallGraphs[1]),
+                    new(firstSource, newInput.MethodPopulations[0]),
+                    new(secondSource, newInput.MethodPopulations[1]),
                 ],
             };
         }
@@ -2088,10 +2088,10 @@ public class ResearchDiffTests
             "Versioned", Guid.NewGuid(), new Version(2, 0, 0, 0), returnValue: 2);
         var before = IdentityInput(oldImage, oldImage, LibraryBodyAnalysisFeatures.MethodEvidence);
         var after = IdentityInput(newImage, newImage, LibraryBodyAnalysisFeatures.MethodEvidence);
-        Assert.NotEqual(before.CallGraph.ModuleIdentity.ModuleVersionId,
-            after.CallGraph.ModuleIdentity.ModuleVersionId);
-        Assert.NotEqual(before.CallGraph.ModuleIdentity.AssemblyIdentity!.Version,
-            after.CallGraph.ModuleIdentity.AssemblyIdentity!.Version);
+        Assert.NotEqual(before.MethodPopulation.ModuleIdentity.ModuleVersionId,
+            after.MethodPopulation.ModuleIdentity.ModuleVersionId);
+        Assert.NotEqual(before.MethodPopulation.ModuleIdentity.AssemblyIdentity!.Version,
+            after.MethodPopulation.ModuleIdentity.AssemblyIdentity!.Version);
 
         var result = ImplementationDiff.Compare(
             [before], [after],

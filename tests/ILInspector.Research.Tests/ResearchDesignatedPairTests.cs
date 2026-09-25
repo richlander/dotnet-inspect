@@ -202,7 +202,7 @@ public partial class ResearchProducerSessionTests
         var withoutBodyIdentity = new ImplementationComparisonInputOccurrence(
             original.Assembly,
             original.Resolver,
-            LibraryBodyIndex.FromEvidence([], [], moduleIdentity: original.CallGraph.ModuleIdentity).CallGraphAnalysis);
+            LibraryBodyIndex.FromEvidence([], [], moduleIdentity: original.MethodPopulation.ModuleIdentity).CallGraphAnalysis);
         SessionFixture incomplete = SessionFixture.Create(
             withoutBodyIdentity,
             Occurrence(FixtureCatalog.ResearchTargetSample.AssemblyPath()));

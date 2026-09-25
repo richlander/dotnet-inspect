@@ -235,12 +235,12 @@ sealed class DemoContext : IAsyncDisposable
                 AssemblyResolutionProvenance.Local("in-memory workspace composition demo"));
             participants.Add(new(assembly, Policy));
             // This label is presentation only; Analysis consumes the supplied immutable image.
-            var callGraph = LibraryBodyAnalysisService.ExecuteImage(
+            var methodPopulation = LibraryBodyAnalysisService.ExecuteImage(
                     identity.Name + ".dll",
                     [.. image],
                     LibraryBodyAnalysisRequest.Create(LibraryBodyAnalysisFeatures.MethodEvidence))
                 .CallGraph;
-            bindings.Add(new(assembly, Policy, callGraph));
+            bindings.Add(new(assembly, Policy, methodPopulation));
         }
         Bindings = bindings.ToArray();
         Root = participants[0];

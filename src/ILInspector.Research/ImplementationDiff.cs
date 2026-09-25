@@ -173,7 +173,7 @@ public sealed record ImplementationComplexityDiff(
 public sealed record ImplementationAssemblyInput(
     ResolvedAssemblyReference Assembly,
     IAssemblyReferenceResolver Resolver,
-    LibraryCallGraphAnalysisResult CallGraph,
+    LibraryCallGraphAnalysisResult MethodPopulation,
     LibraryImplementationProfileAnalysisResult? ProfileAnalysis = null);
 
 public sealed record ImplementationDiffResult(
@@ -364,18 +364,18 @@ public static partial class ImplementationDiff
                 ArgumentNullException.ThrowIfNull(assembly);
                 ArgumentNullException.ThrowIfNull(assembly.Assembly);
                 ArgumentNullException.ThrowIfNull(assembly.Resolver);
-                ArgumentNullException.ThrowIfNull(assembly.CallGraph);
+                ArgumentNullException.ThrowIfNull(assembly.MethodPopulation);
                 var source = MetadataSource.OpenWithoutSymbols(
                     assembly.Assembly,
                     assembly.Resolver);
                 try
                 {
-                    ValidateCallGraph(source, assembly.CallGraph);
+                    ValidateMethodPopulation(source, assembly.MethodPopulation);
                     if (assembly.ProfileAnalysis is not null)
                         ValidateProfileAnalysis(source, assembly.ProfileAnalysis);
                     contents.Add(new ResearchAssemblyContent(
                         source,
-                        assembly.CallGraph));
+                        assembly.MethodPopulation));
                 }
                 catch
                 {
@@ -400,7 +400,7 @@ public static partial class ImplementationDiff
             content.Source.Dispose();
     }
 
-    static void ValidateCallGraph(
+    static void ValidateMethodPopulation(
         MetadataSource source,
         LibraryCallGraphAnalysisResult callGraph)
     {

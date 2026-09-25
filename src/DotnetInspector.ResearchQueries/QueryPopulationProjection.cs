@@ -84,7 +84,7 @@ internal sealed class QueryPopulationProjection
                 foreach (var input in implementation.Inputs)
                 {
                     occurrences.Add(input.Id, new ImplementationComparisonInputOccurrence(
-                        input.Binding.Assembly, input.Binding.Resolver, input.Binding.CallGraph));
+                        input.Binding.Assembly, input.Binding.Resolver, input.Binding.MethodPopulation));
                 }
                 break;
             default:

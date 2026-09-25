@@ -27,14 +27,14 @@ public sealed record ResearchDiffOptions(
 public sealed record ResearchDiffInput(
     IReadOnlyList<string> AssemblyPaths,
     ApiSurface? ApiSurface = null,
-    IReadOnlyList<LibraryCallGraphAnalysisResult>? CallGraphs = null)
+    IReadOnlyList<LibraryCallGraphAnalysisResult>? MethodPopulations = null)
 {
     internal IReadOnlyList<ResearchAssemblyContent>? AssemblyContents { get; init; }
     public IReadOnlyList<BodySignalAnalysisInput>? BodySignalAnalyses
     { get; init; }
 
-    public static ResearchDiffInput FromAssembly(string assemblyPath, ApiSurface? apiSurface = null, LibraryCallGraphAnalysisResult? callGraph = null)
-        => new([assemblyPath], apiSurface, callGraph is null ? null : [callGraph]);
+    public static ResearchDiffInput FromAssembly(string assemblyPath, ApiSurface? apiSurface = null, LibraryCallGraphAnalysisResult? methodPopulation = null)
+        => new([assemblyPath], apiSurface, methodPopulation is null ? null : [methodPopulation]);
 
     public static ResearchDiffInput FromAssemblies(IReadOnlyList<string> assemblyPaths)
         => new(assemblyPaths);
@@ -45,7 +45,7 @@ public sealed record ResearchDiffInput(
 
 internal sealed record ResearchAssemblyContent(
     MetadataSource Source,
-    LibraryCallGraphAnalysisResult CallGraph);
+    LibraryCallGraphAnalysisResult MethodPopulation);
 
 public static class ResearchDiff
 {
@@ -900,8 +900,8 @@ public static class ResearchDiff
 
         foreach (var pair in PairedMethodPopulationEntries(oldInput, newInput))
         {
-            var oldMethods = DeclaredMethodLookup(pair.Old.CallGraph);
-            var newMethods = DeclaredMethodLookup(pair.New.CallGraph);
+            var oldMethods = DeclaredMethodLookup(pair.Old.MethodPopulation);
+            var newMethods = DeclaredMethodLookup(pair.New.MethodPopulation);
             IReadOnlySet<string> returnTypeCollisions =
                 ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
                     oldMethods.Values.Concat(newMethods.Values));
@@ -1025,8 +1025,8 @@ public static class ResearchDiff
         foreach (var pair in UnionMethodPopulationEntries(oldInput, newInput))
         {
             IEnumerable<MethodIdentity> methods =
-                (pair.Old?.CallGraph.DeclaredMethods ?? [])
-                    .Concat(pair.New?.CallGraph.DeclaredMethods ?? []);
+                (pair.Old?.MethodPopulation.DeclaredMethods ?? [])
+                    .Concat(pair.New?.MethodPopulation.DeclaredMethods ?? []);
             IReadOnlySet<string> returnTypeCollisions =
                 ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
                     methods);
@@ -1138,10 +1138,10 @@ public static class ResearchDiff
                 "Member is absent.");
         }
 
-        var declaredTokens = entry.CallGraph.DeclaredMethods
+        var declaredTokens = entry.MethodPopulation.DeclaredMethods
             .Select(static method => method.MetadataToken)
             .ToHashSet();
-        var failures = entry.CallGraph.Diagnostics
+        var failures = entry.MethodPopulation.Diagnostics
             .Where(diagnostic =>
                 !declaredTokens.Contains(diagnostic.MethodToken)
                 && (diagnostic.DeclaringType is null
@@ -1174,7 +1174,7 @@ public static class ResearchDiff
         IReadOnlySet<string> returnTypeCollisions)
     {
         var methods = new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal);
-        foreach (var method in entry.CallGraph.DeclaredMethods)
+        foreach (var method in entry.MethodPopulation.DeclaredMethods)
         {
             var subject = SubjectFromMethod(
                 method,
@@ -1701,22 +1701,22 @@ public static class ResearchDiff
             foreach (var content in contents)
             {
                 yield return new MethodPopulationEntry(
-                    AssemblyKey(content.CallGraph),
+                    AssemblyKey(content.MethodPopulation),
                     content.Source.Path,
-                    content.CallGraph,
+                    content.MethodPopulation,
                     content.Source);
             }
             yield break;
         }
 
-        if (input.CallGraphs is { Count: > 0 } callGraphs)
+        if (input.MethodPopulations is { Count: > 0 } methodPopulations)
         {
-            foreach (var callGraph in callGraphs)
+            foreach (var methodPopulation in methodPopulations)
             {
                 yield return new MethodPopulationEntry(
-                    AssemblyKey(callGraph),
-                    callGraph.Receipt.SourceName,
-                    callGraph);
+                    AssemblyKey(methodPopulation),
+                    methodPopulation.Receipt.SourceName,
+                    methodPopulation);
             }
             yield break;
         }
@@ -1725,16 +1725,16 @@ public static class ResearchDiff
         {
             // The default feature set preserves the path fallback's prior
             // declared-method and diagnostic coverage.
-            LibraryCallGraphAnalysisResult callGraph =
+            LibraryCallGraphAnalysisResult methodPopulation =
                 LibraryBodyAnalysisService.ExecutePath(
                         path,
                         LibraryBodyAnalysisRequest.Create(
                             LibraryBodyAnalysisFeatures.Default))
                     .CallGraph;
             yield return new MethodPopulationEntry(
-                AssemblyKey(callGraph),
+                AssemblyKey(methodPopulation),
                 path,
-                callGraph);
+                methodPopulation);
         }
     }
 
@@ -2024,7 +2024,7 @@ public static class ResearchDiff
     sealed record MethodPopulationEntry(
         string Key,
         string Path,
-        LibraryCallGraphAnalysisResult CallGraph,
+        LibraryCallGraphAnalysisResult MethodPopulation,
         MetadataSource? Source = null);
     sealed record UnionMethodPopulationEntry(
         string Key,

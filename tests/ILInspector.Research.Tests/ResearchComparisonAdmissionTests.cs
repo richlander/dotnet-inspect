@@ -152,7 +152,7 @@ public class ResearchComparisonAdmissionTests
         Assert.Same(borrowed, admitted.Input);
         Assert.Same(borrowed.Assembly, admitted.Assembly);
         Assert.Same(borrowed.Resolver, admitted.Resolver);
-        Assert.Same(borrowed.CallGraph, admitted.CallGraph);
+        Assert.Same(borrowed.MethodPopulation, admitted.MethodPopulation);
         Assert.Equal(ResearchComparisonSide.After, input.Side);
     }
 
@@ -169,7 +169,7 @@ public class ResearchComparisonAdmissionTests
         ResearchAdmittedInput input = Assert.Single(population.Inputs);
         var admitted = Assert.IsType<BodySignalComparisonInputOccurrence>(
             input.Occurrence);
-        Assert.Same(borrowed, admitted.CallGraph);
+        Assert.Same(borrowed, admitted.MethodPopulation);
     }
 
     [Fact]
@@ -388,7 +388,7 @@ public class ResearchComparisonAdmissionTests
     {
         ImplementationComparisonInputOccurrence first = ImplementationOccurrence();
         ImplementationComparisonInputOccurrence second =
-            new(first.Assembly, first.Resolver, first.CallGraph);
+            new(first.Assembly, first.Resolver, first.MethodPopulation);
         ResearchAdmittedPopulation population = Admit(
             Request(
                 ResearchComparisonProfile.ImplementationComparison,
@@ -482,7 +482,7 @@ public class ResearchComparisonAdmissionTests
         // null contract: a constructed occurrence can never report missing
         // evidence, and admission never rejects one for evidence.
         BodySignalComparisonInputOccurrence bodySignal = new(callGraph);
-        Assert.Same(callGraph, bodySignal.CallGraph);
+        Assert.Same(callGraph, bodySignal.MethodPopulation);
         Assert.Null(bodySignal.MissingEvidenceMember);
         Assert.IsType<ResearchAdmissionOutcome.Admitted>(
             ResearchComparisonAdmission.Admit(
@@ -496,7 +496,7 @@ public class ResearchComparisonAdmissionTests
         // covers one null per parameter, and this derives that case set from
         // the constructor's declaration, so a new or renamed parameter fails.
         Assert.Equal(
-            new HashSet<string?> { "assembly", "resolver", "callGraph" },
+            new HashSet<string?> { "assembly", "resolver", "methodPopulation" },
             typeof(ImplementationComparisonInputOccurrence)
                 .GetConstructors()
                 .Single(constructor => constructor.GetParameters().Length == 3)
@@ -532,7 +532,7 @@ public class ResearchComparisonAdmissionTests
     [Theory]
     [InlineData("assembly")]
     [InlineData("resolver")]
-    [InlineData("callGraph")]
+    [InlineData("methodPopulation")]
     public void ResearchAdmission_ImplementationOccurrenceValidatesEveryDirectArgument(
         string parameter)
     {
@@ -541,7 +541,7 @@ public class ResearchComparisonAdmissionTests
         IAssemblyReferenceResolver? resolver =
             parameter == "resolver" ? null : new UnusedResolver();
         LibraryCallGraphAnalysisResult? callGraph =
-            parameter == "callGraph" ? null : CallGraph();
+            parameter == "methodPopulation" ? null : CallGraph();
 
         // The direct-argument overload validates before it constructs the
         // borrowed input record, so an incomplete implementation input is
@@ -654,7 +654,7 @@ public class ResearchComparisonAdmissionTests
                         ])),
                 ResearchAdmissionRejectionKind.MissingInputEvidence,
                 "Input[q=1,After,1]",
-                $"does not supply {nameof(ImplementationAssemblyInput.CallGraph)}"),
+                $"does not supply {nameof(ImplementationAssemblyInput.MethodPopulation)}"),
 
             ("implementation occurrence in a body-signal request",
                 Request(
@@ -844,10 +844,10 @@ public class ResearchComparisonAdmissionTests
             input => Assert.Same(
                 Assert.IsType<BodySignalComparisonInputOccurrence>(
                         input.Occurrence)
-                    .CallGraph,
+                    .MethodPopulation,
                 Assert.IsType<BodySignalComparisonInputOccurrence>(
                         signals.GetInput(input.Occurrence).Occurrence)
-                    .CallGraph));
+                    .MethodPopulation));
 
         // Structural evidence: no admission-reachable product method calls or
         // reads any borrowed-evidence member. The walk decodes real IL and
@@ -1522,7 +1522,7 @@ public class ResearchComparisonAdmissionTests
                         implementation.Input),
                 BodySignalComparisonInputOccurrence bodySignal =>
                     new BodySignalComparisonInputOccurrence(
-                        bodySignal.CallGraph),
+                        bodySignal.MethodPopulation),
                 _ => throw new ArgumentOutOfRangeException(nameof(occurrence)),
             };
     }

@@ -391,7 +391,7 @@ public static class ResearchProducerSession
         InputStage acquiredStage = stage.Stage!;
         MetadataReader reader = acquiredStage.Source.Reader;
         if (target.Module
-                != acquiredStage.Occurrence.CallGraph.ModuleIdentity
+                != acquiredStage.Occurrence.MethodPopulation.ModuleIdentity
             || !address.Value.BelongsTo(reader)
             || address.Value.Handle.IsNil
             || MetadataTokens.GetRowNumber(address.Value.Handle)
