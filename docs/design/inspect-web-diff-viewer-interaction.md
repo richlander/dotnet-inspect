@@ -82,7 +82,9 @@ Relation facts decorate rows; they never place them. A row carries the facts
 of the relation that holds its line: changed or unchanged content, stable or
 moved placement. Facts from the whitespace characterization decorate the
 rows of their change: whitespace-only, moved with its move id and end, or
-changed.
+changed. Each characterized change lowers to exactly one transported mapped
+change, so a mapped change is never a whole region of several characterized
+changes.
 
 Unified mode shows the rows in walk order with two line-number columns and a
 marker column: a space for context, `−` for removal, `+` for addition.
@@ -133,7 +135,8 @@ layout cost proportional to the viewport, not to the diff.
 ## Change navigation
 
 The navigable changes are the visible changes in walk order. A change hidden
-by the whitespace control is not navigable. **Previous** and **Next** move to
+by the whitespace control, or rendered as context under **Hide**, is not
+navigable. **Previous** and **Next** move to
 the adjacent navigable change, scroll its first row into view, and move focus
 to it; they are disabled, not wrapped, at either end. The position reads
 `3 of 7`. With no navigable change, both are disabled and the position reads
@@ -175,12 +178,14 @@ recorded exception. Choosing
 **Hide** is explicit and applies to the current diff only; it is never
 retained across diffs, so a new comparison never opens with differences
 hidden. **Mark** and **Highlight** are retained as a preference for the page
-session.
+session, and a new diff opens in the last of the two that was chosen.
 
-Under **Hide**, the summary states the whitespace-only line counts it hid, and
-an all-hidden diff reads **No differences except whitespace**, never
-**Identical**. A color shade is always paired with a label or glyphs, never
-the only cue.
+Under **Hide**, the summary states, per side, every whitespace-only line it
+suppresses, whether rendered as context or hidden, as the policy's two-sided
+insensitive summary requires. When every change of the diff is whitespace-only,
+the frame reads **No differences except whitespace**, never **Identical**,
+even when every such change renders as context and no row is hidden. A color
+shade is always paired with a label or glyphs, never the only cue.
 
 Without whitespace facts the control is absent, and the viewer shows the
 changes as the mapped diff issues them.
@@ -195,6 +200,14 @@ When the payload carries move facts, the viewer offers **Linked** and
   Activating the label scrolls to the partner end, moves focus there, and
   announces it.
 - **Plain:** moved changes render as ordinary removals and additions.
+
+A move also carries its producer-issued content fact. Under **Mark** and
+**Highlight**, when the content is whitespace-only, each end's label and
+accessible label add `whitespace-only: <kinds>`, as in
+`move 1 from −1; whitespace-only: indentation`, and **Highlight** draws the
+move's transported edits on both ends; when the content changed, the label
+adds `changed`. Under **Hide**, the whitespace-only content fact is omitted
+and the move stays a move, as the whitespace policy states.
 
 **Linked** is the default. The choice is retained for the page session. Move
 ids are the producer's ids; the viewer never assigns or renumbers them.
@@ -297,16 +310,20 @@ either.
    confirm position, focus, announcements, and disabled ends.
 4. Collapse and expand a long unchanged run in the embedded host, and confirm
    the full-bleed host starts expanded.
-5. With whitespace facts, confirm the Mark default, Highlight glyphs and
-   escapes, and that Hide shows the hidden-line counts and **No differences
-   except whitespace**; open another comparison and confirm Hide was not
-   retained.
+5. With whitespace facts, confirm the Mark default and Highlight glyphs and
+   escapes. Under Hide on Scrutor `Decorate`, whose one whitespace-only change
+   renders as context, confirm the summary counts its suppressed line on each
+   side and the frame reads **No differences except whitespace**; open another
+   comparison and confirm Hide was not retained.
 6. Under Highlight, confirm a brace reflow (`class Foo {` → `class Foo` /
    `{`) shows its segments and a line-break marker, and a removed blank line
    is marked at line level. Under Hide in side-by-side mode, confirm a
    re-indented line shows each side's own text in its column.
 7. With move facts, confirm linked labels, partner highlighting, and scrolling
    to the partner; switch to Plain and confirm ordinary rows.
+   Repeat with a relocated and re-indented block, and confirm both ends read
+   `whitespace-only: indentation` under Mark, draw the edits under Highlight,
+   and drop the content fact under Hide while remaining a move.
 8. Confirm each outcome frame, and that a canceled or too-complex result never
    shows rows or **Identical**.
 9. At 390 pixels, confirm side-by-side falls back to unified, the stored mode
