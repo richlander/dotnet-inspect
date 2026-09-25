@@ -153,12 +153,18 @@ recommendation role remains a separate Registry and Navigation policy change.
 Every subject uses one quiet frame:
 
 ```text
-Compare <subject>                                  Diff | Clone
+Compare <subject> · result status                  Diff | Clone
 effective target or scope                         Change target
 summary metrics
 subject-specific result
-coverage and result status
+coverage evidence
 ```
+
+The live result status occupies the surface header alongside the subject,
+following the compact title-and-result pattern used by other Inspect Web
+working surfaces. Loading, failure, unavailable, canceled, successful-empty,
+and successful states all update and announce that same status element.
+Compare does not reserve a separate content row for the status.
 
 The effective target row explains the active Package-owned setting without
 repeating its controls. **Change target** returns to Package Overview's

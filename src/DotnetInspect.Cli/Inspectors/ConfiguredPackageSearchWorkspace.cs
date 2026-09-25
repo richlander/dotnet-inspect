@@ -630,8 +630,9 @@ internal sealed class PackageSearchQuerySources
 
 /// <summary>
 /// One authority-scoped desktop store per configured authority for one
-/// search, and the temporary root that holds authorities without a durable
-/// cache identity. The root is deleted when the search closes.
+/// search or one package document export, and the temporary root that holds
+/// authorities without a durable cache identity. The root is deleted when
+/// the search or export closes.
 /// </summary>
 internal sealed class SearchPackageStores : IDisposable
 {
