@@ -302,8 +302,17 @@ Its exact claim is:
 The model follows the conventional split between a small operation core and an
 open set of described kinds: kubectl verbs act on any resource whose discovery
 entry declares that verb, and `explain` reads the same discovery data. The
-analogy is evidence for the separation, not a transferred schema. Here the
-kinds are compiled in. Registration uses the static capability modules of
+analogy is evidence for the separation, not a transferred schema.
+
+kubectl verbs act on one uniform object model. Here, operations act on a
+shared family of typed structures whose payloads are analysis-owned and deep:
+`Finding<T>` and its keyed comparisons, `AnalysisDiff<T>`,
+`InspectionGraphDocument`, and `AnnotatedSourceDocument`, delivered through
+`InspectionEnvelope<TContent>`. An operation is generic over those structures
+and never flattens or inspects an analysis's payload. Only the separation of
+verb from kind, and discovery, transfer from kubectl.
+
+Here the kinds are compiled in. Registration uses the static capability modules of
 [Inspection capability composition](inspection-capability-composition.md),
 with no runtime plugins, reflection, or assembly scanning. That keeps it
 NativeAOT- and Browser/Wasm-safe.
@@ -351,6 +360,14 @@ matching; [Analysis diff](analysis-diff.md) and
 observations lack `FindingKey` correspondence cannot declare Compare. It
 becomes comparable by becoming a keyed Finding producer, not through a
 Compare-specific adapter.
+
+Taking part in an operation means using that operation's shared structure. An
+analysis contributes typed values into the structure the operation already
+owns, and the operation delivers its result as the Content of its
+[`InspectionEnvelope<TContent>`](inspection-envelope.md), with Share and
+diagnostics intact. For Compare, the structure is the keyed Finding
+comparison. No participation adds an operation-specific result shape or an
+adapter written for one analysis.
 
 Cost remains the descriptor's existing cost declaration. A participation
 declaration does not grant cost authorization, and it does not place the
