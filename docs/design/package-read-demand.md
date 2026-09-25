@@ -8,7 +8,7 @@ realization asks a ranged read for**. It is a slice of
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
 
-The claim has three parts:
+The claim has four parts:
 
 - **Asset demand.** A House request carries an asset demand. `Surface` asks
   for the compile surface only: the reference or compile assets the
@@ -28,6 +28,9 @@ The claim has three parts:
   blocks of about 1 MB, derived from the archive alone, instead of whole
   folders. A large implementation folder, such as a runtime pack's 172
   assemblies, then costs the blocks an inspection actually names.
+- **Documents are named directly.** A document demand names exact entries or
+  folders, such as the root `README.md` or a skill folder, and a ranged
+  `Acquire` may carry it. Ranged content serves the House's pull reads.
 
 This document transfers one claim from the
 [package source model](package-source-model.md#ranged-payload-realization):
@@ -213,6 +216,67 @@ Counting assemblies instead of bytes was measured and rejected. With
 8-assembly blocks, `System.Linq` reads 2.67 MB and `System.Collections`
 1.74 MB, because a large neighbour shares the block.
 
+### Document demand
+
+A host that needs package documents rather than assets, such as the root
+`README.md` or the Markdown of a skill under `skills/`, names them directly:
+`PackageDocumentDemand`, a set of exact entry paths and folder prefixes.
+Paths are validated as entry names are: relative, `/`-separated, and without
+an empty, `.`, or `..` segment, a root, `\`, or `:`. They are compared
+without regard to case. A document demand needs no asset realization, so a
+ranged `Acquire` operation may carry one; only an `Acquire` operation does.
+Without a document demand, ranged access still requires a `Realize`
+operation.
+
+A document read fetches:
+
+- the package's root folder, whole, which holds the `.nuspec` a README chosen
+  by role needs;
+- the folder of each named entry, whole, under the folder unit above: its
+  direct entries, not its subfolders; and
+- each named folder with every entry beneath it, subfolders included. A
+  skill folder is the unit a skill is read in, and a skill keeps its
+  references and assets in subfolders such as `references/`, as the real
+  `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 package does.
+
+A named entry or folder the archive's directory does not list is a visible
+failure: the House returns `NoMatch` with a selection-stage failure naming
+it, on the ranged and the complete path alike, never an empty success.
+[Size first](package-cache-policy.md#size-first) and the
+[entry cache](package-cache-policy.md#the-entry-cache) apply unchanged: an
+archive under the cut is acquired complete, and a warm document read makes
+no request.
+
+Ranged content supports the House's
+[pull-based payload reads](package-house.md#pull-based-acquired-payload-reads)
+for its materialized entries, whose bytes the archive reader has already
+checked against the directory's declared length and CRC. Opening an entry
+that was not read stays a visible refusal. The capability is host-neutral, so
+a Browser/Wasm host that adopts ranged access needs no further substrate.
+
+The documents a host reads are those of the package's document manifest: the
+root `README.md` and the Markdown under `skills/`. Two consumers read them:
+
+- **The CLI export**, adopted in this slice. `package ID@VERSION --content
+  --out FILE` with one literal root `README.md` or `skills/**/SKILL.md` path
+  acquires through the House with ranged access and a document demand naming
+  that path and, for a skill, the `SKILL.md`'s folder. It uses the
+  authority-scoped store the search Root uses, so size first, the entry
+  cache, and durable HTTP identity apply. The directory lists every entry, so
+  the .NET tool-wrapper check reads the ranged directory as it reads the
+  complete archive; a possible wrapper takes the complete package-content
+  path, which follows the redirect, and says so in verbose output. Offline,
+  the export keeps the local package cache path, as the search Root's offline
+  branch does, so it does not yet answer from the authority-scoped store or
+  the entry cache. For
+  `Newtonsoft.Json` 13.0.4 (2.5 MB), a cold README export is the size probe,
+  the directory tail, and one span: 6 of 24 entries.
+- **The Browser/Wasm viewer** (#8489), which reads root `README.md` and
+  `skills/**/*.md` document-manifest entries through a House `Acquire` and
+  the settlement's pull stream. It keeps complete `Acquire` until Inspect Web
+  adopts ranged access
+  ([cache policy adoption step 5](package-cache-policy.md#adoption)).
+
 ### Per-command demand
 
 | Command | Demand | Access at this head |
@@ -221,9 +285,12 @@ Counting assemblies instead of bytes was measured and rejected. With
 | `type`, `member`, `library` | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
+| `package ID@VERSION --content --out` of a root `README.md` or `skills/**/SKILL.md` | a document demand | ranged, size first |
+| `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
+| `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
 
-Only the first row adopts ranged access in this slice. The others keep their
-current complete acquisition until they adopt ranged access (see
+The first row and the last three rows adopt ranged access. The others keep their current
+complete acquisition until they adopt ranged access (see
 [Adoption](#adoption)).
 
 ## Pathological cases and gates
@@ -242,6 +309,14 @@ All gates run in Release.
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |
 | 10. A named asset in a folder already read whole as the surface | no block and no extra request: the named read equals the unnamed read | `PackageRangedRealizationTests.NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock`, a boundary fixture with interleaved `lib/net8.0` and `lib/net10.0` folders and no `ref/` |
+| 11. A root `README.md` export from an archive above the cut | size probe, tail, and one span for the root folder; output byte-identical to the complete path | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeExport_RealNewtonsoftArchive_ReadsTheRootFolderByRange`, real asset `Newtonsoft.Json` 13.0.4, whose README bytes equal the archive entry's; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes` takes the complete path and writes the same bytes |
+| 12. A `skills/<name>/SKILL.md` export | the root folder and that skill folder only, its subfolders included | `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_ReadsTheRootAndSkillFoldersOnly`, a boundary fixture modeled on the skill layout of `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 and padded above the cut, because that package is under it |
+| 13. The same export twice from a credential-free HTTP feed | the second makes no package request | case 11's gate: the second export reads the entry cache, and its transfer receipt has no request |
+| 14. A named entry the directory does not list | a visible failure | `PackageRangedRealizationTests.DocumentDemand_UnlistedName_FailsVisibly` (House `NoMatch`, ranged and complete) and `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_MissingSkillFailsVisibly` |
+| 15. A pull read of a ranged entry that was not read | a visible refusal | `PackageRangedRealizationTests.DocumentDemand_PullReadOfAnUnreadEntry_IsAVisibleRefusal`, real asset `PCLStorage` 1.0.2: the first read, not the open, raises `PackageEntryNotMaterializedException` |
+| 16. A Metadata history over a large package with a `ref/` folder | each version cell reads only its surface folder; findings identical to the complete path | `ConfiguredPayloadAcquisitionTests.DiffHistory_MetadataCells_ReadOnlyTheSurfaceFolderByRange`, real assets `Avalonia` 11.3.14 and 12.1.2 for net8.0: every span starts in `ref/net8.0` and crosses other entries only within the 64 KiB merge gap, and the spans read every entry of that folder |
+| 17. An Analysis history | each version cell reads its surface and implementation folders only; findings identical to the complete path | `ConfiguredPayloadAcquisitionTests.DiffHistory_AnalysisCells_ReadTheSurfaceAndImplementationFoldersByRange`, the same assets, `analysis.allocation` on `Button.OnClick`: `ref/net8.0` and `lib/net8.0` |
+| 18. The same history twice from a credential-free HTTP feed | the second makes no package request | case 16's gate; in Debug hosts, `DiffHistoryEvidenceEnvelope_RangedCellsRecordTheirReads` shows each cold cell's size probe, tail, and entry spans, and each warm cell's `EntryCache` path with no request |
 
 ## Adoption
 
@@ -258,8 +333,18 @@ All gates run in Release.
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
    to its owner.
+6. Document demand and pull reads over ranged content, adopted by the exact
+   `package --content --out` export of a root `README.md` or
+   `skills/**/SKILL.md` path. The Browser/Wasm document viewer keeps
+   complete `Acquire` until Inspect Web adopts ranged access.
+7. `diff --history` realizes each version cell with ranged access: Metadata
+   cells with `Surface`, whose package Root prepares no implementation role,
+   and Analysis cells with `SurfaceAndImplementation`. A history over the
+   versions of a large package then reads each version's surface folder, or
+   its surface and implementation folders, instead of its whole archive, and
+   a repeated history reads nothing it already holds.
 
-`package` keeps complete acquisition.
+`package` keeps complete acquisition, except its document export (step 6).
 
 ## Non-claims
 

@@ -92,6 +92,32 @@ public sealed class LibraryBodyAnalysisRequest
             ImplementationMetricAnalysisRequest
                 .CompleteProfileCompatibility());
 
+    internal static LibraryBodyAnalysisRequest
+        CreateImplementationMetrics(
+            ImplementationMetricEvidenceKind evidence,
+            ImplementationMetricWorkLimits limits,
+            IReadOnlySet<int> bodyScope)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(bodyScope);
+        if (bodyScope.Count == 0)
+        {
+            throw new ArgumentException(
+                "Implementation metric body scope cannot be empty.",
+                nameof(bodyScope));
+        }
+        return new(
+            LibraryBodyAnalysisFeatures.None,
+            bodyScope,
+            bodyTypeScope: null,
+            resourceEffects: null,
+            includeResourceLifecycle: false,
+            new ImplementationMetricAnalysisRequest(
+                evidence,
+                limits,
+                ImplementationMetricRequestOrigin.Explicit));
+    }
+
     /// <summary>
     /// Selects Resource Occurrence Analysis with explicit admitted effect
     /// semantics. The producer is parameterized and therefore intentionally

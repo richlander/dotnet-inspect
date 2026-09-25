@@ -8,6 +8,7 @@ import {
   renderMemberNav,
   renderSourcePageActions,
   renderSourceResult,
+  sharedLeadingIndentationRanges,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -1038,15 +1039,21 @@ test("type source signature routes through the shared decompiler-taste-aware key
   }]);
 });
 
-test("declaration request identity separates scope and ignores decompiler taste", () => {
+test("type code view identity applies decompiler taste only to implementation source", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
   const requestKey = (parts: readonly string[], taste: readonly string[]) =>
     JSON.stringify([parts, taste]);
   const api = typeSourceSignature(jsonSerializer, packageContext, [], requestKey, "api-declarations");
   assert.notEqual(api, typeSourceSignature(jsonSerializer, packageContext, [], requestKey, "source"));
+  assert.notEqual(api, typeSourceSignature(
+    jsonSerializer, packageContext, [], requestKey, "decompiler-source"));
   assert.notEqual(api, typeSourceSignature(jsonSerializer, packageContext, [], requestKey, "all-declarations"));
   assert.equal(api, typeSourceSignature(
     jsonSerializer, packageContext, ["identifier-casing"], requestKey, "api-declarations"));
+  assert.notEqual(
+    typeSourceSignature(jsonSerializer, packageContext, [], requestKey, "decompiler-source"),
+    typeSourceSignature(
+      jsonSerializer, packageContext, ["identifier-casing"], requestKey, "decompiler-source"));
 });
 
 test("type source picker dispatches supported views without eager work", () => {
@@ -1055,6 +1062,8 @@ test("type source picker dispatches supported views without eager work", () => {
   const calls: string[] = [];
   bindPanel(root, recordingActions(calls));
   assert.deepEqual(calls, []);
+  picker.value = "decompiler-source";
+  picker.dispatch("change");
   picker.value = "api-declarations";
   picker.dispatch("change");
   picker.value = "all-declarations";
@@ -1062,6 +1071,7 @@ test("type source picker dispatches supported views without eager work", () => {
   picker.value = "unknown";
   picker.dispatch("change");
   assert.deepEqual(calls, [
+    "type-source-view:decompiler-source",
     "type-source-view:api-declarations",
     "type-source-view:all-declarations",
   ]);
@@ -1406,6 +1416,40 @@ test("source page actions render copy, open, and Explore for the page-owned grou
   assert.match(
     html,
     /id="explore-source"[^>]*title="Explore source options"[^>]*>Explore<\/button>/);
+  assert.match(html, /value="decompiler-source">Decompiler source<\/option>/);
+});
+
+test("decompiler source actions retain their selected view and Explore", () => {
+  const html = renderSourcePageActions({
+    source: {
+      provider: "decompiled",
+      provenance: inertStringFixture("dotnet-inspect"),
+      url: null,
+      pdbSourceLimitation: null,
+      text: "class JsonSerializer {}",
+    },
+    typeView: "decompiler-source",
+    copyButtonId: "copy-type-source",
+    escapeHtml,
+  });
+
+  assert.match(html, /value="decompiler-source" selected>Decompiler source<\/option>/);
+  assert.match(html, /id="explore-source"/);
+});
+
+test("decompiler source renders its dedicated loading state", () => {
+  const html = renderTypeSource({
+    item: jsonSerializer,
+    currentSignature: "decompiler",
+    sourceState: { status: "loading", signature: "decompiler" },
+    view: "decompiler-source",
+    escapeHtml,
+    highlightCSharp,
+  });
+
+  assert.match(html, /Decompiling type/);
+  assert.match(html, /directly from the selected library/);
+  assert.doesNotMatch(html, /SourceLink/);
 });
 
 test("source page actions disable copy until source is available", () => {
@@ -1466,7 +1510,7 @@ test("member source selection lowers every original fragment for display and cop
   assert.doesNotMatch(html, /public void M/);
 });
 
-test("member source restores Markout WriteHeading indentation for display and copy", () => {
+test("member source retains Markout WriteHeading indentation for exact text and copy", () => {
   const text =
     "/// <summary>\n"
     + "    /// Writes a heading at the specified level.\n"
@@ -1547,6 +1591,59 @@ test("member source restores Markout WriteHeading indentation for display and co
     memberSourceText(source, "Signature"),
     `    ${signature}`);
   assert.equal(memberSourceText(source, "Body"), `    ${body}`);
+});
+
+test("member source visual alignment collapses only indentation shared by every line", () => {
+  const text =
+    "        /// <inheritdoc />\n"
+    + "        public void Dispose()\n"
+    + "        {\n"
+    + "            return;\n"
+    + "        }";
+  const ranges = sharedLeadingIndentationRanges(text);
+
+  assert.deepEqual(
+    ranges,
+    [
+      { start: 0, length: 8 },
+      { start: 27, length: 8 },
+      { start: 57, length: 8 },
+      { start: 67, length: 8 },
+      { start: 87, length: 8 },
+    ]);
+
+  let receivedRanges: readonly { start: number; length: number }[] | undefined;
+  const html = renderSourceResult({
+    source: {
+      provider: "pdb",
+      provenance: inertStringFixture("SourceLink"),
+      url: "https://example.test/JsonDocument.cs",
+      pdbSourceLimitation: null,
+      text,
+    },
+    leftJustify: true,
+    escapeHtml,
+    highlightCSharp: (value, collapsedRanges) => {
+      receivedRanges = collapsedRanges;
+      return escapeHtml(value);
+    },
+  });
+
+  assert.deepEqual(receivedRanges, ranges);
+  assert.match(html, /<code class="language-csharp"> {8}\/\/\/ &lt;inheritdoc/);
+});
+
+test("member source visual alignment retains less-indented multiline literal text", () => {
+  const text =
+    "    public string Text() => @\"first\n"
+    + "  second\";";
+
+  assert.deepEqual(
+    sharedLeadingIndentationRanges(text),
+    [
+      { start: 0, length: 2 },
+      { start: 36, length: 2 },
+    ]);
 });
 
 test("member source indentation preserves multiline literal characters", () => {

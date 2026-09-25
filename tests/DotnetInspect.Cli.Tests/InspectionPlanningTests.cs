@@ -2925,11 +2925,19 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
+            SectionNames.Source,
+            result.Output);
+        Assert.Contains(
             SectionNames.DecompiledSource,
             result.Output);
-        Assert.Contains(SectionNames.IL, result.Output);
+        Assert.Contains(
+            SectionNames.PdbSource,
+            result.Output);
         Assert.DoesNotContain(
             SectionNames.AnnotatedSource,
+            result.Output);
+        Assert.DoesNotContain(
+            SectionNames.IL,
             result.Output);
         Assert.Empty(result.Error);
     }
