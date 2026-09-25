@@ -31,6 +31,7 @@ export interface HomeShellBindingActions {
   onDismissNotice: () => void;
   onOpenDemos: () => void;
   onOpenLibrary: () => void;
+  onRetryNotice: () => void;
   onToggleTheme: () => void;
 }
 
@@ -470,6 +471,8 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onToggleTheme);
   root.querySelector("#dismiss-notice")
     ?.addEventListener("click", actions.onDismissNotice);
+  root.querySelector("#retry-notice")
+    ?.addEventListener("click", actions.onRetryNotice);
   root.querySelector("#home-demos")
     ?.addEventListener("click", actions.onOpenDemos);
   root.querySelector("#home-open-library")

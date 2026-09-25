@@ -432,14 +432,16 @@ test("workbench search focus stays with the shell selector owner", () => {
     false);
 });
 
-test("home shell opens libraries and the product demo catalog", () => {
+test("home shell opens libraries, retries notices, and opens the product demo catalog", () => {
   const root = new FakeRoot();
   const theme = root.element();
   const dismiss = root.element();
+  const retry = root.element();
   const demos = root.element();
   const library = root.element();
   root.add("#home-theme", theme);
   root.add("#dismiss-notice", dismiss);
+  root.add("#retry-notice", retry);
   root.add("#home-demos", demos);
   root.add("#home-open-library", library);
   const calls: string[] = [];
@@ -448,6 +450,7 @@ test("home shell opens libraries and the product demo catalog", () => {
     onDismissNotice: () => calls.push("dismiss"),
     onOpenDemos: () => calls.push("demos"),
     onOpenLibrary: () => calls.push("library"),
+    onRetryNotice: () => calls.push("retry"),
     onToggleTheme: () => calls.push("theme"),
   });
 
@@ -459,6 +462,8 @@ test("home shell opens libraries and the product demo catalog", () => {
   assert.deepEqual(calls, ["theme", "dismiss", "demos"]);
   library.dispatch("click");
   assert.deepEqual(calls, ["theme", "dismiss", "demos", "library"]);
+  retry.dispatch("click");
+  assert.deepEqual(calls, ["theme", "dismiss", "demos", "library", "retry"]);
 });
 
 test("load error shell parses replacement packages and owns local detail state", () => {
@@ -519,6 +524,7 @@ test("shell bindings tolerate inactive surfaces", () => {
     onDismissNotice() {},
     onOpenDemos() {},
     onOpenLibrary() {},
+    onRetryNotice() {},
     onToggleTheme() {},
   }));
   assert.doesNotThrow(() => bindLoadErrorShell(root, {

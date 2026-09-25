@@ -2646,6 +2646,8 @@ kbd {
   cursor: pointer;
 }
 .query-notice button:hover { color: var(--text); }
+.query-notice button { flex-shrink: 0; }
+.query-notice #retry-notice { width: auto; padding: 0 7px; }
 .notice-stack:empty { display: none; }
 
 .loading-screen {
