@@ -546,14 +546,15 @@ public static class PackagePayloadAcquisition
             && payload.AdvertisedLength is { } advertised
             && advertised > gate)
         {
-            // Size first: abandon the response before its body.
+            // Size first: abandon the response before its body, ending its
+            // transfer so the handler doesn't drain the body.
             transfer?.Add(new(
                 PackageTransferRequestPurpose.SizeProbe,
                 null,
                 PackageTransferRequestOutcome.Abandoned,
                 advertised,
                 0));
-            await payload.Content.DisposeAsync().ConfigureAwait(false);
+            await payload.AbandonAsync().ConfigureAwait(false);
             return new PackageSourcePayloadResult.Oversized(advertised);
         }
 

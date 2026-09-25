@@ -171,6 +171,8 @@ as the
 step does today, including its fallback to the complete fetch when the
 ranged read fails. Otherwise, including when no length is advertised, the
 complete acquisition proceeds and publishes to the authority's store.
+An abandoned response ends its transfer: the step closes its connection
+rather than letting the HTTP handler drain the unread body to reuse it.
 
 The size cut is 1 MB of archive and applies to every package, platform
 packs included. An archive at or under it costs one request the first time

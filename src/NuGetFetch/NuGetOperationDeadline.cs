@@ -382,8 +382,71 @@ internal sealed class NuGetOperationDeadline : IDisposable
             or System.Text.Json.JsonException
             or NuGetSourceResponseException;
 
+    /// <summary>
+    /// Ends an abandoned response transfer instead of letting the HTTP
+    /// handler drain its unread body to reuse the connection. Content that
+    /// is not a streamed response is left to its ordinary disposal.
+    /// </summary>
+    internal static ValueTask AbandonTransferAsync(Stream content) =>
+        content is DeadlineStream response
+            ? response.AbandonTransferAsync()
+            : ValueTask.CompletedTask;
+
     private sealed class DeadlineStream : Stream
     {
+        /// <summary>
+        /// The most an abandonment reads from data already buffered before
+        /// it finds a read that must wait for the network.
+        /// </summary>
+        private const int MaxAbandonedBytes = 64 * 1024;
+
+        /// <summary>
+        /// Reads what has already arrived until a read has to wait, then
+        /// cancels that pending read. A cancelled in-flight read makes the
+        /// HTTP handler close the connection, so disposal afterwards cannot
+        /// drain the rest of the body. The connection is not reused.
+        /// </summary>
+        internal async ValueTask AbandonTransferAsync()
+        {
+            if (Volatile.Read(ref _endOfStream) != 0
+                || Volatile.Read(ref _disposeStarted) != 0)
+            {
+                return;
+            }
+
+            byte[] buffer = new byte[16 * 1024];
+            long consumed = 0;
+            while (consumed < MaxAbandonedBytes)
+            {
+                using var abandon = new CancellationTokenSource();
+                ValueTask<int> read;
+                try
+                {
+                    read = inner.ReadAsync(buffer, abandon.Token);
+                }
+                catch (Exception ex) when (IsStreamReadFailure(ex))
+                {
+                    return;
+                }
+
+                if (!read.IsCompleted)
+                    await abandon.CancelAsync().ConfigureAwait(false);
+                try
+                {
+                    int count = await read.ConfigureAwait(false);
+                    if (count == 0 || abandon.IsCancellationRequested)
+                        return;
+                    consumed += count;
+                }
+                catch (Exception ex) when (
+                    ex is OperationCanceledException
+                    || IsStreamReadFailure(ex))
+                {
+                    return;
+                }
+            }
+        }
+
         private readonly Stream inner;
         private readonly IDisposable owner;
         private readonly CancellationTokenSource requestCancellation;
