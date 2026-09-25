@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using DotnetInspector.Packages;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
