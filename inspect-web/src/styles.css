@@ -3312,7 +3312,7 @@ kbd {
 .home-bar-actions { display: flex; align-items: center; gap: 14px; }
 .home-link { color: var(--muted); font: 12px var(--mono); text-decoration: none; }
 .home-link:hover { color: var(--text); }
-#home-theme, #home-settings, #home-open-library {
+#home-theme, #home-settings {
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: transparent;
@@ -3321,13 +3321,9 @@ kbd {
   padding: 4px 10px;
   cursor: pointer;
 }
-#home-theme:hover, #home-settings:hover, #home-open-library:hover {
+#home-theme:hover, #home-settings:hover {
   color: var(--text);
   border-color: var(--text);
-}
-#home-open-library:disabled {
-  opacity: .55;
-  cursor: wait;
 }
 #home-settings { font-size: 13px; line-height: 1; padding: 4px 8px; }
 

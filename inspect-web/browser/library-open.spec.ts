@@ -84,11 +84,10 @@ test("global drop keeps managed-image rejection visible", async ({ page }) => {
 test("Open dismissal restores its logical invoker", async ({ page }) => {
   await installLibraryUploadFacades(page, "rejected");
   await page.goto("/");
-  await expect(page.locator("#home-open-library")).toBeEnabled();
-
-  await page.locator("#home-open-library").click();
+  await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/);
+  await openLibraryFromBrandMenu(page);
   await page.locator("#library-open-close").click();
-  await expect(page.locator("#home-open-library")).toBeFocused();
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 
   await page.goto(root);
   await waitForWorkspaceReady(page);

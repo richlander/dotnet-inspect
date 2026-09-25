@@ -1155,7 +1155,7 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
-type LibraryOpenReturnTarget = "home" | "product-navigation" | "surface";
+type LibraryOpenReturnTarget = "product-navigation" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -13948,8 +13948,6 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
         ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
-          <button id="home-open-library" type="button"
-            ${enginePending ? "disabled" : ""}>Open Library…</button>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
@@ -14022,7 +14020,6 @@ function homeArtSvg() {
 const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
-  onOpenLibrary: () => openLibraryDialog("home"),
   onRetryNotice: retryQueryNotice,
   onToggleTheme: toggleTheme,
 };
@@ -19211,10 +19208,7 @@ function closeLibraryDialog() {
   state.libraryOpenError = "";
   render({ synchronizeUrl: false });
   requestAnimationFrame(() => {
-    if (returnTarget === "home") {
-      document.querySelector<HTMLElement>("#home-open-library")
-        ?.focus({ preventScroll: true });
-    } else if (returnTarget === "product-navigation") {
+    if (returnTarget === "product-navigation") {
       restoreOrdinaryModalDismissFocus(() =>
         document.querySelector<HTMLElement>(
           "[data-product-navigation-button]")

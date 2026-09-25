@@ -30,7 +30,6 @@ export interface WorkbenchShellBinding {
 export interface HomeShellBindingActions {
   onDismissNotice: () => void;
   onOpenDemos: () => void;
-  onOpenLibrary: () => void;
   onRetryNotice: () => void;
   onToggleTheme: () => void;
 }
@@ -475,8 +474,6 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onRetryNotice);
   root.querySelector("#home-demos")
     ?.addEventListener("click", actions.onOpenDemos);
-  root.querySelector("#home-open-library")
-    ?.addEventListener("click", actions.onOpenLibrary);
 }
 
 export function bindLoadErrorShell(

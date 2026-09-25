@@ -851,7 +851,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: retryQueryNotice,[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
   assert.match(
     homeActions,
-    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onOpenLibrary: \(\) => openLibraryDialog\("home"\),\s*onRetryNotice: retryQueryNotice,\s*onToggleTheme: toggleTheme/);
+    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onRetryNotice: retryQueryNotice,\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
