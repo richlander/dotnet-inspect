@@ -452,8 +452,10 @@ public static class ResearchProducerSession
             ResearchTargetInputValidationEvidence evidence =
                 ResearchInputImageValidation.Capture(
                     source.Reader,
-                    occurrence);
-            access = ResearchInputImageValidation.Validate(evidence, occurrence)
+                    occurrence.TargetEvidence);
+            access = ResearchInputImageValidation.Validate(
+                    evidence,
+                    occurrence.TargetEvidence)
                 switch
                 {
                     ResearchTargetDiagnosticKind.AssemblyIdentityMismatch
