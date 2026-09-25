@@ -2,195 +2,164 @@
 
 ## Status and ownership
 
-This document owns the cross-version decompiler diff of one Member: the
-**Decompiler** mode of the
-[Inspect Web Compare Explore](inspect-web-compare-explore.md) destination,
-under the Compare tracker
-[#7213](https://github.com/richlander/dotnet-inspect/issues/7213) and the
-Implementation Diff adoption tracker
-[#4706](https://github.com/richlander/dotnet-inspect/issues/4706), step 9.
+This document owns the **Decompiler** mode of the
+[Inspect Web Compare Explore](inspect-web-compare-explore.md) destination: the
+Browser presentation of one
+[Annotated Source diff document](annotated-source-diff-document.md), under
+the Compare tracker
+[#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
 
 Its normative claim is:
 
-> For one Member diff destination, two independently resolved Annotated
-> Source documents, one per package version, produce one text diff per
-> medium through the product's shared text-diff presentation. The
-> Decompiler mode shows that diff in the diff viewer, C# or IL, with each
-> side's Finding annotations on its own lines, and without a Browser-side
-> matcher or a cross-version node correspondence.
+> The Decompiler mode presents one Annotated Source diff document as a
+> decompiled text diff in the diff viewer, C# or IL, with the document's fact
+> changes as code lenses on the lines they are about. It presents the
+> document and computes nothing: no comparison, no correspondence, and no
+> fact pairing.
+
+A diff is a representation and a presentation. The Annotated Source diff
+document is the representation, and this mode is one presentation of it.
 
 This owner defines:
 
-- the pairing of two per-version Annotated Source documents for one
-  destination, their independent resolution, and the pair's outcomes;
-- which document lines form each side's C# and IL sequences;
-- the comparison and presentation of those sequences through the shared
-  text-diff pipeline, and the lowering of Finding annotations onto the
-  diff;
-- the Decompiler mode's medium switch, annotation display, and destinations;
-  and
-- the mode's availability, lifetime, and retention, which Compare Explore
-  delegates to this owner.
+- the payload the mode needs from the document's Browser export;
+- the medium switch and its default;
+- code lenses: which fact pairs show, their text, their placement, and their
+  detail;
+- the mode's outcomes; and
+- the mode's lifetime and retention, which Compare Explore delegates.
 
 It consumes and does not redefine:
 
 | Owner | Contract consumed |
 | --- | --- |
-| [Inspect Web Compare Explore](inspect-web-compare-explore.md) | The Member diff destination, its endpoint coordinates and anchors, mode availability, and the full-bleed viewer |
-| Annotated Source member document query (`AnnotatedMemberDocumentQuery`) and [Annotated Source viewer interaction](annotated-source-viewer-interaction.md) | One version's complete annotated member document: text, media, nodes, and Findings; and the detail and action vocabulary for a Finding |
-| [Text whitespace characterization](text-whitespace-characterization.md) and [Text move characterization](text-move-characterization.md) | Whitespace-only and moved facts and the whitespace policy; decompiled → decompiled comparisons are whitespace-sensitive |
-| [Member source diff presentation](member-source-diff-presentation.md) | The shared Presentation lowering to `AnalysisDiff<string>`, statistics, characterization, and Markout `MappedTextDiff` |
-| [Inspect Web source-diff transport](inspect-web-source-diff-transport.md) | The bounded line-diff payload, including Markout annotations, and its admission |
+| [Annotated Source diff document](annotated-source-diff-document.md) | Sides and their outcomes, per-medium text comparisons and Too complex outcomes, line maps, and the fact comparison |
+| [Inspect Web Compare Explore](inspect-web-compare-explore.md) | The Member diff destination, mode availability, and the full-bleed viewer |
 | [Inspect Web diff viewer interaction](inspect-web-diff-viewer-interaction.md) | Rows, modes, navigation, and whitespace and move controls |
+| [Inspect Web source-diff transport](inspect-web-source-diff-transport.md) | The bounded line-diff payload shape and its admission |
+| [Member source diff presentation](member-source-diff-presentation.md) | The shared Presentation lowering of a text comparison to a Markout `MappedTextDiff` |
 | [Operation Authority](inspect-web-operation-authority.md) | Operation identity, cancellation, supersession, and publication |
 
 ## Why
 
-The authored Source diff compares what the author wrote. The decompiler diff
-compares what the compiler emitted, which answers different questions: did
-the code generation change, did an allocation or a throw path appear, did a
-call target move? It also exists for Members without PDB source and for
-compiler-generated shape, where no authored Source diff is possible.
+A decompiled text diff shows which lines changed. The Annotated Source diff
+document also says what those changes mean to the runtime: an allocation or
+a throw added, a call target changed. A code lens puts that meaning on the
+line it is about, the way an editor shows references or test status above a
+declaration, without mixing it into the text.
 
-The substrate exists but is not joined:
+## Payload
 
-- Annotated Source already produces one version's complete member document
-  in the Browser's engine Worker, with C# and IL media and Findings.
-- `WorkspaceImplementationComparisonQuery` compares one Member's decompiled
-  C# and IL across two versions for the CLI, but its C# lane compares
-  trimmed canonical body lines, a line-identity policy the whitespace
-  characterization plans to retire, and it produces no annotated documents.
-- `CSharpStructuralComparison` matches C# nodes by IL origin, which exists
-  only within one physical method body, so it cannot pair nodes across
-  versions.
+The document's Browser export (the document's adoption step ADD3) delivers
+one payload per destination, built in shared Presentation from the document,
+so the Browser neither compares nor lowers:
 
-Two per-version documents compared as text give both the diff and the
-annotations with no new matcher.
+- the two sides' outcomes and endpoint provenance;
+- per medium, either the source-diff transport payload lowered from that
+  medium's text comparison, or that medium's Too complex outcome; and
+- the lens list: every fact pair from the document's fact comparison, each
+  with its pair kind, descriptor, category, conditionality, the detail on
+  each side where present, and, for each side it has a fact on, that fact's
+  compared lines in each medium, resolved through the document's targets and
+  line maps; and, for a side with no fact comparison because the other side
+  is not Present, that side's own facts with their lines.
 
-## Pairing
+A side's lines in a medium are the sequence lines of that side, so a lens
+lands on rows through the coordinates the diff viewer already carries. The
+payload is admitted with the source-diff transport's limits per medium, plus
+a limit of 512 lenses; a document with more lenses shows its diff and states
+that lenses were omitted, never dropping some of them silently.
 
-For one destination, the pair resolves each present endpoint independently
-in its own retained package image, through the Annotated Source member
-document query, with the endpoint's coordinates and anchor exactly as the
-destination carries them. A side resolves or fails on its own; neither side's
-identity, text, or outcome informs the other.
+## Code lenses
 
-Both sides use the same decompiler style: the Settings preference in effect
-when the request starts. The pair records that style as part of its identity,
-so a style change starts a new pair rather than mixing styles.
+A lens is a short line above the first row of its lines, on the side it
+describes:
 
-| Pair outcome | Meaning |
+| Pair | Side | Lens text |
+| --- | --- | --- |
+| Added | After | `<category> added · <detail>`, such as `allocation added · List<int>` |
+| Removed | Before | `<category> removed · <detail>` |
+| Changed | Both | `<category> changed · <before detail> → <after detail>` |
+| Present | Both | Hidden by default; shown by **Show unchanged facts** as `<category> · <detail>` |
+
+A conditional fact adds its conditionality, as in **throw added · conditional
+· ArgumentException**. A lens whose fact has no line in the displayed medium
+is listed in the mode's lens summary instead of on a row. A fact about the
+Member header rather than its body appears in the lens summary.
+
+Activating a lens opens its detail inline, below the lens: the pair kind,
+descriptor, category, conditionality, each side's detail, and, for a Changed
+pair, the match that joined it. The detail offers no navigation; opening a
+side's Annotated Source from the diff is not part of this design.
+
+The lens summary heads the mode: counts of added, removed, and changed facts
+by category, such as **2 allocations added · 1 throw added**, with each entry
+moving focus to its first lens.
+
+Lenses are row decorations. The diff viewer renders caller-supplied
+decorations on side lines through its row model; that rendering is a
+prerequisite amendment to the diff viewer, recorded in the adoption steps
+below.
+
+## Medium and whitespace
+
+A **C# | IL** switch selects the medium; C# is the default. Both media are in
+one payload, so switching runs nothing. A medium with a Too complex outcome
+shows that outcome in place of its diff. The diff viewer's whitespace control
+defaults to **Mark**, since both sides are printer output.
+
+## Outcomes
+
+| Document | Mode shows |
 | --- | --- |
-| Compared | Both sides produced a document |
-| One-sided | One endpoint is absent from the relation, an added or removed Member; the present side's document is shown as source |
-| Unavailable | A present side has no document, with that side's typed reason; the other side's document remains available |
-| Failed | A side's query failed, with that side's typed failure |
-| Too complex | A medium's comparison exceeds the transport's admission profile |
-| Canceled | The request was superseded or canceled |
+| Both sides Present | The diff and lenses |
+| One side Absent | The present side as source in the selected medium, with its own facts as plain lenses, `<category> · <detail>`, since the document holds no fact comparison, beside **Not present on this side** |
+| Unavailable, NotApplicable, or Failed side | That side's typed reason; a present other side as source |
+| Query failed or canceled | The failure or **Canceled**, never an empty diff |
 
-## Sequences and comparison
-
-A medium's sequence is the document's lines of that medium, in document
-order, with each line's text exactly as the document holds it. The C#
-sequence is the C# lines; the IL sequence is the IL lines. A line of one
-medium never enters the other's sequence.
-
-For each medium, Presentation compares the two sequences' texts with the
-product's text comparison, characterizes the result for whitespace and
-moves, and lowers it with the labeled Markout lowering, exactly as the member
-source diff does. The two media are compared independently; the pair issues
-no correspondence between a C# line and an IL line or between Before and
-After nodes.
-
-## Annotations
-
-Each side's Findings become Markout annotations on that side's lines. A
-Finding anchored to a node of the displayed medium lowers to a span
-annotation on the node's line and characters; a Finding with no node in that
-medium is listed in the mode's side summary, not placed on a line. The
-Finding's severity maps to Markout's severity, and its text is the Finding's
-own short text. An annotation names its side, so the same Finding on both
-sides appears once on each.
-
-Annotations are evidence about one side. The diff never asserts that a
-Before Finding and an After Finding are the same Finding, and it never
-counts a Finding as added or removed. A future Finding census identity may
-supply that relation.
-
-Transport admission bounds annotations; a pair whose annotations exceed the
-admission profile shows the diff without them and says so, rather than
-dropping some silently.
-
-## Decompiler mode
-
-The mode shows the full-bleed host of the diff viewer over one medium's diff,
-with a **C# | IL** switch; C# is the default. The viewer's whitespace control
-defaults to **Mark**, since both sides are printer output. Annotation
-decorations appear on their lines; activating one opens that side's
-Annotated Source at the Finding, in a new browsing context, through the
-Annotated Source viewer's external-opening destination.
-
-A One-sided pair shows the present side's document lines as source in the
-selected medium, beside **Not present on this side**, never as additions or
-removals.
-
-The diff viewer renders transported annotations as row decorations; this is
-a prerequisite adoption step in the diff viewer (DV4 below), not a
-redefinition of its rows.
-
-## Availability, lifetime, and retention
-
-The mode is available for a destination when every present endpoint is a
-Member the Annotated Source member document query accepts. Compare Explore
-issues the destination's modes accordingly.
+## Lifetime and retention
 
 The mode starts its request when it first becomes active, under Operation
-Authority, for the exact destination, the retained Package model, and the
-decompiler style. Closing the viewer supersedes a pending request, and a late
-completion publishes nothing. A settled Compared, One-sided, or Unavailable
-result is retained for the life of the retained Package model under the
-request identity, so reopening Explore shows it without running again; a
-Failed, Too complex, or Canceled result is not retained. Switching medium
-within a settled result runs nothing.
+Authority, for the exact destination and the retained Package model. Closing
+the viewer supersedes a pending request, and a late completion publishes
+nothing. A settled result other than a failure or cancellation is retained
+for the retained Package model's life under the destination's request
+identity, so reopening Explore shows it without running again.
 
 ## Non-claims
 
 This design does not claim:
 
-- a cross-version C# node correspondence, or that equal decompiled text
-  means equal behavior;
-- that a Before Finding and an After Finding are the same Finding;
-- that the decompiled diff replaces the authored Source diff;
-- IL-to-C# correspondence across the two sides; or
-- a Browser-side matcher.
+- any comparison, correspondence, or fact pairing of its own;
+- that a lens's fact is the same runtime occurrence on both sides;
+- navigation from a lens to Annotated Source; or
+- a CLI presentation, which the document's own hosts define.
 
 ## Adoption
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
-| DD1 | The per-version pair and C# comparison in shared Presentation, a Browser Source-facade export over two package scopes following the authored-Source comparison pattern, transport adoption, and the Decompiler mode with the C# medium | Compare Explore's Decompiler mode |
-| DV4 | Diff viewer rendering of transported annotations as row decorations | The same mode |
-| DD2 | Finding annotations lowered onto the diff, and the IL medium | The same mode |
-| DD3 | A CLI consumer of the same Presentation pair, a Member-level decompiled diff section | The CLI `diff` command |
+| DV4 | Diff viewer amendment: caller-supplied decorations on side lines | Compare Explore's Decompiler mode |
+| DD1 | The Decompiler mode over the document's Browser export: medium switch, outcomes, lifetime | The same mode |
+| DD2 | Code lenses and the lens summary | The same mode |
 
-DD1 lands with a pinned real-package pair whose Member's decompiled body
-changed between versions. The Browser export and the CLI section consume one
-shared Presentation pair, so neither host owns comparison logic.
+DD1 follows the document's ADD1 and ADD3; DD2 follows ADD2. DD2 lands with a
+pinned real-package pair whose Member gains an allocation or a throw.
 
 ## Acceptance scenarios
 
-1. Open Explore for a changed method Member and switch to **Decompiler**;
-   confirm one request resolves both sides independently and shows the C#
-   diff in walk order, with **Mark** as the whitespace default.
-2. Switch to **IL** and confirm no request runs and only IL lines appear.
-3. Confirm each side's Findings appear on that side's lines, that a Finding
-   without a node in the medium appears in the side summary, and that
-   activating one opens that side's Annotated Source at the Finding.
-4. Open the mode for an added Member and confirm the present side shows as
-   source beside **Not present on this side**.
-5. Make one side's query fail and confirm the other side's document remains
-   available with the failure shown on the failed side.
-6. Change the decompiler style, reopen Explore, and confirm a new pair runs
-   rather than showing the result for the old style.
-7. Close and reopen Explore and confirm a settled Compared result shows
-   without running again.
+1. Open Explore for a changed method Member, switch to **Decompiler**, and
+   confirm the C# diff with **Mark** whitespace; switch to **IL** and confirm
+   no request runs.
+2. For a version that adds an allocation, confirm one **allocation added**
+   lens on the After row that holds it, and a summary entry that moves focus
+   to it.
+3. For a Changed pair, confirm one lens on each side with both details.
+4. Confirm Present facts are hidden until **Show unchanged facts**.
+5. Confirm a header fact and a fact without a line in the displayed medium
+   appear in the lens summary, not on a row.
+6. For an added Member, confirm the present side shows as source with its
+   facts as plain lenses beside **Not present on this side**.
+7. With a Too complex IL medium, confirm the C# diff and lenses still show.
+8. Close and reopen Explore and confirm a settled result shows without
+   running again.
