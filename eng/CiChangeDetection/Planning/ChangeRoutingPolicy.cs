@@ -210,7 +210,7 @@ internal sealed class ChangeRoutingPolicy
             "inspect-web/scripts/verify-multi-facade-canary.ts",
             "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
             "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
-            "inspect-web/DotnetInspect.Web.Core/BrowserManaged*");
+            "src/DotnetInspect.Web.Core/BrowserManaged*");
 
     private static void RouteLanes(
         ReadOnlySpan<byte> path,
