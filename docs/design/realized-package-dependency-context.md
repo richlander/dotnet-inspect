@@ -7,16 +7,19 @@ physical package participant and the package dependency evidence projected
 from that participant's exact retained content. Design and adoption are tracked
 by [#7401](https://github.com/richlander/dotnet-inspect/issues/7401).
 
+This is a legacy-path contract. New package consumers use
+[PackageHouse](package-house.md), and the PackageHouse adoption and retirement
+tracker [#6426](https://github.com/richlander/dotnet-inspect/issues/6426)
+moves existing CLI, Browser/Wasm, Workspace, and dependency consumers to that
+facade. Do not add new evidence or consumers here.
+
 The owner defines one host-neutral query, its detached result, and the
 construction invariant that binds physical package selection to outgoing
 dependency declarations. `RealizedPackageDependencyContextQuery` implements
-the package-dependency arm of that boundary in `DotnetInspector.Queries`.
-Selected shared-framework-reference evidence is the in-place evolution tracked
-by [#8504](https://github.com/richlander/dotnet-inspect/issues/8504) as a
-prerequisite of [#8466](https://github.com/richlander/dotnet-inspect/issues/8466).
-The owner does not own package acquisition, compile-asset selection, manifest
-projection, dependency-group selection, traversal, destination realization,
-Workspace policy, or host presentation.
+that boundary in `DotnetInspector.Queries`. It does not own package acquisition,
+compile-asset selection, manifest projection, dependency-group selection,
+dependency normalization, traversal, destination realization, Workspace
+policy, or host presentation.
 
 Adjacent owners retain their authority:
 
@@ -26,12 +29,9 @@ Adjacent owners retain their authority:
   outcome, and resource-free reacquisition request. [#7230](https://github.com/richlander/dotnet-inspect/issues/7230)
   stages retention of authorization independently from whether compatible
   fallback selected the implementation.
-- `PackageDependencyGroupsQuery` owns bounded manifest access and
+- `PackageManifestFactsProjection` owns bounded manifest parsing and facts;
+  `PackageDependencyGroupsQuery` owns root-manifest access and
   target-framework dependency-group selection.
-- `PackageManifestFactsQuery` owns bounded nuspec projection, manifest
-  identity, and manifest failures. Its focused
-  [#8513](https://github.com/richlander/dotnet-inspect/issues/8513)
-  evolution supplies raw framework-reference groups.
 - [Package Dependency Evidence](package-dependency-evidence.md) owns normalized
   declarations, selected-group identity and status, completion, and failures.
 - [Package Dependency Traversal](package-dependency-traversal.md) owns graph
@@ -51,11 +51,6 @@ Adjacent owners retain their authority:
 > Dependency declarations participate in realized-package traversal only
 > through one owner-issued context projected from the exact retained content
 > and selection intent of that physical package participant.
-
-Package dependencies and shared-framework references are independent
-declaration arms within that context. They share the physical package subject
-and caller selection intent, but they do not share source groups, selected
-group identities, completion, or downstream policy.
 
 The context prevents two individually valid but unrelated facts from being
 presented as one package variant. Equal package coordinates, framework text,
@@ -99,13 +94,6 @@ The query projects the package manifest from that same retained content through
 `PackageDependencyEvidenceQuery`. No caller-provided coordinate, TFM, manifest,
 group, or evidence root participates in construction.
 
-Under #8504, the context consumes #8513's complete ordered
-framework-reference groups from the same manifest observation. It selects one
-of those groups from the same `RootRequest` used for package dependencies and
-retains the resulting framework-reference evidence beside
-`PackageDependencyEvidenceRoot`. It does not accept a caller-projected
-framework group or a separately parsed manifest.
-
 ## Shared selection intent
 
 Package compile assets and manifest dependency groups remain independent
@@ -137,33 +125,6 @@ frameworks because a package may expose different asset and declaration-group
 sets. That is valid retained evidence. The context proves common content and
 selection intent, not selected-TFM equality.
 
-Framework-reference selection independently applies the same request:
-
-```text
-FrameworkReferenceGroupRequest.Target =
-  RootRequest.CompileTargetFramework
-
-FrameworkReferenceGroupRequest.AllowCompatibleFallback =
-  RootRequest.AllowsCompatibleTargetSelection
-```
-
-The framework-reference and package-dependency group sets are separate
-candidate populations. They may select different source target frameworks, and
-either may select an empty group while the other selects a non-empty group.
-Neither selection is inferred from the other.
-
-When the compile target is present, exact-only intent accepts only an
-equivalent target-framework group. Compatible intent follows NuGet's
-nearest-framework reduction over framework-reference groups, with source order
-retained when equal framework identities occur. The selected source group and
-its target remain visible.
-
-When the compile target is absent, framework-reference selection is
-`TargetUnavailable`. It does not choose the highest group. This deliberately
-differs from the dependency-group owner's package-local no-request default:
-shared-framework eligibility can change which external platform participates,
-so a targetless Root cannot safely promote one declaration group.
-
 The traversal target never enters this source-group selection independently. It
 may match the `RootRequest.CompileTargetFramework` because that target governed
 realization of this participant. For an explicitly selected hub, the Root's own
@@ -181,11 +142,6 @@ RealizedPackageDependencyContextResult
 RealizedPackageDependencyContext
   Subject: RealizedPackageDependencySubject
   Evidence: PackageDependencyEvidenceRoot
-  FrameworkReferences: PackageFrameworkReferenceEvidenceResult
-
-PackageFrameworkReferenceEvidenceResult
-  Available(PackageFrameworkReferenceEvidence)
-  Failed(PackageFrameworkReferenceFailure)
 ```
 
 `Available` includes every complete group-selection status:
@@ -207,57 +163,8 @@ evidence-root construction remains `Failed`. Once Package Dependency Evidence
 constructs a root, this owner does not reinterpret its completion or internal
 failures as context failure.
 
-The context also preserves the framework-reference section result supplied by
-Package Manifest Facts. A section-specific framework-reference failure remains
-the nested `FrameworkReferences.Failed` result, while valid package dependency
-evidence survives in the available context. A whole-manifest failure that
-prevents dependency evidence construction remains the existing outer
-`Failed`. Package Manifest Facts owns that failure-scope classification; this
-owner neither broadens it nor turns either failure scope into empty evidence.
-
 Cancellation follows the existing query cancellation contract and is not
 rewritten as package evidence.
-
-### Framework-reference evidence
-
-`PackageFrameworkReferenceEvidence` retains:
-
-- every owner-issued framework-reference group in manifest source order;
-- each group's canonical NuGet target-framework identity and contained source
-  spelling;
-- each non-empty, bounded framework-reference name, compared using NuGet's
-  ordinal-ignore-case framework-reference identity while retaining source
-  spelling;
-- the requested compile target and compatible-selection authorization copied
-  from `RootRequest`;
-- the selected source occurrence and selected target, when one group is
-  selected; and
-- one closed successful selection status:
-  `Selected`, `NoFrameworkReferenceGroups`,
-  `NoMatchingTargetFramework`, or `TargetUnavailable`.
-
-`Selected` includes a valid empty group. `NoFrameworkReferenceGroups` means the
-manifest declared no `<frameworkReferences>` groups. Neither state is a parse
-failure, and an explicit empty selected group does not fall through to another
-target's non-empty group.
-
-Manifest XML, group targets, reference names, and configured work bounds remain
-the manifest-facts provider's input contract. An unavailable or failed
-manifest projection cannot become complete-empty framework-reference evidence.
-The context preserves a framework-reference section failure as
-`FrameworkReferences.Failed`; a whole-manifest failure remains the existing
-outer `Unavailable` or `Failed` result.
-
-The evidence contains package-authored shared-framework names, not platform
-families, Ecosystem registrations, packs, Libraries, or assembly identities.
-In particular, `Microsoft.AspNetCore.App` is not rewritten to an `aspnetcore`
-family or used to infer that any `Microsoft.AspNetCore.*` assembly exists.
-Platform-family correspondence and exact Library membership belong to their
-own route inputs.
-
-The nuspec `<frameworkAssemblies>` element is a different legacy declaration
-for .NET Framework assembly references. This evolution reads only
-`<frameworkReferences>` and does not combine the two forms.
 
 ## Association and identity
 
@@ -266,9 +173,7 @@ The `RealizedPackageDependencyContext` value is the association. It retains:
 - the acquisition owner's exact reacquisition request;
 - the process-local content-generation and selection identities; and
 - Package Dependency Evidence's exact package root, selected-group occurrence,
-  declarations, completion, and failures; and
-- the independent framework-reference groups, selection, and completion
-  projected from the same retained manifest observation.
+  declarations, completion, and failures.
 
 The package coordinate appears in both owner-issued sides and must agree during
 construction, but coordinate equality alone is not correspondence. The content
@@ -329,21 +234,6 @@ that exact asset selection so the group owner can select the valid compatible
 declarations. Whether asset fallback happened cannot substitute for the
 authorization.
 
-`Microsoft.Azure.SignalR@1.33.1` adds the framework-reference boundary. Its
-manifest declares:
-
-- a `net8.0` framework-reference group containing
-  `Microsoft.AspNetCore.App`; and
-- an explicit empty `.NETStandard2.0` framework-reference group.
-
-An exact `net8.0` Root therefore retains a selected `net8.0` group and one
-framework reference. An exact `netstandard2.0` Root retains a selected empty
-group; it does not inherit the `net8.0` declaration. A compatible request above
-`net8.0` may select that group only when the Root request authorizes compatible
-target selection. Those results are package evidence only: whether
-`Microsoft.AspNetCore.App` corresponds to an eligible platform family remains
-an external route decision.
-
 Observed with production `dotnet-inspect` 0.25.0:
 
 ```console
@@ -363,25 +253,6 @@ dependency declarations selected for the same restore target. The context
 preserves that conventional association when inspection keeps physical package
 selection and dependency evidence in separately owned models.
 
-For framework references, NuGet's
-[`NuspecUtility.GetFrameworkReferenceGroups`](https://github.com/NuGet/NuGet.Client/blob/eb4a66f19ad6cbc62fda8be20b7bdc8c72746efd/src/NuGet.Core/NuGet.Packaging/Core/NuspecUtility.cs)
-parses required target-specific groups and compares framework-reference names
-ordinal-ignore-case. Restore's
-[`LockFileUtils.AddFrameworkReferences`](https://github.com/NuGet/NuGet.Client/blob/eb4a66f19ad6cbc62fda8be20b7bdc8c72746efd/src/NuGet.Core/NuGet.Commands/RestoreCommand/Utility/LockFileUtils.cs)
-uses `GetNearest(projectFramework)` to select a group. This owner follows that
-group-reduction convention when compatible selection is authorized. It
-additionally preserves the selected source occurrence, complete-empty state,
-and binding association because detached inspection evidence must remain
-interpretable after the physical package closes.
-
-Two selection divergences are deliberate. Unlike restore's unconditional
-nearest-group reduction, an exact-only Root reports
-`NoMatchingTargetFramework` rather than taking a compatible group. A targetless
-Root reports `TargetUnavailable` rather than ranking groups without a project
-framework. Both preserve the caller-authorization contract already issued by
-the Root owner and prevent package metadata alone from activating an external
-platform.
-
 The inspection-specific divergence is detached evidence. A real restore graph
 normally remains attached to one restore result; dotnet-inspect may close the
 physical Workspace while retaining the exact historical association for
@@ -398,12 +269,6 @@ silently move to another package occurrence.
 | --- | --- |
 | Construction projects dependency evidence from the binding's exact retained content and accepts no independently produced evidence root. | `ExecuteAsync_DoesNotExchangeEqualCoordinateContexts`. |
 | Group selection receives the Root request's compile target and compatible-selection authorization, independently from whether asset fallback was used; selected asset and group frameworks may differ without losing either outcome. | `ExecuteAsync_UsesFrozenRootSelectionIntent`. |
-| `Microsoft.Azure.SignalR@1.33.1` selects `Microsoft.AspNetCore.App` for `net8.0` and an explicit empty framework-reference group for `netstandard2.0`. | `MicrosoftAzureSignalR_FrameworkReferencesFollowRootSelectionIntent` — required by #8504. |
-| Framework-reference selection uses the Root compile target and compatible authorization independently from dependency-group and asset selection. | `FrameworkReferences_UseFrozenRootSelectionIntent` — required by #8504. |
-| Selected empty, no framework-reference groups, no matching framework, target unavailable, manifest unavailable, and manifest failure remain distinct. | `FrameworkReferences_PreserveClosedSelectionAndFailureStates` — required by #8504. |
-| A framework-reference section failure remains nested failure while valid package dependency evidence survives; a whole-manifest failure remains outer context failure. | `FrameworkReferences_PreserveProviderFailureScope` — required by #8504. |
-| Framework-reference names compare ordinal-ignore-case while retaining source spelling; groups retain source order and selected occurrence. | `FrameworkReferences_PreserveNuGetIdentityAndOccurrence` — required by #8504. |
-| Framework-reference evidence grants no platform family, Library, assembly, or precedence claim. | `FrameworkReferences_RemainPackageEvidenceOnly` — required by #8504. |
 | Polly.Core `netstandard2.0` retains its four declarations and direct assembly references; compatible `net12.0` realization retains the selected empty `net8.0` group as a separate context. | `PollyCore_RetainsSourceDeclarationsAndCompatibleEmptyGroup` plus deterministic selection cases. |
 | Selected empty, no dependency groups, no matching framework, no manifest, and dependency-group failure remain distinct result arms. | `ExecuteAsync_PreservesClosedResultAlgebra`. |
 | A selected group containing one surviving declaration and one conflicting declaration produces an available incomplete context that retains both the usable edge and typed declaration failure. | `ExecuteAsync_RetainsIncompleteSelectedEvidence`; `Traversal_RealizedIncompleteContextRetainsSurvivingEdgeAndFailure`. |
@@ -412,51 +277,20 @@ silently move to another package occurrence.
 | Reissuing the query produces a new selection and context; same retained content preserves generation identity while replacement content changes it. | `ExecuteAsync_ReissuesContextForSameAndReplacementGenerations`; independent-Workspace reacquisition remains unverified. |
 | Traversal preserves the complete context for shared nodes, revisits, cycles, and selected-empty sources. | `Traversal_EqualCoordinateRealizedContextsRemainDistinct`; `Traversal_RootRelativeDepthDoesNotUseGlobalVisitedSet`; `Traversal_CycleRetainsClosingEdgeAndTerminates`; `Traversal_RealizedPollyContextsPreservePackageSelectionUnderDefaultTarget`. |
 
-## Production adoption
+## Legacy adoption and retirement
 
-Issue #7401 is the end-to-end tracker. There are eight capability steps:
+Issue #7401 delivered this context for the legacy Root and traversal path.
+PackageHouse tracker #6426 now owns migration of package Root construction,
+dependency realization, shared Workspace orchestration, CLI, and Browser/Wasm
+to House requests, results, and receipts. The component-placement inventory
+and final `DotnetInspector.Queries`/`DotnetInspector.PackageQueries`
+disposition remain tracked by
+[#6432](https://github.com/richlander/dotnet-inspect/issues/6432).
 
-1. Artifact Acquisition preserves compatible target-selection authorization
-   independently from observed compatible implementation fallback under #7230.
-2. `RealizedPackageDependencyContextQuery` implements the host-neutral context
-   query and result algebra in `DotnetInspector.Queries`.
-3. The query accepts the exact live `PackageRootBinding` and projects through
-   `PackageDependencyGroupsQuery` over that binding's retained package content.
-4. Package Dependency Traversal consumes and retains the context for realized
-   source expansion without reselecting its dependency group.
-5. Package Dependency Traversal retains one
-   `TraversalTargetFrameworkPolicy` and uses its target for compatible
-   candidate-manifest selection without replacing the root selection.
-6. [Package dependency edge
-   realization](package-dependency-edge-realization.md) combines each admitted
-   resolved edge with exact destination PackageHouse realization and optional
-   #6228 Platform subsumption.
-7. Workspace composition batches those edge results, retains destination
-   Package Root lifetimes, and emits package or Platform call-graph routes.
-8. Retain the shared result through CLI and Browser/Wasm call-graph
-   experiences. Inspect Web keeps its package TFM as the root/member selection
-   contract and adds an independent call-graph traversal-TFM selector defaulted
-   to `net12.0`.
-
-The shared query is not complete product behavior until both production hosts
-consume the same association. Each adjacent owner adopts it in a focused
-follow-up effort; this document does not redefine their internals.
-
-Framework-route adoption under #8466 and the shared ladder tracker #6288 has
-seven owner-separated slices:
-
-1. #8506 locks the Assembly Reference Resolution Ladder's association contract
-   (complete).
-2. #8513 adds bounded framework-reference groups to package manifest facts.
-3. #8504 retains selected framework-reference evidence in this context.
-4. #8503 supplies exact platform package-to-Library correspondence.
-5. the Assembly Reference Resolution Ladder composes framework eligibility,
-   correspondence, and pruning after a context miss.
-6. Workspace realizes and publishes the selected platform closure as an
-   immutable replacement generation.
-7. Browser/Wasm resolution-requiring operations consume the shared
-   continuation under #8466; CLI consumers use the same ladder under #6288.
-   Neither host performs local nuspec parsing or group selection.
+During migration, existing consumers may continue to read this context, but
+they receive no new framework-reference, platform-route, or House evidence.
+Each consumer retires this dependency when its PackageHouse replacement lands;
+no adapter reconstructs the context from equal House display data.
 
 ## Non-goals
 
@@ -464,10 +298,6 @@ seven owner-separated slices:
 - Defining Artifact Acquisition's representation of compatible-selection
   authorization or outcome.
 - Selecting dependency groups or changing NuGet compatibility.
-- Mapping a framework-reference name to a platform family, pack, Library, or
-  assembly.
-- Applying platform/package pruning or deciding external route precedence.
-- Parsing `<frameworkAssemblies>` as shared-framework declarations.
 - Choosing a traversal target or realizing a destination Root.
 - Merging declarations from several dependency groups.
 - Resolving dependency version ranges or acquiring destination packages.
