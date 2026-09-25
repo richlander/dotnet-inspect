@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -510,6 +512,29 @@ public sealed class InspectionGraphDocumentTests
                         occurrence.Evidence).Identity)
                 .Distinct()
                 .Count());
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            CallGraphInspectionJson.Write(writer, document);
+        }
+        using JsonDocument json = JsonDocument.Parse(stream.ToArray());
+        string[] sourceReceipts =
+        [
+            .. json.RootElement
+                .GetProperty("occurrences")
+                .EnumerateArray()
+                .Select(occurrence => occurrence
+                    .GetProperty("evidence")
+                    .GetProperty("sourceReceiptEvidence")
+                    .GetString()!),
+        ];
+        Assert.Equal(2, sourceReceipts.Distinct().Count());
+        Assert.All(
+            sourceReceipts
+                .GroupBy(receipt => receipt)
+                .Select(group => group.Count()),
+            count => Assert.Equal(2, count));
     }
 
     static void AssertCharacteristic(

@@ -328,6 +328,13 @@ internal sealed record CallGraphJsonType(
     int GenericParameterIndex,
     string GenericParameterName,
     string UnsupportedReason,
+    CallGraphJsonType? UnmodifiedType,
+    CallGraphJsonType? ModifierType,
+    bool IsRequiredModifier,
+    CallGraphJsonFunctionPointer? FunctionPointer,
+    int[] ArraySizes,
+    int[] ArrayLowerBounds,
+    byte RawTypeKind,
     CallGraphJsonMetadataNameFailure? MetadataNameFailure,
     CallGraphJsonTypeResolution? Resolution,
     bool TrustedFrameworkAssembly,
@@ -347,6 +354,19 @@ internal sealed record CallGraphJsonType(
             type.GenericParameterIndex,
             type.GenericParameterName,
             type.UnsupportedReason,
+            type.UnmodifiedType is { } unmodifiedType
+                ? From(unmodifiedType)
+                : null,
+            type.ModifierType is { } modifierType
+                ? From(modifierType)
+                : null,
+            type.IsRequiredModifier,
+            type.FunctionPointerSignature is { } functionPointer
+                ? CallGraphJsonFunctionPointer.From(functionPointer)
+                : null,
+            [.. type.ArraySizes],
+            [.. type.ArrayLowerBounds],
+            type.RawTypeKind,
             type.MetadataNameFailure is { } failure
                 ? CallGraphJsonMetadataNameFailure.From(failure)
                 : null,
@@ -355,6 +375,29 @@ internal sealed record CallGraphJsonType(
                 : null,
             type.TrustedFrameworkAssembly,
             type.TrustedProtobufAssembly);
+}
+
+internal sealed record CallGraphJsonFunctionPointer(
+    string CallingConvention,
+    byte SignatureHeader,
+    bool IsInstance,
+    bool HasExplicitThis,
+    int GenericParameterCount,
+    int RequiredParameterCount,
+    CallGraphJsonType[] ParameterTypes,
+    CallGraphJsonType ReturnType)
+{
+    internal static CallGraphJsonFunctionPointer From(
+        System.Reflection.Metadata.MethodSignature<TypeRef> signature) =>
+        new(
+            signature.Header.CallingConvention.ToString(),
+            signature.Header.RawValue,
+            signature.Header.IsInstance,
+            signature.Header.HasExplicitThis,
+            signature.GenericParameterCount,
+            signature.RequiredParameterCount,
+            [.. signature.ParameterTypes.Select(CallGraphJsonType.From)],
+            CallGraphJsonType.From(signature.ReturnType));
 }
 
 internal sealed record CallGraphJsonMetadataNameFailure(
@@ -641,6 +684,7 @@ internal sealed record CallGraphJsonEvidence(
     string Kind,
     int? RowNumber,
     bool? IdentityPortable,
+    string? SourceReceiptEvidence,
     Guid? CallerModuleVersionId,
     int? CallerMethodToken,
     int? IlOffset,
@@ -664,6 +708,8 @@ internal sealed record CallGraphJsonEvidence(
                     evidence,
                     "CallSite",
                     identityPortable: callSite.Identity.IsPortable,
+                    sourceReceiptEvidence:
+                        callSite.Identity.SourceReceiptEvidence,
                     callerModuleVersionId:
                         callSite.CallerModuleVersionId,
                     callerMethodToken: callSite.CallerMethodToken,
@@ -695,6 +741,7 @@ internal sealed record CallGraphJsonEvidence(
         string kind,
         int? rowNumber = null,
         bool? identityPortable = null,
+        string? sourceReceiptEvidence = null,
         Guid? callerModuleVersionId = null,
         int? callerMethodToken = null,
         int? ilOffset = null,
@@ -711,6 +758,7 @@ internal sealed record CallGraphJsonEvidence(
             kind,
             rowNumber,
             identityPortable,
+            sourceReceiptEvidence,
             callerModuleVersionId,
             callerMethodToken,
             ilOffset,

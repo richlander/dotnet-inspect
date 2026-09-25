@@ -793,6 +793,62 @@ public class MemberCallGraphSectionTests
         Assert.Empty(result.Error);
     }
 
+    [Theory]
+    [InlineData("UseCdeclStore", "CDecl")]
+    [InlineData("UseStdcallStore", "StdCall")]
+    public async Task
+        CallGraphSection_JsonPreservesFunctionPointerCallingConvention(
+            string memberName,
+            string expectedConvention)
+    {
+        string callerPath =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string targetPath =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(
+                new MemberOptions
+                {
+                    TypeName = "Shared.Entry",
+                    AssemblyPath = callerPath,
+                    MemberFilter = [memberName],
+                    CallerScopeDirectories =
+                        [Path.GetDirectoryName(targetPath)!],
+                    Select = [SectionNames.CallGraph],
+                    IncludeSections = [SectionNames.CallGraph],
+                    ExactIncludeSectionsOverride = [SectionNames.CallGraph],
+                    MemberSectionsPreResolved = true,
+                    OverloadIndex = 1,
+                    JsonOutput = true,
+                    FormatExplicitlySet = true,
+                    TipLevel = TipLevel.Quiet,
+                    Verbosity = Verbosity.Normal,
+                }));
+
+        Assert.Equal(0, result.ExitCode);
+        using var document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        System.Text.Json.JsonElement store =
+            Assert.Single(
+                document.RootElement
+                    .GetProperty("nodes")
+                    .EnumerateArray()
+                    .Select(node => node
+                        .GetProperty("subject")
+                        .GetProperty("member")
+                        .GetProperty("member")),
+                member =>
+                    member.GetProperty("name").GetString()
+                        == "Store");
+        System.Text.Json.JsonElement functionPointer =
+            store.GetProperty("parameterTypes")[0]
+                .GetProperty("functionPointer");
+        Assert.Equal(
+            expectedConvention,
+            functionPointer.GetProperty("callingConvention").GetString());
+        Assert.Empty(result.Error);
+    }
+
     [Fact]
     public async Task CallGraphSection_CompleteJsonRejectsRowWindow()
     {
