@@ -9,10 +9,11 @@ import {
   type PackageInspectionState,
   type PackagePerformance,
 } from "../src/package-inspection.ts";
-import type {
-  AppMemberSurface,
-  AppPackage,
-  AppTypeSurface,
+import {
+  packageQueryAssemblyId,
+  type AppMemberSurface,
+  type AppPackage,
+  type AppTypeSurface,
 } from "../src/package-acquisition.ts";
 import type {
   BrowserPackageDependencies,
@@ -399,6 +400,43 @@ test("Library References does not acquire other workspace dependencies", async (
     }));
   await coordinator.loadDependencies(selected, "library:references");
   assert.deepEqual(calls, ["Example.Package#example-package"]);
+});
+
+test("dependency queries scope a truncated package to its selected compile asset", async () => {
+  // A surface truncated to no assembly keeps navigation at the package root
+  // (`assemblyId` is empty) but the engine's selected-library dependency query
+  // still needs the selected compile asset rather than a blank identity.
+  const truncated = packageModel({
+    id: "OpenAI",
+    assemblyId: "",
+    assembly: "",
+    assemblyAsset: "",
+    selectedCompileAssetId: "lib/net10.0/OpenAI.dll",
+  });
+  const rootOnly = packageModel({
+    id: "Root.Only",
+    assemblyId: "",
+    assembly: "",
+    assemblyAsset: "",
+  });
+  const state = inspectionState({ packages: [truncated, rootOnly] });
+  const calls: string[] = [];
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async pkg => {
+        // The engine adapter sends `packageQueryAssemblyId` of what the coordinator passes.
+        calls.push(`${pkg.id}#${packageQueryAssemblyId(pkg)}`);
+        return dependencyResult(pkg.id);
+      },
+    }));
+
+  await coordinator.loadDependencies(truncated, "dependencies");
+  await coordinator.ensureWorkspaceDependencies();
+
+  assert.equal(calls[0], "OpenAI#lib/net10.0/OpenAI.dll");
+  assert.deepEqual(
+    [...new Set(calls)].sort(),
+    ["OpenAI#lib/net10.0/OpenAI.dll", "Root.Only#"]);
 });
 
 type PackageInspectionCoordinator =

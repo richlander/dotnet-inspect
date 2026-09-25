@@ -703,7 +703,7 @@ public sealed class MethodSemanticsRowReaderTests
         Assert.Equal(rowNumber, result.RowNumber);
     }
 
-    static void PatchMethodRow(
+    internal static void PatchMethodRow(
         byte[] image,
         uint methodRow,
         int rowIndex = 0)
@@ -718,7 +718,7 @@ public sealed class MethodSemanticsRowReaderTests
             methodRow);
     }
 
-    static void PatchAssociation(
+    internal static void PatchAssociation(
         byte[] image,
         uint encodedAssociation,
         int rowIndex = 0)
@@ -817,7 +817,7 @@ public sealed class MethodSemanticsRowReaderTests
     static PEReader Open(byte[] image)
         => new(ImmutableArray.Create(image));
 
-    static byte[] BuildImage(
+    internal static byte[] BuildImage(
         int methodCount = 0,
         int propertyCount = 0,
         int eventCount = 0,
@@ -953,7 +953,7 @@ public sealed class MethodSemanticsRowReaderTests
         return image.ToArray();
     }
 
-    readonly record struct RawSemanticsRow(
+    internal readonly record struct RawSemanticsRow(
         int MethodRow,
         MethodSemanticsAssociationKind AssociationKind,
         int AssociationRow,
