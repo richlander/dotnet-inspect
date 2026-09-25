@@ -60,7 +60,7 @@ It does not own:
   availability;
 - immersive Diff or Clone viewer internals;
 - the separately owned method-body and paired authored-Source comparison
-  evidence reused by immersive viewers; or
+  evidence shown inline and in immersive viewers; or
 - page-level shell, navigation-pane, action-row, responsive, or data-bar
   placement.
 
@@ -86,6 +86,11 @@ Compare consumes, without redefining:
 - current-view work identity, cancellation, supersession, and result
   publication from
   [Inspect Web Operation Authority](inspect-web-operation-authority.md); and
+- the paired authored-Source comparison from
+  [Selected member source pair query](member-source-pair-query.md), delivered
+  by [Inspect Web source-diff transport](inspect-web-source-diff-transport.md)
+  and rendered by
+  [Inspect Web diff viewer interaction](inspect-web-diff-viewer-interaction.md);
 - optional owner-issued immersive destinations whose viewer interaction is
   separately owned.
 
@@ -269,27 +274,54 @@ Authored Source     inline diff viewer                   Explore
 
 - **What changed** renders the relation's classified changes. When the
   relation has none, it says the change belongs to the containing Type.
-- **Before** and **After** name each endpoint's version and Member. A present
-  endpoint is a link when an owner-issued navigation destination for that
-  exact Member at that endpoint exists; activating it opens the Member there.
-  An absent endpoint says **Not present on this side** and is not a link. The
-  card never builds a destination from its displayed text.
+- **Before** and **After** name each endpoint's version and Member. An absent
+  endpoint says **Not present on this side** and is not a link. A present
+  endpoint is a link only through an owner-issued destination, never one
+  built from displayed text:
+  - The **After** endpoint is the current subject in the retained Package
+    model, so its card opens that Member through the Member lens
+    destinations Inspection Subject Navigation already issues for it.
+  - The **Before** endpoint is the Diff baseline version, which is not the
+    retained Package model. Its card is a link only when Navigation issues a
+    canonical location for that package version and exact Member anchor. The
+    link opens a new browsing context, so this Compare state is kept. Until
+    Navigation issues that location, the Before card is not a link; that
+    issuance is a recorded prerequisite, not a Compare concern.
 - **Authored Source** appears only when the relation carries an owner-issued
-  Member diff destination. Fetching authored Source for both endpoints is
-  network work, so the section first offers one explicit **Compare authored
-  Source** action; activating it runs the paired authored-Source comparison
-  for the destination's exact endpoints and anchors and shows the result in
-  the embedded host of the
-  [Diff viewer interaction](inspect-web-diff-viewer-interaction.md). The
-  settled result is retained with the other Compare-local state, so returning
-  to the Member does not ask again. An endpoint without authored Source shows
-  its typed reason in the viewer's frame; the section never substitutes
-  decompiled text or an empty diff.
-- **Explore** sits in the Authored Source section header and opens the Member
-  diff destination owned by
-  [Inspect Web Compare Explore](inspect-web-compare-explore.md). It appears
-  when that destination is issued, whether or not authored Source was
-  requested, because Explore owns modes that do not need it.
+  Member diff destination whose present endpoints are method anchors, the
+  domain of the paired authored-Source query. Fetching authored Source for
+  both endpoints is network work, so the section first offers one explicit
+  **Show authored Source diff** action; activating it runs the paired
+  comparison for the destination's exact endpoints and anchors and shows the
+  result in the embedded host of the
+  [Diff viewer interaction](inspect-web-diff-viewer-interaction.md). An
+  absent endpoint shows **Not present on this side** from the relation, not
+  the query's unrequested outcome; an endpoint without authored Source shows
+  its typed reason. The section never substitutes decompiled text or an
+  empty diff.
+- **Explore** opens the Member diff destination owned by
+  [Inspect Web Compare Explore](inspect-web-compare-explore.md) and appears
+  whenever that destination is issued, whether or not authored Source was
+  requested, because Explore owns modes that do not need it. It sits in the
+  Authored Source section header when that section is present, and otherwise
+  in the What changed section header.
+
+The inline comparison runs under
+[Operation Authority](inspect-web-operation-authority.md), keyed by the exact
+Member diff destination, the retained Package model, and the Diff result it
+was issued from. Changing the Package Diff baseline, replacing the Diff
+result, replacing or removing the Package model, or navigating away from the
+Member supersedes a pending comparison, and its late completion publishes
+nothing. A settled successful or identical result is retained under the same
+key, so returning to the Member shows it without asking again; it is
+discarded when the Diff result is replaced, the baseline changes, or the
+Package model is replaced or removed. A failed, rejected, or canceled result
+is not retained, and the action offers it again. Explore may use a retained
+result for the same key instead of running the comparison again.
+
+A property, field, or event Member has no Authored Source section until a
+product-issued accessor-level comparison exists; its What changed section and
+endpoint cards remain.
 
 Member Diff shows no section whose evidence has no issued producer: it adds no
 placeholder, disabled section, or "not available yet" pane.
@@ -304,7 +336,9 @@ The legacy contextual **Compare method bodies** and
 **Compare authored source** actions and dialogs are retired under
 [#6491](https://github.com/richlander/dotnet-inspect/issues/6491). Their
 managed method-body and paired authored-Source evidence remains separately
-owned substrate that an immersive Omni destination may consume. Compare does
+owned substrate that the inline Authored Source section and immersive
+destinations consume; the inline section is part of the Member Diff
+composition, not a revival of the retired dialog. Compare does
 not recreate the retired dialogs or treat representation comparison and
 cross-version comparison as interchangeable.
 
@@ -461,10 +495,11 @@ Member Clone detail. No checked clone relation is issued yet, so Member Clone
 labels its retrieval similarity and states that no relation was issued. Stage
 9 issues the Member Diff destination; its Explore viewer is replaced under
 [Inspect Web Compare Explore](inspect-web-compare-explore.md). Stage 10 is the
-inline Member Diff composition above: endpoint links, the explicit Authored
-Source comparison in the embedded
+inline Member Diff composition above: the After endpoint link, the Before
+endpoint link once Navigation issues its canonical location, the explicit
+Authored Source comparison in the embedded
 [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) host, and
-Explore in that section's header. Compare still advertises no whole-Type
+Explore placement. Compare still advertises no whole-Type
 action.
 
 The stage-3 Navigation capability follows Navigation's existing shared
@@ -516,16 +551,26 @@ behavior.
     complete returned snapshot and aligns history before presenting the
     semantic outcome, without installing the rejected descendant or treating
     the drill-down as applied.
-12. Open Member Compare Diff for a changed Member whose endpoints both have
-    authored Source. Confirm that What changed, both endpoint cards, and the
-    Authored Source section appear in that order; that each present endpoint
-    card opens the exact Member at its version; that no comparison runs until
-    **Compare authored Source** is activated; and that the result then renders
+12. Open Member Compare Diff for a changed method Member whose endpoints both
+    have authored Source. Confirm that What changed, both endpoint cards, and
+    the Authored Source section appear in that order; that the After card
+    opens the Member through its issued lens destination; that the Before
+    card is a link only when Navigation issues its canonical location, and
+    then opens a new browsing context; that no comparison runs until
+    **Show authored Source diff** is activated; and that the result renders
     in the embedded diff viewer and is still shown after navigating away and
     back to the Member.
-13. Open Member Compare Diff for an added Member. Confirm that the Before card
-    says **Not present on this side** and is not a link, and that no
-    placeholder section appears for evidence without an issued producer.
-14. Confirm that Explore appears in the Authored Source section header only
-    when the Member diff destination is issued, and that it appears before
-    authored Source is requested.
+13. Activate **Show authored Source diff**, then change the Package Diff
+    baseline while the comparison is pending and again after it settles.
+    Confirm that the pending completion publishes nothing, that the settled
+    result is discarded, and that the section offers the action again for
+    the new result. Confirm that a failed comparison is not retained.
+14. Open Member Compare Diff for an added Member. Confirm that the Before card
+    and the Before side of the inline diff say **Not present on this side**,
+    that the card is not a link, and that no placeholder section appears for
+    evidence without an issued producer.
+15. Open Member Compare Diff for a changed property Member. Confirm that no
+    Authored Source section appears and that Explore, when its destination is
+    issued, sits in the What changed section header.
+16. Confirm that Explore appears only when the Member diff destination is
+    issued, and that it appears before authored Source is requested.
