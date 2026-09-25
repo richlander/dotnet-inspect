@@ -315,6 +315,31 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
   harness.host.dispose();
 });
 
+test("Type Source Worker forwards an explicit decompiler view", async () => {
+  const calls: unknown[][] = [];
+  const facade: EngineWorkerTypeSourceFacade = {
+    queryTypeSource: (...args) => {
+      calls.push(args);
+      return Promise.resolve(succeeded());
+    },
+    cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
+  };
+  const harness = createHarness(operations =>
+    registerEngineWorkerTypeSourceOperation(operations, () => facade));
+  await startReady(harness);
+
+  const { handle } = startSource(harness.adapter, {
+    ...request,
+    view: "decompiler-source",
+  });
+  await harness.environment.flushAsync();
+
+  assert.equal((await handle.outcome).kind, "succeeded");
+  await handle.quiesced;
+  assert.equal(calls[0]?.at(-1), "decompiler-source");
+  harness.host.dispose();
+});
+
 test("Type Source binding preserves caller identity and expected diagnostics", async () => {
   const calls: unknown[][] = [];
   const facade: EngineWorkerTypeSourceFacade = {
