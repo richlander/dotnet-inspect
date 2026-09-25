@@ -36,9 +36,14 @@ development model and rationale. The binding summary:
   slice. Test infrastructure may treat its harness as the production host.
   Alternatives track retirement; shared substrate plans both CLI and
   browser/Wasm adoption, while narrower scope requires explicit user approval.
-- **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
-  code. Duplicated host logic triggers a review for a shared abstraction that
-  would also benefit another future host.
+- **Keep hosts thin and substrate singular.** Put reusable concepts,
+  algorithms, and declarations such as row vocabularies in host-neutral code
+  beside their data owner; hosts bind and present them. Reuse or extend the
+  owning substrate instead of copying its logic, and review duplicated logic
+  for a shared abstraction that would also benefit another host. Adopting
+  QuerySpace means the question reaches the work: building every row and then
+  filtering, counting, or limiting it is LINQ in QuerySpace clothing unless the
+  owning design names that as a reference slice.
 - **Choose rendering strategy deliberately.** Use Markout as the default
   host-neutral substrate for centralized, multi-format rendering, and call out
   host-specific rendering that bypasses it. Broad information domains such as
