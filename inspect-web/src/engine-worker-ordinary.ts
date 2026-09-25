@@ -106,6 +106,7 @@ type SourceOperationName =
 
 type CallGraphOperationName =
   | "queryMemberCallGraph"
+  | "queryDirectUseClusters"
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
@@ -1379,6 +1380,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>
       ) => facades.callGraph.queryMemberCallGraph(...args),
     ),
+    queryDirectUseClusters: valueOperation(
+      "ordinary-call-graph-query-direct-use-clusters",
+      9,
+      (
+        facades,
+        ...args: Parameters<CallGraphFacade["queryDirectUseClusters"]>
+      ) => facades.callGraph.queryDirectUseClusters(...args),
+    ),
     expandPlatformCallGraph: valueOperation(
       "ordinary-call-graph-expand-platform",
       12,
@@ -1898,6 +1907,9 @@ export function bindEngineWorkerOrdinaryClient(
     callGraph: {
       queryMemberCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph.queryMemberCallGraph,
+      ),
+      queryDirectUseClusters: bind(
+        engineWorkerOrdinaryOperations.callGraph.queryDirectUseClusters,
       ),
       expandPlatformCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph

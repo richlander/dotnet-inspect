@@ -13,6 +13,8 @@ Tracking:
   completed host-neutral inspection and CLI migration;
 - [#8412](https://github.com/richlander/dotnet-inspect/issues/8412) —
   first-class pair discovery and focused-cluster CLI routes;
+- [#8508](https://github.com/richlander/dotnet-inspect/issues/8508) —
+  Inspect Web selected-boundary adoption;
 - [#6313](https://github.com/richlander/dotnet-inspect/issues/6313) — broader
   semantic feature relationships and package or ecosystem rollups;
 - [#6601](https://github.com/richlander/dotnet-inspect/issues/6601) — public
@@ -43,9 +45,27 @@ completed-inspection production path has three executable steps:
 
 1. The completed Sections inspection consumes the pair inspection and the CLI
    migrates to it without changing sections or rendering.
-2. Browser/Wasm consumes the same inspection after its two-library selection
-   surface exists; it does not reimplement clustering in TypeScript.
+2. Browser/Wasm consumes the same inspection from a typed Library boundary in
+   the dependency-aware member call graph. The Browser opens the two exact
+   package coordinates in one implementation group, resolves the two Library
+   participants there, and invokes the completed pair and cluster inspections.
+   TypeScript renders the returned clusters and call sites but does not
+   reconstruct occurrences, components, identity, selection, or completion.
 3. A selected Browser cluster calls the existing #7390 root-path inspection.
+
+The Browser graph projection publishes a deduplicated list of actionable,
+directed Library boundaries beside Mermaid. Each boundary carries the source
+and target package ID, exact version, selected package framework, and assembly
+name. The UI selects from that typed list rather than parsing Mermaid labels or
+SVG paths. Existing graph-node member navigation remains unchanged.
+
+The Browser cluster operation accepts cluster ordinal `0` for pair-wide
+discovery and a positive observed ordinal for focused detail. A positive
+ordinal is applied by
+`AssemblyPairDirectUseClusterProjection.ScopeToObservedCluster`; the wire
+response carries all pair-wide cluster summaries and only the exact call sites
+from the scoped projection. Rejected pairs, unobserved ordinals, and incomplete
+evidence remain explicit results.
 
 Issue #6313 may add separately proven semantic capability identity and package or
 ecosystem aggregation without relabeling direct-use clusters as features.

@@ -11,6 +11,7 @@ internal static partial class BrowserCatalogWireProjection
             Project(graph.Callees),
             Project(graph.Scope),
             [.. graph.Targets.Select(Project)],
+            [.. graph.Boundaries.Select(Project)],
             Project(graph.Diagnostics),
             graph.NoBody);
     }
@@ -65,4 +66,17 @@ internal static partial class BrowserCatalogWireProjection
             target.PackageId,
             target.PackageVersion,
             target.PackageFramework);
+
+    static BrowserCallGraphBoundary Project(
+        BrowserCallGraphBoundaryInfo boundary) =>
+        new(
+            boundary.Id,
+            boundary.SourcePackageId,
+            boundary.SourcePackageVersion,
+            boundary.SourcePackageFramework,
+            boundary.SourceAssembly,
+            boundary.TargetPackageId,
+            boundary.TargetPackageVersion,
+            boundary.TargetPackageFramework,
+            boundary.TargetAssembly);
 }
