@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -15,7 +16,9 @@ public sealed record MetadataOperationPolicy
         long maxGenericSubstitutionNodes = long.MaxValue,
         long maxStructuredNodes = long.MaxValue,
         long maxRetainedText = long.MaxValue,
-        long maxInterfaceImplementationRows = long.MaxValue)
+        long maxInterfaceImplementationRows = long.MaxValue,
+        long maxRetainedMethodSemanticsAssociations =
+            MethodSemanticsReadBudget.DefaultMaximumRetainedAssociations)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
         ArgumentOutOfRangeException.ThrowIfNegative(
@@ -30,6 +33,8 @@ public sealed record MetadataOperationPolicy
         ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedText);
         ArgumentOutOfRangeException.ThrowIfNegative(
             maxInterfaceImplementationRows);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maxRetainedMethodSemanticsAssociations);
 
         MaxMetadataRows = maxMetadataRows;
         MaxMethodImplementationRows = maxMethodImplementationRows;
@@ -40,10 +45,14 @@ public sealed record MetadataOperationPolicy
         MaxStructuredNodes = maxStructuredNodes;
         MaxRetainedText = maxRetainedText;
         MaxInterfaceImplementationRows = maxInterfaceImplementationRows;
+        MaxRetainedMethodSemanticsAssociations =
+            maxRetainedMethodSemanticsAssociations;
     }
 
     public static MetadataOperationPolicy Unbounded { get; } =
-        new(long.MaxValue);
+        new(
+            long.MaxValue,
+            maxRetainedMethodSemanticsAssociations: long.MaxValue);
 
     public long MaxMetadataRows { get; }
     public long MaxMethodImplementationRows { get; }
@@ -54,6 +63,7 @@ public sealed record MetadataOperationPolicy
     public long MaxStructuredNodes { get; }
     public long MaxRetainedText { get; }
     public long MaxInterfaceImplementationRows { get; }
+    public long MaxRetainedMethodSemanticsAssociations { get; }
 }
 
 public sealed record MetadataOperationCounters(
@@ -65,7 +75,8 @@ public sealed record MetadataOperationCounters(
     long GenericSubstitutionNodes = 0,
     long StructuredNodes = 0,
     long RetainedText = 0,
-    long InterfaceImplementationRows = 0);
+    long InterfaceImplementationRows = 0,
+    long RetainedMethodSemanticsAssociations = 0);
 
 public enum MetadataOperationDimension
 {
@@ -78,6 +89,7 @@ public enum MetadataOperationDimension
     StructuredNodes,
     RetainedText,
     InterfaceImplementationRows,
+    RetainedMethodSemanticsAssociations,
 }
 
 public enum MetadataOperationFailureKind
@@ -121,6 +133,7 @@ public sealed class MetadataOperationContext : IDisposable
     long _structuredNodes;
     long _retainedText;
     long _interfaceImplementationRows;
+    long _retainedMethodSemanticsAssociations;
     bool _disposed;
 
     public MetadataOperationContext(MetadataOperationPolicy policy)
@@ -256,6 +269,9 @@ public sealed class MetadataOperationContext : IDisposable
                 return ref _retainedText;
             case MetadataOperationDimension.InterfaceImplementationRows:
                 return ref _interfaceImplementationRows;
+            case MetadataOperationDimension
+                    .RetainedMethodSemanticsAssociations:
+                return ref _retainedMethodSemanticsAssociations;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(dimension),
@@ -285,6 +301,9 @@ public sealed class MetadataOperationContext : IDisposable
                 _policy.MaxRetainedText,
             MetadataOperationDimension.InterfaceImplementationRows =>
                 _policy.MaxInterfaceImplementationRows,
+            MetadataOperationDimension
+                    .RetainedMethodSemanticsAssociations =>
+                _policy.MaxRetainedMethodSemanticsAssociations,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(dimension),
                 dimension,
@@ -301,7 +320,29 @@ public sealed class MetadataOperationContext : IDisposable
             _genericSubstitutionNodes,
             _structuredNodes,
             _retainedText,
-            _interfaceImplementationRows);
+            _interfaceImplementationRows,
+            _retainedMethodSemanticsAssociations);
+
+    internal MethodSemanticsReadBudget
+        CreateMethodSemanticsReadBudget()
+    {
+        EnsureAlive();
+        long remaining =
+            _policy.MaxRetainedMethodSemanticsAssociations
+            - _retainedMethodSemanticsAssociations;
+        return remaining >= int.MaxValue
+            ? MethodSemanticsReadBudget.Unbounded
+            : new MethodSemanticsReadBudget(checked((int)remaining));
+    }
+
+    internal long MethodSemanticsAssociationLimit
+    {
+        get
+        {
+            EnsureAlive();
+            return _policy.MaxRetainedMethodSemanticsAssociations;
+        }
+    }
 
     internal void EnsureAlive() =>
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -329,6 +370,7 @@ internal enum MetadataOperationWorkKind
     TypeDefinitionIndexMaterialization,
     TypeDefinitionIndexTextRetention,
     InterfaceImplementationRowRead,
+    MethodSemanticsAssociationRead,
     MethodDeclarationPublication,
     TypeDeclarationPublication,
 }
