@@ -16,7 +16,9 @@ public enum PackagePayloadAccess
     /// the operation's realization selects; nothing is committed. An authority
     /// whose client cannot range, or whose source refuses the ranged read,
     /// falls back to <see cref="Complete"/> for that authority. Requires a
-    /// Realize operation, which supplies the selection.
+    /// Realize operation, which supplies the selection, or an Acquire
+    /// operation carrying a <see cref="PackageDocumentDemand"/>, which names
+    /// the entries it reads.
     /// </summary>
     Ranged,
 }
