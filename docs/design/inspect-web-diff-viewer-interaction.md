@@ -230,7 +230,7 @@ instead, as the whitespace presentation section states.
 | --- | --- |
 | Complete with changes | Rows and controls |
 | Identical | **Identical**, both endpoints, no rows and no navigation |
-| Unavailable | The typed reason on each unavailable endpoint, keeping the available endpoint's label |
+| Unavailable | The typed reason on each unavailable endpoint, and the available endpoint's label and, when the transport carries it, its text shown as source with line numbers, never as additions or removals |
 | Rejected or failed | The typed failure, with retry where the host offers it |
 | Canceled | **Canceled**, never an empty or identical diff |
 | Too complex | The transport's refusal, with no partial rows |
