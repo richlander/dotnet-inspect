@@ -17,6 +17,10 @@ export interface BrowserCallGraphDiagnostics {
   readonly hasUnexploredTraversalBoundary: boolean;
   readonly hasAnalysisFailureBoundary: boolean;
   readonly unavailableDependencyRoutes: number;
+  readonly hasIncompleteCorrespondence: boolean;
+  readonly unclassifiedBoundaryEdges: number;
+  readonly unclassifiedBoundaryAssemblies: ReadonlyArray<string>;
+  readonly physicalOccurrenceUnavailableEdges: number;
   readonly isIncomplete: boolean;
 }
 
@@ -190,4 +194,3 @@ export async function queryMemberCallGraph(packageId: string, version: string, t
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserCallGraph;
 }
-

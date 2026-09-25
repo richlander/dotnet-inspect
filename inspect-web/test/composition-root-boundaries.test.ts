@@ -37,7 +37,20 @@ test("call graph diagnostics distinguish failures from expected bounds", () => {
     incompleteEdges: 1,
     bindingIdentityConflicts: 3,
     hasUnexploredTraversalBoundary: true
-  })), "Partial call graph: 2 incomplete nodes, 1 incomplete edge, and 3 binding identity conflicts.");
+  })), "Partial call graph: some member signatures could not be resolved against the loaded assemblies and some call targets matched conflicting assembly identities.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
+    isIncomplete: true,
+    incompleteNodes: 31082,
+    incompleteEdges: 29467,
+    hasIncompleteCorrespondence: true,
+    unclassifiedBoundaryEdges: 4,
+    unclassifiedBoundaryAssemblies: ["corelib"]
+  })), "Partial call graph: 4 call targets in \"corelib\" could not be classified because its definition is not loaded.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
+    isIncomplete: true,
+    unclassifiedBoundaryEdges: 1,
+    unclassifiedBoundaryAssemblies: []
+  })), "Partial call graph: 1 call target could not be classified because its definition is not loaded.");
   assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
     incompleteNodes: 0,
@@ -66,7 +79,7 @@ test("call graph diagnostics distinguish failures from expected bounds", () => {
     bindingIdentityConflicts: 0,
     hasUnexploredTraversalBoundary: true,
     hasAnalysisFailureBoundary: true
-  })), "Partial call graph: 1 incomplete node and one or more method bodies could not be analyzed.");
+  })), "Partial call graph: some member signatures could not be resolved against the loaded assemblies and one or more method bodies could not be analyzed.");
   assert.equal(
     callGraphDiagnosticsMessage(engineCallGraphDiagnostics({ isIncomplete: false })),
     "");

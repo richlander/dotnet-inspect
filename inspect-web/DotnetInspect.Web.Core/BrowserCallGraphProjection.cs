@@ -55,7 +55,11 @@ internal sealed record BrowserCallGraphDiagnosticsInfo(
     int IncompleteEdges,
     int BindingIdentityConflicts,
     bool HasUnexploredTraversalBoundary,
-    bool HasAnalysisFailureBoundary);
+    bool HasAnalysisFailureBoundary,
+    bool HasIncompleteCorrespondence,
+    int UnclassifiedBoundaryEdges,
+    string[] UnclassifiedBoundaryAssemblies,
+    int PhysicalOccurrenceUnavailableEdges);
 
 internal sealed record BrowserCallGraphInfo(
     string Mermaid,
@@ -490,18 +494,68 @@ internal static class BrowserCallGraphProjection
     static BrowserCallGraphDiagnosticsInfo Diagnostics(
         InspectionGraphDocument graph)
     {
-        int incompleteNodes = graph.Limits.Count(limit =>
-            limit.Target?.Kind == InspectionGraphTargetKind.Node);
-        int incompleteEdges = graph.Limits.Count(limit =>
-            limit.Target?.Kind == InspectionGraphTargetKind.Edge);
+        CallGraphCorrespondenceIncompleteEvidence[] correspondence =
+        [
+            .. graph.Limits
+                .Where(limit =>
+                    limit.Descriptor.Id
+                        == CallGraphInspectionGraphCatalog
+                            .CorrespondenceIncomplete.Id)
+                .Select(static limit => limit.Evidence)
+                .OfType<CallGraphCorrespondenceIncompleteEvidence>(),
+        ];
+        InspectionGraphLimit[] unclassifiedBoundaries =
+        [
+            .. graph.Limits.Where(limit =>
+                limit.Descriptor.Id
+                    == ExternalFocusedCallGraphInspectionCatalog
+                        .BoundaryClassificationIncomplete.Id),
+        ];
+        string[] unclassifiedAssemblies =
+        [
+            .. unclassifiedBoundaries
+                .Select(static limit => limit.Target)
+                .Where(static target => target is not null)
+                .Select(static target => target!.Value)
+                .Where(static target =>
+                    target.Kind == InspectionGraphTargetKind.Edge)
+                .Select(target =>
+                    NodeAssembly(
+                        graph.Nodes[
+                            graph.Edges[target.Id].ToNodeId]))
+                .Where(static assembly =>
+                    !string.IsNullOrWhiteSpace(assembly))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase),
+        ];
         return new BrowserCallGraphDiagnosticsInfo(
-            incompleteNodes,
-            incompleteEdges,
-            BindingIdentityConflicts: 0,
+            correspondence.Sum(static evidence =>
+                evidence.IncompleteNodeCount),
+            correspondence.Sum(static evidence =>
+                evidence.IncompleteEdgeCount),
+            correspondence.Sum(static evidence =>
+                evidence.BindingIdentityConflictCount),
             HasUnexploredTraversalBoundary:
-                graph.Limits.Length > 0,
+                graph.Limits.Any(limit =>
+                    limit.Descriptor.Id
+                        == CallGraphInspectionGraphCatalog
+                            .TraversalIncomplete.Id),
             HasAnalysisFailureBoundary:
-                graph.Failures.Length > 0);
+                graph.Failures.Any(failure =>
+                    failure.Descriptor.Id
+                        == CallGraphInspectionGraphCatalog
+                            .AnalysisIncomplete.Id),
+            HasIncompleteCorrespondence:
+                correspondence.Length > 0,
+            UnclassifiedBoundaryEdges:
+                unclassifiedBoundaries.Length,
+            UnclassifiedBoundaryAssemblies:
+                unclassifiedAssemblies,
+            PhysicalOccurrenceUnavailableEdges:
+                graph.Limits.Count(limit =>
+                    limit.Descriptor.Id
+                        == CallGraphInspectionGraphCatalog
+                            .PhysicalOccurrencesUnavailable.Id));
     }
 
     internal static BrowserCallGraphTargetInfo Target(
@@ -672,7 +726,13 @@ internal static class BrowserCallGraphProjection
             diagnostics.IncompleteEdgeCount,
             diagnostics.BindingIdentityConflictCount,
             hasUnexploredTraversalBoundary,
-            hasAnalysisFailureBoundary);
+            hasAnalysisFailureBoundary,
+            HasIncompleteCorrespondence:
+                diagnostics.IncompleteNodeCount > 0
+                || diagnostics.IncompleteEdgeCount > 0,
+            UnclassifiedBoundaryEdges: 0,
+            UnclassifiedBoundaryAssemblies: [],
+            PhysicalOccurrenceUnavailableEdges: 0);
 
     internal static BrowserCallGraphNodeInfo Tree(Analysis.CallTreeNode? node) => node is null
         ? new BrowserCallGraphNodeInfo("", "None", false, null, [], "", "", "")

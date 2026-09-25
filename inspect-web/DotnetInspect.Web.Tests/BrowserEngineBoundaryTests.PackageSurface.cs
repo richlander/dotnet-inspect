@@ -931,6 +931,10 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(4, diagnostics.BindingIdentityConflicts);
         Assert.True(diagnostics.HasUnexploredTraversalBoundary);
         Assert.True(diagnostics.HasAnalysisFailureBoundary);
+        Assert.True(diagnostics.HasIncompleteCorrespondence);
+        Assert.Equal(0, diagnostics.UnclassifiedBoundaryEdges);
+        Assert.Empty(diagnostics.UnclassifiedBoundaryAssemblies);
+        Assert.Equal(0, diagnostics.PhysicalOccurrenceUnavailableEdges);
     }
 
     [Fact]

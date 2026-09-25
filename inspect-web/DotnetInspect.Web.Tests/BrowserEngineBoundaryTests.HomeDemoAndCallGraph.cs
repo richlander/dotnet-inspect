@@ -736,7 +736,31 @@ public sealed partial class BrowserEngineBoundaryTests
             ],
             graph.Characteristics,
             graph.Seeds,
-            graph.Limits,
+            [
+                .. graph.Limits,
+                new InspectionGraphLimit(
+                    CallGraphInspectionGraphCatalog
+                        .TraversalNodeBound,
+                    InspectionGraphTarget.Node(0),
+                    new CallGraphTraversalNodeBoundEvidence(50)),
+                new InspectionGraphLimit(
+                    InspectionGraphNeighborhoodCatalog.DepthBound,
+                    InspectionGraphTarget.Node(0),
+                    new InspectionGraphNeighborhoodDepthBoundEvidence(3)),
+                new InspectionGraphLimit(
+                    CallGraphInspectionGraphCatalog
+                        .CorrespondenceIncomplete,
+                    InspectionGraphTarget.Node(0),
+                    new CallGraphCorrespondenceIncompleteEvidence(
+                        incompleteNodeCount: 2,
+                        incompleteEdgeCount: 3,
+                        bindingIdentityConflictCount: 4)),
+                new InspectionGraphLimit(
+                    ExternalFocusedCallGraphInspectionCatalog
+                        .BoundaryClassificationIncomplete,
+                    InspectionGraphTarget.Edge(
+                        unclassifiedBoundaryEdgeId)),
+            ],
             graph.Failures);
         InspectionGraphCharacteristic[] supplyChainRoles =
         [
@@ -870,6 +894,18 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("1.2.3", boundaryTarget.PackageVersion);
         Assert.Equal("net8.0", boundaryTarget.PackageFramework);
         Assert.Equal("5.6.7.8", boundaryTarget.AssemblyVersion);
+        Assert.Equal(2, projected.Diagnostics.IncompleteNodes);
+        Assert.Equal(3, projected.Diagnostics.IncompleteEdges);
+        Assert.Equal(4, projected.Diagnostics.BindingIdentityConflicts);
+        Assert.True(projected.Diagnostics.HasIncompleteCorrespondence);
+        Assert.True(
+            projected.Diagnostics.HasUnexploredTraversalBoundary);
+        Assert.Equal(
+            1,
+            projected.Diagnostics.UnclassifiedBoundaryEdges);
+        Assert.Equal(
+            ["corelib"],
+            projected.Diagnostics.UnclassifiedBoundaryAssemblies);
         BrowserCallGraphTargetInfo disconnectedConnectorTarget =
             Assert.Single(
                 projected.Targets,
@@ -902,6 +938,12 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             1,
             wire.Diagnostics.UnavailableDependencyRoutes);
+        Assert.Equal(
+            1,
+            wire.Diagnostics.UnclassifiedBoundaryEdges);
+        Assert.Equal(
+            ["corelib"],
+            wire.Diagnostics.UnclassifiedBoundaryAssemblies);
         Assert.True(wire.Diagnostics.IsIncomplete);
         DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget wireTarget =
             Assert.Single(
