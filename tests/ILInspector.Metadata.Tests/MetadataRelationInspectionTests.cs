@@ -490,6 +490,35 @@ public sealed class MetadataRelationInspectionTests
                     relation.Member.CanonicalSignature
                         == asSpan.Member.CanonicalSignature);
         Assert.Equal(asSpan.Member, asSpanExtension.Member);
+        MetadataTypeDefinitionName stringType =
+            TypeName("System", "String");
+        var stringPopulation =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            new(
+                                available.Result.Receipt.Assembly!,
+                                stringType),
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(0, 1000)),
+                        TestContext.Current.CancellationToken));
+        int stringCount =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationCountOutcome.Counted>(
+                    stringPopulation.Result.Count).Value;
+        var stringRows =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationRowsOutcome.Read>(
+                    stringPopulation.Result.Rows);
+        Assert.Equal(stringCount, stringRows.Items.Length);
+        Assert.Null(stringRows.NextOrdinal);
+        Assert.Contains(
+            stringRows.Items.SelectMany(static row => row.Occurrences),
+            occurrence =>
+                occurrence.Member.CanonicalSignature
+                    == asSpan.Member.CanonicalSignature);
     }
 
     [Fact]

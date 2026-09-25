@@ -794,6 +794,12 @@ internal static partial class MetadataRelationInspection
         MetadataTypeIdentity receiver,
         MetadataExtensionReceiverSelection selection)
     {
+        if (ReceiverPrimitive(receiver)
+                is MetadataTypeIdentity.Primitive primitive)
+        {
+            return MatchesPrimitiveReceiver(primitive, selection);
+        }
+
         MetadataNamedTypeIdentity? named =
             ReceiverDefinition(receiver);
         if (named is null
@@ -823,6 +829,53 @@ internal static partial class MetadataRelationInspection
             _ => false,
         };
     }
+
+    private static bool MatchesPrimitiveReceiver(
+        MetadataTypeIdentity.Primitive primitive,
+        MetadataExtensionReceiverSelection selection)
+    {
+        string primitiveName = primitive.Name.ToString();
+        string fullName;
+        if (string.Equals(
+                primitiveName,
+                "TypedReference",
+                StringComparison.Ordinal))
+        {
+            fullName = "System.TypedReference";
+        }
+        else if (!CSharpText.PrimitiveTypeNames.TryToClrFullName(
+                primitiveName,
+                out fullName))
+        {
+            return false;
+        }
+
+        const string systemPrefix = "System.";
+        return ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                selection.Assembly)
+            && fullName.StartsWith(
+                systemPrefix,
+                StringComparison.Ordinal)
+            && MetadataTypeDefinitionName.Create(
+                    "System",
+                    [fullName[systemPrefix.Length..]])
+                is MetadataTypeDefinitionNameResult.Valid valid
+            && valid.Name == selection.Type;
+    }
+
+    private static MetadataTypeIdentity.Primitive? ReceiverPrimitive(
+        MetadataTypeIdentity receiver) =>
+        receiver switch
+        {
+            MetadataTypeIdentity.Primitive primitive => primitive,
+            MetadataTypeIdentity.ByReference byReference =>
+                ReceiverPrimitive(byReference.Element),
+            MetadataTypeIdentity.Modified modified =>
+                ReceiverPrimitive(modified.Type),
+            MetadataTypeIdentity.Pinned pinned =>
+                ReceiverPrimitive(pinned.Type),
+            _ => null,
+        };
 
     private static MetadataNamedTypeIdentity? ReceiverDefinition(
         MetadataTypeIdentity receiver) =>
