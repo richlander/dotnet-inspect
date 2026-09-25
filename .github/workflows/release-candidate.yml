@@ -1,0 +1,433 @@
+name: Nightly release candidate
+
+on:
+  schedule:
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: nightly-release-candidate
+  cancel-in-progress: false
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  DOTNET_SDK_VERSION: '11.0.100-rc.1.26425.128'
+
+jobs:
+  source:
+    name: Resolve ready source
+    runs-on: ubuntu-26.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require green main and an unreleased version
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+            --jq '
+              [.check_runs[] | select(.name == "ci-required")]
+              | sort_by(.id)
+              | last
+              | .status == "completed" and .conclusion == "success"
+            ' | grep -Fx true
+
+          version=$(
+            sed -n \
+              's:.*<VersionPrefix>\([^<]*\)</VersionPrefix>.*:\1:p' \
+              src/DotnetInspect.Cli/DotnetInspect.Cli.csproj
+          )
+          skill_version=$(sed -n 's/^version: //p' skills/dotnet-inspect/SKILL.md)
+          release_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          release_version=${release_tag#v}
+
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$skill_version" = "$version"
+
+          IFS=. read -r major minor patch <<< "$version"
+          IFS=. read -r released_major released_minor released_patch \
+            <<< "$release_version"
+          if (( major < released_major ||
+                (major == released_major && minor < released_minor) ||
+                (major == released_major && minor == released_minor &&
+                 patch <= released_patch) )); then
+            echo "::error::Version $version does not advance released version $release_version." >&2
+            exit 1
+          fi
+
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Release candidate source"
+            echo
+            echo "- SHA: \`$GITHUB_SHA\`"
+            echo "- Version: \`$version\`"
+            echo "- Latest release: \`$release_version\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-native:
+    name: Build package (${{ matrix.rid }})
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: win-arm64
+            os: windows-latest
+          - rid: osx-arm64
+            os: macos-latest
+          - rid: linux-x64
+            os: ubuntu-26.04
+          - rid: linux-arm64
+            os: ubuntu-26.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Pack RID-specific package
+        run: >
+          dotnet pack
+          src/DotnetInspect.Cli
+          -c Release
+          -r ${{ matrix.rid }}
+          -p:OfficialAotBuild=true
+          -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
+
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-package-${{ matrix.rid }}
+          path: artifacts/package/release/*.nupkg
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  build-portable:
+    name: Build portable packages
+    needs: source
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Pack pointer package
+        run: >
+          dotnet pack
+          src/DotnetInspect.Cli
+          -c Release
+          -p:SelfContained=true
+          -p:OfficialBuild=true
+          -p:CreateRidSpecificToolPackages=false
+          -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
+
+      - name: Pack managed fallback
+        run: >
+          dotnet pack
+          src/DotnetInspect.Cli
+          -c Release
+          -r any
+          -p:PublishAot=false
+          -p:OfficialBuild=true
+          -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
+
+      - name: Upload portable packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-package-portable
+          path: artifacts/package/release/*.nupkg
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  build-site:
+    name: Build production site
+    needs: source
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: inspect-web
+        run: |
+          npm ci
+          npm run build
+          grep -q '<script type="importmap"></script>' dist/index.html
+          grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
+
+      - name: Publish browser app
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          rm -rf artifacts/inspect-web-compiler-async-receipts
+          built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          dotnet publish \
+            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            -c Release \
+            --output artifacts/inspect-web-publish \
+            -p:VersionPrefix="$VERSION" \
+            -p:SourceRevisionId="$SOURCE_SHA" \
+            -p:BuildTimestampUtc="$built_at" \
+            -p:InspectWebExpectedAsyncLowering=compiler \
+            -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-compiler-async-receipts" \
+            -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
+
+      - name: Verify compiler-async deployment
+        shell: bash
+        run: |
+          eng/verify-inspect-web-async-deployment.sh \
+            compiler \
+            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            artifacts/inspect-web-publish/wwwroot \
+            artifacts/inspect-web-publish/async-lowering.json \
+            artifacts/inspect-web-compiler-async-receipts
+
+      - name: Publish Inspect Web managed API
+        run: >
+          dotnet publish
+          inspect-web/msdl-proxy/MsdlProxy.csproj
+          -c Release
+          --output artifacts/inspect-web-publish/api
+
+      - name: Verify production site
+        run: eng/verify-inspect-web-site-artifact.sh artifacts/inspect-web-publish
+
+      - name: Upload production site
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-site
+          path: artifacts/inspect-web-publish
+          if-no-files-found: error
+          retention-days: 1
+          include-hidden-files: true
+          overwrite: true
+
+  assemble:
+    name: Assemble immutable candidate
+    needs:
+      - source
+      - build-native
+      - build-portable
+      - build-site
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: candidate-package-*
+          path: artifacts/release-candidate/packages
+          merge-multiple: true
+          digest-mismatch: error
+
+      - name: Download production site
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: candidate-site
+          path: artifacts/release-candidate/site
+          digest-mismatch: error
+
+      - name: Verify and record candidate
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          set -euo pipefail
+          root=artifacts/release-candidate
+          packages="$root/packages"
+          test "$(find "$packages" -maxdepth 1 -type f -name '*.nupkg' | wc -l)" -eq 7
+          for id in \
+            dotnet-inspect \
+            dotnet-inspect.any \
+            dotnet-inspect.win-x64 \
+            dotnet-inspect.win-arm64 \
+            dotnet-inspect.osx-arm64 \
+            dotnet-inspect.linux-x64 \
+            dotnet-inspect.linux-arm64; do
+            test "$(find "$packages" -maxdepth 1 -type f \
+              -name "$id.$VERSION.nupkg" | wc -l)" -eq 1
+          done
+
+          settings_path() {
+            unzip -l "$1" \
+              | grep -oE 'tools/[^[:space:]]*DotnetToolSettings.xml' \
+              | head -1
+          }
+          test "$(settings_path "$packages/dotnet-inspect.any.$VERSION.nupkg")" \
+            = "tools/net10.0/any/DotnetToolSettings.xml"
+          test "$(settings_path "$packages/dotnet-inspect.$VERSION.nupkg")" \
+            = "tools/any/any/DotnetToolSettings.xml"
+
+          (
+            cd "$packages"
+            find . -type f -name '*.nupkg' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > "$root/package-sha256.txt"
+          (
+            cd "$root/site"
+            find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > "$root/site-sha256.txt"
+          package_manifest_sha=$(
+            sha256sum "$root/package-sha256.txt" | awk '{print $1}'
+          )
+          site_manifest_sha=$(
+            sha256sum "$root/site-sha256.txt" | awk '{print $1}'
+          )
+          jq -n \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg version "$VERSION" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg package_manifest_sha256 "$package_manifest_sha" \
+            --arg site_manifest_sha256 "$site_manifest_sha" \
+            '{
+              schema: 1,
+              sourceSha: $source_sha,
+              version: $version,
+              producer: {
+                runId: ($run_id | tonumber),
+                runAttempt: ($run_attempt | tonumber)
+              },
+              packageManifestSha256: $package_manifest_sha256,
+              siteManifestSha256: $site_manifest_sha256
+            }' > "$root/release-candidate.json"
+
+      - name: Upload immutable candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dotnet-inspect-release-candidate
+          path: artifacts/release-candidate
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true
+          overwrite: true
+
+  certify:
+    name: Deep Inspect candidate
+    needs: assemble
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/deep-inspect.yml
+    with:
+      lane: release-candidate
+
+  ready:
+    name: Candidate assets certified
+    if: always()
+    needs:
+      - assemble
+      - certify
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Require complete green candidate
+        shell: bash
+        env:
+          ASSEMBLE_RESULT: ${{ needs.assemble.result }}
+          CERTIFY_RESULT: ${{ needs.certify.result }}
+        run: |
+          set -euo pipefail
+          test "$ASSEMBLE_RESULT" = success
+          test "$CERTIFY_RESULT" = success
+
+  report-failure:
+    name: Report candidate failure
+    needs:
+      - source
+      - build-native
+      - build-portable
+      - build-site
+      - assemble
+      - certify
+      - ready
+    if: ${{ github.event_name == 'schedule' && failure() }}
+    runs-on: ubuntu-26.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_LABEL: nightly-failure
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="Nightly release candidate failed"
+          num=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --state open --search "$title in:title" \
+            --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$num" ]; then
+            label_status=0
+            if gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/issues/$num/labels" \
+              -f "labels[]=$ISSUE_LABEL" >/dev/null; then
+              :
+            else
+              label_status=$?
+            fi
+            gh issue comment --repo "$GITHUB_REPOSITORY" "$num" \
+              --body "Another nightly release candidate failed: $RUN_URL"
+            if [ "$label_status" -ne 0 ]; then
+              echo "::error::Failed to restore $ISSUE_LABEL on issue #$num"
+              exit "$label_status"
+            fi
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --label "$ISSUE_LABEL" \
+              --body $'A nightly release candidate failed.\n\nRun: '"$RUN_URL"$'\n\nThe failed job(s) are visible on the run. This issue was opened automatically; close it once the failure is triaged and replacement evidence is clean.'
+          fi
