@@ -34,6 +34,7 @@ fi
 
 fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
 fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixtures/release/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
+directional_json_value_context="ILInspector.JsExportSurface.TypeScriptFixtures.DirectionalJsonValueExportContext"
 polymorphic_fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.PolymorphicExportFixtures/ILInspector.JsExportSurface.PolymorphicExportFixtures.csproj"
 polymorphic_fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicExportFixtures/release/ILInspector.JsExportSurface.PolymorphicExportFixtures.dll"
 polymorphic_contracts_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicContractsFixtures/release/ILInspector.JsExportSurface.PolymorphicContractsFixtures.dll"
@@ -46,6 +47,21 @@ polymorphic_contracts_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.
   "$fixture_dll" \
   --runtime-module ./dotnet.js \
   --output "$scratch/facade.ts"
+
+directional_json_value_output="$scratch/directional-json-value"
+"$dotnet_exe" run \
+  --project "$repo_root/src/ts-jsexport" \
+  -c Release \
+  -- \
+  "$fixture_dll" \
+  --context "$directional_json_value_context" \
+  --assembly-search-path "$(dirname "$fixture_dll")" \
+  --runtime-module ./dotnet.js \
+  --warnings-as-errors \
+  --output "$directional_json_value_output"
+cp \
+  "$directional_json_value_output/ILInspector.JsExportSurface.TypeScriptFixtures.ts" \
+  "$scratch/directional-json-value-facade.ts"
 
 "$dotnet_exe" build "$polymorphic_fixture_project" -c Release --nologo >/dev/null
 "$dotnet_exe" run \
@@ -265,6 +281,23 @@ export const invalidInput: DirectionalRoundTripDtoInput = {
   // @ts-expect-error
   serverNote: "not consumed",
 };
+TS
+
+cat > "$scratch/directional-json-value-usage.ts" <<'TS'
+import { roundTripDirectionalJsonValue } from "./directional-json-value-facade.js";
+import type {
+  DirectionalJsonValueDtoInput,
+  DirectionalJsonValueDtoOutput,
+  JsonValue,
+} from "./directional-json-value-facade.js";
+
+const input: DirectionalJsonValueDtoInput = {
+  payload: { source: "client" },
+};
+const output: DirectionalJsonValueDtoOutput =
+  roundTripDirectionalJsonValue(input);
+const payload: JsonValue | undefined = output.payload;
+void payload;
 TS
 
 cat > "$scratch/union-usage.ts" <<'TS'
@@ -545,6 +578,8 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "polymorphic-facade.ts",
     "callback-usage.ts",
     "conditional-usage.ts",
+    "directional-json-value-facade.ts",
+    "directional-json-value-usage.ts",
     "directional-usage.ts",
     "inert-usage.ts",
     "timestamp-usage.ts",

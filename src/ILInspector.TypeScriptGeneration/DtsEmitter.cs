@@ -2643,13 +2643,7 @@ static class DtsEmitter
                                 type,
                                 member,
                                 surface.AssemblyIdentity,
-                                declaredTypesByScopedIdentity)))
-                || (directions == JsonWireDirection.Both
-                    && type.Members.Any(member =>
-                        JsonWireMemberRules.IsDirectionSensitive(
-                            member,
-                            surface.AssemblyIdentity,
-                            declaredTypesByScopedIdentity))))
+                                declaredTypesByScopedIdentity))))
             {
                 return false;
             }

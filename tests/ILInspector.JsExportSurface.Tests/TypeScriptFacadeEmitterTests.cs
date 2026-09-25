@@ -2238,6 +2238,91 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_DeclaresJsonValueForSplitConditionalJsonElement()
+    {
+        MetadataTypeDefinitionName jsonElementDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(
+                    "System.Text.Json.JsonElement"))
+            .Name;
+        var jsonElementIdentity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "System.Text.Json",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "cc7b13ffcd2ddd51"),
+            "System.Text.Json.JsonElement",
+            jsonElementDefinition);
+        var record = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "PayloadDto",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Payload",
+                    Kind = "property",
+                    HasGetter = true,
+                    HasSetter = true,
+                    ReturnType = "System.Text.Json.JsonElement",
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.WhenWritingDefault,
+                    ],
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.Text.Json.JsonElement",
+                        ReturnTypeReferences = [jsonElementIdentity],
+                        ReturnTypeShape =
+                            ApiTypeShape.Named(
+                                jsonElementIdentity,
+                                isValueType: true),
+                    },
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [record],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [record] = JsonWireDirection.Both,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export type JsonValue =",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface PayloadDtoInput {
+              readonly Payload: unknown;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface PayloadDtoOutput {
+              readonly Payload?: JsonValue;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_DoesNotReserveUnusedJsonValueAlias()
     {
         var jsonElementIdentity = new ApiTypeReferenceIdentity(

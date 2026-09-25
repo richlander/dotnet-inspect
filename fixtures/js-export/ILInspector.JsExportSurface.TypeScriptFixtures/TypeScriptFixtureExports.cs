@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using InertText;
+using TsJsExport;
 
 namespace ILInspector.JsExportSurface.TypeScriptFixtures;
 
@@ -109,6 +110,11 @@ public sealed record DirectionalRoundTripDto(string Name)
     public string ServerNote { get; init; } = "";
 }
 
+public sealed record DirectionalJsonValueDto(
+    [property: JsonIgnore(
+        Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    JsonElement Payload);
+
 public sealed record DirectionalBox<TValue>(TValue Value);
 
 public sealed record DirectionalEnvelopeDto(
@@ -190,6 +196,29 @@ internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(DirectionalChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class DirectionalJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(DirectionalJsonValueDto))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class DirectionalJsonValueContext
+    : JsonSerializerContext;
+
+[JsExportRoot(typeof(DirectionalJsonValueExports))]
+public sealed class DirectionalJsonValueExportContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class DirectionalJsonValueExports
+{
+    [JSExport]
+    public static string RoundTripDirectionalJsonValue(string payloadJson)
+    {
+        DirectionalJsonValueDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalJsonValueContext.Default.DirectionalJsonValueDto)!;
+        return JsonSerializer.Serialize(
+            payload,
+            DirectionalJsonValueContext.Default.DirectionalJsonValueDto);
+    }
+}
 
 [SupportedOSPlatform("browser")]
 public static partial class TypeScriptFixtureExports

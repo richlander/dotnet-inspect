@@ -59,6 +59,8 @@ const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
 const getConditionalOutputKey =
   facadeSource.match(/"(GetConditionalOutput\.-?\d+)"/)?.[1];
+const roundTripDirectionalJsonValueKey =
+  facadeSource.match(/"(RoundTripDirectionalJsonValue\.-?\d+)"/)?.[1];
 const roundTripDirectionalKey =
   facadeSource.match(/"(RoundTripDirectional\.-?\d+)"/)?.[1];
 const roundTripDirectionalEnvelopeKey =
@@ -157,6 +159,10 @@ assert.ok(
 assert.ok(
   getConditionalOutputKey,
   "The generated GetConditionalOutput runtime dispatch key was not found.",
+);
+assert.ok(
+  roundTripDirectionalJsonValueKey,
+  "The generated RoundTripDirectionalJsonValue dispatch key was not found.",
 );
 assert.ok(
   roundTripDirectionalKey,
@@ -326,6 +332,11 @@ function managedExports(methods = {}) {
     ILInspector: {
       JsExportSurface: {
         TypeScriptFixtures: {
+          DirectionalJsonValueExports: {
+            [roundTripDirectionalJsonValueKey]:
+              methods.roundTripDirectionalJsonValue
+              ?? ((payloadJson) => payloadJson),
+          },
           TypeScriptFixtureExports: {
             [configureHostKey]:
               methods.configureHost ?? (() => {}),
