@@ -1114,6 +1114,60 @@ public sealed class MemberCallGraphSessionTests
     }
 
     [Fact]
+    public async Task
+        GenericOwnershipPreservesConditionallyReplacedParameterRelease()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "RentAndReturnThroughConditionallyReplacedParameter");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
+            });
+        MemberCallGraphView view = graph.Callers();
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                view.CallerRoot,
+                view.CalleeRoot);
+
+        ResourceOwnershipPathInspection generic =
+            ResourceOwnershipPathFindings.Inspect(
+                view,
+                projection,
+                ResourceOwnershipSearchOptions.ArrayPool);
+        AnnotatedCallGraphOwnershipInspection legacy =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                projection);
+
+        Finding<ResourceOwnershipPathWitness> genericFinding =
+            Assert.Single(generic.Findings);
+        Assert.Equal(
+            ResourceOwnershipPathOutcome.Released,
+            genericFinding.Payload.Outcome);
+        Assert.False(genericFinding.Payload.IsComplete);
+        Assert.Single(genericFinding.Payload.Steps);
+
+        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
+            Assert.Single(legacy.Findings);
+        Assert.Equal(
+            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+            legacyFinding.Payload.Outcome);
+        Assert.Single(legacyFinding.Payload.Steps);
+    }
+
+    [Fact]
     public async Task OwnershipWitnessBudgetPreservesPhysicalCallIdentity()
     {
         await using GraphContext context =

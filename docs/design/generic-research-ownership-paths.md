@@ -83,6 +83,14 @@ method-level limitation has the same call, effect source, and exact resource
 domain. The rootless limitation remains visible; this join adds positive
 evidence without claiming complete source provenance.
 
+An incoming parameter remains resource-neutral until Research supplies an
+acquisition obligation from a caller. When reaching definitions prove that the
+parameter's entry definition can reach an unresolved release, Analysis may
+attach the limitation's exact resource domain to that incomplete terminal use
+without requiring an incoming occurrence root. Research accepts the terminal
+only when its existing exact domain join matches the caller's obligation.
+Replacement definitions do not inherit the parameter flow.
+
 Analysis builds the summary in the same execution that produced Resource
 Occurrence. It reuses the retained `MethodBodyAnalysisContext`, resolved
 effects, and existing direct-call evidence. Research never decodes a body,
@@ -184,6 +192,9 @@ The focused gates establish:
   summary incomplete;
 - a mixed acquisition-or-allocation local stored into an object and later
   released preserves both the stored and incomplete released uses;
+- an incoming parameter conditionally replaced before a release preserves an
+  incomplete release only for a matching caller obligation whose value can
+  reach that release;
 - missing and ambiguous body correspondence remain incomplete;
 - a positive terminal witness survives unrelated incompleteness; and
 - witness and path budgets preserve positive evidence while reporting their

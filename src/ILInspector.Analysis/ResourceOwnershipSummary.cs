@@ -655,9 +655,6 @@ internal static class ResourceOwnershipSummaryAnalysis
                             && root.ArgumentIndex == slot)
                         .SelectMany(static root => root.ResourceKinds),
                 ];
-        if (carriedKinds.IsEmpty)
-            yield break;
-
         foreach (ResourceOccurrenceLimitation limitation
             in occurrences.Limitations.Where(candidate =>
                 candidate.Root is null
@@ -671,13 +668,18 @@ internal static class ResourceOwnershipSummaryAnalysis
                 && !candidate.ResourceKinds.IsEmpty))
         {
             ImmutableArray<ResourceOccurrenceResourceKind> matchingKinds =
-            [
-                .. limitation.ResourceKinds.Where(
-                    candidate => carriedKinds.Any(
-                        carried => ResourceKindsMatch(
-                            carried,
-                            candidate))),
-            ];
+                carriedKinds.IsEmpty
+                    && obligation is null
+                    && argumentSlot is not null
+                ? limitation.ResourceKinds
+                :
+                [
+                    .. limitation.ResourceKinds.Where(
+                        candidate => carriedKinds.Any(
+                            carried => ResourceKindsMatch(
+                                carried,
+                                candidate))),
+                ];
             if (!matchingKinds.IsEmpty)
                 yield return (matchingKinds, true);
         }

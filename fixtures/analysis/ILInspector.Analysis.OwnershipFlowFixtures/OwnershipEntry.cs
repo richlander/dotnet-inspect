@@ -208,6 +208,21 @@ public static class Entry
         }
     }
 
+    public static int RentAndReturnThroughConditionallyReplacedParameter(
+        bool replace)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnConditionallyReplaced(buffer, replace);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndReturnAtTwoSites(bool first)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -443,6 +458,15 @@ public static class Entry
 
     static void ReturnRentedArray(byte[] buffer) =>
         ArrayPool<byte>.Shared.Return(buffer);
+
+    static void ReturnConditionallyReplaced(
+        byte[] buffer,
+        bool replace)
+    {
+        if (replace)
+            buffer = new byte[16];
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
 
     static byte[] ReturnRentedArrayToCaller(byte[] buffer) =>
         buffer;
