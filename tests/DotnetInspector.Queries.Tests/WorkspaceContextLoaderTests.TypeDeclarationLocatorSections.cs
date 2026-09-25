@@ -9,6 +9,73 @@ namespace DotnetInspector.Queries.Tests;
 public sealed partial class WorkspaceContextLoaderTests
 {
     [Fact]
+    public async Task TypeLocatorInspection_ExecutesResidentQueryInEnvelope()
+    {
+        byte[] image =
+            LocatorImage(
+                "Same",
+                metadata =>
+                    LocatorDefinition(
+                        metadata,
+                        "N",
+                        "Widget"));
+        await using var workspace = new InspectionWorkspace();
+        _ = await LocatorContext(workspace, image);
+
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            await TypeDeclarationLocatorInspection.ExecuteAsync(
+                workspace,
+                [
+                    new TypeDeclarationLocatorRequest.Pattern(
+                        "Widget"),
+                ],
+                new TypeDeclarationLocatorSectionPlan(
+                    RowSelectionIntent<string>.Empty,
+                    TypeDeclarationVisibilityPlan.Default),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var result =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                inspection.Content);
+        TypeDeclarationLocatorSectionCandidate candidate =
+            Assert.Single(Assert.Single(result.Answers).Candidates);
+        Assert.Equal("N.Widget", candidate.Name.ToMetadataFullName());
+        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task TypeLocatorInspection_RetainsRejectedResultAndDiagnostic()
+    {
+        await using var workspace = new InspectionWorkspace();
+
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            await TypeDeclarationLocatorInspection.ExecuteAsync(
+                workspace,
+                [],
+                TypeDeclarationLocatorSectionPlan.All,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var rejected =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Rejected>(
+                inspection.Content);
+        Assert.Equal(
+            TypeDeclarationLocatorRejectionKind.EmptyRequests,
+            rejected.RejectionKind);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(inspection.Diagnostics);
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Error,
+            diagnostic.Severity);
+        Assert.Contains(
+            nameof(TypeDeclarationLocatorRejectionKind.EmptyRequests),
+            diagnostic.Correspondence!.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TypeLocatorSection_VectorsRetainCoverageAndTypedIdentity()
     {
         byte[] image =
