@@ -212,6 +212,11 @@ public sealed class LibraryBodyAnalysisExecution
                 analysis,
                 CallGraph,
                 generatedFrameworkTypes);
+        ImplementationMetrics =
+            CreateImplementationMetricResult(
+                Receipt,
+                analysis,
+                plan);
         Optimization = new(
             Receipt,
             analysis,
@@ -252,6 +257,10 @@ public sealed class LibraryBodyAnalysisExecution
     /// <summary>Focused implementation-profile result.</summary>
     public LibraryImplementationProfileAnalysisResult
         ImplementationProfiles
+    { get; }
+
+    internal LibraryImplementationMetricAnalysisResult
+        ImplementationMetrics
     { get; }
 
     /// <summary>Focused optimization-opportunity result.</summary>
@@ -302,6 +311,48 @@ public sealed class LibraryBodyAnalysisExecution
         LibraryBodyAnalysisPlan plan) =>
         plan.Includes(LibraryBodyAnalysisFeatures.MethodEvidence)
         && !plan.IsScoped;
+
+    static LibraryImplementationMetricAnalysisResult
+        CreateImplementationMetricResult(
+            LibraryBodyAnalysisReceipt receipt,
+            LibraryBodyAnalysisResult analysis,
+            LibraryBodyAnalysisPlan plan)
+    {
+        ImmutableArray<AnalysisDiagnostic> metricDiagnostics =
+            AnalysisDiagnosticAggregation.MergeInMetadataOrder(
+                analysis.Diagnostics,
+                analysis.Methods
+                    .ImplementationMetricDiagnostics);
+        if (plan.ImplementationMetrics is not { } metricPlan)
+        {
+            return new(
+                receipt,
+                WasRequested: false,
+                Participation: null,
+                analysis.Methods.DeclaredMethods,
+                analysis.Methods.Methods,
+                [],
+                metricDiagnostics);
+        }
+
+        return new(
+            receipt,
+            WasRequested: true,
+            new(
+                metricPlan.RequestedEvidence,
+                metricPlan.EffectiveEvidence,
+                metricPlan.WorkStages,
+                metricPlan.UsesHeaderOnlyExecution
+                    && plan.RequestedFeatures
+                        == LibraryBodyAnalysisFeatures.None,
+                analysis.ImplementationMetricParticipation
+                    ?.Stages ?? [],
+                analysis.ImplementationMetricWork),
+            analysis.Methods.DeclaredMethods,
+            analysis.Methods.Methods,
+            analysis.Methods.ImplementationMetrics,
+            metricDiagnostics);
+    }
 
     private static LibraryImplementationProfileAnalysisResult
         CreateImplementationProfileResult(

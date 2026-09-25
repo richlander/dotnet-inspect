@@ -1810,6 +1810,11 @@ public static class ApiOutputFormatter
                 analysisInspection.BuildCallGraph(graphToken);
             view.CallGraphIncomplete =
                 analysisInspection.CallGraphDiagnostics.IsIncomplete;
+            memberCode.CallGraphInspection =
+                MemberCallGraphInspection.Execute(
+                    CallGraphInspectionGraphAdapter.Create(
+                        projection,
+                        analysisInspection.CallGraphDiagnostics));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
             memberCode.CallGraphRowCount = selectedRows.Count;
             bool loweringNeedsSelectedGraph =
@@ -1831,6 +1836,7 @@ public static class ApiOutputFormatter
                     loweringNeedsSelectedGraph ? selectedRows : null;
                 CallGraphSectionOutput graphOutput =
                     CallGraphSectionAdapter.ToGraph(
+                        memberCode.CallGraphInspection.Content,
                         projection,
                         FormatCallee,
                         analysisInspection.CallGraphFields,

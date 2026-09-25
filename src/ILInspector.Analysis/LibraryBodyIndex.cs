@@ -611,6 +611,8 @@ public sealed class LibraryBodyIndex
                     FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
                     ReturnFlows: returnFlows.IsDefault ? [] : returnFlows,
                     BodySignals: new Dictionary<int, BodySignals>(),
+                    ImplementationMetrics: [],
+                    ImplementationMetricDiagnostics: [],
                     ImplementationProfiles: [],
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),

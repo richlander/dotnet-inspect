@@ -95,10 +95,11 @@ will be composed.
 assembly workspace query. It streams bounded typed match, failure, and
 completion events from source-owned search metadata and exact manifests.
 Search supplies owners and candidate provenance; the manifest supplies authors
-and declared dependency groups. A network-free `PackageManifestFactsQuery`
-validates each bounded manifest and projects one immutable fact model that both
-package-profile and package-content dependency queries consume. In addition to
-the 1 MiB transport and 512 KiB decoded-document bounds, that projection admits
+and declared dependency groups. Package-owned
+`PackageManifestFactsProjection` validates each bounded manifest and projects
+one immutable fact model; the network-free `PackageManifestFactsQuery` facade
+and direct package consumers share it. In addition to the 1 MiB transport and
+512 KiB decoded-document bounds, that projection admits
 at most 32,768 UTF-16 code units per scalar value, 128 package types, 1,024
 dependency groups, and 4,096 dependencies; a violation is an invalid-manifest
 failure rather than a partial fact set. Root and metadata elements accept the
@@ -1291,7 +1292,8 @@ fixes inputs and names **existing product section(s)**
 format-aware: Markdown keeps Call Graph + Callers; table/tsv/jsonl keep Callers
 when the demo has caller scope so the re-add stays one section, otherwise Call
 Graph so package-local entry points still emit rows; mermaid keeps Call Graph;
-document JSON fails closed until graph projection lands). The CLI host runs
+document JSON keeps Call Graph alone and emits its complete typed graph
+document). The CLI host runs
 them through the normal type/member section pipelines (`DemoScenarioRunner` →
 `TypeCommand` / `MemberCommand`) and returns those sections in ordinary
 formats. Demos must not call past sections into ad hoc inspection APIs; a
@@ -1301,8 +1303,8 @@ generated TypeScript binding of that engine surface) must be encodings of the
 same preset—not parallel demo systems. Ecosystem grouping does not select or
 activate the pack's package set, prefixes, or scanner, and is never inferred
 from package coordinates or display text. Residual: minted view-facet ids,
-`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
-structured-JSON projection (see workspace-definitions). Detail:
+`WorkspaceContextLoader` as the shared group-run owner and browser restoration
+of Call Graph Share (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 

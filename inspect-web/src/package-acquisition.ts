@@ -144,6 +144,10 @@ export interface AppPackage {
   assembly: string;
   assemblyId: string;
   assemblyAsset: string;
+  // The selected compile library identity when the surface projected no assembly
+  // descriptor for it (a truncated surface). Navigation still treats the package as
+  // having no default assembly; engine queries scoped to the selected library use this.
+  selectedCompileAssetId?: string;
   source:
     | { kind: "file" }
     | { kind: "nuget.org" }
@@ -364,6 +368,15 @@ function defaultAssembly(
   return assembly;
 }
 
+// The assembly identity an engine query scoped to the package's selected compile library
+// sends: the default assembly when one was projected, otherwise the selected compile
+// asset of a truncated surface, otherwise none (a root-only package).
+export function packageQueryAssemblyId(
+  packageModel: Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
+): string {
+  return packageModel.assemblyId || packageModel.selectedCompileAssetId || "";
+}
+
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
 ): AppPackage;
@@ -385,10 +398,24 @@ export function createNuGetPackageModel(
       result.compileLibrary.message
       || `The package Root has no selected compile library (${result.compileLibrary.status}).`);
   }
-  const assembly = rootOnly ? null : defaultAssembly(
+  const inspectionErrors = surfaceInspectionErrors(result);
+  // A selected compile library can still project no assembly: the engine abandons a
+  // participant whose surface exceeds the browser extraction or transport bound and
+  // reports only the truncation notice (`BrowserPackageSurfaceProjection` throws for any
+  // other empty selected surface). Load that package without a default assembly so its
+  // notice stays visible, as a root-only package does. An unmatched identity beside
+  // projected assemblies, or an empty surface without a notice, remains a contract failure.
+  const truncatedToNoAssembly = !rootOnly
+    && (result.assemblies ?? []).length === 0
+    && inspectionErrors.length > 0;
+  const selectedCompileAssetId = truncatedToNoAssembly
+    ? requireAssemblyIdentity(
+      result,
+      "The package query did not return its selected assembly descriptor.")
+    : undefined;
+  const assembly = rootOnly || truncatedToNoAssembly ? null : defaultAssembly(
       result,
       "The package query did not return its selected assembly descriptor.");
-  const inspectionErrors = surfaceInspectionErrors(result);
   if (rootOnly) {
     inspectionErrors.push(result.compileLibrary.message
       || `No compile Library is available (${result.compileLibrary.status}).`);
@@ -401,6 +428,7 @@ export function createNuGetPackageModel(
     assembly: assembly?.name ?? "",
     assemblyId: assembly?.id ?? "",
     assemblyAsset: assembly?.asset ?? "",
+    ...(selectedCompileAssetId ? { selectedCompileAssetId } : {}),
     source: { kind: "nuget.org" },
     producerLabel: "NuGet.org",
     assemblies: [...(result.assemblies ?? [])],

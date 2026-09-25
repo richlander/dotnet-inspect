@@ -1,6 +1,4 @@
-using DotnetInspector.Packages;
-
-namespace DotnetInspector.Queries;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// The single root-manifest selection rule shared by every package-content consumer.
