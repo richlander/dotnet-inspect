@@ -131,6 +131,14 @@ internal static class InspectWebDeploymentWorkflowContract
                 runtimeCohortWorkflow),
             "Runtime sites accepted an unvalidated candidate identity.");
         AssertMutationRejected(
+            runtimeSitesWorkflow,
+            "          global-json-file: global.json\n",
+            "          dotnet-version: 10.0.x\n",
+            workflow => ValidateRuntimeSiteCandidateIdentity(
+                workflow,
+                runtimeCohortWorkflow),
+            "Runtime sites accepted validation without the candidate-pinned SDK.");
+        AssertMutationRejected(
             runtimeCohortWorkflow,
             "          ref: ${{ inputs.source_sha }}\n",
             "          ref: ${{ github.sha }}\n",
@@ -300,7 +308,14 @@ internal static class InspectWebDeploymentWorkflowContract
             "  workflow_run:\n",
             "      - Nightly release candidate\n",
             "    name: Select completed candidate\n",
-            "          ref: ${{ steps.trigger.outputs.sha }}\n",
+            "          ref: ${{ steps.trigger.outputs.sha }}\n"
+                + "\n"
+                + "      - name: Setup candidate .NET SDK\n"
+                + "        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0\n"
+                + "        with:\n"
+                + "          global-json-file: global.json\n"
+                + "\n"
+                + "      - name: Validate candidate identity\n",
             "          eng/validate-release-candidate.sh \\\n",
             "      source_sha: ${{ needs.source.outputs.sha }}\n",
             "      candidate_run_id: ${{ needs.source.outputs.run_id }}\n",
