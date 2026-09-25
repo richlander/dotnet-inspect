@@ -44,8 +44,10 @@ QueryOverflow defines:
   semantic selection, and source-native physical reads;
 - ownership transfer at batch admission and release;
 - progressive publication of rows that are final under the resolved plan;
-- completion-only publication of exact Count;
-- finalization from owner-issued population completion;
+- publication of exact Count only after an accepted terminal-sufficiency
+  witness;
+- finalization from owner-issued population completion or another
+  QuerySpace-owned terminal witness;
 - preservation of complete-sequence failure and callback semantics; and
 - equivalence requirements for alternative batch kernels.
 
@@ -234,6 +236,16 @@ the batch under the same logical-population binding. A short or empty physical
 read, source page, row batch, delivery grant, or work bound is not source
 completion.
 
+### Terminal sufficiency
+
+**Terminal sufficiency** means that the resolved QuerySpace terminal has an
+exact answer. Population completion is one sufficient witness, but it is not
+the only one. QuerySpace's existing Count contract also admits an
+owner-accepted exact source Count and permits `Head(N) -> Count` to complete
+after witnessing `N` applicable ordered rows. QueryOverflow preserves every
+such owner-issued witness without deriving one from batch size, observed
+cardinality, or continuation state.
+
 ## State and transition contract
 
 One execution is linear and single-consumer:
@@ -403,33 +415,52 @@ resolved plan. A row is final when no future candidate can invalidate,
 replace, deduplicate, or reorder it and no unresolved QuerySpace failure can
 require the complete result to be withheld.
 
-Natural-order filtering and Head can admit progressive publication. Tail,
-global ordering, ranking Top, and strict Window requirements generally require
-source completion or owned retention before publication.
+An empty row plan in source order and Head over that plan can admit progressive
+publication. A residual predicate or callback does not automatically qualify:
+the complete-sequence QuerySpace evaluator may invoke it on a later candidate
+and fail atomically. Progressive publication requires an accepted
+interpretation proving that no future QuerySpace-owned observation can
+invalidate already returned rows.
+
+Tail, global ordering, ranking Top, strict Window, and any unresolved
+QuerySpace callback or failure requirement generally require terminal
+sufficiency or owned retention before publication.
 
 QueryOverflow may decline a plan for which it has no equivalent bounded
 interpretation. It must not reinterpret that plan as a batch-local query.
 Applying Head, Window, Tail, Top, predicates, or ordering independently to each
 batch is invalid.
 
-Rows published before a later source failure remain durable partial outcome
-rows. The terminal failure is visible and does not claim successful completion
-or exact Count. An adopter requiring atomic Rows may retain all output until
-completion; that is a publication policy, not a different query result.
+Rows published before a later source or acquisition failure remain durable
+partial source outcomes. The terminal failure is visible and does not claim
+successful completion or exact Count.
+
+A later QuerySpace-owned semantic failure is different: the existing
+complete-sequence contract publishes no earlier residual Rows. QueryOverflow
+therefore withholds rows for any plan with an unresolved semantic-failure or
+callback path, or declines that plan. It cannot publish rows and later
+reinterpret the semantic failure as a source-style partial outcome.
+
+An adopter requiring atomic Rows for an otherwise publication-safe plan may
+retain all output until completion. That is a publication policy, not a
+different query result.
 
 ### Count
 
-Count retains an internal accumulator and publishes no count value until
-accepted source completion and every preceding QuerySpace stage establish the
-exact terminal result.
+Count retains an internal accumulator and publishes no count value until every
+preceding QuerySpace stage and an accepted terminal-sufficiency witness
+establish the exact terminal result.
 
 A source suspension, continuation, work bound, delivery grant, observed count,
 provider total, or short batch never establishes exact Count. Failure or
-cancellation before completion publishes no Count value.
+cancellation before terminal sufficiency publishes no Count value.
 
-An owner-issued exact source count may satisfy Count only through the existing
-QuerySpace and source-delegation evidence contracts. QueryOverflow does not
-promote an operational source value into semantic proof.
+Population completion, an owner-issued exact source Count, and a
+QuerySpace-owned semantic witness such as `Head(N)` after `N` applicable
+ordered rows may satisfy Count under the existing QuerySpace and
+source-delegation evidence contracts. When `Head(N)` observes fewer than `N`,
+population completion or another accepted witness is still required.
+QueryOverflow does not promote an operational source value into semantic proof.
 
 ### Completion-only rows
 
@@ -542,8 +573,10 @@ QueryOverflow preserves three failure locations:
 
 A source or outer failure after progressive Rows publication preserves those
 durable rows and reports terminal failure. It cannot publish exact Count or a
-successful complete Rows outcome. Completion-only publication emits no rows
-on failure.
+successful complete Rows outcome. A QuerySpace-owned semantic failure retains
+the existing atomic Rows behavior: any plan that can still reach such a failure
+withholds output, so no earlier residual Rows have been published.
+Completion-only publication emits no rows on failure.
 
 Cancellation requests no later source batch. QueryOverflow performs no hidden
 cleanup because it owns no source resource; the outer operation releases its
@@ -638,9 +671,10 @@ QueryOverflow when it asks no row question.
 | `BatchDemandIsNotSemanticSelection` | Candidate-row maximum, final-row credit, Head or Window, source completion, and physical byte/page limits remain independently observable and are never substituted for one another. |
 | `ConsumedPrefixPreservesUnconsumedSuffix` | A step that stops within a batch reports its exact consumed prefix; resumption neither skips nor duplicates the suffix. |
 | `CheckpointOwnsNoReleasedBatchValue` | After a step releases its input owner, Count and position state remain valid, and every retained or published row has detached ownership. |
-| `ProgressiveRowsAreFinal` | Prefix-stable plans publish each row exactly once in final order; completion-only and strict all-or-failure plans withhold rows until their requirements are proven. |
-| `ExactCountRequiresCompletion` | Count publishes once after accepted population completion and never from a short batch, continuation, work bound, delivery grant, provider total, failure, or cancellation. |
-| `FailureDoesNotBecomeCompletion` | A late source or semantic failure preserves already published progressive Rows, publishes no exact Count, and never produces a successful complete outcome. |
+| `ProgressiveRowsAreFinal` | Publication-safe plans publish each row exactly once in final order; plans with unresolved semantic failures or callbacks, completion-only plans, and strict all-or-failure plans withhold rows until their requirements are proven. |
+| `ExactCountRequiresTerminalSufficiency` | Count publishes once after population completion or another accepted QuerySpace terminal witness; `Head(N) -> Count` completes after `N` applicable ordered rows, while fewer rows still require completion, and no operational bound or observation substitutes for proof. |
+| `SourceFailureDoesNotBecomeCompletion` | A late source failure preserves already published progressive Rows, publishes no exact Count, and never produces a successful complete outcome. |
+| `SemanticFailurePreservesAtomicRows` | A plan with an unresolved QuerySpace-owned failure or callback path publishes no residual Rows before that path is discharged; a later semantic failure therefore retains the complete-sequence all-or-failure result. |
 | `OneBatchMatchesDirectQuerySpace` | One final batch and the direct complete-sequence path have identical observable results. |
 | `SourceAndCheckpointAdvanceTogether` | A bounded state model checks that accepted re-entry cannot skip or duplicate rows and that stale or concurrent checkpoint advancement cannot produce a second accepted transition. |
 | `IndependentConsumerRunsQueryOverflow` | A non-dotnet-inspect consumer uses application-owned batch and row types to execute Rows and Count without async, House, source, CLI, Browser, or reflection dependencies. |
