@@ -11,6 +11,8 @@ of the non-normative platform-first tracker
 The first production consumer is progressive call-graph construction in both
 the CLI and Inspect Web. The ladder is shared substrate; it is not a
 call-graph-specific result or a host-specific retry loop.
+Package-backed framework-route formation for Browser/Wasm is tracked by
+[#8466](https://github.com/richlander/dotnet-inspect/issues/8466).
 
 ## Authority and exact claim
 
@@ -224,6 +226,173 @@ assembly names. Forming the receipt may require bounded package candidate,
 asset, restored-graph, or platform-catalog evidence after the context miss and
 before external binding rungs run. That preparatory work remains charged to
 the operation and preserves each owner's result.
+
+### Assembly-reference route association
+
+The ladder owns one association decision for the exact request. It joins
+owner-issued facts; it does not manufacture package, platform, or pruning
+evidence.
+
+`AssemblyReferenceRouteAssociationReceipt` is conceptual vocabulary for the
+immutable result. It is valid only for:
+
+- the exact `AssemblyRef` and referencing occurrence;
+- the referencing origin and completed context `NoNameOwner`;
+- one Workspace revision, context generation, and focal-scope receipt;
+- one exact platform target and family composition, when platform eligibility
+  exists;
+- the platform catalog and package-reachability snapshots used to form the
+  route set; and
+- every pruning and package-assembly correspondence receipt it retains.
+
+Equal field values do not transfer the receipt to another occurrence,
+generation, target, or owner snapshot.
+
+#### Independent associations
+
+Route formation settles two associations independently:
+
+1. **Platform membership** — the platform owner identifies whether the exact
+   target's selected family composition contains a Library capable of owning
+   the requested assembly identity. A framework reference makes that family
+   eligible; it does not establish Library membership, binding compatibility,
+   or precedence.
+2. **Package-edge association** — for every request-eligible package edge, an
+   owner establishes whether that exact edge is relevant to the requested
+   assembly identity. Association requires either package-selected-role
+   correspondence to that assembly identity or exact
+   package-identity-to-platform-Library correspondence for the candidate
+   platform membership. A package declaration, package ID, asset filename, or
+   equal simple name establishes neither form.
+
+The platform package-supply inventory associates package identities with prune
+ceilings but deliberately contains no platform Library identity. A platform
+substitution on behalf of a package edge therefore also requires
+owner-issued correspondence among the exact package identity, platform
+inventory entry, and platform Library membership. Neither the ladder nor a host
+joins those facts by equal text.
+
+That correspondence is the resource-free path for a potentially pruned edge:
+it identifies the package edge as relevant to the requested platform Library
+before any package payload is acquired. The package processing owner can then
+apply pruning to the exact coordinate. When every relevant edge is Subsumed,
+the ladder can issue the platform route without downloading payloads that the
+platform replaces.
+
+For a retained package edge, an authoritative restored graph or another
+owner-issued inventory may already carry exact package-to-assembly
+correspondence. Otherwise the package rung may require bounded candidate
+acquisition, asset selection, and metadata identity projection before it can
+bind or return a complete name-ownership result. That later work does not
+retroactively authorize platform substitution.
+
+#### Complete associated-edge set
+
+The receipt contains every request-eligible package route occurrence and one
+closed association state for each:
+
+- **Associated** — exact owner-issued correspondence establishes either that
+  the edge's selected package role can supply the requested assembly or that
+  its package identity corresponds to the candidate platform Library;
+- **Not associated** — complete owner-issued evidence establishes that the
+  edge's selected role does not supply it; or
+- **Undetermined** — available evidence cannot settle supply.
+
+Repeated routes to one package candidate retain distinct edge and reachability
+occurrences. Coalesced acquisition does not coalesce association or pruning
+evidence.
+
+The associated-edge set is complete only when package reachability is complete
+for the selected focal scope and every eligible route occurrence has a settled
+Associated or Not associated state. An omitted, bounded, failed, or
+Undetermined occurrence prevents a no-associated-edge claim and prevents
+platform selection.
+
+#### Pruning precedes platform applicability
+
+Every Associated package edge is evaluated independently by its package
+processing owner against the exact target's composed prune inventory. Route
+association retains the exact edge, package coordinate, target, inventory, and
+`PlatformSupplyReceipt`; it does not recompute package versions or subsumption.
+
+The evidence order for a potential platform substitution is:
+
+1. settle the exact platform Library membership for the `AssemblyRef`;
+2. obtain owner-issued package-identity-to-platform-Library correspondence;
+3. identify the complete set of request-eligible package edges carrying those
+   package identities;
+4. evaluate pruning for every associated edge; and
+5. only then decide whether an applicable-platform rung exists.
+
+Candidate payload acquisition and package asset decoding are not steps in the
+all-associated-subsumed path. They belong to retained package routes or to
+other package associations that no resource-free owner can settle.
+
+The ladder derives overlap applicability only after all Associated edges have
+settled:
+
+| Complete association and pruning evidence | Overlap applicability |
+| --- | --- |
+| No Associated package edge, with complete reachability and association | Platform independent |
+| Every Associated edge delegates through `Subsumed` and has exact package-to-platform-Library correspondence | All associated package edges subsumed |
+| Any Associated edge is `NotSubsumed`, `NotComparable`, or otherwise package-owned | Package edge retained |
+| Reachability, association, correspondence, target, inventory, or pruning evidence is incomplete | Undetermined |
+
+A retained edge dominates every same-request platform proposal, including a
+proposal supported by another Subsumed edge. `Undetermined` is terminal
+incomplete route formation; it is not permission to prefer the platform.
+
+Only Platform independent and All associated package edges subsumed can issue
+an applicable-platform rung. The second form retains every delegated edge and
+its pruning receipt so the platform result never erases why package acquisition
+was skipped. Package edge retained omits the platform rung on behalf of those
+edges and preserves the complete package routes for rung 3.
+
+No platform Library is admitted to the Workspace and no replacement generation
+is published before this decision. Bounded target-inventory or catalog
+acquisition needed to form an owner receipt remains preparatory evidence; it
+does not itself select or realize a platform route. Platform Library
+realization is an effect of evaluating an already-issued applicable-platform
+rung.
+
+#### Framework references are eligibility evidence
+
+A package target's declared shared-framework references must arrive as
+owner-issued evidence associated with the selected package Root and target
+framework. The route owner may use that evidence to select eligible platform
+families. It may not parse a package manifest, infer a family from an assembly
+prefix, or treat a target framework alone as proof that every installed shared
+framework participates.
+
+Framework-reference evidence does not:
+
+- establish that the platform contains the requested Library;
+- associate a package dependency edge with the requested `AssemblyRef`;
+- prove that an associated edge is Subsumed; or
+- authorize platform acquisition before overlap applicability settles.
+
+The package evidence owner and its focused contract are prerequisites to
+package-backed adoption; this ladder does not define manifest parsing,
+framework-group selection, or evidence completeness.
+
+#### Pathological overlap
+
+For a `net10.0` origin with an eligible .NET Runtime platform target and an
+associated `System.Text.Json` package edge:
+
+- `System.Text.Json@9.0.0` may permit platform applicability only after the
+  exact edge is `Subsumed` and package-to-platform-Library correspondence is
+  established;
+- `System.Text.Json@12.0.0` is `NotSubsumed`, retains the package route, and
+  suppresses platform substitution for the request;
+- an unresolved or otherwise incomparable version is `NotComparable` and
+  likewise cannot authorize platform substitution; and
+- equal `System.Text.Json` package, assembly, and Library spellings establish
+  none of the required associations.
+
+The same contract applies when several associated edges converge on one
+package candidate or platform Library. Platform selection requires every edge
+to delegate; one retained or undetermined edge prevents it.
 
 ## Rung 1: referencing context
 
@@ -700,6 +869,7 @@ name nor platform overlap chose a package or erased the exact pruning result.
 | Workspace and [Artifact Acquisition](artifact-acquisition-and-workspaces.md) | Revision and operation authorization, context realization, complete route-map adoption, immutable generation publication, replacement, and retirement |
 | [Platform Composition and Overlays](platform-composition-and-overlays.md) | Exact platform realization, platform/designated role policy, identity eligibility, precedence, and shadows |
 | [Platform/Package Pruning](platform-package-pruning.md) | Exact target/package subsumption fact and version comparison |
+| [Platform Package Supply Policy](platform-package-supply-policy.md) | Exact package-coordinate-to-prune-inventory correspondence and delegation result; no package-to-platform-Library association |
 | [Package Dependency Evidence](package-dependency-evidence.md) | Normalized declarations, origin and edge identities, framework scope, produced relationships, and completion |
 | [Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md) | Declaration-to-exact-source-authorized-candidate result |
 | Package acquisition and asset owners | Payload authorization, content lifetime, target-framework and runtime selection, package roles, and surface/implementation correspondence |
@@ -730,6 +900,24 @@ Each stage lands through its owning component. This design does not authorize
 one implementation PR spanning Workspace, platform, packages, Queries, CLI,
 and Browser.
 
+Package-backed framework-route adoption in #8466 has two focused prerequisites
+before it can consume stages 3 through 6:
+
+1. [PackageHouse framework-reference
+   evidence](package-house-framework-reference-evidence.md) (#8504) projects
+   the exact acquired compile settlement using bounded
+   [package-manifest framework-reference
+   facts](https://github.com/richlander/dotnet-inspect/issues/8513); and
+2. [platform-package Library correspondence](https://github.com/richlander/dotnet-inspect/issues/8503)
+   issues exact correspondence between one prune-inventory package identity
+   and one platform Library membership.
+
+Those efforts define their own evidence construction and failures. The ladder
+then consumes their receipts to form the association and overlap-applicability
+result specified here. Browser adoption follows only after the shared
+continuation loop can publish the replacement generation; the Browser host
+does not implement a parallel association or pruning policy.
+
 ## Acceptance and evidence
 
 Required future Release gates:
@@ -739,8 +927,13 @@ Required future Release gates:
 | Exact in-context match with lower same-name candidates | Context selection is terminal and performs no lower-rung acquisition |
 | Same-name in-context identity mismatch | `NameOwnedNoMatch` remains terminal |
 | Context miss and exact platform match | Platform selection retains exact target and realization correspondence |
+| Framework reference without platform Library membership | No platform route is issued |
+| Equal package, assembly, and platform Library names without owner correspondence | No association is inferred |
+| Incomplete package reachability or one undetermined edge association | Route formation is `Incomplete`; platform acquisition does not start |
 | Subsumed package edge | Visible package-edge-to-platform delegation; no package payload acquisition |
+| Subsumed package edge without package-to-platform-Library correspondence | Route formation is `Incomplete`; equal names do not authorize delegation |
 | Package version above prune watermark | Platform substitution is absent and the exact package route remains |
+| Package version not comparable with prune watermark | Platform substitution is absent and the exact package evidence remains |
 | Associated package edges straddle the prune watermark | Retained package evidence dominates; no platform selection occurs on behalf of the subsumed edge |
 | Package edge without assembly membership | Complete `NoNameOwner`, not an inferred match |
 | Restored transitive edge without normalized declaration | Exact coordinate authorization preserves restored relationship evidence and synthesizes no declaration |

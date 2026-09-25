@@ -2097,10 +2097,10 @@ test("Annotated Source composition requires a concrete overload and validated se
     /class="contextual-actions annotated-contextual-actions"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
   assert.match(
     appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);

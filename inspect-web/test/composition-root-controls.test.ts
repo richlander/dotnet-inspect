@@ -818,7 +818,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     ?? "";
   assert.match(
     shellControlsSource,
-    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#application-menu-button[\s\S]*#application-menu[\s\S]*\[data-application-action\][\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
+    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*\[data-subject-framework\][\s\S]*#application-menu-button[\s\S]*#application-menu[\s\S]*\[data-application-action\][\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
     /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-demos/);
@@ -842,7 +842,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*render\(\);[\s\S]*focusContentNavigation\(document\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onNavigateBack:/);
@@ -857,7 +857,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-demos|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-demos|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\[data-subject-framework\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help)/);
@@ -1102,7 +1102,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 6);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 7);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -1960,7 +1960,9 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
   assert.match(
     appSource,
-    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!documentViewerIsOpen\(state\.docViewer\)[\s\S]*!state\.spotlightOpen/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!documentViewerIsOpen\(state\.docViewer\)[\s\S]*!memberDiffExplorer\.isOpen[\s\S]*!state\.spotlightOpen/);
+  assert.match(appSource,
+    /member-diff-explorer\.contain-browser-shortcut[\s\S]*\(\) => memberDiffExplorer\.isOpen/);
   assert.equal(
     keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
     1);

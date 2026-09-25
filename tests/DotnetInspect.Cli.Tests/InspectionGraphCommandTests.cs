@@ -1365,7 +1365,7 @@ public sealed class InspectionGraphCommandTests
         var presentation =
             await Counts("DotnetInspector.Presentation.dll");
         Assert.Equal(
-            (38, 12, 8, 1258),
+            (41, 15, 8, 1273),
             presentation);
 
         var metadataRendering =

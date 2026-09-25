@@ -20,6 +20,10 @@ internal sealed record LibraryBodyAnalysisResult(
 
     internal ResourceLifecycleLibraryAnalysisResult? ResourceLifecycle
     { get; init; }
+
+    internal ImplementationMetricWorkBudgetSnapshot?
+        ImplementationMetricWork
+    { get; init; }
 }
 
 internal sealed record MethodBodyAnalysisResult(
