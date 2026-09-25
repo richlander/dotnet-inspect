@@ -95,7 +95,7 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Contains("SetDirectionalInput", names);
         Assert.Contains("SetDirectionalSharedInput", names);
         Assert.Contains("SetDirectionalAccessorInput", names);
-        Assert.Contains("RoundTripDirectional", names);
+        Assert.Contains("ReemitDirectionalServerNote", names);
         Assert.Contains("GetClosedGenericRoot", names);
         Assert.Contains("GetRegisteredInt", names);
         Assert.Contains("GetRegisteredIntArray", names);
