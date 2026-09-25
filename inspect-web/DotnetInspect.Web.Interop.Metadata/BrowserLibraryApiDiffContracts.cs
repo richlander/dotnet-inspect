@@ -134,7 +134,8 @@ public sealed record BrowserLibraryApiDiffMember(
     BrowserLibraryApiDiffMemberIdentity? Before,
     BrowserLibraryApiDiffMemberIdentity? After,
     BrowserLibraryApiDiffChange[] Changes,
-    BrowserLibraryApiDiffMatch? Match);
+    BrowserLibraryApiDiffMatch? Match,
+    BrowserLibraryApiDiffMemberExploreDestination? Explore);
 
 /// <summary>
 /// The Findings-issued correspondence provenance behind a changed relation: the
@@ -166,6 +167,19 @@ public sealed record BrowserLibraryApiDiffMemberIdentity(
     string TypeFullName,
     string MemberName,
     string Display);
+
+public sealed record BrowserLibraryApiDiffMemberExploreDestination(
+    BrowserLibraryApiDiffExploreDestinationKind Kind,
+    BrowserLibraryApiDiffMemberExploreEndpoint Target,
+    BrowserLibraryApiDiffMemberExploreEndpoint Current);
+
+public sealed record BrowserLibraryApiDiffMemberExploreEndpoint(
+    string PackageId,
+    string Version,
+    string Framework,
+    BrowserLibraryApiDiffCompileAsset Asset,
+    BrowserLibraryApiDiffAssemblyIdentity Assembly,
+    BrowserLibraryApiDiffMemberIdentity? Member);
 
 public sealed record BrowserLibraryApiDiffCancellation(
     BrowserLibraryApiDiffCancellationKind Kind,
@@ -243,6 +257,14 @@ public enum BrowserLibraryApiDiffMemberRelationRole
     Before,
     After,
     Both,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<
+    BrowserLibraryApiDiffExploreDestinationKind>))]
+public enum BrowserLibraryApiDiffExploreDestinationKind
+{
+    [JsonStringEnumMemberName("member-diff")]
+    MemberDiff,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffSurfaceScope>))]
