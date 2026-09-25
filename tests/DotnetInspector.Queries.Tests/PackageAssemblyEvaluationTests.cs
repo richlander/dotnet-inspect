@@ -390,5 +390,6 @@ public sealed class PackageAssemblyEvaluationTests
         public IEnumerable<string> EnumerateEntries() => content.EnumerateEntries();
         public bool TryGetEntryLength(string path, out long length) => content.TryGetEntryLength(path, out length);
         public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths() => content.EnumerateEntriesWithLengths();
+        public PackageContentEntryScanner CreateEntryScanner() => content.CreateEntryScanner();
     }
 }
