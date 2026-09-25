@@ -18,6 +18,8 @@ export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "Typ
 
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 
+export type BrowserLibraryApiDiffExploreDestinationKind = "member-diff" | number;
+
 export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
 
 export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
@@ -204,6 +206,22 @@ export interface BrowserLibraryApiDiffMember {
   readonly after: BrowserLibraryApiDiffMemberIdentity | null;
   readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
   readonly match: BrowserLibraryApiDiffMatch | null;
+  readonly explore: BrowserLibraryApiDiffMemberExploreDestination | null;
+}
+
+export interface BrowserLibraryApiDiffMemberExploreDestination {
+  readonly kind: BrowserLibraryApiDiffExploreDestinationKind;
+  readonly target: BrowserLibraryApiDiffMemberExploreEndpoint;
+  readonly current: BrowserLibraryApiDiffMemberExploreEndpoint;
+}
+
+export interface BrowserLibraryApiDiffMemberExploreEndpoint {
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly asset: BrowserLibraryApiDiffCompileAsset;
+  readonly assembly: BrowserLibraryApiDiffAssemblyIdentity;
+  readonly member: BrowserLibraryApiDiffMemberIdentity | null;
 }
 
 export interface BrowserLibraryApiDiffMemberIdentity {

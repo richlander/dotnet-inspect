@@ -1437,7 +1437,38 @@ async function installFacades(
         return JSON.stringify(await performanceFor(
           surface, selected, version, framework, selected.id));
       }`,
-    source: "",
+    source: `
+      export async function queryTypeSource() {
+        return {
+          version: 1,
+          kind: "Succeeded",
+          value: {
+            kind: "source",
+            value: {
+              provider: "pdb",
+              provenance: "fixture",
+              url: "https://example.test/Example.Widget.cs",
+              pdbSourceLimitation: null,
+              text: "public sealed class Widget {}",
+            },
+            share: {
+              kind: "nonProjectable",
+              fullUrl: null,
+              packet: null,
+              path: "fixture",
+              reason: "Fixture source",
+            },
+            diagnostics: [],
+          },
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: null,
+        };
+      }
+      export function cancelTypeSourceQuery() {
+        return { kind: "NotActive", reason: null };
+      }`,
     "call-graph": `
       const callGraph = ${JSON.stringify(fixtureCallGraph)};
       export async function queryMemberCallGraph() {
