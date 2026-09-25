@@ -69,7 +69,7 @@ remain evidence about each line, not a layout.
 The viewer derives rows by one positional walk of the mapped diff, in order:
 
 1. Each unchanged gap contributes one **context** row per line pair, carrying
-   both line numbers and the Before line text.
+   both side coordinates.
 2. Each change contributes its **removal** rows for its Before range, then its
    **addition** rows for its After range.
 
@@ -86,6 +86,12 @@ changed.
 
 Unified mode shows the rows in walk order with two line-number columns and a
 marker column: a space for context, `−` for removal, `+` for addition.
+A context row's two lines need not be equal text: the mapped diff does not
+compare unchanged-gap text, and a whitespace-only change shown as context has
+different text on each side. Unified mode prints a context row's Before line,
+as `diff -w` does. Side-by-side mode prints each side's own line, so a column
+never shows text its sequence does not hold.
+
 Side-by-side mode shows each context row on both sides and aligns each
 change's removal and addition blocks at their tops, filling the shorter block
 with empty cells, as Markout's side-by-side lowering does. Side-by-side never
@@ -101,8 +107,10 @@ viewer shows the change without highlighting and reports the defect in the
 frame, never skipping it silently.
 
 A side whose final line terminator is asserted absent shows an accessible
-visible marker after its last line, labeled **No newline at end**. A side
-whose assertion is unknown shows no marker.
+visible marker after its last line, labeled **No newline at end**; when both
+sides end in the same context row, the row shows one marker. When that line
+lies in a collapsed run, the run's omission row states that the side ends
+without a newline. A side whose assertion is unknown shows no marker.
 
 Line numbers, markers, and decorations are outside the selectable text, so a
 selection copies source text only. **Copy Before** and **Copy After** assemble
@@ -140,16 +148,30 @@ three choices:
 
 - **Mark:** every whitespace-only change is shown in a lighter shade of its
   removal or addition color with a `whitespace-only: <kinds>` label.
-- **Highlight:** Mark, plus each whitespace edit's exact span highlighted, with
-  spaces and tabs inside that span drawn as `·` and `→`. Literal `·`, `→`,
-  and backslash inside a span are escaped, as Markout's rich formats do.
-- **Hide:** the insensitive policy's Suppress mode. A whitespace-only change
-  whose lines correspond one-to-one renders as context; every other
-  whitespace-only change is hidden, with an omission row stating how many
-  whitespace-only lines it hides on each side.
+- **Highlight:** Mark, plus each whitespace edit drawn from the transported
+  edit facts, as the characterization's lowering describes:
+  - the part of an edit that lies within one line is highlighted as a span,
+    with spaces and tabs drawn as `·` and `→`, and literal `·`, `→`, and
+    backslash escaped, as Markout's rich formats do;
+  - an edit that crosses lines is drawn as its segment on each line plus a
+    visible line-break marker where a boundary was added or removed;
+  - an edit empty on one side is drawn on that side as a visible insertion
+    point; and
+  - a whitespace-only change that only adds or removes lines, such as blank
+    lines, is marked at line level.
+- **Hide:** the insensitive policy's Suppress mode, with the policy's test. A
+  whitespace-only change whose sides have the same nonzero number of lines
+  and no `LineBreaks` or `FinalLineTerminator` edit renders as context; every
+  other whitespace-only change is hidden, with an omission row stating how
+  many whitespace-only lines it hides on each side.
 
-The default comes from the whitespace policy for the payload's endpoint
-provenance: an authored → authored comparison defaults to **Mark**. Choosing
+The decoding-defect rule for spans applies to transported inner mappings, not
+to producer edit facts, whose ranges may legitimately span lines or be empty.
+
+Every Inspect Web comparison defaults to **Mark**. Authored → authored
+comparisons are sensitive by the whitespace policy, and the browser presents
+the PDB and decompiled member comparison sensitively by the policy's
+recorded exception. Choosing
 **Hide** is explicit and applies to the current diff only; it is never
 retained across diffs, so a new comparison never opens with differences
 hidden. **Mark** and **Highlight** are retained as a preference for the page
@@ -198,12 +220,19 @@ outcome never keeps controls or rows from a previous one.
 ## Hosts
 
 The embedded host shows the viewer inside a page section with collapsed
-context and a compact control row. The full-bleed host shows it expanded, with
-mode selection. Mode preference, unified or side-by-side, is retained for the
-page session and shared by both hosts; below 720 CSS pixels of viewer width,
-side-by-side falls back to unified without changing the stored preference.
-Viewer state is transient: it is not part of the URL, browser history, the
-Workspace, or a share packet.
+context and a compact control row that includes mode selection. The
+full-bleed host shows it expanded. Mode preference, unified or side-by-side,
+is retained for the page session and shared by every host; below 720 CSS
+pixels of viewer width, side-by-side falls back to unified without changing
+the stored preference. Viewer state is transient: it is not part of the URL,
+browser history, the Workspace, or a share packet.
+
+A host may place the viewer's mode, navigation, and **Open Before** and
+**Open After** controls in its own action region, as Surface composition's
+Member Diff surface does for the later PDB and decompiled adopter; the
+controls keep this owner's semantics wherever they appear. **Open Before**
+and **Open After** use only the destinations the transport carries and are
+absent when it carries none.
 
 Placement owners decide where each host appears and which payload it shows.
 This owner adds no page-level scroller or horizontal overflow; long lines
@@ -211,11 +240,14 @@ scroll inside the viewer.
 
 ## Accessibility
 
-Rows form a table with one row header per line number cell. Marker glyphs are
-hidden from assistive technology, and each removal or addition row carries a
-text label, **Removed** or **Added**, with its decorations, such as
-**whitespace-only** or **move 3**. Controls are native buttons or radio
-groups with visible focus. Every pointer gesture has a keyboard equivalent.
+Rows form a table. Each row's line-number cells are its row headers, and a
+windowed row carries its position in the complete row population through
+`aria-rowindex` against the table's `aria-rowcount`, so assistive technology
+reports true positions. Marker glyphs are hidden from assistive technology,
+and each removal or addition row carries a text label, **Removed** or
+**Added**, with its decorations, such as **whitespace-only** or **move 3**.
+Controls are native buttons or radio groups with visible focus. Every pointer
+gesture has a keyboard equivalent.
 
 ## Non-claims
 
@@ -269,10 +301,14 @@ either.
    escapes, and that Hide shows the hidden-line counts and **No differences
    except whitespace**; open another comparison and confirm Hide was not
    retained.
-6. With move facts, confirm linked labels, partner highlighting, and scrolling
+6. Under Highlight, confirm a brace reflow (`class Foo {` → `class Foo` /
+   `{`) shows its segments and a line-break marker, and a removed blank line
+   is marked at line level. Under Hide in side-by-side mode, confirm a
+   re-indented line shows each side's own text in its column.
+7. With move facts, confirm linked labels, partner highlighting, and scrolling
    to the partner; switch to Plain and confirm ordinary rows.
-7. Confirm each outcome frame, and that a canceled or too-complex result never
+8. Confirm each outcome frame, and that a canceled or too-complex result never
    shows rows or **Identical**.
-8. At 390 pixels, confirm side-by-side falls back to unified, the stored mode
+9. At 390 pixels, confirm side-by-side falls back to unified, the stored mode
    survives a return to a wide viewport, and no page-level horizontal
    scrolling appears.
