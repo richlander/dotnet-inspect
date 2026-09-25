@@ -60,14 +60,14 @@ read. The ranking and the top-ten cut need every candidate, so they run
 afterwards over the published rows. The answer equals running the whole query
 over every row.
 
-**Count and Rows share one read.** In one pass, one producer needs the number
-of types, one needs the generic types' signatures, and one needs every
-interface-implementation row. The first two describe the same population.
-When no one needs that population's rows, the count comes from the source,
-but only with evidence that the source counts exactly that population. The
-generic-type demand is a filtered projection. Its rows cannot supply the total,
-so the total is not derived from them. The interface rows are a separate
-population with their own read.
+**Several consumers share one read, and QuerySpace plans it.** In one pass,
+one producer needs the number of types, one needs the generic types'
+signatures, and one needs every interface-implementation row. Type and
+interface metadata is a library-scope input owned by Metadata, so each
+producer's need is a QuerySpace request against Metadata's source. QuerySpace
+collapses the requests for each resource into one source plan with a residual
+for each consumer. The producer planner receives the collapsed result and
+does no request merging of its own.
 
 **A single-threaded host gets the same answer.** Inspect Web runs the same plan
 on Browser/Wasm with an executor that yields between bodies. It publishes the
@@ -104,6 +104,8 @@ This owner does not define:
 - analysis identity, operation participation, default sets, cost, or discovery,
   which the [analysis catalog](analysis-surfaces-and-universes.md#operation-participation)
   and [capability composition](inspection-capability-composition.md) own;
+- query meaning, or collapsing several requests for one resource into one
+  source plan, which QuerySpace owns;
 - acquisition or [package read demand](package-read-demand.md), which consumes
   declared requirements but keeps its own decision;
 - cache keys, retention, or persistence, which
@@ -211,39 +213,40 @@ registration show how much a scheduler loses when dependencies surface only
 during execution. `LibraryBodyIndex`'s lazy members are the local instance:
 the index cannot know what its consumers will ask for.
 
-### Demand has shape, and a plan is a query source
+### Demand is a QuerySpace request, and a plan is a source
 
-**Rule.** A requirement on shared data states a population, a terminal
-(Exists, Count, or Rows), and a projection, using
-[QuerySpace](query-space-library.md) terminal and row-query meaning rather
-than a second vocabulary. Exists and Count are defined as observations of the
-Rows of the same population. The planner combines requirements for each
-population into one read with the widest projection. Each consumer's own
-predicate then runs over that read. A cheaper answer, such as a count from
-the source, is a substitution that needs evidence.
+**Rule.** A requirement on shared data is a [QuerySpace](query-space-library.md)
+request against the resource that owns that data. It states a population, a
+terminal (Exists, Count, or Rows), and a projection. Collapsing several
+consumers' requests for one resource into one source plan belongs to
+QuerySpace ([#8574](https://github.com/richlander/dotnet-inspect/issues/8574)),
+for every consumer, not only producers. Producer planning never merges,
+deduplicates, or reduces requests itself.
 
-A request may carry a resolved row query. The plan then acts as a source
-under [source delegation](source-delegation.md): it accepts the part of the
-query it can prove, reports completion evidence, and leaves the rest to run
-over its published rows with unchanged meaning. Each row-vocabulary key
-declares whether it can be evaluated before any body is read, from metadata,
-or only after, from evidence. That split is what lets a predicate narrow the
-plan's scope. Source delegation is linear and excludes concurrent execution,
-so a parallel executor that answers a delegated query needs its own
-scheduling and publication model.
+The body-analysis plan is itself a source. It declares which row-vocabulary
+keys it can evaluate before any body is read, from metadata, and which only
+after, from evidence, and which terminals it can answer exactly. It accepts
+the part of a collapsed request it can prove under
+[source delegation](source-delegation.md) and reports completion evidence.
+Everything else runs over its published rows with unchanged meaning. Source
+delegation is linear and excludes concurrent execution, so a parallel
+executor that answers a delegated query needs its own scheduling and
+publication model.
 
 A producer's row vocabulary is owned with its result type, is host-neutral,
 and is bound through QuerySpace composition. A host binds and presents it; a
 host never defines it.
 
 *Keeps possible:* questions that cost what they ask for, several consumers
-sharing one read, and the same pushdown in every host.
+sharing one read through one planner, and the same pushdown in every host.
 
 *Lesson:* a query applied after everything is built can never make work
 cheaper. That is LINQ in QuerySpace clothing: the query is declared
 structurally, but the source still builds the complete row list before any
 predicate, Count, or limit runs.
-Databases share one scan among queries that need the same table. The
+Databases keep this split: the query optimizer, not the storage engine,
+shares one scan among queries that need the same table. A second planner
+beside QuerySpace would duplicate the optimizer for one consumer family. The
 repository's one vocabulary over Analysis output today is hosted in the CLI
 and filters complete results; #8571 records that drift.
 
@@ -411,7 +414,7 @@ is decided when the second tier adopts it.
 | [Library body Analysis service](library-body-analysis-service.md) | First adopter. Its producer coordination, features, and fixed result slots become declarations and a plan at adoption; its focused result types are unchanged. |
 | [Analysis catalog and operation participation](analysis-surfaces-and-universes.md#operation-participation) | Selects manifest-grade analyses and binds each to producer declarations. It owns cost, defaults, and discovery. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requirements that a plan exposes before execution. |
-| [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Own terminal, predicate, and completion-evidence meaning. A plan is a delegation source for queries over producer results. |
+| [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Own query meaning, request collapse across consumers (#8574), and completion evidence. A body-analysis plan is one source that QuerySpace plans against. |
 | [Stateless core services](stateless-core-services.md) and [analysis index cache](analysis-index-cache.md) | Own retention and caching of the detached results this pattern publishes. |
 | [Instruction substrate](instruction-substrate.md) | Owns the lowest substrates: decoding and blocks. |
 | Research ([ownership paths](generic-research-ownership-paths.md), [assembly context](research-assembly-context-ownership.md)) | Intended second adopter as a higher tier. |
