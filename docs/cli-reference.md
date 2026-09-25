@@ -1212,6 +1212,28 @@ Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`,
 mixed sections, discovery, and scope-implied Callers without the exact selector
 retain their existing row contracts or rendered-line fallback.
 
+Exact `member ... -S "Call Graph" --json` emits the complete semantic
+`InspectionGraphDocument`: typed member subjects, directed call edges,
+physical call-site occurrences, characteristics, seeds, completeness limits,
+and failures. `--envelope` emits the identical document under `content` plus
+Share and diagnostics:
+
+```bash
+dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
+  --platform System.Text.Json -S "Call Graph" --json
+dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
+  --platform System.Text.Json -S "Call Graph" --envelope
+```
+
+This complete transport is separate from Markout lowering. Markdown,
+Mermaid, tree, table, TSV, and JSONL keep their existing presentation and row
+contracts. Complete Call Graph JSON requires the exact singleton section and
+rejects row or line windows, fields, columns, Count, payload projections, and
+competing presentation formats rather than truncating the semantic document.
+Call Graph Share is currently `nonProjectable`; a Copilot App may render the
+typed `content` as SVG without recovering graph semantics from Mermaid or
+display labels.
+
 Focused member `-S "Source Locations" --json` reports `member`, `document`, and
 `pdb_span` without fetching source text or adding generic section/row wrappers.
 PDB spans describe executable source, not the entire declaration.

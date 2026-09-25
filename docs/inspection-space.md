@@ -1291,7 +1291,8 @@ fixes inputs and names **existing product section(s)**
 format-aware: Markdown keeps Call Graph + Callers; table/tsv/jsonl keep Callers
 when the demo has caller scope so the re-add stays one section, otherwise Call
 Graph so package-local entry points still emit rows; mermaid keeps Call Graph;
-document JSON fails closed until graph projection lands). The CLI host runs
+document JSON keeps Call Graph alone and emits its complete typed graph
+document). The CLI host runs
 them through the normal type/member section pipelines (`DemoScenarioRunner` →
 `TypeCommand` / `MemberCommand`) and returns those sections in ordinary
 formats. Demos must not call past sections into ad hoc inspection APIs; a
@@ -1301,8 +1302,8 @@ generated TypeScript binding of that engine surface) must be encodings of the
 same preset—not parallel demo systems. Ecosystem grouping does not select or
 activate the pack's package set, prefixes, or scanner, and is never inferred
 from package coordinates or display text. Residual: minted view-facet ids,
-`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
-structured-JSON projection (see workspace-definitions). Detail:
+`WorkspaceContextLoader` as the shared group-run owner and browser restoration
+of Call Graph Share (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 

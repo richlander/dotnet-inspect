@@ -181,6 +181,38 @@ public sealed class InspectionGraphDocumentTests
     }
 
     [Fact]
+    public void CallAdapter_PreservesCorrespondenceDiagnosticsAsContentLimit()
+    {
+        MemberRef focus = Member("Focus");
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                Node(focus, CallTreeStatus.Leaf),
+                Node(focus, CallTreeStatus.Leaf));
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(
+                projection,
+                new CatalogCallGraphDiagnostics(
+                    IncompleteNodeCount: 2,
+                    IncompleteEdgeCount: 3,
+                    BindingIdentityConflictCount: 1));
+
+        InspectionGraphLimit limit = Assert.Single(document.Limits);
+        Assert.Same(
+            CallGraphInspectionGraphCatalog.CorrespondenceIncomplete,
+            limit.Descriptor);
+        Assert.Equal(
+            InspectionGraphTarget.Node(projection.Focus.Id),
+            limit.Target);
+        var evidence =
+            Assert.IsType<CallGraphCorrespondenceIncompleteEvidence>(
+                limit.Evidence);
+        Assert.Equal(2, evidence.IncompleteNodeCount);
+        Assert.Equal(3, evidence.IncompleteEdgeCount);
+        Assert.Equal(1, evidence.BindingIdentityConflictCount);
+    }
+
+    [Fact]
     public void CallAdapter_IsDeterministicAndDoesNotMutateProjection()
     {
         MemberRef focus = Member("Focus");

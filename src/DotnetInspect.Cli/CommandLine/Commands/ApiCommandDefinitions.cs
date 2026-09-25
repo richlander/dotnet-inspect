@@ -522,13 +522,6 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(opts.Envelope)
-                && !parseResult.GetValue(matchOption))
-            {
-                CommandError.Write("--envelope on member requires --match.");
-                return 1;
-            }
-
             if (parseResult.GetValue(matchOption))
             {
                 return ApiCoordinateMatchOptionsParser.ParseMember(

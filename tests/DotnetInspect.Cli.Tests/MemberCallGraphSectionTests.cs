@@ -676,6 +676,100 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CallGraphSection_JsonAndEnvelopeShareCompleteContent()
+    {
+        var baseOptions = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = [SectionNames.CallGraph],
+            IncludeSections = [SectionNames.CallGraph],
+            ExactIncludeSectionsOverride = [SectionNames.CallGraph],
+            MemberSectionsPreResolved = true,
+            OverloadIndex = 1,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        };
+
+        var content = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(
+                baseOptions with { JsonOutput = true }));
+        var envelope = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(
+                baseOptions with { EnvelopeOutput = true }));
+
+        Assert.Equal(0, content.ExitCode);
+        Assert.Equal(0, envelope.ExitCode);
+        using var contentDocument =
+            System.Text.Json.JsonDocument.Parse(content.Output);
+        using var envelopeDocument =
+            System.Text.Json.JsonDocument.Parse(envelope.Output);
+        var contentRoot = contentDocument.RootElement;
+        var envelopeRoot = envelopeDocument.RootElement;
+        Assert.Equal(
+            "member-call-graph",
+            envelopeRoot.GetProperty("result_kind").GetString());
+        Assert.True(System.Text.Json.JsonElement.DeepEquals(
+            contentRoot,
+            envelopeRoot.GetProperty("content")));
+        Assert.Equal("Portable", contentRoot.GetProperty("scope").GetString());
+        Assert.Equal(
+            "SingleSeed",
+            contentRoot.GetProperty("modeRequest")
+                .GetProperty("mode").GetString());
+        Assert.NotEmpty(contentRoot.GetProperty("nodes").EnumerateArray());
+        Assert.NotEmpty(contentRoot.GetProperty("edges").EnumerateArray());
+        Assert.NotEmpty(contentRoot.GetProperty("occurrences").EnumerateArray());
+        Assert.NotEmpty(contentRoot.GetProperty("characteristics").EnumerateArray());
+        Assert.Single(contentRoot.GetProperty("seeds").EnumerateArray());
+        Assert.Equal(
+            "call",
+            contentRoot.GetProperty("edges")[0]
+                .GetProperty("relationship")
+                .GetProperty("id").GetString());
+        Assert.Contains(
+            contentRoot.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("subject")
+                .GetProperty("member")
+                .GetProperty("member")
+                .GetProperty("name").GetString()
+                == nameof(MemberCallGraphFixture.RootCall));
+        Assert.Empty(content.Error);
+        Assert.Empty(envelope.Error);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_CompleteJsonRejectsRowWindow()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath =
+                    typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                Select = [SectionNames.CallGraph],
+                IncludeSections = [SectionNames.CallGraph],
+                ExactIncludeSectionsOverride = [SectionNames.CallGraph],
+                MemberSectionsPreResolved = true,
+                JsonOutput = true,
+                Rows = RowWindow.Head(1),
+                FormatExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Normal,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Complete Call Graph JSON does not support",
+            result.Error);
+    }
+
+    [Fact]
     public async Task CallGraphSection_TreeRejectsAnotherOutputFormat()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
