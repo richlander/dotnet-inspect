@@ -208,6 +208,8 @@ For an intrinsic CoreLib request, the external route set is specialized:
   CoreLib identity;
 - it may contain one applicable-platform route for the exact target and family
   composition; and
+- when it contains no Platform route, it carries the exact typed reason that
+  route formation could not supply one; and
 - its completed no-package-route evidence follows from the acquisition roles
   of the eligible populations, not from package names, assembly names, public
   keys, or an enumerated package catalog.
@@ -224,8 +226,9 @@ is owner-attested as non-participating, does the deferred owner form
 
 - zero or one applicable-platform rung;
 - an ordered finite collection of root-relative package route occurrences;
-- one owner-issued route-applicability receipt for the exact request: ordinary
-  platform/package overlap or intrinsic CoreLib Platform applicability;
+- one owner-issued route-applicability outcome for the exact request: an
+  ordinary platform/package overlap receipt or one intrinsic CoreLib route
+  decision;
 - exact external-route and package-reachability completion;
 - identities for every contributing owner snapshot; and
 - the operation and Workspace identities to which the set belongs.
@@ -308,6 +311,24 @@ the immutable result. It is valid only for:
 It contains no package route, package correspondence, package-reachability, or
 pruning receipt. Equal names, keys, target frameworks, or display identities
 cannot create or transfer it.
+
+`IntrinsicCoreLibraryRouteDecision` is the closed external-route decision:
+
+- **Applicable** — carries one
+  `IntrinsicCoreLibraryRouteApplicabilityReceipt` and one exact Platform rung;
+- **OutsideOperationScope** — carries the exact focal-scope receipt proving
+  that Platform is not eligible, forms no route, and returns `Incomplete` with
+  that configured-scope evidence;
+- **Unavailable** — carries the owner-issued target, catalog, source, or
+  realization failure that prevented an eligible Platform route;
+- **Incomplete** — carries the bounded or incomplete evidence prefix that
+  prevented a conclusive applicability decision; or
+- **Rejected** — carries invalid target, snapshot, entitlement, route-plan, or
+  correspondence evidence.
+
+None of the zero-route arms becomes `Unbound`, `NoNameOwner`, or package
+fallback. The ladder returns the corresponding typed terminal outcome without
+invoking a Platform binding policy.
 
 #### Independent associations
 
@@ -522,7 +543,8 @@ An intrinsic CoreLib route instead requires
 selected family composition establish the eligible Platform population, while
 the CoreLib acquisition-entitlement contract proves that no package route can
 own the target. The ordinary overlap-applicability receipt cannot authorize
-this route.
+this route. If the intrinsic route decision is not `Applicable`, this rung is
+not entered and its typed terminal outcome is preserved.
 
 `NotSubsumed` does not create a platform substitution. A package version above
 the target's prune watermark remains a package route even when the platform
@@ -843,6 +865,11 @@ participant. The result retains that exact participant and Platform
 generation. The semantic display name `corelib` remains unchanged and is never
 used as the lookup key.
 
+If the selected call-graph focal scope is `Self`, Platform is outside the
+operation scope. The external-route decision is `OutsideOperationScope`, the
+ladder returns `Incomplete` with that exact scope evidence, and no Platform
+catalog or acquisition work begins.
+
 ### Dependency evidence does not prove assembly correspondence
 
 A package declares `Contoso.Transport`, but its selected role contains no
@@ -1056,6 +1083,7 @@ Required future Release gates:
 | Same-name in-context identity mismatch | `NameOwnedNoMatch` remains terminal |
 | Intrinsic CoreLib in a complete package-only context | The route plan records owner-attested non-participation; no invalid name miss or package route is formed |
 | Intrinsic CoreLib on an exact modern .NET Platform | The uniquely entitled `System.Private.CoreLib` participant is selected without interpreting `corelib` |
+| Intrinsic CoreLib when Platform is outside the selected focal scope | `OutsideOperationScope` returns `Incomplete` with the exact scope receipt and performs no Platform work |
 | Intrinsic CoreLib with zero or multiple entitled Platform participants | The binding owner's typed unavailable/rejected result or `Ambiguous` remains visible; no package fallback occurs |
 | Package or uploaded content declares a CoreLib-like name or key | It remains ineligible for the intrinsic target |
 | Context miss and exact platform match | Platform selection retains exact target and realization correspondence |
