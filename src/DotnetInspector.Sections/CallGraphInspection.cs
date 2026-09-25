@@ -275,14 +275,43 @@ internal sealed record CallGraphJsonSubject(
 internal sealed record CallGraphJsonMemberIdentity(
     string IdentityKind,
     bool IsPortable,
+    CallGraphJsonArtifactMemberAddress? ArtifactMember,
     CallGraphJsonMember Member)
 {
     internal static CallGraphJsonMemberIdentity From(
-        InspectionGraphMemberIdentity.CallGraph identity) =>
-        new(
+        InspectionGraphMemberIdentity.CallGraph identity)
+    {
+        GraphArtifactMemberAddress? artifactMember =
+            identity.Identity.ArtifactMemberAddress;
+        if (identity.Identity.Kind == GraphNodeIdentityKind.ArtifactMember
+            && artifactMember is null)
+        {
+            throw new NotSupportedException(
+                "Call Graph JSON cannot serialize an ArtifactMember "
+                + "identity without its artifact address.");
+        }
+
+        return new(
             identity.Identity.Kind.ToString(),
             identity.IsPortable,
+            artifactMember is not null
+                ? CallGraphJsonArtifactMemberAddress.From(artifactMember)
+                : null,
             CallGraphJsonMember.From(identity.Member));
+    }
+}
+
+internal sealed record CallGraphJsonArtifactMemberAddress(
+    CallGraphJsonAssemblyIdentity Assembly,
+    Guid ModuleVersionId,
+    int MethodToken)
+{
+    internal static CallGraphJsonArtifactMemberAddress From(
+        GraphArtifactMemberAddress address) =>
+        new(
+            CallGraphJsonAssemblyIdentity.From(address.AssemblyIdentity),
+            address.ModuleVersionId,
+            address.MethodToken);
 }
 
 internal sealed record CallGraphJsonMember(

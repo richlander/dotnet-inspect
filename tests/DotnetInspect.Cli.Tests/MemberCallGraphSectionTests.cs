@@ -737,8 +737,95 @@ public class MemberCallGraphSectionTests
                 .GetProperty("member")
                 .GetProperty("name").GetString()
                 == nameof(MemberCallGraphFixture.RootCall));
+        System.Text.Json.JsonElement rootIdentity =
+            Assert.Single(
+                contentRoot.GetProperty("nodes").EnumerateArray()
+                    .Select(node => node.GetProperty("subject")
+                        .GetProperty("member")),
+                identity => identity.GetProperty("member")
+                    .GetProperty("name").GetString()
+                    == nameof(MemberCallGraphFixture.RootCall));
+        Assert.Equal(
+            "Structural",
+            rootIdentity.GetProperty("identityKind").GetString());
+        Assert.False(rootIdentity.TryGetProperty(
+            "artifactMember",
+            out _));
         Assert.Empty(content.Error);
         Assert.Empty(envelope.Error);
+    }
+
+    [Fact]
+    public async Task
+        CallGraphSection_JsonPreservesPortableArtifactMemberAddresses()
+    {
+        static async Task<System.Text.Json.JsonElement> RootIdentity(
+            string assemblyPath)
+        {
+            var result = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    new MemberOptions
+                    {
+                        TypeName = "Target.Api",
+                        AssemblyPath = assemblyPath,
+                        MemberFilter = ["Ping"],
+                        CallerScopeDirectories =
+                        [
+                            Path.GetDirectoryName(
+                                FixtureCatalog.AnalysisCallerGraphCaller
+                                    .AssemblyPath())!,
+                        ],
+                        Select = [SectionNames.CallGraph],
+                        IncludeSections = [SectionNames.CallGraph],
+                        ExactIncludeSectionsOverride =
+                            [SectionNames.CallGraph],
+                        MemberSectionsPreResolved = true,
+                        OverloadIndex = 1,
+                        JsonOutput = true,
+                        FormatExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Normal,
+                    }));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var document =
+                System.Text.Json.JsonDocument.Parse(result.Output);
+            return Assert.Single(
+                document.RootElement.GetProperty("nodes")
+                    .EnumerateArray()
+                    .Select(node => node.GetProperty("subject")
+                        .GetProperty("member")),
+                identity => identity.GetProperty("member")
+                    .GetProperty("name").GetString() == "Ping")
+                .Clone();
+        }
+
+        System.Text.Json.JsonElement first = await RootIdentity(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        System.Text.Json.JsonElement second = await RootIdentity(
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+
+        Assert.Equal(
+            "ArtifactMember",
+            first.GetProperty("identityKind").GetString());
+        Assert.Equal(
+            "ArtifactMember",
+            second.GetProperty("identityKind").GetString());
+        System.Text.Json.JsonElement firstAddress =
+            first.GetProperty("artifactMember");
+        System.Text.Json.JsonElement secondAddress =
+            second.GetProperty("artifactMember");
+        Assert.Equal(
+            "ILInspector.Analysis.CallerGraphTarget",
+            firstAddress.GetProperty("assembly")
+                .GetProperty("name").GetString());
+        Assert.Equal(
+            firstAddress.GetProperty("methodToken").GetInt32(),
+            secondAddress.GetProperty("methodToken").GetInt32());
+        Assert.NotEqual(
+            firstAddress.GetProperty("moduleVersionId").GetGuid(),
+            secondAddress.GetProperty("moduleVersionId").GetGuid());
     }
 
     [Fact]
