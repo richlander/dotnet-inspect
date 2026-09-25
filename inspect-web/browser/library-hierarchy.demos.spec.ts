@@ -232,7 +232,7 @@ test("Demos is a dedicated page reached from Home and the data bar", async ({
   await page.locator("[data-product-navigation-button]").click();
   await expect(page.locator(
     "[data-product-destination][aria-current='page']",
-  )).toHaveCount(0);
+  )).toHaveText(["Demos"]);
   const workspace =
     page.locator("[data-product-destination='workspace']");
   await expect(workspace).toHaveAttribute("aria-disabled", "true");
