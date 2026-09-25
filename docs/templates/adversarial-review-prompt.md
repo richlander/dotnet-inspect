@@ -108,6 +108,19 @@ recorded approval and exact approved scope. Treat that record as a
 candidate-formation fact: verify that the design conforms to it, but do not
 infer, grant, or broaden approval.
 
+Check the exact head for substrate drift and layering. A change that adds a
+private copy of logic an existing shared substrate owns, defines a reusable
+declaration such as a row vocabulary, producer declaration, or descriptor in a
+host or behind host-only helpers, or filters, orders, limits, or counts product
+rows outside the owning QuerySpace vocabulary violates the repository's
+host-neutral substrate rule. Report it with the existing substrate symbol and
+the new copy or placement as evidence. For a QuerySpace adoption, verify
+whether predicates, Count, Exists, and limits reach acquisition or scope, or
+run only after a complete row list is materialized. Materializing and then
+filtering is a finding unless the owning design names it as a reference slice
+and names the deferred pushdown. Pre-existing drift the change does not touch
+is a non-blocking observation.
+
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
 host-specific path that bypasses it must identify the host, rationale, typed
@@ -211,6 +224,12 @@ section when it defines the boundary.
   the host-specific alternative with host, rationale, and lowering ownership;
   for a broad domain, include every planned format boundary; or why this field
   does not apply}
+- **Shared substrate and layering:** {existing substrate reused or extended
+  and any new shared concept with its layer; owning layer of each new
+  declaration such as a row vocabulary; for QuerySpace adoption, which
+  predicates and terminals reach acquisition or scope and which run after
+  materialization, with the design section naming any reference slice; or why
+  this field does not apply}
 - **Change intent:** {what behavior or contract this candidate changes}
 - **Supported actor or caller:** {ordinary caller, producer, user, or external
   actor relevant to the claim}
@@ -254,7 +273,8 @@ the exact owned claim.}
 {List concrete properties derived from the review frame. Describe properties,
 not attacks, and do not broaden the actor, input, boundary, or exclusions.
 Include the baseline or divergence, complexity basis, production-host adoption
-and retirement plan, rendering strategy, pathological case and gate, analogous
+and retirement plan, rendering strategy, substrate reuse and QuerySpace
+pushdown, pathological case and gate, analogous
 evidence transfer, current-slice coherence, and demonstrated neighboring case
 when applicable.
 Do not turn subjective product purpose or taste into a property or ask the
