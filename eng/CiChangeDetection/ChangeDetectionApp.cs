@@ -71,6 +71,7 @@ public static class ChangeDetectionApp
             repository,
             workflowText);
         PromotionWorkflowContract.AssertMutations(repository);
+        ReleaseCandidateWorkflowContract.AssertMutations(repository);
         ProvenancePin.AssertMutations(
             workflowText,
             mutated => _ = LoadContract(

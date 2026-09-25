@@ -276,6 +276,13 @@ internal sealed class ChangeRoutingPolicy
             state.Code = true;
             state.Web = true;
         }
+        else if (BytePattern.Matches(
+            path,
+            "eng/CiChangeDetection/ReleaseCandidateWorkflowContract.cs"))
+        {
+            state.Code = true;
+            state.Web = true;
+        }
         else if (BytePattern.MatchesAny(
             path,
             "eng/CiChangeDetection/*",
@@ -324,6 +331,7 @@ internal sealed class ChangeRoutingPolicy
             "eng/validate-inspect-web-promotion.sh",
             "eng/generate-inspect-web-engine-facade.sh",
             "eng/InspectWebAsyncLoweringReceipt.targets",
+            "eng/verify-inspect-web-site-artifact.sh",
             "eng/verify-inspect-web-async-deployment.sh"))
         {
             state.Web = true;
@@ -375,6 +383,13 @@ internal sealed class ChangeRoutingPolicy
             ".github/workflows/deploy-inspect-web-runtime-sites.yml",
             ".github/workflows/promote-inspect-web.yml"))
         {
+            state.Web = true;
+        }
+        else if (BytePattern.Matches(
+            path,
+            ".github/workflows/release-candidate.yml"))
+        {
+            state.Code = true;
             state.Web = true;
         }
         else if (BytePattern.Matches(path, ".github/workflows/*"))
@@ -546,6 +561,7 @@ internal sealed class ChangeRoutingPolicy
             "src/Directory.Build.props",
             "global.json",
             ".github/workflows/ci.yml",
+            ".github/workflows/release-candidate.yml",
             ".github/workflows/release.yml"))
         {
             state.Packaging = true;
