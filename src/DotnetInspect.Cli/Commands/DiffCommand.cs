@@ -318,7 +318,21 @@ public class DiffCommand
 
             if (hasPackage)
             {
-                var result = await ExecutePackageDiffAsync(options, logger, context.HttpClient);
+                var result =
+                    AdmitsPackageEndpointScope(options, implementationTransport)
+                        ? await TryExecuteScopedPackageDiffAsync(
+                            options,
+                            logger,
+                            context.HttpClient,
+                            cancellationToken)
+                        : (null, null);
+                if (result.inputs is null && result.error is null)
+                {
+                    result = await ExecutePackageDiffAsync(
+                        options,
+                        logger,
+                        context.HttpClient);
+                }
                 if (result.error != null)
                 {
                     CommandError.Write(result.error);
@@ -355,8 +369,8 @@ public class DiffCommand
                 {
                     CommandError.Write(
                         $"{transportOption} currently requires exactly one Library at each API diff endpoint; "
-                        + $"resolved {inputs.From.AssemblySet.Assemblies.Count} before and "
-                        + $"{inputs.To.AssemblySet.Assemblies.Count} after.");
+                        + $"resolved {inputs.From.LibraryCount} before and "
+                        + $"{inputs.To.LibraryCount} after.");
                     return 1;
                 }
                 if (implementationTransport)
@@ -387,10 +401,18 @@ public class DiffCommand
                             "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
                         return 1;
                     }
-                    var comparison = await LibraryApiDiffRunner.ExecuteAsync(
-                        inputs.From.AssemblySet.Assemblies[0],
-                        inputs.To.AssemblySet.Assemblies[0],
-                        options.IncludeAll);
+                    var comparison =
+                        inputs.From.PackageScope is { } beforeScope
+                        && inputs.To.PackageScope is { } afterScope
+                            ? await LibraryApiDiffRunner.ExecuteAsync(
+                                beforeScope,
+                                afterScope,
+                                options.IncludeAll,
+                                cancellationToken)
+                            : await LibraryApiDiffRunner.ExecuteAsync(
+                                inputs.From.AssemblySet.Assemblies[0],
+                                inputs.To.AssemblySet.Assemblies[0],
+                                options.IncludeAll);
                     return LibraryApiDiffOutput.Write(
                         comparison,
                         inputs.Name,
@@ -809,7 +831,7 @@ public class DiffCommand
             }
             finally
             {
-                inputs.Dispose();
+                await inputs.DisposeAsync();
             }
         }
         catch (Exception ex)
@@ -824,23 +846,41 @@ public class DiffCommand
         ApiSurfaceEndpoint To,
         string FromVersion,
         string ToVersion,
-        string Name) : IDisposable
+        string Name,
+        IAsyncDisposable? Owner = null) : IAsyncDisposable
     {
         public ApiSurface FromSurface => From.Surface;
         public ApiSurface ToSurface => To.Surface;
         public IReadOnlyList<string> FromPaths => From.Paths;
         public IReadOnlyList<string> ToPaths => To.Paths;
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            From.Dispose();
-            To.Dispose();
+            try
+            {
+                From.Dispose();
+                To.Dispose();
+            }
+            finally
+            {
+                if (Owner is not null)
+                    await Owner.DisposeAsync();
+            }
         }
     }
 
     static bool UsesSharedLibraryApiDiff(DiffInputs inputs, DiffOptions options)
-        => inputs.From.AssemblySet.Assemblies.Count == 1
-            && inputs.To.AssemblySet.Assemblies.Count == 1
+        => UsesSharedLibraryApiDiff(
+            inputs.From.LibraryCount,
+            inputs.To.LibraryCount,
+            options);
+
+    static bool UsesSharedLibraryApiDiff(
+        int fromLibraries,
+        int toLibraries,
+        DiffOptions options)
+        => fromLibraries == 1
+            && toLibraries == 1
             && options.MemberFilter.Count == 0
             && !SelectsAnalysisDiff(options)
             && !SelectsImplementationDiff(options)
@@ -903,6 +943,97 @@ public class DiffCommand
 
         return (new DiffInputs(
             from.endpoint!, to.endpoint!, fromVersion, toVersion, packageName), null);
+    }
+
+    /// <summary>
+    /// Lets a test run the legacy endpoint path as the identity oracle for
+    /// the package endpoint scope route, within one async flow.
+    /// </summary>
+    internal static readonly AsyncLocal<bool> LegacyPackageEndpointsForTesting = new();
+
+    /// <summary>
+    /// Whether a pairwise package request selects only API views, which the
+    /// package endpoint scope can serve: Library API Diff, API changes, and
+    /// API Finding Transitions. Body views keep the legacy endpoints until
+    /// they adopt the scope (docs/design/package-endpoint-scope.md, step 4).
+    /// </summary>
+    static bool AdmitsPackageEndpointScope(
+        DiffOptions options,
+        bool implementationTransport)
+        => !LegacyPackageEndpointsForTesting.Value
+            && !implementationTransport
+            && !SelectsAnalysisDiff(options)
+            && !SelectsImplementationDiff(options)
+            && !SelectsComplexityContext(options)
+            && !SelectsStructuralContext(options)
+            && !options.IncludePdbSource
+            && (!SelectsFindingTransitions(options)
+                || !IsMemberBodyFindingDescriptor(
+                    ResolveFindingDescriptor(options)));
+
+    /// <summary>
+    /// Opens both endpoints as package endpoint scopes, or returns neither
+    /// inputs nor error so the request takes the legacy path unchanged.
+    /// </summary>
+    private static async Task<(DiffInputs? inputs, string? error)>
+        TryExecuteScopedPackageDiffAsync(
+            DiffOptions options,
+            VerboseLogger logger,
+            HttpClient httpClient,
+            CancellationToken cancellationToken)
+    {
+        var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
+        if (packageName is null
+            || fromVersion is null
+            || toVersion is null
+            || !PackageEndpointDiffSession.IsEligible(
+                packageName,
+                fromVersion,
+                toVersion,
+                options.Tfm))
+        {
+            return (null, null);
+        }
+
+        PackageEndpointDiffSession? session =
+            await PackageEndpointDiffSession.TryOpenAsync(
+                httpClient,
+                packageName,
+                fromVersion,
+                toVersion,
+                options.Tfm!,
+                options.SourceOptions,
+                logger,
+                cancellationToken);
+        if (session is null)
+            return (null, null);
+        if (!session.ReferencesClose
+            && !UsesSharedLibraryApiDiff(
+                session.From.SurfaceParticipants.Length,
+                session.To.SurfaceParticipants.Length,
+                options))
+        {
+            logger.Log(
+                "The package endpoints' references reach past their Libraries and the "
+                    + "platform; the merged API surface takes the legacy path.");
+            await session.DisposeAsync();
+            return (null, null);
+        }
+
+        string tfm = options.Tfm!;
+        return (new DiffInputs(
+            new ApiSurfaceEndpoint(
+                session.From,
+                () => PackageEndpointDiffSession.ExtractSurface(
+                    session.From, packageName, tfm, options.IncludeAll, logger)),
+            new ApiSurfaceEndpoint(
+                session.To,
+                () => PackageEndpointDiffSession.ExtractSurface(
+                    session.To, packageName, tfm, options.IncludeAll, logger)),
+            fromVersion,
+            toVersion,
+            packageName,
+            session), null);
     }
 
     private static async Task<(DiffInputs? inputs, string? error)>

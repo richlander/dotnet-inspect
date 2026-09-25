@@ -632,11 +632,12 @@ internal sealed class PackageSearchQuerySources
 
 /// <summary>
 /// One authority-scoped desktop store per configured authority for one
-/// search or one package document export, and the temporary root that holds
-/// authorities without a durable cache identity. The root is deleted when
-/// the search or export closes.
+/// search, one package document export, or one pairwise package diff, and
+/// the temporary root that holds authorities without a durable cache
+/// identity. The root is deleted when the search, export, or diff closes.
 /// </summary>
-internal sealed class SearchPackageStores : IDisposable
+internal sealed class SearchPackageStores(string temporaryPrefix = "inspect-search")
+    : IDisposable
 {
     readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
@@ -652,7 +653,7 @@ internal sealed class SearchPackageStores : IDisposable
                 authority,
                 producer,
                 () => _temporaryRoot ??=
-                    Directory.CreateTempSubdirectory("inspect-search").FullName);
+                    Directory.CreateTempSubdirectory(temporaryPrefix).FullName);
             _stores.Add(authority, store);
         }
         return store;
