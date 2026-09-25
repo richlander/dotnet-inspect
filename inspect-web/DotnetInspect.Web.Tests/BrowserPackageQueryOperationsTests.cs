@@ -1,12 +1,13 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
-using QuerySpace;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
+using QuerySpace;
+using QuerySpace.Rows;
 
 using DotnetInspect.Web.Interop.Package;
 

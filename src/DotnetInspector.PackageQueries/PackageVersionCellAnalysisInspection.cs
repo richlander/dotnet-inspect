@@ -41,11 +41,15 @@ public sealed class PackageVersionCellAnalysisEndpoint
         }
 
         Cell = cell;
+        // IL-body findings read the implementation, so a ranged read fetches
+        // the surface and implementation folders
+        // (docs/design/package-read-demand.md#per-command-demand).
         HouseExecution = cell.PrepareExecution(
             operation,
             targetContext,
             PackageHouseAssetSelectionKind.Compile,
-            PackageHouseLibraryHandoffMode.PackageOnly);
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            PackageAssetDemand.SurfaceAndImplementation);
     }
 
     public PackageHouseVersionPopulationCell Cell { get; }

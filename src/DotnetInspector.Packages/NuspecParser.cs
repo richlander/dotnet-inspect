@@ -1,9 +1,8 @@
 using System.Xml.Linq;
 using UntrustedDocuments;
-using DotnetInspector.Packages;
 using InertText;
 
-namespace DotnetInspector.Services;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Parses .nuspec files to extract package metadata.
@@ -267,6 +266,39 @@ public static class NuspecParser
             }
         }
 
+        XElement[] frameworkReferenceContainers =
+        [
+            .. metadata.Elements(ns + "frameworkReferences"),
+        ];
+        if (frameworkReferenceContainers.Length > 0)
+        {
+            result.FrameworkReferenceGroups = [];
+            foreach (XElement frameworkReferences
+                in frameworkReferenceContainers)
+            {
+                foreach (XElement element in frameworkReferences.Elements(
+                    ns + "group"))
+                {
+                    var group = new NuspecFrameworkReferenceGroup
+                    {
+                        TargetFramework =
+                            element.Attribute("targetFramework")?.Value,
+                    };
+                    foreach (XElement reference in element.Elements(
+                        ns + "frameworkReference"))
+                    {
+                        group.References.Add(
+                            new NuspecFrameworkReference
+                            {
+                                Name = reference.Attribute("name")?.Value,
+                            });
+                    }
+
+                    result.FrameworkReferenceGroups.Add(group);
+                }
+            }
+        }
+
         return result;
     }
 
@@ -288,7 +320,7 @@ public static class NuspecParser
         return uri[prefix.Length..^suffix.Length];
     }
 
-    internal static bool IsPackageRoot(XElement root) =>
+    public static bool IsPackageRoot(XElement root) =>
         root.Name.LocalName.Equals("package", StringComparison.Ordinal)
         && IsNuspecNamespace(root.Name.Namespace);
 

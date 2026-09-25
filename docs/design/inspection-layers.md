@@ -258,9 +258,9 @@ exception-shaped package-content failure. These contracts are gated by
 `PackageProfileQueryTests.ExecuteAsync_ReportsInvalidManifestAndContinues`, and
 `FindCommandTests.PackageProfileSection_KeepsFailuresAndTruncationVisible`.
 
-The Services parser currently reports decoded-character exhaustion through its
-malformed-XML outcome. L1 preserves that classification rather than inferring a
-resource-limit reason from exception text; distinguishing it requires an
+The package parser currently reports decoded-character exhaustion through its
+malformed-XML outcome. L1 preserves that classification rather than inferring
+a resource-limit reason from exception text; distinguishing it requires an
 explicit parser-owned contract.
 
 Real-package compatibility evidence is pinned by coordinate and exact manifest
@@ -275,14 +275,16 @@ the oracle dependency enters a product, NativeAOT, or Browser path. The pinned
 coordinates, hashes, baseline, and maintenance procedure are recorded in
 [`eng/package-manifest-corpus.md`](../../eng/package-manifest-corpus.md).
 
-The manifest-facts path has two consumer and resource canaries.
+The package-owned manifest-facts projection and its query facade have two
+consumer and resource canaries.
 `BrowserEngineBoundaryTests.PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible`
 executes the query from exact in-memory bytes in the inspect-web consumer test
 surface. The CI inspect-web lane publishes the Browser/Wasm engine, where the
 exported `QueryPackageDependencies` operation roots the same query through
 `PackageDependencyGroupsQuery`; the
-`PackageManifestFactsQuery.cs` change-detection canary ensures changes to that
-path cannot skip the lane.
+`PackageManifestFactsProjection.cs` and `PackageManifestFactsQuery.cs`
+change-detection canaries ensure changes to either side of that path cannot
+skip the lane.
 `PackageManifestFactsQueryTests.Execute_AcceptsManifestAtExactByteLimit`,
 `Execute_AcceptsManifestAtExactDecodedCharacterLimit`,
 `Execute_EnforcesManifestByteLimit`, and
