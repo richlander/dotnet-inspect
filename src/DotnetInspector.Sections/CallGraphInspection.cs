@@ -294,6 +294,7 @@ internal sealed record CallGraphJsonMember(
     CallGraphJsonType[] TypeArguments,
     bool HasThis,
     byte SignatureHeader,
+    int RequiredParameterCount,
     int GenericArity,
     CallGraphJsonType[] OpenParameterTypes,
     CallGraphJsonType? OpenReturnType)
@@ -308,6 +309,7 @@ internal sealed record CallGraphJsonMember(
             [.. member.TypeArguments.Select(CallGraphJsonType.From)],
             member.HasThis,
             member.SignatureHeader,
+            member.RequiredParameterCount,
             member.GenericArity,
             [.. member.OpenParameterTypes.Select(CallGraphJsonType.From)],
             member.OpenReturnType is { } openReturn

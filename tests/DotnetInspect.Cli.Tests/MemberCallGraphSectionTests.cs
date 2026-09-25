@@ -742,6 +742,58 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task
+        CallGraphSection_JsonPreservesVarArgRequiredParameterBoundary()
+    {
+        string assemblyPath = FixtureCatalog
+            .Get(FixtureIds.AnalysisCallGenericScope)
+            .AssemblyPath();
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(
+                new MemberOptions
+                {
+                    TypeName = "Samples.GenericCalls",
+                    AssemblyPath = assemblyPath,
+                    MemberFilter = ["CallVarArg"],
+                    Select = [SectionNames.CallGraph],
+                    IncludeSections = [SectionNames.CallGraph],
+                    ExactIncludeSectionsOverride = [SectionNames.CallGraph],
+                    MemberSectionsPreResolved = true,
+                    OverloadIndex = 1,
+                    JsonOutput = true,
+                    FormatExplicitlySet = true,
+                    TipLevel = TipLevel.Quiet,
+                    Verbosity = Verbosity.Normal,
+                }));
+
+        Assert.Equal(0, result.ExitCode);
+        using var document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        IEnumerable<System.Text.Json.JsonElement> members =
+            document.RootElement
+                .GetProperty("nodes")
+                .EnumerateArray()
+                .Select(node => node
+                    .GetProperty("subject")
+                    .GetProperty("member")
+                    .GetProperty("member"));
+        System.Text.Json.JsonElement member =
+            Assert.Single(
+                members,
+                member =>
+                    member.GetProperty("name").GetString()
+                        == "Invoke"
+                    && member.GetProperty("signatureHeader")
+                        .GetByte() == 5);
+        Assert.Single(
+            member.GetProperty("parameterTypes").EnumerateArray());
+        Assert.Equal(
+            0,
+            member.GetProperty("requiredParameterCount").GetInt32());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task CallGraphSection_CompleteJsonRejectsRowWindow()
     {
         var result = await ConsoleCapture.RunAsync(

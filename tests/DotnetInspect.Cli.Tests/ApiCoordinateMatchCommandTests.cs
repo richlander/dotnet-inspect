@@ -259,6 +259,55 @@ public sealed class ApiCoordinateMatchCommandTests
                     options));
     }
 
+    [Theory]
+    [InlineData("--json", null)]
+    [InlineData("--markdown", null)]
+    [InlineData("--no-headers", null)]
+    [InlineData("--rows", "1")]
+    public async Task
+        MemberCallGraphEnvelope_RejectsCompetingOptionsBeforeAcquisition(
+            string option,
+            string? value)
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "member", "Example.Widget", "Run:1",
+            "--package", "never.acquire@1.0.0",
+            "-S", "Call Graph",
+            "--envelope",
+            option,
+            .. value is null ? [] : new[] { value },
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Complete Call Graph JSON does not support",
+            result.Error);
+        Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Fact]
+    public async Task
+        MemberCallGraphJson_RejectsRowWindowBeforeAcquisition()
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "member", "Example.Widget", "Run:1",
+            "--package", "never.acquire@1.0.0",
+            "-S", "Call Graph",
+            "--json",
+            "--rows", "1",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Complete Call Graph JSON does not support",
+            result.Error);
+        Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
     [Fact]
     public async Task TypeEnvelope_RequiresExactSharedRoute()
     {

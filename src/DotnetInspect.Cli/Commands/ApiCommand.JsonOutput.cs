@@ -206,18 +206,18 @@ public partial class ApiCommand
         && sections.Contains(SectionNames.CallGraph)
         && HasOnlyExplicitCallGraphSelectors(options);
 
-    private static bool ValidateCallGraphTransport(MemberOptions options)
+    internal static bool ValidateCallGraphTransport(MemberOptions options)
     {
         bool hasExplicitCallGraph = HasExplicitCallGraphSelector(options);
         if (!options.EnvelopeOutput
-        && !(options.JsonOutput
-            && !options.Count
-            && !IsProjectionRequested(options)
-            && !IsColumnProjectionRequested(options)
-            && hasExplicitCallGraph))
-    {
-        return true;
-    }
+            && !(options.JsonOutput
+                && !options.Count
+                && !IsProjectionRequested(options)
+                && !IsColumnProjectionRequested(options)
+                && hasExplicitCallGraph))
+        {
+            return true;
+        }
 
         if (options.IncludeSections is not { Count: 1 } sections
             || !sections.Contains(SectionNames.CallGraph)
@@ -231,6 +231,9 @@ public partial class ApiCommand
         }
 
         if (options.Count
+            || options.EnvelopeOutput
+                && (options.JsonOutput
+                    || options.FormatFlagExplicitlySet)
             || options.Tabular
             || options.Tsv
             || options.Jsonl
@@ -238,7 +241,10 @@ public partial class ApiCommand
             || options.MermaidOutput
             || options.EmbeddedMermaid
             || options.PlainText
+            || options.NoHeader
             || IsProjectionRequested(options)
+            || options.PrintRow is not null
+            || options.JsonArray
             || IsColumnProjectionRequested(options)
             || options.Limit is not null
             || IsMemberLineWindowRequested(options)
