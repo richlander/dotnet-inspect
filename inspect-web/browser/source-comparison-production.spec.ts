@@ -788,7 +788,8 @@ test.describe("published authored Source comparison transport", () => {
         throw new Error("Expected an authored type source code view.");
       expect(authoredType.value.value.provider).toBe("pdb");
       expect(authoredType.value.value.text).toContain("class Counter");
-      expect(authoredType.value.value.text).toContain("1 + 2");
+      expect(authoredType.value.value.text)
+        .toContain("public int Value() => 1 + 2;");
       expect(authoredType.value.value.pdbSourceLimitation).toBeNull();
       expect(authoredType.value.value.url).toBeTruthy();
       expect(decompiledType.kind).toBe("Succeeded");
@@ -797,7 +798,8 @@ test.describe("published authored Source comparison transport", () => {
         throw new Error("Expected an explicit decompiler type source code view.");
       expect(decompiledType.value.value.provider).toBe("decompiled");
       expect(decompiledType.value.value.text).toContain("class Counter");
-      expect(decompiledType.value.value.text).not.toContain("1 + 2");
+      expect(decompiledType.value.value.text)
+        .toContain("public int Value() => 3;");
       expect(decompiledType.value.value.pdbSourceLimitation).toBeNull();
       expect(decompiledType.value.value.url).toBeNull();
       expect(fallbackType.kind).toBe("Succeeded");
