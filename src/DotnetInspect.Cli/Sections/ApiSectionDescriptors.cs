@@ -155,6 +155,8 @@ public static class ApiMemberSectionDescriptors
             .Add<TypeParameters>()
             .Add<TypeInterfaces>()
             .Add<Baseclass>()
+            .Add<Implementers>()
+            .Add<DerivedTypes>()
             .Add<Constructors>()
             .Add<Finalizer>()
             .Add<Fields>()
@@ -196,6 +198,8 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.TypeParameters,
                 SectionNames.TypeInterfaces,
                 SectionNames.Baseclass,
+                SectionNames.Implementers,
+                SectionNames.DerivedTypes,
                 SectionNames.Constructors,
                 SectionNames.Finalizer,
                 SectionNames.Fields,
@@ -277,6 +281,26 @@ public static class ApiMemberSectionDescriptors
                && model.BaseType != "System.Object"
                && model.BaseType != "System.ValueType"
                && model.BaseType != "System.Enum";
+    }
+
+    public sealed class Implementers : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Implementers;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model) => false;
+    }
+
+    public sealed class DerivedTypes : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.DerivedTypes;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model) => false;
     }
 
     // ===== Member sections (rendered via PopulateMemberSections) =====
@@ -816,6 +840,13 @@ public static class ApiMemberSectionPipelines
             .AddCategory(
                 SectionCategoryNames.Performance,
                 Present(PerformanceSections))
+            .AddCategory(
+                SectionCategoryNames.Relations,
+                Present(
+                [
+                    SectionNames.Implementers,
+                    SectionNames.DerivedTypes,
+                ]))
             .AddCategory(
                 SectionCategoryNames.Source,
                 Present(SourceSections))

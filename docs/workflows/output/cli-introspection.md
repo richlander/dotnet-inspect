@@ -28,7 +28,6 @@ diff  Compare API surfaces, analysis signals, or implementation evidence between
 --history
 extensions  Find extension methods for a type
 find  Search for types across packages and libraries
-implements  Find types implementing an interface
 library  Inspect a .NET library file
 member  Inspect type members
 package  Inspect a NuGet package

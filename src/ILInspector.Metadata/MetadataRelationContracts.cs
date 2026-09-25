@@ -83,6 +83,8 @@ public sealed record MetadataRelationInspectionRequest
 
     public bool IncludeNonPublic { get; }
 
+    public bool IncludeHidden { get; init; } = true;
+
     public ImmutableArray<MetadataTypeDefinitionAddress> TypeScope
     { get; }
 

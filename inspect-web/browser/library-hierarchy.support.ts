@@ -999,6 +999,7 @@ async function installFacades(
             },
             diagnostics: []
           },
+          implementers: [],
           derivedTypes: [],
           graphNodes: [],
           graphEdges: [],

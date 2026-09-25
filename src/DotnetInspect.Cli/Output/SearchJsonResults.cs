@@ -30,22 +30,3 @@ internal sealed record ExtensionMethodJsonResult(
         result.ReachablePath,
         result.ReachableFromType);
 }
-
-internal sealed record ImplementerJsonResult(
-    string Type,
-    string? Namespace,
-    string Kind,
-    string Relationship,
-    string? Library,
-    string? Source,
-    string? SourceVersion)
-{
-    internal static ImplementerJsonResult From(ImplementerResult result) => new(
-        result.TypeName,
-        result.Namespace,
-        result.Kind,
-        result.Relationship,
-        result.Assembly,
-        result.Source,
-        result.SourceVersion);
-}

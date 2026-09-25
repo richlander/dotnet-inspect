@@ -59,6 +59,46 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_ProjectsSubjectRelationImplementers()
+    {
+        const string packageId = "Browser.TypeRelations";
+        const string interfaceName =
+            "Browser.TypeRelations.IService";
+        const string implementerName =
+            "Browser.TypeRelations.Service";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildInterfaceImplementationImage(
+                    packageId,
+                    interfaceName,
+                    implementerName),
+                $"lib/net11.0/{packageId}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{packageId}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal([implementerName], metadata.Implementers);
+        Assert.Empty(metadata.DerivedTypes);
+        Assert.DoesNotContain(
+            metadata.InspectionFailures,
+            failure => failure.StartsWith(
+                "Subject Relations:",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_ExpandsDependenciesAcrossWorkspacePackages()
     {
         const string rootPackageId =
@@ -460,6 +500,11 @@ public sealed partial class BrowserEngineBoundaryTests
                 && failure.Contains(
                     "rejected",
                     StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            metadata.InspectionFailures,
+            failure => failure.StartsWith(
+                "Subject Relations:",
+                StringComparison.Ordinal));
         Assert.Contains(
             metadata.GraphEdges,
             edge => edge.FromId == typeName
@@ -913,6 +958,32 @@ public sealed partial class BrowserEngineBoundaryTests
         foreach (Type dependency in dependencies)
             type.AddInterfaceImplementation(dependency);
         type.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildInterfaceImplementationImage(
+        string assemblyName,
+        string interfaceName,
+        string implementerName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = contract.CreateType();
+        TypeBuilder implementer = module.DefineType(
+            implementerName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        implementer.AddInterfaceImplementation(interfaceType);
+        implementer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

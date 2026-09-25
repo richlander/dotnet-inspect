@@ -1,7 +1,7 @@
 ---
 id: ichatclient-dual-lens-graph
 description: Locked demo — IChatClient type↔package dual lens with integration arcs
-commands: [type, library, member, extensions, implements, find]
+commands: [type, library, member, extensions, find]
 areas: [call-graph, packages, integrations, ai, demos]
 status: locked-demo
 ---
@@ -27,7 +27,7 @@ status: locked-demo
 | Arc richness | AI integration, `AsIChatClient`, package boundary |
 | Real ecosystems | OpenAI, Bedrock, Azure opportunity — not one vendor |
 | Honest substrate | Members/adapters underneath; no fake edges from Aspire hosting |
-| Tool flex | `type`, `implements`, `library -S Integration`, `member` CG, later one graph |
+| Tool flex | `type` plus `@Relations`, `library -S Integration`, `member` CG, later one graph |
 
 Aspire AppHost `AddOpenAI` is a **sibling** story (provisioning plane), not this
 lock. See [Related demos](#related-demos-not-locked).
@@ -245,7 +245,7 @@ Call Graph
 
 - Aspire.Hosting `AddOpenAI` as the center (wrong refs for MEAI/Bedrock).  
 - Claiming implementors table lists all provider clients (many adapters are
-  factory/`As*` shaped, not public `implements IChatClient` on the SDK type).  
+  factory/`As*` shaped, not a public `IChatClient` implementation on the SDK type).
 - Shipping expect blocks against target Mermaid before commands exist.
 
 ## Related demos (not locked)

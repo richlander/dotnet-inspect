@@ -104,6 +104,25 @@ public static class SelectedContextExactTypeInspectionOperation
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         Execute(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext context,
+            SelectedContextExactTypeInspectionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        return ExecuteCore(
+            workspace,
+            context,
+            request,
+            projectionLimits: null,
+            activation: null,
+            facet: null,
+            scope: ApiSurfaceScope.PublicWithNonPublicTypes,
+            liveTargetConsumer: null);
+    }
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        Execute(
             WorkspaceRealizationOperationLease authority,
             WorkspaceDeclarationContext context,
             SelectedContextExactTypeInspectionRequest request,

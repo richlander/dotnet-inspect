@@ -1,20 +1,20 @@
 ---
-id: type-shape-and-implements
+id: type-shape-and-relations
 description: Inspect type hierarchy — shape, inheritance walks, and implementer discovery
-commands: [type, depends, implements]
-areas: [types, shape, inheritance, interfaces, implements, depends]
+commands: [type, depends]
+areas: [types, shape, inheritance, interfaces, relations, depends]
 ---
 
 # Type Shape and Hierarchy
 
-> Understand a type's structure and its place in the type hierarchy. Three complementary views: `type --tree` shows the full type structure (inheritance, interfaces, members). `depends` walks the hierarchy **upward** — base classes and interfaces a type inherits. `implements` walks **downward** — finding all types that implement an interface or extend a base class.
+> Understand a type's structure and its place in the type hierarchy. Three complementary views: `type --tree` shows the full type structure (inheritance, interfaces, members). `depends` walks the hierarchy **upward** — base classes and interfaces a type inherits. The `Implementers` and `Derived Types` sections walk **downward** through Subject Relations.
 
 ## Preconditions
 
 Isolated session with cached packages.
 
 ```bash
-export DOTNET_INSPECT_ISOLATED=type-shape-implements
+export DOTNET_INSPECT_ISOLATED=type-shape-relations
 ```
 
 ```bash
@@ -197,7 +197,7 @@ System.Numerics.IFloatingPointConstants<TSelf>
 System.Numerics.INumberBase<TSelf>
 ```
 
-## 4. Find implementers of a base class
+## 4. Find derived types of a base class
 
 > Goal: Discover all types that extend a base class across the platform.
 
@@ -208,33 +208,35 @@ What types extend Stream?
 ```
 
 ```bash
-dotnet-inspect implements Stream -v:q
+dotnet-inspect type System.IO.Stream --platform System.Private.CoreLib \
+  -S "Derived Types" -v:q
 ```
 
 ```expect
-# Types Implementing Stream
-## Implementers
-extends
+# Relations for System.IO.Stream
+## Derived Types
+base type
 ```
 
 ### 4b. Limited results
 
 ```bash
-dotnet-inspect implements Stream -n 3 -v:q
+dotnet-inspect type System.IO.Stream --platform System.Private.CoreLib \
+  -S "Derived Types" -n 3 -v:q
 ```
 
 ```expect
-# Types Implementing Stream
-## Implementers
-extends
+# Relations for System.IO.Stream
+## Derived Types
+base type
 ```
 
 ```query
-awk '/^\| `/ { count++ } END { if (count == 3) print "three-implementers" }'
+awk '/^\| `/ { count++ } END { if (count == 3) print "three-derived-types" }'
 ```
 
 ```expect
-three-implementers
+three-derived-types
 ```
 
 ## 5. Find implementers of an interface
@@ -248,25 +250,28 @@ What types implement IHost?
 ```
 
 ```bash
-dotnet-inspect implements IHost -v:q
+dotnet-inspect type Microsoft.Extensions.Hosting.IHost \
+  --package Microsoft.Extensions.Hosting.Abstractions@10.0.0 \
+  --tfm net10.0 -S Implementers -v:q
 ```
 
 ```expect
-# Types Implementing IHost
+# Relations for Microsoft.Extensions.Hosting.IHost
 ## Implementers
-`Microsoft.AspNetCore.Builder.WebApplication` | class | implements
+interface
 ```
 
 ### 5b. Interface with many implementers
 
 ```bash
-dotnet-inspect implements IDisposable -v:q --platform -n 5
+dotnet-inspect type System.IDisposable --platform System.Private.CoreLib \
+  -S Implementers -v:q -n 5
 ```
 
 ```expect
-# Types Implementing IDisposable
+# Relations for System.IDisposable
 ## Implementers
-implements
+interface
 ```
 
 ```query
@@ -286,14 +291,16 @@ five-implementers
 ### 6a. Explicit platform scope
 
 ```bash
-dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q
+dotnet-inspect type \
+  System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver \
+  --platform System.Text.Json -S Implementers -v:q
 ```
 
 ```expect
-# Types Implementing IJsonTypeInfoResolver
+# Relations for System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 ## Implementers
-`System.Text.Json.Serialization.JsonSerializerContext` | class | implements
-`System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver` | class | implements
+`System.Text.Json.Serialization.JsonSerializerContext`
+`System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver`
 ```
 
 ## 7. Table output for scripting
@@ -303,12 +310,12 @@ dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q
 ### 7a. With header
 
 ```bash
-dotnet-inspect implements Stream --table -n 3
+dotnet-inspect type System.IO.Stream --platform System.Private.CoreLib \
+  -S "Derived Types" --table -n 3
 ```
 
 ```expect
 Type
-Kind
 Relationship
 Library
 Source
@@ -317,12 +324,12 @@ Source
 ### 7b. Without header for piping
 
 ```bash
-dotnet-inspect implements Stream --table --no-headers -n 3
+dotnet-inspect type System.IO.Stream --platform System.Private.CoreLib \
+  -S "Derived Types" --table --no-headers -n 3
 ```
 
 ```expect
-class
-extends
+base type
 ```
 
 ```expect-not
@@ -334,9 +341,9 @@ Kind
 wc -l | tr -d ' '
 ```
 
-## 8. Shape → depends → implements workflow
+## 8. Shape → depends → Subject Relations workflow
 
-> Goal: Start with `type --tree` to see structure, use `depends` to walk the hierarchy upward, then use `implements` to find sibling types.
+> Goal: Start with `type --tree` to see structure, use `depends` to walk the hierarchy upward, then use `Implementers` to find sibling types.
 
 ### 8a. Discover interfaces via shape
 
@@ -369,11 +376,12 @@ System.Collections.IEnumerable
 ### 8c. Find types implementing the same interface
 
 ```bash
-dotnet-inspect implements IEnumerable -n 5 -v:q
+dotnet-inspect type System.Collections.IEnumerable \
+  --platform System.Private.CoreLib -S Implementers -n 5 -v:q
 ```
 
 ```expect
-# Types Implementing IEnumerable
+# Relations for System.Collections.IEnumerable
 ## Implementers
-implements
+interface
 ```

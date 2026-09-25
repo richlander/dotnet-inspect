@@ -264,21 +264,6 @@ dotnet-inspect api JsonSerializer --package System.Text.Json --attributes
 
 Would show attributes like `[Obsolete]`, `[RequiresUnreferencedCode]`, `[JsonConverter]`, etc. Particularly useful for understanding trimming/AOT compatibility and serialization behavior.
 
-## Interface Implementation Finder
-
-Given an interface, find all types that implement it:
-
-```bash
-dotnet-inspect implements IDisposable --package System.Text.Json
-dotnet-inspect implements IJsonTypeInfoResolver --package System.Text.Json
-```
-
-Useful for:
-
-- Discovering available implementations of a strategy/plugin interface
-- Understanding the breadth of a package's type hierarchy
-- Finding concrete types when you only know the interface from docs
-
 ## Nullability Annotations
 
 Expose nullable reference type annotations in API output:

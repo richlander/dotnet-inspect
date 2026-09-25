@@ -31,8 +31,13 @@ internal static partial class MetadataRelationInspection
             if (!request.IncludesType(reader, handle))
                 continue;
             considered++;
-            if (!request.IncludeNonPublic
-                && !visibility.IsExternallyVisible(handle))
+            if ((!request.IncludeNonPublic
+                    && !visibility.IsExternallyVisible(handle))
+                || (!request.IncludeHidden
+                    && AttributeReader.HasHiddenAttribute(
+                        reader,
+                        reader.GetTypeDefinition(handle)
+                            .GetCustomAttributes())))
             {
                 excluded++;
             }
@@ -50,8 +55,13 @@ internal static partial class MetadataRelationInspection
                     continue;
                 operation.Charge(
                     MetadataOperationDimension.DeclarationCandidates);
-                if (!request.IncludeNonPublic
-                    && !visibility.IsExternallyVisible(handle))
+                if ((!request.IncludeNonPublic
+                        && !visibility.IsExternallyVisible(handle))
+                    || (!request.IncludeHidden
+                        && AttributeReader.HasHiddenAttribute(
+                            reader,
+                            reader.GetTypeDefinition(handle)
+                                .GetCustomAttributes())))
                 {
                     continue;
                 }

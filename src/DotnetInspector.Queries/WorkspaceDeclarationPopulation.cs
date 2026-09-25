@@ -231,6 +231,64 @@ public sealed class WorkspaceDeclarationPopulation
     internal WorkspaceDeclarationPopulationFailure? Availability() =>
         _workspace.DeclarationPopulationAvailability();
 
+    internal bool TryGetAccess(
+        WorkspaceDeclarationOccurrence occurrence,
+        out WorkspaceDeclarationMember? member,
+        out AssemblyContextGroup? group,
+        out ResolvedAssemblyReference? assembly)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        member = Receipt.Members.FirstOrDefault(candidate =>
+            ReferenceEquals(candidate.Occurrence, occurrence));
+        if (member is null
+            || !_access.TryGetValue(occurrence, out var access))
+        {
+            group = null;
+            assembly = null;
+            return false;
+        }
+
+        group = access.Group;
+        assembly = access.Assembly;
+        return true;
+    }
+
+    internal IEnumerable<(
+        WorkspaceDeclarationMember Member,
+        AssemblyContextGroup Group,
+        ResolvedAssemblyReference Assembly)> ReadAccesses()
+    {
+        foreach (WorkspaceDeclarationMember member in Receipt.Members)
+        {
+            if (_access.TryGetValue(
+                    member.Occurrence,
+                    out var access))
+            {
+                yield return (
+                    member,
+                    access.Group,
+                    access.Assembly);
+            }
+        }
+    }
+
+    public WorkspaceDeclarationOccurrence? FindOccurrence(
+        AssemblyAcquisitionRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        foreach (var (member, _, assembly) in ReadAccesses())
+        {
+            if (ReferenceEquals(
+                    assembly.Registration,
+                    registration))
+            {
+                return member.Occurrence;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Inspects one selected occurrence through its existing group owner.</summary>
     public WorkspaceDeclarationInventoryOutcome ReadDeclarations(
         WorkspaceDeclarationOccurrence occurrence,

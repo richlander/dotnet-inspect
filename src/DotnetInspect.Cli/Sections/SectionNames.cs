@@ -5,6 +5,8 @@ namespace DotnetInspect.Cli.Sections;
 /// </summary>
 public static class SectionNames
 {
+    public const string Implementers = "Implementers";
+    public const string DerivedTypes = "Derived Types";
     /// <summary>Headless compact context section.</summary>
     public const string Summary = "Summary";
 

@@ -78,9 +78,11 @@ provenance. Exact method analysis reads signals,
 allocations, direct calls, unsafe evidence, exception regions, opportunities,
 and diagnostics from one physical MethodDef body without exposing the snapshot
 or Analysis index to its consumer. Analysis index execution remains sequential,
-preserving the Browser/Wasm baseline. The `extensions`,
-`implements`, and `find` commands also execute typed queries through ephemeral
-workspaces. Ordinary search fan-out creates and disposes one-participant groups
+preserving the Browser/Wasm baseline. The `extensions` and `find` commands also
+execute typed queries through ephemeral workspaces. Type `Implementers` and
+`Derived Types` sections execute Subject Relations through QuerySpace over an
+exact Workspace population. Ordinary search fan-out creates and disposes
+one-participant groups
 sequentially; explicit extension reachability uses one binding-consistent group
 so its name index, lazy member-edge traversal, and extension census observe the
 same retained participant images. That group retains the workspace's bounded

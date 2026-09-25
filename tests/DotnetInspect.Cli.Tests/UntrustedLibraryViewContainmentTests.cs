@@ -1074,11 +1074,11 @@ public class UntrustedRelationshipContainmentTests : IDisposable
     public static TheoryData<string, string[], string> SubjectEchoChannels() => new()
     {
         // The subject must resolve wherever the channel only renders on a hit,
-        // or the case proves nothing: `implements` prints no heading when the
-        // interface is missing, and `find` renders no Pattern column when
-        // nothing matches. Both were caught doing exactly that.
+        // or the case proves nothing: a relation section prints no heading
+        // when the interface is missing, and `find` renders no Pattern column
+        // when nothing matches. Both were caught doing exactly that.
         { "extensions", ["extensions", "Derived" + Hazard + "INJECTEDDERIVED"], "INJECTEDDERIVED" },
-        { "implements", ["implements", "RelNs.IFace" + Hazard + "INJECTEDSUBJECT"], "INJECTEDSUBJECT" },
+        { "relations", ["type", "RelNs.IFace" + Hazard + "INJECTEDSUBJECT", "-S", "Implementers"], "INJECTEDSUBJECT" },
         // A single pattern renders the subject in the heading; only a
         // multi-pattern search renders the Pattern column. They are different
         // owners, so both are exercised.
@@ -1168,7 +1168,7 @@ public class UntrustedRelationshipContainmentTests : IDisposable
         takesHostile.GetILGenerator().Emit(OpCodes.Ret);
         derived.CreateType();
 
-        // `implements` only renders its heading when the interface resolves, so
+        // the relation section only renders its heading when the interface resolves, so
         // a hostile interface that nothing implements would leave that channel
         // unexercised.
         var hostileInterface = module.DefineType(
@@ -1192,30 +1192,22 @@ public class UntrustedRelationshipContainmentTests : IDisposable
 }
 
 /// <summary>
-/// Gates the <c>implements</c> row columns whose upstream is raw. The
+/// Gates the Subject Relations row columns whose upstream is raw. The
 /// end-to-end relationship gate cannot reach <c>Library</c>: that column is the
 /// inspected assembly's file stem, and a hostile file name is not something a
 /// test can put on a real filesystem. This exercises the row's own owner
 /// instead, which is where issue #3319 placed containment.
 /// </summary>
-public class ImplementerRowContainmentTests
+public class TypeRelationRowContainmentTests
 {
     [Fact]
-    public void ImplementerRow_WithHostileLibrary_ContainsHazard()
+    public void TypeRelationRow_WithHostileLibrary_ContainsHazard()
     {
-        var view = ImplementsOutputFormatter.BuildView(
-            "IFace",
-            [
-                new ImplementerResult
-                {
-                    TypeName = "Ty\u202EINJECTEDTYPE",
-                    Kind = "class",
-                    Relationship = "implements",
-                    Assembly = "Lib\u202EINJECTEDLIBRARY"
-                }
-            ]);
-
-        var row = Assert.Single(view.Rows!);
+        var row = new TypeRelationRow(
+            "Ty\u202EINJECTEDTYPE",
+            "interface",
+            "Lib\u202EINJECTEDLIBRARY",
+            "Library");
         HostileOutputAssert.NoRenderingHazard(row.Library, "Library");
         HostileOutputAssert.NoRenderingHazard(row.Type, "Type");
         Assert.Contains("INJECTEDLIBRARY", row.Library, StringComparison.Ordinal);

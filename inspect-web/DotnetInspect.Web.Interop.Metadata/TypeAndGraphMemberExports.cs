@@ -7,6 +7,8 @@ using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using QuerySpace;
+using QuerySpace.Operations;
 using QuerySpace.Rows;
 using Analysis = ILInspector.Analysis;
 
@@ -82,14 +84,42 @@ public static partial class MetadataExports
             scope.SurfaceParticipant(
                 root,
                 root.CompileAsset(assemblyName));
-        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
-            await ExactTypeInspectionOperation.ExecuteAsync(
-                new ExactTypeInspectionRequest(
-                    packageId,
-                    version,
-                    targetFramework,
+        SubjectRelationsQueryPlanResult relationPlan =
+            SubjectRelationsQuery.ResolveIntent(
+                SubjectRelationsRouteKind.Type,
+                PortableQueryIntent.Create(
+                    [
+                        new PortableQueryTerm(
+                            SubjectRelationsQuery.DirectionTermKey,
+                            PortableQueryOperator.Equal,
+                            "incoming"),
+                    ],
+                    [],
+                    [],
+                    []));
+        var acceptedRelationPlan =
+            relationPlan as SubjectRelationsQueryPlanResult.Accepted
+            ?? throw new InvalidOperationException(
+                "The browser Type hierarchy relation query could not be resolved.");
+        ExactTypeRelationsInspectionOutcome hierarchyRelations =
+            await ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                new TypeRelationsInspectionRequest(
+                    new WorkspaceContextInput
+                    {
+                        Framework = targetFramework,
+                        Members =
+                        [
+                            .. requests.Select(request =>
+                                WorkspaceMemberCoordinate.Package(
+                                    request.PackageId,
+                                    request.Version,
+                                    request.TargetFramework)),
+                        ],
+                    },
                     typeDefinitionId,
-                    ExactTypeSelectionKind.DefinitionIdentity),
+                    ExactTypeSelectionKind.DefinitionIdentity,
+                    Path.GetFileNameWithoutExtension(assemblyName),
+                    IncludeTypeInspection: true),
                 new WorkspaceContextLoadOptions
                 {
                     HttpClient = BrowserPackageWorkspace.NetworkClient,
@@ -102,7 +132,39 @@ public static partial class MetadataExports
                     PayloadLimits =
                         BrowserPackageWorkspace.PackageLimits,
                 },
-                BrowserApiSurfacePolicy.Limits);
+                acceptedRelationPlan.Plan,
+                rows: new SubjectRelationPopulationRowsRequest(int.MaxValue));
+        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
+            hierarchyRelations
+                is ExactTypeRelationsInspectionOutcome.Available available
+                && available.Inspection?.Content.Inspection.IsAvailable
+                    is true
+                ? new(
+                    available.Inspection!.Content.Inspection,
+                    available.Inspection.Share,
+                    available.Inspection.Diagnostics)
+                : await ExactTypeInspectionOperation.ExecuteAsync(
+                    new ExactTypeInspectionRequest(
+                        packageId,
+                        version,
+                        targetFramework,
+                        typeDefinitionId,
+                        ExactTypeSelectionKind.DefinitionIdentity),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient =
+                            BrowserPackageWorkspace.NetworkClient,
+                        SourceAuthorization =
+                            BrowserPackageWorkspace
+                                .PackageSourceAuthorization,
+                        PackageStore =
+                            BrowserPackageWorkspace.SessionPackageStore,
+                        PackageTransferPolicy =
+                            BrowserPackageWorkspace.PackageTransferPolicy,
+                        PayloadLimits =
+                            BrowserPackageWorkspace.PackageLimits,
+                    },
+                    BrowserApiSurfacePolicy.Limits);
 
         (ResearchViews.TypeProjectionResult Projection,
             TypeDependencySectionResult Dependencies) result =
@@ -138,18 +200,74 @@ public static partial class MetadataExports
                 root,
                 result.Dependencies,
                 projection.Identity.FullName);
+        (string[] implementers, string[] derivedTypes,
+            string[] relationFailures) =
+            ProjectHierarchyRelations(hierarchyRelations);
 
         return new BrowserTypeMetadata(
                 exactTypeInspection,
-                [.. projection.DerivedTypes],
+                implementers,
+                derivedTypes,
                 graphNodes,
                 graphEdges,
                 dependencyEnvelope,
                 [
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
+                    .. relationFailures,
                     .. TypeDependencyFailures(scope, result.Dependencies),
                 ]);
+    }
+
+    static (string[] Implementers, string[] DerivedTypes, string[] Failures)
+        ProjectHierarchyRelations(
+            ExactTypeRelationsInspectionOutcome outcome)
+    {
+        if (outcome is ExactTypeRelationsInspectionOutcome.Unavailable
+            unavailable)
+        {
+            return (
+                [],
+                [],
+                [$"Subject Relations: {unavailable.Detail}"]);
+        }
+
+        var available =
+            (ExactTypeRelationsInspectionOutcome.Available)outcome;
+        if (available.Relations.Population.Rows
+            is not SubjectRelationPopulationRowsOutcome.Read rows)
+        {
+            return (
+                [],
+                [],
+                ["Subject Relations: hierarchy rows are unavailable."]);
+        }
+
+        static string[] Names(
+            IEnumerable<SubjectRelationRow> source) =>
+        [
+            .. source
+                .Select(row =>
+                    (InspectionGraphTypeIdentity.AcquiredDefinition)
+                        ((InspectionGraphSubject.TypeSubject)row.Source)
+                            .Identity)
+                .Select(identity => identity.Type.ToEscapedFullName())
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        string[] failures =
+            available.Relations.Relations.Evidence.IsComplete
+                ? []
+                :
+                [
+                    "Subject Relations: hierarchy evidence is incomplete.",
+                ];
+        return (
+            Names(rows.Items.Where(row =>
+                row.Form == SubjectRelationForm.Interface)),
+            Names(rows.Items.Where(row =>
+                row.Form == SubjectRelationForm.BaseType)),
+            failures);
     }
 
     static InspectionEnvelope<TypeDependencySectionResult> TypeDependencyEnvelope(

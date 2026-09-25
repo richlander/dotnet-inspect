@@ -502,6 +502,7 @@ export interface BrowserTypeGraphNode {
 
 export interface BrowserTypeMetadata {
   readonly exactTypeInspection: InspectionEnvelope<ExactTypeInspectionResult>;
+  readonly implementers: ReadonlyArray<string>;
   readonly derivedTypes: ReadonlyArray<string>;
   readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
   readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
@@ -1087,4 +1088,3 @@ export async function queryTypeProjection(packageId: string, version: string, ta
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
 }
-

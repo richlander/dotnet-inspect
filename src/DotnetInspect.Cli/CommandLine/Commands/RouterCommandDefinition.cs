@@ -504,7 +504,6 @@ public static class RouterCommandDefinition
         DiffCommand.Name,
         FindCommand.Name,
         "extensions",
-        "implements",
         "depends",
         "cache",
         "skill",

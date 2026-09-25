@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -18,6 +19,8 @@ using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using DotnetInspect.Cli.Planning;
 using NuGet.Versioning;
+using QuerySpace;
+using QuerySpace.Operations;
 using Decompiler = ILInspector.Decompiler;
 
 namespace DotnetInspect.Cli.Commands;
@@ -182,6 +185,16 @@ public static class TypeCommand
         {
             CommandError.Write(performanceTriageError);
             return 1;
+        }
+
+        if (SelectsTypeRelations(options, plan))
+        {
+            return await ExecuteTypeRelationsAsync(
+                options,
+                plan,
+                exactTypeCapabilities
+                    ?? CreateWorkspaceContextLoadOptions(options),
+                cancellationToken).ConfigureAwait(false);
         }
 
         if (resolvedSource is null
@@ -1028,6 +1041,7 @@ public static class TypeCommand
                         options.SourceOptions),
                 PackageStore = new FileSystemPackageStore(),
                 UseVersionCache = true,
+                IncludePrerelease = true,
                 Log = options.Verbose
                     ? CommandError.WriteLine
                     : null,
@@ -1147,6 +1161,561 @@ public static class TypeCommand
             plan,
             request,
             CreateWorkspaceContextLoadOptions(options));
+
+    private static bool SelectsTypeRelations(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan) =>
+        (options.ExactIncludeSections?.Any(IsTypeRelationSection) is true
+            || options.Select?.Any(selector =>
+                IsTypeRelationSection(selector)
+                || selector.Equals(
+                    SectionCategoryNames.Relations,
+                    StringComparison.OrdinalIgnoreCase)) is true)
+        && plan.Selection.ResolvedSections.Any(IsTypeRelationSection);
+
+    private static bool IsTypeRelationSection(string section) =>
+        section.Equals(
+            SectionNames.Implementers,
+            StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            SectionNames.DerivedTypes,
+            StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<int> ExecuteTypeRelationsAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan inspectionPlan,
+        WorkspaceContextLoadOptions capabilities,
+        CancellationToken cancellationToken)
+    {
+        string[] unsupported =
+        [
+            .. inspectionPlan.Selection.ResolvedSections
+                .Where(section => !IsTypeRelationSection(section)),
+        ];
+        if (unsupported.Length > 0)
+        {
+            CommandError.Write(
+                "Subject Relations sections cannot yet be combined with "
+                    + $"'{string.Join("', '", unsupported)}'.");
+            return 1;
+        }
+        CliTypeRelationsRequest? request;
+        try
+        {
+            request = await CreateSubjectRelationsTypeRequestAsync(
+                    options,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
+        if (request is null)
+        {
+            CommandError.Write(
+                "Subject Relations require one exact package version and "
+                    + "target framework, one platform assembly, one local "
+                    + "library, or one restored project.");
+            return 1;
+        }
+
+        bool implementers =
+            inspectionPlan.Selection.ResolvedSections.Contains(
+                SectionNames.Implementers,
+                StringComparer.OrdinalIgnoreCase);
+        bool derivedTypes =
+            inspectionPlan.Selection.ResolvedSections.Contains(
+                SectionNames.DerivedTypes,
+                StringComparer.OrdinalIgnoreCase);
+        List<PortableQueryTerm> terms =
+        [
+            new(
+                SubjectRelationsQuery.DirectionTermKey,
+                PortableQueryOperator.Equal,
+                "incoming"),
+        ];
+        if (implementers != derivedTypes)
+        {
+            terms.Add(
+                new(
+                    SubjectRelationsQuery.FormTermKey,
+                    PortableQueryOperator.Equal,
+                    implementers ? "interface" : "base-type"));
+        }
+        SubjectRelationsQueryPlanResult resolved =
+            SubjectRelationsQuery.ResolveIntent(
+                SubjectRelationsRouteKind.Type,
+                PortableQueryIntent.Create(terms, [], [], []),
+                cancellationToken);
+        if (resolved is not SubjectRelationsQueryPlanResult.Accepted
+            accepted)
+        {
+            CommandError.Write(
+                "The Subject Relations query could not be resolved.");
+            return 1;
+        }
+
+        ExactTypeRelationsInspectionOutcome outcome;
+        try
+        {
+            outcome = await ExactTypeRelationsInspectionOperation
+                .ExecuteAsync(
+                    request.Inspection,
+                    request.EmbeddedContent is null
+                        ? capabilities
+                        : capabilities with
+                        {
+                            EmbeddedContent = request.EmbeddedContent,
+                        },
+                    accepted.Plan,
+                    count: options.Count
+                        ? new SubjectRelationPopulationCountRequest()
+                        : null,
+                    rows: options.Count
+                        ? null
+                        : new SubjectRelationPopulationRowsRequest(
+                            options.Limit ?? int.MaxValue),
+                    includeNonPublic: options.IncludeAll,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
+        if (outcome
+            is not ExactTypeRelationsInspectionOutcome.Available available)
+        {
+            CommandError.Write(
+                ((ExactTypeRelationsInspectionOutcome.Unavailable)outcome)
+                    .Detail);
+            return 1;
+        }
+
+        if (options.Count)
+        {
+            if (available.Relations.Population.Count
+                is SubjectRelationPopulationCountOutcome.Counted counted)
+            {
+                int count = options.Limit is int limit
+                    ? Math.Min(counted.Value, limit)
+                    : counted.Value;
+                if (options.Rows is { IsUnlimited: false } rows)
+                {
+                    (int start, int end) = rows.Resolve(count);
+                    count = end - start;
+                }
+                CountOutput.WriteCount(
+                    count,
+                    outputPath: null);
+                return 0;
+            }
+
+            CommandError.Write(
+                "The exact Subject Relations count is incomplete because "
+                    + "one or more candidate assemblies could not be "
+                    + "inspected or resolved.");
+            return 1;
+        }
+
+        if (available.Relations.Population.Rows
+            is not SubjectRelationPopulationRowsOutcome.Read read)
+        {
+            CommandError.Write(
+                "Subject Relations rows are unavailable.");
+            return 1;
+        }
+        List<TypeRelationResult> results =
+        [
+            .. read.Items.Select(row =>
+                ToTypeRelationResult(
+                    row,
+                    available.Relations.Relations,
+                    request)),
+        ];
+        results = [.. RowWindow.Apply(options.Rows, results)];
+        if (options.JsonOutput)
+        {
+            JsonOutputHelper.Write(
+                results,
+                TypeRelationsJsonContext.Default.ListTypeRelationResult,
+                TypeRelationsCompactJsonContext.Default
+                    .ListTypeRelationResult,
+                options.CompactJson);
+            return available.Relations.Relations.Evidence.HasUsableRows
+                ? 0
+                : 1;
+        }
+
+        TypeRelationsResultView view = BuildTypeRelationsView(
+            request.Type,
+            [.. results],
+            implementers,
+            derivedTypes);
+        if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions),
+                null);
+        }
+        else
+        {
+            OutputFormatter.WriteWindowedMarkdown(
+                Console.Out,
+                rows: null,
+                writerOptions => MarkoutSerializer.Serialize(
+                    view,
+                    SearchViewContext.Default,
+                    writerOptions));
+        }
+        return available.Relations.Relations.Evidence.HasUsableRows
+            ? 0
+            : 1;
+    }
+
+    private sealed record CliTypeRelationsRequest(
+        TypeRelationsInspectionRequest Inspection,
+        string Type,
+        string Source,
+        string? SourceVersion,
+        IEmbeddedContentProvider? EmbeddedContent = null);
+
+    private static async Task<CliTypeRelationsRequest?>
+        CreateSubjectRelationsTypeRequestAsync(
+        TypeOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(options.PlatformAssembly)
+            && string.IsNullOrWhiteSpace(options.PackagePath)
+            && options.AssemblyPath is null
+            && options.ProjectPath is null
+            && options.ProjectAssetsPath is null
+            && options.WorkspacePacket is null
+            && !string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            (string defaultFramework, string? defaultVersion) =
+                DefaultPlatformTarget();
+            string framework = string.IsNullOrWhiteSpace(options.Tfm)
+                ? defaultFramework
+                : options.Tfm;
+            string? platformVersion =
+                framework.Equals(
+                    defaultFramework,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? defaultVersion
+                    : null;
+            string family = string.IsNullOrWhiteSpace(
+                    options.PlatformFramework)
+                ? "runtime"
+                : options.PlatformFramework;
+            return new(
+                new(
+                    new WorkspaceContextInput
+                    {
+                        Framework = framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Platform(
+                                family,
+                                options.PlatformAssembly,
+                                version: platformVersion,
+                                framework: framework),
+                        ],
+                    },
+                    options.TypeName),
+                options.TypeName,
+                family,
+                platformVersion ?? framework);
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.AssemblyPath)
+            && string.IsNullOrWhiteSpace(options.PackagePath)
+            && options.PlatformAssembly is null
+            && options.ProjectPath is null
+            && options.ProjectAssetsPath is null
+            && options.WorkspacePacket is null
+            && !string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            return await CreateEmbeddedTypeRelationsRequestAsync(
+                    [options.AssemblyPath],
+                    options.TypeName,
+                    SourceKind.Library,
+                    sourceVersion: null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.ProjectPath)
+            && string.IsNullOrWhiteSpace(options.PackagePath)
+            && options.AssemblyPath is null
+            && options.PlatformAssembly is null
+            && options.WorkspacePacket is null
+            && !string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            if (!ProjectAssetsParser.TryFindAssets(
+                    options.ProjectPath,
+                    out string? assetsPath,
+                    out ProjectAssetsStatus assetsStatus))
+            {
+                throw new InvalidOperationException(
+                    ProjectAssetsParser.DescribeMissingAssets(
+                        options.ProjectPath,
+                        assetsStatus));
+            }
+            string[] assemblies =
+            [
+                .. ProjectAssetsParser.Parse(
+                        assetsPath,
+                        options.Tfm,
+                        log: null)
+                    .Select(static asset => asset.Path)
+                    .Distinct(StringComparer.Ordinal),
+            ];
+            return await CreateEmbeddedTypeRelationsRequestAsync(
+                    assemblies,
+                    options.TypeName,
+                    SourceKind.Project,
+                    options.Tfm,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(options.PackagePath)
+            || File.Exists(options.PackagePath)
+            || options.PackagePath.Contains("::", StringComparison.Ordinal)
+            || options.PackageRangeAddress is not null
+            || options.AssemblyPath is not null
+            || options.PlatformAssembly is not null
+            || options.PlatformFramework is not null
+            || options.ProjectPath is not null
+            || options.ProjectAssetsPath is not null
+            || options.WorkspacePacket is not null
+            || string.IsNullOrWhiteSpace(options.Tfm)
+            || options.Tfm.Equals(
+                "all",
+                StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            return null;
+        }
+
+        (string packageId, string? version) =
+            PackageExtractor.ParsePackageReference(options.PackagePath);
+        if (string.IsNullOrWhiteSpace(packageId)
+            || string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        try
+        {
+            return new(
+                new(
+                    new WorkspaceContextInput
+                    {
+                        Framework = options.Tfm,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Package(
+                                packageId,
+                                version,
+                                options.Tfm),
+                        ],
+                    },
+                    options.TypeName),
+                options.TypeName,
+                packageId,
+                version);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<CliTypeRelationsRequest>
+        CreateEmbeddedTypeRelationsRequestAsync(
+            IReadOnlyList<string> assemblyPaths,
+            string type,
+            string source,
+            string? sourceVersion,
+            CancellationToken cancellationToken)
+    {
+        if (assemblyPaths.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "The selected source contains no managed assemblies.");
+        }
+
+        var content = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var members = new List<WorkspaceMemberCoordinate>(
+            assemblyPaths.Count);
+        for (int index = 0; index < assemblyPaths.Count; index++)
+        {
+            string path = assemblyPaths[index];
+            byte[] bytes = await File.ReadAllBytesAsync(
+                    path,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            string declaredName =
+                System.Reflection.AssemblyName.GetAssemblyName(path).Name
+                ?? throw new BadImageFormatException(
+                    $"The selected library '{path}' has no assembly name.");
+
+            string contentRef = $"assemblies/{index:D4}.dll";
+            string digest = Convert.ToHexString(
+                    SHA256.HashData(bytes))
+                .ToLowerInvariant();
+            content.Add(contentRef, bytes);
+            members.Add(
+                WorkspaceMemberCoordinate.Embedded(
+                    contentRef,
+                    digest,
+                    declaredName));
+        }
+
+        return new(
+            new(
+                new WorkspaceContextInput
+                {
+                    Members = [.. members],
+                },
+                type),
+            type,
+            source,
+            sourceVersion,
+            new CliEmbeddedContentProvider(content));
+    }
+
+    private sealed class CliEmbeddedContentProvider(
+        IReadOnlyDictionary<string, byte[]> content)
+        : IEmbeddedContentProvider
+    {
+        public bool TryOpenContent(
+            string contentRef,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? contentStream)
+        {
+            if (content.TryGetValue(contentRef, out byte[]? bytes))
+            {
+                contentStream = new MemoryStream(
+                    bytes,
+                    writable: false);
+                return true;
+            }
+
+            contentStream = null;
+            return false;
+        }
+    }
+
+    private static (string Framework, string? Version)
+        DefaultPlatformTarget()
+    {
+        int major = Environment.Version.Major;
+        string? productVersion = typeof(object).Assembly
+            .GetCustomAttributes(
+                typeof(System.Reflection.AssemblyInformationalVersionAttribute),
+                inherit: false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?
+            .InformationalVersion;
+        string? exactVersion = null;
+        if (productVersion is not null
+            && productVersion.Contains('-', StringComparison.Ordinal))
+        {
+            int buildMetadata = productVersion.IndexOf(
+                '+',
+                StringComparison.Ordinal);
+            exactVersion = buildMetadata < 0
+                ? productVersion
+                : productVersion[..buildMetadata];
+        }
+
+        return ($"net{major}.0", exactVersion);
+    }
+
+    private static TypeRelationResult ToTypeRelationResult(
+        SubjectRelationRow row,
+        WorkspaceTypeHierarchyRelationsResult relations,
+        CliTypeRelationsRequest request)
+    {
+        var sourceType =
+            (InspectionGraphTypeIdentity.AcquiredDefinition)
+                ((InspectionGraphSubject.TypeSubject)row.Source).Identity;
+        WorkspaceTypeHierarchyRelationSource source =
+            relations.Sources.Single(candidate =>
+                ReferenceEquals(
+                    candidate.Registration,
+                    sourceType.Registration));
+        return new(
+            MetadataTypeNameFormatter.FormatFullName(sourceType.Type),
+            row.Form == SubjectRelationForm.Interface
+                ? "interface"
+                : "base type",
+            source.Assembly.Name,
+            request.Source,
+            request.SourceVersion);
+    }
+
+    private static TypeRelationsResultView BuildTypeRelationsView(
+        string targetType,
+        List<TypeRelationResult> results,
+        bool implementers,
+        bool derivedTypes)
+    {
+        List<TypeRelationRow> Rows(SubjectRelationForm form) =>
+        [
+            .. results
+                .Where(result =>
+                    form == SubjectRelationForm.Interface
+                        ? result.Relationship == "interface"
+                        : result.Relationship == "base type")
+                .OrderBy(
+                    static result => result.Type,
+                    StringComparer.Ordinal)
+                .Select(result => new TypeRelationRow(
+                    MarkoutInline.Code(result.Type),
+                    result.Relationship,
+                    result.Library,
+                    SourceColumn.Format(
+                        result.Source,
+                        result.SourceVersion))),
+        ];
+
+        List<TypeRelationRow>? interfaceRows =
+            implementers
+                ? Rows(SubjectRelationForm.Interface)
+                : null;
+        List<TypeRelationRow>? baseRows =
+            derivedTypes
+                ? Rows(SubjectRelationForm.BaseType)
+                : null;
+        return new()
+        {
+            Title = $"Relations for {targetType}",
+            Description = results.Count == 0
+                ? "No matching type relations found."
+                : null,
+            Implementers = interfaceRows,
+            DerivedTypes = baseRows,
+        };
+    }
 
     internal static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,

@@ -1,5 +1,6 @@
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Queries;
 
@@ -63,9 +64,22 @@ public abstract record StructuralSubjectIdentity
         WorkspaceContextMember library) =>
         new(package, library);
 
+    /// <summary>Creates one exact acquired Library outside Package navigation.</summary>
+    public static ContextLibrarySubject ForContextLibrary(
+        WorkspaceSubject workspace,
+        NavigationAssemblyIdentity identity,
+        ExactLibrarySourceCoordinate? coordinate) =>
+        new(workspace, identity, coordinate);
+
     /// <summary>Creates one exact metadata Type subject.</summary>
     public static TypeSubject ForType(
         LibrarySubject library,
+        MetadataTypeDefinitionName type) =>
+        new(library, type);
+
+    /// <summary>Creates one exact metadata Type in a context Library.</summary>
+    public static ContextTypeSubject ForContextType(
+        ContextLibrarySubject library,
         MetadataTypeDefinitionName type) =>
         new(library, type);
 
@@ -197,6 +211,33 @@ public abstract record StructuralSubjectIdentity
         public NavigationAssemblyIdentity Identity { get; }
     }
 
+    /// <summary>
+    /// One exact acquired Library in a Workspace declaration context.
+    /// </summary>
+    public sealed record ContextLibrarySubject : StructuralSubjectIdentity
+    {
+        internal ContextLibrarySubject(
+            WorkspaceSubject workspace,
+            NavigationAssemblyIdentity identity,
+            ExactLibrarySourceCoordinate? coordinate)
+        {
+            Workspace = workspace
+                ?? throw new ArgumentNullException(nameof(workspace));
+            Identity = identity
+                ?? throw new ArgumentNullException(nameof(identity));
+            Coordinate = coordinate;
+        }
+
+        public override WorkspaceSubject Workspace { get; }
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Library;
+
+        public NavigationAssemblyIdentity Identity { get; }
+
+        public ExactLibrarySourceCoordinate? Coordinate { get; }
+    }
+
     /// <summary>One exact metadata Type in one acquired Library.</summary>
     public sealed record TypeSubject : StructuralSubjectIdentity
     {
@@ -228,6 +269,32 @@ public abstract record StructuralSubjectIdentity
         {
             get;
         }
+    }
+
+    /// <summary>
+    /// One exact metadata Type in a source-neutral Workspace Library.
+    /// </summary>
+    public sealed record ContextTypeSubject : StructuralSubjectIdentity
+    {
+        internal ContextTypeSubject(
+            ContextLibrarySubject library,
+            MetadataTypeDefinitionName type)
+        {
+            Library = library
+                ?? throw new ArgumentNullException(nameof(library));
+            Identity = new NavigationTypeIdentity(
+                library.Identity.Registration,
+                type ?? throw new ArgumentNullException(nameof(type)));
+        }
+
+        public override WorkspaceSubject Workspace => Library.Workspace;
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Type;
+
+        public ContextLibrarySubject Library { get; }
+
+        public NavigationTypeIdentity Identity { get; }
     }
 
     /// <summary>One exact API Member in one exact Type.</summary>

@@ -283,6 +283,10 @@ public sealed class SubjectRelationsInspectionRequest
                 StructuralSubjectIdentity.TypeSubject) =>
                 true,
             (
+                SubjectRelationsRouteKind.Type,
+                StructuralSubjectIdentity.ContextTypeSubject) =>
+                true,
+            (
                 SubjectRelationsRouteKind.Member,
                 StructuralSubjectIdentity.MemberSubject) =>
                 true,

@@ -2095,54 +2095,6 @@ public class CommandLineTests
         Assert.Equal(["Method1"], result.GetValue(memberOption) ?? []);
     }
 
-    [Fact]
-    public void ImplementsCommand_WithPlatformFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--platform"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithExtensionsFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--extensions"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithAspnetcoreFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--aspnetcore"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithCombinedScopeFlags_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--platform", "--aspnetcore"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithScopeFlagAndPackage_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements", "Stream", "--extensions", "--package", "Newtonsoft.Json"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ImplementsCommand_WithNoArgs_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["implements"]);
-
-        Assert.Empty(result.Errors);
-    }
-
     [Theory]
     [InlineData(false, false, null, false)]  // scope none
     [InlineData(false, false, null, true)]   // --layout

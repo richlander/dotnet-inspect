@@ -555,6 +555,8 @@ public static class ApiSectionDemandIndex
             "Type Parameters",
             "Interfaces",
             "Baseclass",
+            SectionNames.Implementers,
+            SectionNames.DerivedTypes,
             SectionNames.ApiDeclarations);
         Declare(
             declarations,

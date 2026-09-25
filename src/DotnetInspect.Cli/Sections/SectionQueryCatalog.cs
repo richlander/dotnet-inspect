@@ -107,6 +107,22 @@ public sealed record SectionQueryCatalog(
                         : "Execution requires a selected type or member."),
                     PerformanceTriageRowQuery.QueryKeys));
             }
+            if (command == "type")
+            {
+                foreach (string section in new[]
+                {
+                    SectionNames.Implementers,
+                    SectionNames.DerivedTypes,
+                })
+                {
+                    queries.Add(new(
+                        section,
+                        "Filter exact Subject Relations rows. The focused "
+                            + "sections preselect incoming interface or base-type "
+                            + "relations.",
+                        []));
+                }
+            }
             foreach (string section in BodyKindQueryOptions.Sections)
             {
                 queries.Add(new(
@@ -171,6 +187,14 @@ public sealed record SectionQueryCatalog(
                 group => group.SelectMany(pair => pair.Value)
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
                 StringComparer.OrdinalIgnoreCase);
+        if (command == "type")
+        {
+            categories[SectionCategoryNames.Relations] =
+            [
+                SectionNames.Implementers,
+                SectionNames.DerivedTypes,
+            ];
+        }
         return new(sections, categories, [.. queries]);
     }
 
