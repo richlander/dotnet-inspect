@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
+using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
@@ -176,9 +177,12 @@ public class FidelityCheckGeneratedFilterTests
         string assemblyPath = CreateUnrepresentableIdentityFixture();
         try
         {
-            var selected = FidelityCheck.SelectReturnToSenderTargets(
+            FidelityCheck.ReturnToSenderTargetSelection selection =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
                 [assemblyPath],
                 cap: int.MaxValue);
+            IReadOnlyList<FidelityCheck.CompileBackTarget> selected =
+                selection.Targets;
 
             Assert.Equal(2, selected.Count);
             Assert.Contains(selected, target => target.Method == "Good");
@@ -189,6 +193,16 @@ public class FidelityCheckGeneratedFilterTests
             Assert.DoesNotContain(
                 selected,
                 target => target.Method is "bad-name" or "BadSignature" or "BadConstraint");
+            Assert.Contains(
+                selection.Exclusions,
+                exclusion => exclusion.Producer ==
+                        FidelityCheck.ReturnToSenderDeclarationProducer
+                            .OrdinaryTypeArtifact
+                    && exclusion.Reason is
+                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                            .OrdinaryDeclarationUnrepresentable
+                        or FidelityCheck.ReturnToSenderTargetExclusionReason
+                            .ProductMemberUnavailable);
         }
         finally
         {
@@ -253,11 +267,84 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Equal("GenericOnlyFixture", target.Type);
             Assert.Equal("Pick", target.Method);
             Assert.Equal("mss1:4(0:)n", target.Signature);
+            Assert.IsType<
+                FidelityCheck.ReturnToSenderDeclarationSelection
+                    .OrdinaryMethod>(target.Declaration);
         }
         finally
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargetPlan_AdoptsPinnedInt32ExactDeclaration()
+    {
+        var selection = FidelityCheck.SelectReturnToSenderTargetPlan(
+            [typeof(int).Assembly.Location],
+            cap: int.MaxValue,
+            typeFilter: "System.Int32");
+
+        FidelityCheck.CompileBackTarget[] exactTargets =
+        [
+            .. selection.Targets.Where(
+                target => target.Type == "System.Int32"
+                    && target.Declaration is
+                        FidelityCheck.ReturnToSenderDeclarationSelection
+                            .ExactMethod),
+        ];
+        Assert.True(
+            exactTargets.Length > 0,
+            string.Join(
+                Environment.NewLine,
+                selection.Exclusions
+                    .Where(exclusion => exclusion.Type == "System.Int32")
+                    .Select(exclusion =>
+                        $"{exclusion.Method}: {exclusion.Reason}: "
+                        + $"{exclusion.ExactOutcome}")));
+        FidelityCheck.CompileBackTarget target =
+            Assert.Single(exactTargets);
+        var exact = Assert.IsType<
+            FidelityCheck.ReturnToSenderDeclarationSelection.ExactMethod>(
+                target.Declaration);
+
+        Assert.Equal(
+            CSharpDeclarationKind.ExplicitInterfaceOperator,
+            exact.Request.Kind);
+        Assert.Equal(target.Address, exact.Request.Body);
+        Assert.Equal(
+            CSharpLanguageVersion.Preview,
+            exact.Request.Profile.Version);
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargetPlan_PreservesTypedProductRefusal()
+    {
+        FidelityCheck.ReturnToSenderTargetSelection selection =
+            FidelityCheck.SelectReturnToSenderTargetPlan(
+                [typeof(int).Assembly.Location],
+                cap: int.MaxValue,
+                typeFilter: "System.Int32",
+                languageProfile: new(
+                    CSharpLanguageVersion.CSharp10));
+
+        FidelityCheck.ReturnToSenderTargetExclusion exclusion =
+            Assert.Single(
+                selection.Exclusions,
+                exclusion => exclusion.Type == "System.Int32"
+                    && exclusion.Reason ==
+                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                            .ExactDeclarationUnrepresentable);
+        Assert.Equal(
+            FidelityCheck.ReturnToSenderDeclarationProducer
+                .ExactMethodDeclaration,
+            exclusion.Producer);
+        var refusal = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unrepresentable>(
+                exclusion.ExactOutcome);
+        Assert.Equal(
+            CSharpDeclarationRefusalReason.UnsupportedLanguageProfile,
+            refusal.Reason);
     }
 
     [Fact]
@@ -2253,7 +2340,7 @@ public class FidelityCheckGeneratedFilterTests
             result.Detail);
     }
 
-    static string CompileFixture(
+    internal static string CompileFixture(
         string source,
         bool allowUnsafe = false,
         string assemblyName = "fixture")
@@ -2730,7 +2817,7 @@ public class FidelityCheckGeneratedFilterTests
         body.Emit(OpCodes.Ret);
     }
 
-    static void DeleteFixture(string assemblyPath)
+    internal static void DeleteFixture(string assemblyPath)
     {
         var directory = Path.GetDirectoryName(assemblyPath);
         File.Delete(assemblyPath);

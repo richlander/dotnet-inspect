@@ -135,6 +135,18 @@ continues through its established namespace-prefix and similarity behavior.
 Explicit source selection remains authoritative and never gains an implicit
 package observation.
 
+A namesake-eligible pattern ending in one terminal `.*` is an explicit
+namespace selection rather than an ordinary Type glob. Find removes the
+terminal wildcard, requests exact-or-descendant namespace evidence from the
+same package and Platform operations, and classifies every resulting row as
+`Namespace`. The literal dot is the namespace-segment boundary:
+`System.Text.Json.Nodes.*` includes `System.Text.Json.Nodes` and its descendant
+namespaces but excludes `System.Text.Json.NodesExtra`. Other wildcard forms,
+including `System.Text.Json.Nodes*`, retain the established Type-glob grammar
+and `Glob` classification. Each terminal `.*` pattern in a multi-pattern
+request executes the same namespace operation independently; adding a
+neighboring pattern does not narrow its eligible source observations.
+
 Locator-backed exact namespace rows restore caller source order before
 eliminating repeated Type identities within one logical source. Repeated
 versions of one package ID therefore retain the caller-first observation,

@@ -234,6 +234,7 @@
       "allowOnly": [
         "$platform",
         "$repository",
+        "NuGet.Frameworks",
         "NuGet.Versioning",
         "System.IO.Hashing",
         "System.Security.Cryptography.ProtectedData"

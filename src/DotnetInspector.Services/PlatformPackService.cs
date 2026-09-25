@@ -144,12 +144,15 @@ public static class PlatformPackService
     /// <summary>
     /// The reference-pack request for one named framework, such as
     /// <c>runtime</c>, <c>aspnetcore@10.0.1</c>, or <c>netstandard</c>, at the
-    /// spec's <c>@</c> version or latest. Returns null for a framework with no
-    /// reference pack.
+    /// spec's <c>@</c> version or latest. Returns null for a blank spec or a
+    /// framework with no reference pack.
     /// </summary>
-    internal static PackRequest? PackRequestFor(string frameworkSpec)
+    internal static PackRequest? PackRequestFor(string? frameworkSpec)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(frameworkSpec);
+        // A blank spec names no framework; the caller reports the lookup's
+        // own "Unknown framework" error.
+        if (string.IsNullOrWhiteSpace(frameworkSpec))
+            return null;
         string name = frameworkSpec;
         string? version = null;
         int at = frameworkSpec.LastIndexOf('@');

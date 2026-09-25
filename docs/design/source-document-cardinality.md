@@ -1,12 +1,13 @@
-# Source document cardinality
+# Source view cardinality and physical artifact association
 
 ## Status and purpose
 
 This document owns the Source-result composition tracked by
 [issue #8281](https://github.com/richlander/dotnet-inspect/issues/8281).
 It defines the third production cardinality reference: one resolved Source
-document carries scalar identity and provenance facts beside one ordered
-`Lines` inventory that can require continuation.
+target view carries scalar identity and provenance facts beside one ordered
+`Lines` inventory that can require continuation. An authored view separately
+retains the physical source artifact from which it was selected.
 
 The first production demo is:
 
@@ -14,34 +15,35 @@ The first production demo is:
 type Npgsql.NpgsqlConnection --package Npgsql@10.0.0 -S Source
 ```
 
-The default CLI result remains the complete source document. Inspect Web
-progressively requests line segments instead of receiving the complete text
+The default CLI result remains the complete selected Source view. Inspect Web
+progressively requests line segments instead of receiving the complete view
 before the viewer can open.
 
 ## Authority and exact claim
 
 A successful exact type or member Source operation publishes one immutable
-decoded document in `InspectionEnvelope<TContent>`. The content has:
+decoded target view in `InspectionEnvelope<TContent>`. The content has:
 
-- scalar document facts: provider, source identity, provenance, location,
-  fallback and mapping evidence when applicable, language, and one
-  owner-issued content binding; and
+- scalar view facts: kind, provider, target identity, provenance, physical
+  artifact association, fallback and mapping evidence when applicable,
+  language, and one owner-issued view binding; and
 - one ordered `Lines` row set whose row unit is one exact source line in that
-  document's UTF-16 coordinate space.
+  view's UTF-16 coordinate space.
 
-Rows and Count observe `Lines` only. Document facts, characters, checksum
+Rows and Count observe `Lines` only. View facts, characters, checksum
 bytes, JSON properties, transport pieces, rendered fragments, and physical
 source batches are never rows.
 
 The resolved Source section is therefore inventory-shaped for cardinality
-terminals even though its result also carries scalar document facts. Missing,
+terminals even though its result also carries scalar view facts. Missing,
 rejected, checksum-invalid, content-incomplete, or otherwise unsuccessful
 source does not become an empty line inventory. A complete selected document
 remains successful when type-document mapping evidence says the type itself is
-partial; that partiality is a scalar document fact, not incomplete content.
+partial; that partiality is a scalar view fact, not incomplete content.
 
-This owner defines the document/line association, line identity, content
-binding, exact Count requirement, and Source-owned continuation compatibility.
+This owner defines the view/artifact distinction, view/line association, line
+identity, view binding, exact Count requirement, and Source-owned continuation
+compatibility.
 It does not redefine:
 
 - authored preference, decompiled fallback, checksum verification, or
@@ -74,36 +76,68 @@ transport chunks are not the model because byte chunks do not define semantic
 source lines.
 
 The deliberate restriction is that the line inventory describes the decoded
-document published by the Source operation, not the original encoded file.
-PDB checksum evidence continues to describe the acquired authored bytes. This
-contract does not claim to preserve an original encoding, byte-order mark, or
-byte-for-byte source representation after decoding.
+view published by the Source operation, not the original encoded file or an
+associated artifact that differs from the view. PDB checksum evidence continues
+to describe the acquired authored bytes. This contract does not claim to
+preserve an original encoding, byte-order mark, or byte-for-byte source
+representation after decoding.
 
-## Document facts and content binding
+## Target views and physical artifacts
 
-The shared host-neutral content retains the facts currently projected
+The Source result is a target-oriented view, not necessarily a physical source
+file. Its kind is one of:
+
+| View kind | Published content | Physical artifact association |
+| --- | --- | --- |
+| `AuthoredWholeDocument` | The complete decoded checksum-verified PDB document selected for an exact type request. | Required. The view and artifact have the same decoded content. |
+| `AuthoredDeclarationExcerpt` | The declaration excerpt selected for an exact member request, including the existing dedenting and line-ending projection. | Required. The origin retains the PDB member mapping, selected document, and checksum verdict, but the view is not the artifact and does not use artifact coordinates. |
+| `DecompiledType` | The reconstructed Source result for one exact type request. | None. |
+| `DecompiledMember` | The reconstructed Source result for one exact member request. | None. |
+
+A physical artifact is identified by SourceLink's owner-issued document
+observation together with the accepted checksum verdict and acquisition
+provenance. The Source view does not infer artifact identity from a URL,
+display path, view text, or target name.
+
+An authored declaration excerpt is derived from its artifact, but ordinary
+member Source does not publish an exact UTF-16 artifact span. Its current
+PDB mapping supplies physical line evidence and CSharpText supplies the
+normalized declaration view. The separately owned exact member-parts operation
+may publish artifact spans for consumers that request that operation; this
+contract does not reconstruct or imply one.
+
+For a partial type, `AuthoredWholeDocument` names one selected physical
+document. Additional mapped documents remain typed navigation evidence. They
+are not concatenated into the view, and their lines do not enter its Count.
+Decompiled Type Source instead remains one reconstructed exact-type view.
+
+## View facts and binding
+
+The shared host-neutral view retains the facts currently projected
 separately into CLI `CliSourceDocument` and Browser `BrowserSource`:
 
+- view kind;
 - provider (`pdb` or `decompiled`);
 - provenance and authoritative source location when available;
 - the authored-attempt limitation or fallback reason;
 - type-document mapping evidence when the source owner supplies it;
 - language;
-- the exact decoded content binding; and
+- the exact decoded view binding; and
 - the line result for the requested terminal and execution bound.
 
 `InspectionEnvelope<TContent>` remains outside that content and preserves
 Share and diagnostics unchanged.
 
-The content binding is an opaque owner-issued value. It binds the exact decoded
-text, provider, source identity, and source-producing request, including
-decompiler style when decompilation supplied the text. For PDB source, it
-retains the association with the existing checksum-verified document; it does
-not replace or reinterpret the PDB checksum.
+The view binding is an opaque owner-issued value. It binds the exact decoded
+view text, view kind, provider, target identity, and source-producing request,
+including decompiler style when decompilation supplied the text. For authored
+source, the typed origin separately retains association with the existing
+checksum-verified physical artifact; the view binding does not replace or
+reinterpret the PDB checksum.
 
 Hosts do not construct the binding from display text, URLs, line rows, a hash
-they choose, or a sample of the document. Equal text from two independently
-resolved Source operations does not establish equal identity.
+they choose, or a sample of the view. Equal text from two independently
+resolved Source operations does not establish equal view identity.
 
 ## Ordered Lines inventory
 
@@ -115,10 +149,11 @@ One line row carries:
 - the exact existing terminator: CRLF, CR, LF, NEL, line separator, paragraph
   separator, or none.
 
-The line identity is the pair of content binding and one-based line number.
-Rows are ordered by line number and cover the decoded document without gaps or
-overlap. Concatenating each row's content and terminator reconstructs the exact
-decoded text.
+The line identity is the pair of view binding and one-based line number. Rows
+are ordered by line number and cover the decoded view without gaps or overlap.
+Concatenating each row's content and terminator reconstructs the exact decoded
+view text. It reconstructs a physical artifact only for
+`AuthoredWholeDocument`.
 
 The coordinate model includes an empty final line after a trailing terminator.
 An empty document has one empty line with start zero and no terminator. These
@@ -137,13 +172,13 @@ population, and semantic selection.
 One Rows execution may return a bounded segment plus a Source-owned
 continuation. The continuation is an opaque receipt bound to:
 
-- the content binding;
+- the view binding;
 - the unchanged Source-producing request;
 - the unchanged line row intent and semantic selection; and
 - the next unconsumed position in the ordered line population.
 
 While valid, the continuation is snapshot-stable: every resume observes the
-same immutable decoded document and line-coordinate space. It may expire and
+same immutable decoded view and line-coordinate space. It may expire and
 is not portable across a Worker or process lifetime unless a later
 Source-owned interchange contract says otherwise. It contains no credential
 or reusable package, repository, or network authority; a resume supplies
@@ -173,23 +208,24 @@ The projection must not:
 - erase an unsuccessful authored attempt when decompilation supplies content;
 - infer source identity from a rendered URL or provenance sentence;
 - change exact type/member selection or partial-type document scope; or
-- make a bounded line segment appear to be the complete document.
+- make a bounded line segment appear to be the complete view.
 
 Authored, decompiled fallback, unavailable, checksum-failure, and
 content-incomplete outcomes retain their current visible behavior. A complete
 selected authored document retains successful line results and its existing
 partial-type mapping evidence. Member-part spans and other adjacent typed
-annotations remain with their owners and may reference this document only
-through the owner-issued content binding and coordinates.
+annotations remain with their owners and may reference an authored artifact or
+Source view only through the applicable owner-issued identity, binding, and
+coordinate space.
 
 ## Host adoption and rendering
 
-The shared operation and line model are host-neutral and remain SRM-only,
+The shared operation and view/line model are host-neutral and remain SRM-only,
 NativeAOT-friendly, Roslyn-free, and usable on single-threaded Browser/Wasm.
 
 CLI adoption:
 
-1. `type ... -S Source` and `member ... -S Source` consume the shared document
+1. `type ... -S Source` and `member ... -S Source` consume the shared view
    operation.
 2. Ordinary output repeatedly executes Rows until the line population is
    exhausted, then concatenates exact content and terminators. Native output
@@ -202,8 +238,8 @@ CLI adoption:
 
 Inspect Web adoption:
 
-1. Type and member Source use the same shared document operation and envelope.
-2. The Worker returns scalar document facts and the first bounded line segment;
+1. Type and member Source use the same shared view operation and envelope.
+2. The Worker returns scalar view facts and the first bounded line segment;
    the viewer requests later segments with the Source-owned continuation.
 3. The Browser never treats callback credit, mounted DOM rows, or received
    segments as exact Count or completion.
@@ -241,9 +277,9 @@ incompatible-request cases.
 
 Implementation proceeds through focused slices:
 
-1. Lock this Source document, line identity, content-binding, continuation, and
-   host-adoption contract.
-2. Add the immutable host-neutral document/line types and projection over the
+1. Lock this Source view, physical-artifact association, line identity,
+   view-binding, continuation, and host-adoption contract.
+2. Add the immutable host-neutral view/line types and projection over the
    existing completed type and member Source envelopes. Gate exact
    reconstruction and failure preservation without changing hosts.
 3. Add bounded line execution and the Source-owned opaque continuation,
@@ -264,8 +300,8 @@ acquisition, Query Space, or the viewer.
 
 | Gate | Property | Status |
 | --- | --- | --- |
-| `SourceDocumentLinesReconstructExactDecodedText` | Every supported terminator, empty/final-empty line, line number, and UTF-16 start offset reconstruct the exact decoded text. | Verified in Release by `SourceDocumentInspectionTests`. |
-| `SourceDocumentProjectionPreservesProviderAndFailureEvidence` | PDB and decompiled success preserve facts, Share, diagnostics, and successful partial-type mapping evidence; unavailable, checksum, incomplete-content, cancellation, and cleanup outcomes do not become successful line results. | Verified in Release by `SourceDocumentInspectionTests`. |
+| `SourceViewLinesReconstructExactDecodedText` | Every supported terminator, empty/final-empty line, line number, and UTF-16 start offset reconstruct the exact decoded view text. | Verified in Release by `SourceViewInspectionTests`. |
+| `SourceViewProjectionDistinguishesArtifactsAndPreservesEvidence` | The four view kinds are explicit; authored origins retain their physical artifact and member mapping; decompiled origins have no artifact; a declaration excerpt does not masquerade as its physical file; PDB/decompiled success and non-success preserve facts, Share, diagnostics, mapping, and typed failures. | Verified in Release by `SourceViewInspectionTests`. |
 | `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
 | `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
 | `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
@@ -284,6 +320,9 @@ This contract does not claim:
 - that line continuation avoids complete source acquisition inside the engine;
 - random line seeking or portable continuation receipts;
 - that exact Count is cheaper than splitting the complete decoded text;
+- that every Source view is a physical source artifact;
+- an exact physical-artifact span for the normalized authored member excerpt;
+- concatenation of partial-type documents into one Source view;
 - that every source-related section shares this line population;
 - that member parts, annotations, Findings, or diff rows are Source lines;
 - that Browser virtualization policy belongs in the shared operation; or
