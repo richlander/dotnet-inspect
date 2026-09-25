@@ -77,7 +77,7 @@ This owner references rather than restates adjacent contracts.
 | [Analysis diff](analysis-diff.md) | `AnalysisDiff<T>` relation topology and correspondence classification. |
 | [Finding coordinates](finding-coordinates.md) | `FindingKey` identity, scope, and soft keys. |
 | [Inspection capability composition](inspection-capability-composition.md) | Static producer registration, capability modules, and the composed discovery graph. |
-| [Package read demand](package-read-demand.md) | How much of a package archive an acquisition requests, as package asset demand. |
+| [Package read demand](package-read-demand.md) | How much of a package archive a ranged read requests, as package asset demand. |
 | [Command transition model](command-transition-model.md#diff-operation-and-subject-section-adoption) | Diff operation, admission, default analysis set, and CLI adoption. |
 
 Active PR #4859 implements the Findings topology accepted in PR #4800. Issue
@@ -184,9 +184,11 @@ the semantics of this contract.
 
 This owner declares evidence requirements and never chooses acquisition
 demand. [Package read demand](package-read-demand.md) keeps the package asset
-demand an acquisition requests, and it may take a validated plan's declared
-evidence requirements as its input. The analysis set is known before the
-first package byte is read, so that input is available in time.
+demand a ranged read requests. The requirements that the selected analyses
+declare are available to it as an input before the first package byte is read.
+That is possible because the analysis-set rules validate an operation's set
+against those declarations without acquiring evidence. A validated plan is not
+that input, because it also retains the realized universe.
 
 ### Question mode
 
