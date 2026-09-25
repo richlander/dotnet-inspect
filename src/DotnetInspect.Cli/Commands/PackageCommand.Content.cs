@@ -1186,8 +1186,6 @@ public partial class PackageCommand
             ];
             result.PackageFiles = infrastructureFiles;
             result.Files = infrastructureFiles;
-            result.HasAgentDocumentation =
-                infrastructureFiles.Any(static file => file.IsAgents);
             return (
                 PackageFilePopulationOutcome.Infrastructure,
                 document.Terminal

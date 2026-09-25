@@ -2050,7 +2050,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     {
         const string Id = "Pinned.PackageFiles";
         string source = Path.Combine(_root, "package-files");
-        WriteLocalPackage(source, Id, "package files payload");
+        WriteLocalPackage(
+            source,
+            Id,
+            "package files payload",
+            extraEntries:
+            [
+                ("0.txt", [1]),
+                ("AGENTS.md", [2]),
+            ]);
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{Id}@{Version}", "--source", source,
@@ -2062,8 +2070,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         JsonElement file = Assert.Single(
             document.RootElement.GetProperty("files").EnumerateArray());
         Assert.Equal(
-            $"{Id}.nuspec",
+            "0.txt",
             file.GetProperty("path").GetString());
+        Assert.True(
+            document.RootElement
+                .GetProperty("has_agent_documentation")
+                .GetBoolean());
         Assert.False(
             document.RootElement.TryGetProperty(
                 "package_info_measurements",
@@ -2203,7 +2215,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string libraryName = "Npgsql.dll",
         byte[]? documentation = null,
         string libraryDirectory = "lib/net11.0",
-        byte[]? pdb = null)
+        byte[]? pdb = null,
+        IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null)
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
@@ -2218,6 +2231,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 libraryName,
                 documentation,
                 libraryDirectory,
+                extraEntries,
                 pdb: pdb));
     }
 
