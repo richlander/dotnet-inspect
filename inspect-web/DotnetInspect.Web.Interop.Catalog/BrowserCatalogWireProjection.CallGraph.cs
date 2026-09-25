@@ -41,7 +41,12 @@ internal static partial class BrowserCatalogWireProjection
             diagnostics.BindingIdentityConflicts,
             diagnostics.HasUnexploredTraversalBoundary,
             diagnostics.HasAnalysisFailureBoundary,
-            UnavailableDependencyRoutes: 0);
+            UnavailableDependencyRoutes: 0,
+            diagnostics.HasIncompleteCorrespondence,
+            diagnostics.UnclassifiedBoundaryEdges,
+            diagnostics.UnclassifiedBoundaryNamedEdges,
+            diagnostics.UnclassifiedBoundaryAssemblies,
+            diagnostics.PhysicalOccurrenceUnavailableEdges);
 
     internal static BrowserCallGraphTarget Project(BrowserCallGraphTargetInfo target) =>
         new(

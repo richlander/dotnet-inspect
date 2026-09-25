@@ -12,23 +12,24 @@ namespace ILInspector.Decompiler.Pipeline;
 /// unqualified <c>Name(args)</c> (the source spelling, replacing the
 /// otherwise-unspeakable <c>Enclosing.&lt;Outer&gt;g__Name|N_M(args)</c>).
 ///
-/// <para>Slice — <b>static</b> local functions may carry body locals/slots and
-/// print in a nested scope. Capturing local functions remain zero-local after
-/// capture substitution because their substituted captures print in the host
-/// scope. A capturing local function takes its <c>&lt;&gt;c__DisplayClass</c>
-/// environment (a struct) by <c>ref</c> as its last parameter; the host sets the
-/// captured fields directly on a local and passes <c>ref env</c>. This recovers
-/// it by substituting each <c>env.f</c> read in the body with the captured value,
-/// dropping the environment parameter from the declaration and the <c>ref env</c>
-/// argument from each call, and eliding the capture stores. Left as-is: an
-/// environment shared with another local function or read any other way, a
-/// captured variable stored more than once (reassigned, so no single value is
-/// live at every call site), and a body that itself calls a local function
-/// (recursion / nesting), which keeps the import non-recursive. Every call declines when the
-/// seam is absent, and each is stamped as such. Otherwise-viable local functions
-/// that recover the same source name also decline: declarations are currently
-/// flattened into one trailing scope, where raising both would create CS0128 and
-/// make both calls bind to one ambiguous name. The compiler-produced
+/// <para>Slice — local functions may carry body locals/slots and print in a
+/// nested scope. A capturing local function takes its
+/// <c>&lt;&gt;c__DisplayClass</c> environment (a struct) by <c>ref</c> as its
+/// last parameter; the host sets the captured fields directly on a local and
+/// passes <c>ref env</c>. This recovers it by substituting each <c>env.f</c>
+/// read in the body and each proven host-side read with the captured value,
+/// dropping the environment parameter from the declaration and the
+/// <c>ref env</c> argument from each call, and eliding the capture stores.
+/// Isolated local-function scopes accept only parameter-backed captures because
+/// host local-slot indices do not carry binder identity into that separate local
+/// pool. Left as-is: an environment shared with another local function or used
+/// another way, a use not dominated by every capture store, a captured variable
+/// stored more than once, and a body that itself calls another local function.
+/// Every call declines when the seam is absent, and each is stamped as such.
+/// Otherwise-viable local functions that recover the same source name also
+/// decline: declarations are currently flattened into one trailing scope, where
+/// raising both would create CS0128 and make both calls bind to one ambiguous
+/// name. The compiler-produced
 /// <c>SameNamedRaiseCandidates_AreBothDeclined</c> test enforces that boundary.</para>
 /// </summary>
 public sealed class LocalFunctionRaisingPass : IIrPass
@@ -341,10 +342,15 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                         function,
                         out capturedBinderNames))
                     continue;
-                bool allowLocals = environment is null;
-                if (!allowLocals && !body.Locals.IsEmpty
+                bool needsIsolatedLocalScope = !body.Locals.IsEmpty
+                    || body.Descendants.Any(
+                        node => node is LoadStackSlot or StoreStackSlot);
+                if ((environment is not null
+                        && needsIsolatedLocalScope
+                        && environment.Captures.Values.Any(
+                            value => value is not LoadArgument))
                     || body.Descendants.OfType<UnsupportedNode>().Any()
-                    || !IsPrintableBody(body, allowLocals))
+                    || !IsPrintableBody(body, allowLocalStatements: true))
                     continue;
 
                 candidates.Add(new Candidate(
@@ -465,10 +471,16 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     /// <summary>The captured environment of a capturing local function: the host's struct display-class local, its field bindings, and the body argument that names it.</summary>
     sealed record Environment(
-        TypeRef Type, int ArgIndex, Dictionary<string, IrExpression> Captures, List<StoreField> Stores)
+        TypeRef Type,
+        int ArgIndex,
+        Dictionary<string, IrExpression> Captures,
+        List<StoreField> Stores,
+        List<LoadField> HostReads)
     {
         public void Elide()
         {
+            foreach (var read in HostReads)
+                read.ReplaceWith(Captures[read.Field.Name].Clone());
             foreach (var store in Stores)
                 store.Detach();
         }
@@ -477,7 +489,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     // A capturing local function takes its struct <>c__DisplayClass environment by
     // ref as the last parameter; the host fills it via field stores through a
     // local address and passes ref env to each call. Resolve that to a capture map
-    // when the environment is used only for those stores and these calls.
+    // when the environment is used only for those stores, proven field reads,
+    // and these calls.
     static Environment? ResolveEnvironment(MethodRef method, List<Call> calls, IrFunction function)
     {
         if (method.ParameterTypes is not [.., { Kind: TypeRefKind.ByRef } byRef]
@@ -509,29 +522,65 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             }
         }
 
-        // The environment local must be touched only by those capture stores and
-        // these calls' ref arguments — any other read means it outlives this setup.
+        var hostReads = new List<LoadField>();
+        foreach (var load in function.Descendants.OfType<LoadLocal>())
+        {
+            if (load.Index != slot)
+                continue;
+            if (load.Parent is not LoadField read
+                || !Equals(read.Field.DeclaringType, envType)
+                || !captures.ContainsKey(read.Field.Name)
+                || IsInsideNestedFunction(read))
+            {
+                return null;
+            }
+            hostReads.Add(read);
+        }
+
+        // The environment local must be addressed only by those capture stores
+        // and these calls' ref arguments. Reads are admitted only through the
+        // exact captured fields classified above.
         int addressUses = function.Descendants.OfType<LoadLocalAddress>().Count(a => a.Index == slot);
-        if (function.Descendants.OfType<LoadLocal>().Any(l => l.Index == slot)
-            || addressUses != stores.Count + calls.Count)
+        if (addressUses != stores.Count + calls.Count)
             return null;
-        if (!CaptureStoresPrecedeCalls(stores, calls))
+        if (!CaptureStoresDominateUses(
+                stores,
+                calls.Cast<IrNode>().Concat(hostReads),
+                function))
             return null;
 
-        return new Environment(envType, method.ParameterTypes.Length - 1, captures, stores);
+        return new Environment(
+            envType,
+            method.ParameterTypes.Length - 1,
+            captures,
+            stores,
+            hostReads);
     }
 
-    static bool CaptureStoresPrecedeCalls(IReadOnlyList<StoreField> stores, IReadOnlyList<Call> calls)
+    static bool CaptureStoresDominateUses(
+        IReadOnlyList<StoreField> stores,
+        IEnumerable<IrNode> uses,
+        IrFunction function)
     {
-        foreach (var call in calls)
+        foreach (var use in uses)
         {
-            if (StatementInBlock(call) is not { } callStatement)
-                return false;
             foreach (var store in stores)
             {
-                if (StatementInBlock(store) is not { } storeStatement
-                    || !ReferenceEquals(storeStatement.Parent, callStatement.Parent)
-                    || storeStatement.ChildIndex >= callStatement.ChildIndex)
+                if (store.Parent is not Block block
+                    || StatementInBlock(use, block) is not { } useStatement
+                    || store.ChildIndex >= useStatement.ChildIndex)
+                {
+                    return false;
+                }
+
+                var dominatedStatements = block.Children
+                    .Skip(store.ChildIndex + 1)
+                    .Take(useStatement.ChildIndex - store.ChildIndex)
+                    .ToList();
+                if (ReferenceOwnership.RewriteWouldInvalidateLabels(
+                        function,
+                        dominatedStatements,
+                        [store]))
                 {
                     return false;
                 }
@@ -540,12 +589,24 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return true;
     }
 
-    static IrNode? StatementInBlock(IrNode node)
+    static IrNode? StatementInBlock(IrNode node, Block block)
     {
         for (var current = node; current.Parent is not null; current = current.Parent)
-            if (current.Parent is Block)
+        {
+            if (ReferenceEquals(current.Parent, block))
                 return current;
+            if (current is Lambda or LocalFunctionStatement)
+                return null;
+        }
         return null;
+    }
+
+    static bool IsInsideNestedFunction(IrNode node)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (current is Lambda or LocalFunctionStatement)
+                return true;
+        return false;
     }
 
     static bool SubstituteEnvironment(

@@ -661,6 +661,12 @@ public sealed partial class BrowserEngineBoundaryTests
             [],
             returnType,
             MemberKind.Method);
+        var unclassifiedUnknown = new MemberRef(
+            TypeRef.Definition("", "Example", "Unknown"),
+            "Invoke",
+            [],
+            returnType,
+            MemberKind.Method);
         var tree = new CallTreeNode(
             focus,
             null,
@@ -684,9 +690,14 @@ public sealed partial class BrowserEngineBoundaryTests
         int disconnectedConnectorNodeId = graph.Nodes.Length;
         int unclassifiedBoundaryNodeId =
             disconnectedConnectorNodeId + 1;
+        int unclassifiedUnknownNodeId =
+            disconnectedConnectorNodeId + 2;
         int unclassifiedBoundaryEdgeId = graph.Edges.Length;
+        int unclassifiedUnknownEdgeId = graph.Edges.Length + 1;
         int unclassifiedBoundaryOccurrenceId =
             graph.Occurrences.Length;
+        int unclassifiedUnknownOccurrenceId =
+            graph.Occurrences.Length + 1;
         InspectionGraphSubject disconnectedConnectorSubject =
             InspectionGraphSubject.ForMember(
                 GraphNodeIdentity.FromMember(
@@ -697,6 +708,11 @@ public sealed partial class BrowserEngineBoundaryTests
                 GraphNodeIdentity.FromMember(
                     unclassifiedBoundary),
                 unclassifiedBoundary);
+        InspectionGraphSubject unclassifiedUnknownSubject =
+            InspectionGraphSubject.ForMember(
+                GraphNodeIdentity.FromMember(
+                    unclassifiedUnknown),
+                unclassifiedUnknown);
         graph = new InspectionGraphDocument(
             graph.Scope,
             graph.ModeRequest,
@@ -712,6 +728,11 @@ public sealed partial class BrowserEngineBoundaryTests
                     unclassifiedBoundarySubject,
                     InspectionGraphNodeRole.External,
                     []),
+                new InspectionGraphNode(
+                    unclassifiedUnknownNodeId,
+                    unclassifiedUnknownSubject,
+                    InspectionGraphNodeRole.External,
+                    []),
             ],
             graph.Groups,
             [
@@ -722,6 +743,12 @@ public sealed partial class BrowserEngineBoundaryTests
                     unclassifiedBoundaryNodeId,
                     graph.Edges[0].Relationship,
                     [unclassifiedBoundaryOccurrenceId]),
+                new InspectionGraphEdge(
+                    unclassifiedUnknownEdgeId,
+                    disconnectedConnectorNodeId,
+                    unclassifiedUnknownNodeId,
+                    graph.Edges[0].Relationship,
+                    [unclassifiedUnknownOccurrenceId]),
             ],
             [
                 .. graph.Occurrences,
@@ -733,10 +760,47 @@ public sealed partial class BrowserEngineBoundaryTests
                     new CallGraphLogicalEdgeEvidence(
                         unclassifiedBoundaryEdgeId),
                     []),
+                new InspectionGraphOccurrence(
+                    unclassifiedUnknownOccurrenceId,
+                    graph.Edges[0].Relationship,
+                    disconnectedConnectorSubject,
+                    unclassifiedUnknownSubject,
+                    new CallGraphLogicalEdgeEvidence(
+                        unclassifiedUnknownEdgeId),
+                    []),
             ],
             graph.Characteristics,
             graph.Seeds,
-            graph.Limits,
+            [
+                .. graph.Limits,
+                new InspectionGraphLimit(
+                    CallGraphInspectionGraphCatalog
+                        .TraversalNodeBound,
+                    InspectionGraphTarget.Node(0),
+                    new CallGraphTraversalNodeBoundEvidence(50)),
+                new InspectionGraphLimit(
+                    InspectionGraphNeighborhoodCatalog.DepthBound,
+                    InspectionGraphTarget.Node(0),
+                    new InspectionGraphNeighborhoodDepthBoundEvidence(3)),
+                new InspectionGraphLimit(
+                    CallGraphInspectionGraphCatalog
+                        .CorrespondenceIncomplete,
+                    InspectionGraphTarget.Node(0),
+                    new CallGraphCorrespondenceIncompleteEvidence(
+                        incompleteNodeCount: 2,
+                        incompleteEdgeCount: 3,
+                        bindingIdentityConflictCount: 4)),
+                new InspectionGraphLimit(
+                    ExternalFocusedCallGraphInspectionCatalog
+                        .BoundaryClassificationIncomplete,
+                    InspectionGraphTarget.Edge(
+                        unclassifiedBoundaryEdgeId)),
+                new InspectionGraphLimit(
+                    ExternalFocusedCallGraphInspectionCatalog
+                        .BoundaryClassificationIncomplete,
+                    InspectionGraphTarget.Edge(
+                        unclassifiedUnknownEdgeId)),
+            ],
             graph.Failures);
         InspectionGraphCharacteristic[] supplyChainRoles =
         [
@@ -753,6 +817,7 @@ public sealed partial class BrowserEngineBoundaryTests
                         "AddOptions" => "connector",
                         "Get" => "boundary",
                         "WriteLine" => "unclassified-boundary",
+                        "Invoke" => "unclassified-boundary",
                         _ => throw new InvalidOperationException(
                             "Unexpected call-graph member."),
                     };
@@ -870,6 +935,21 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("1.2.3", boundaryTarget.PackageVersion);
         Assert.Equal("net8.0", boundaryTarget.PackageFramework);
         Assert.Equal("5.6.7.8", boundaryTarget.AssemblyVersion);
+        Assert.Equal(2, projected.Diagnostics.IncompleteNodes);
+        Assert.Equal(3, projected.Diagnostics.IncompleteEdges);
+        Assert.Equal(4, projected.Diagnostics.BindingIdentityConflicts);
+        Assert.True(projected.Diagnostics.HasIncompleteCorrespondence);
+        Assert.True(
+            projected.Diagnostics.HasUnexploredTraversalBoundary);
+        Assert.Equal(
+            2,
+            projected.Diagnostics.UnclassifiedBoundaryEdges);
+        Assert.Equal(
+            1,
+            projected.Diagnostics.UnclassifiedBoundaryNamedEdges);
+        Assert.Equal(
+            ["corelib"],
+            projected.Diagnostics.UnclassifiedBoundaryAssemblies);
         BrowserCallGraphTargetInfo disconnectedConnectorTarget =
             Assert.Single(
                 projected.Targets,
@@ -902,6 +982,15 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             1,
             wire.Diagnostics.UnavailableDependencyRoutes);
+        Assert.Equal(
+            2,
+            wire.Diagnostics.UnclassifiedBoundaryEdges);
+        Assert.Equal(
+            1,
+            wire.Diagnostics.UnclassifiedBoundaryNamedEdges);
+        Assert.Equal(
+            ["corelib"],
+            wire.Diagnostics.UnclassifiedBoundaryAssemblies);
         Assert.True(wire.Diagnostics.IsIncomplete);
         DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget wireTarget =
             Assert.Single(

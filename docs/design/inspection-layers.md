@@ -184,7 +184,7 @@ adapters retain output naming, source/version projection, Findings projection,
 fuzzy matching, and format selection.
 The diff CLI binds Changes, Analysis Diff, and Implementation Diff to their
 concrete query definitions. Its transitional adapters resolve member targets
-and acquire body indexes and retained assembly descriptors lazily inside
+and execute Analysis and acquire retained assembly descriptors lazily inside
 selected query execution. The L1 queries receive content-derived inputs rather
 than paths, and the CLI continues to own ranking and rendering. Implementation
 comparison opens descriptor-backed metadata sources once for the offline C#
@@ -515,7 +515,7 @@ Queries-owned and does not change this population-sealing contract.
 `ImplementationComparisonInput` currently accepts independent old/new
 collections of Research-owned `ImplementationAssemblyInput` values.
 `BodySignalComparisonInput` accepts independent old/new
-`LibraryBodyIndex` collections. Both query adapters pass those collections
+`BodySignalAnalysisInput` collections. Both query adapters pass those collections
 directly to Research. Neither adapter has a query-owned operation identity,
 sealed population, or receipt proving which query inputs became which Research
 admission values.
@@ -582,7 +582,7 @@ The implemented boundary has one typed profile used by the direct-member query:
 
 | Profile | Query-owned input binding | Borrowed owner values |
 | --- | --- | --- |
-| Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and `LibraryBodyIndex` |
+| Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and Analysis `LibraryCallGraphAnalysisResult` |
 
 The separate whole-assembly execution migration must replace the Research-owned
 `ImplementationAssemblyInput` at its public L1 input seam with a query-owned
@@ -1704,12 +1704,14 @@ above preserve the real-asset observation.
   both their Finding correspondence and Metadata-owned compatibility
   classification. The `diff` command keeps endpoint acquisition and member
   filtering host-owned.
-- `BodySignalComparisonQuery` consumes old/new `LibraryBodyIndex` collections
-  and returns the Research-owned `ResearchComparison`. The diff adapter builds
-  those indexes only under selected Analysis query demand; path acquisition
-  remains an explicit host-owned migration boundary.
+- `BodySignalComparisonQuery` consumes old/new `BodySignalAnalysisInput`
+  collections composed from focused Analysis results of one execution per
+  assembly, and returns the Research-owned `ResearchComparison`. The diff
+  adapter executes Analysis only under selected Analysis query demand; path
+  acquisition remains an explicit host-owned migration boundary.
 - `ImplementationComparisonQuery` consumes old/new retained assembly
-  descriptors, reference resolvers, and `LibraryBodyIndex` values and returns
+  descriptors, reference resolvers, and Analysis
+  `LibraryCallGraphAnalysisResult` values and returns
   `ImplementationDiffResult`. The diff adapter creates path-backed descriptors
   only under selected Implementation query demand; non-filesystem consumers
   can supply stream-backed descriptors.

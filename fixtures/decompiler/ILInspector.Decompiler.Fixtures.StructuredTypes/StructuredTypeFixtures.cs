@@ -129,6 +129,24 @@ public sealed class LocalHelper
     }
 }
 
+public sealed class CapturingLocalHelper
+{
+    public int Read(int value)
+    {
+        if (value == 0)
+            return AddSquare(5);
+        if (value == 1)
+            return AddSquare(7);
+        return AddSquare(9);
+
+        int AddSquare(int input)
+        {
+            int sum = input + value;
+            return sum * sum;
+        }
+    }
+}
+
 public sealed class BackingStorageInitializers
 {
     private static readonly EventHandler? InitialHandler = null;

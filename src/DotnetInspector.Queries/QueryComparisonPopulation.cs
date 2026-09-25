@@ -49,7 +49,7 @@ public sealed class QueryComparisonInputId
 public sealed record ImplementationComparisonBinding(
     ResolvedAssemblyReference Assembly,
     IAssemblyReferenceResolver Resolver,
-    LibraryBodyIndex BodyIndex);
+    LibraryCallGraphAnalysisResult MethodPopulation);
 
 public sealed record ImplementationComparisonPopulationRequest(
     IReadOnlyList<ImplementationComparisonBinding?>? Before,
@@ -124,7 +124,7 @@ public enum QueryPopulationRejectionKind
     MissingBinding,
     MissingAssembly,
     MissingResolver,
-    MissingBodyIndex,
+    MissingMethodPopulation,
     MissingTypeFilter,
     MissingMemberTarget,
 }

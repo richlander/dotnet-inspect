@@ -138,15 +138,21 @@ complete document, not a reduced one.
 A present side's **side document** is the annotated document the diff
 document contains for it. With IL requested, it is the side's complete
 annotated document. For a C#-only document, it is that document's C#
-projection, which keeps C# nodes, regions, facts, and targets under the
-projection's own ids; the diff document then holds no IL text, node, or
-line anywhere.
+projection, which keeps C# nodes, regions, and text under the projection's
+own ids; the diff document then holds no IL text, node, or line anywhere.
+The projection drops a fact whose only targets are IL nodes, so the fact
+comparison never reads a side document's facts; it reads the complete
+document, as the fact comparison section states. Ids from a C#-only
+document and from an IL-requested document for the same pair are not
+interchangeable.
 
 For each side and included medium, the document holds a **line map**:
 sequence line *i* ↔ the range of the side document's text it came from. It
-is the document's equivalent of a PDB sequence-point table. Every id and
-range in the diff document refers to the side document it contains: its fact
-ids, node ids, and text. A fact reaches a compared line through exact typed
+is the document's equivalent of a PDB sequence-point table. Every node id,
+range, and line in the diff document refers to the side document it
+contains, and a fact id appears only when that side document is the complete
+document, as the fact comparison section states. A fact reaches a compared
+line through exact typed
 coordinates: fact → target → node → span → line map → sequence line. No step
 reads displayed text.
 
@@ -171,9 +177,11 @@ and hunks are presentation and are not in the document.
 
 ## Fact comparison
 
-For each present side, the query projects every fact into a `Finding<T>`
+For each present side, the query projects every fact of the side's complete
+annotated document, whatever media the request names, into a `Finding<T>`
 whose payload is the fact's descriptor, category, conditionality, detail,
-and origin, with the side's fact id as its provenance, and whose key follows
+and origin, with the fact's complete-document id as its provenance, and whose
+key follows
 the Finding coordinate axes:
 
 | Axis | Value |
@@ -228,9 +236,20 @@ which is still no guess. The scope key raises the score of retained move
 candidates that a consumer may choose to promote; it
 never creates identity.
 
-Each pair names its facts by side and original fact id, so a host reaches
-their text through the side's targets and line map. Instance keys stay
-scoped to their own census and are never compared across versions.
+Each pair carries, for each side it has a fact on, the fact's payload and
+the fact's C# target nodes as ids in the contained side document: directly
+when IL is requested, and through Annotated Source C# projection's
+original-to-projected node map for a C#-only document. With IL requested, it
+also carries the fact's id in the complete side document; a C#-only document
+carries no fact id, because the projection renumbers the facts it keeps, and
+the complete-document provenance id is not serialized in that mode. A fact
+with no C#
+target names no node and is reported as not anchored in C#, whether it is an
+IL-only fact or a header fact, which has no target at all; it remains in
+the comparison in both modes, so the media choice never changes a pair's
+outcome. A host reaches a pair's text through node → span → line map.
+Instance keys stay scoped to their own census and are never compared across
+versions.
 
 ## Document and serialization
 
@@ -246,7 +265,7 @@ The document holds, in canonical order:
 - the fact comparison.
 
 Canonical order is not presentation order. The constructor validates every
-cross-reference: side fact ids, node ids, line-map ranges, and comparison
+cross-reference: fact ids where present, node ids, line-map ranges, and comparison
 coordinates. It rejects invalid input rather than repairing it. The document
 serializes through a Research JSON context in the style of the Annotated
 Source contexts, with snake_case names, string enums, and strict reading, so
@@ -312,13 +331,15 @@ or a throw.
 4. Build it for a Member whose IL exceeds the admission limits and confirm
    IL records Too complex while C# keeps its comparison.
 5. With a version that adds an allocation, confirm the fact comparison has
-   one Added allocation fact whose After fact id reaches its line through
-   the target and line map.
+   one Added allocation fact whose After C# target node ids reach its line
+   through the line map, and that with IL requested the pair also carries its
+   After fact id.
 6. With three equal allocations before and four after and no other facts
    between them, confirm three
    Present and one Added, and no guessed pairing.
 7. Serialize and deserialize the document and confirm strict reading
-   rejects an unknown field, a dangling fact id, and a line-map range
+   rejects an unknown field, a dangling node id, a fact id in a C#-only
+   document or a dangling one in an IL-requested document, and a line-map range
    outside the text.
 8. Select a method by name whose parameter type changed between versions and
    confirm the correspondence's unavailable outcome on both sides and no
@@ -339,8 +360,9 @@ or a throw.
     difference of `moved +2`.
 13. Build a C#-only document, the default, and confirm each side document is
     the C# projection, that the document contains no IL text, node, or line,
-    that its line maps and fact ids refer to the projected side documents,
-    and that a fact whose only targets were IL nodes appears as an unanchored
-    fact in the fact comparison.
+    and that its line maps and node ids refer to the projected side
+    documents. With a version that adds an allocation whose fact targets only
+    IL nodes, confirm the fact comparison still reports it Added, not anchored
+    in C#, exactly as the IL-requested document does.
 14. Build the same pair with IL requested and confirm both media and their
     comparisons, with ids referring to the complete side documents.

@@ -51,9 +51,12 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
     internal ImplementationComparisonBinding Binding(int index)
     {
         ImageNode node = Nodes[index];
-        var body = LibraryBodyIndex.OpenFromPrefetchedImage(
-            node.Assembly.Identity.Name + ".dll", [.. node.Image],
-            LibraryBodyAnalysisFeatures.MethodEvidence);
+        var body = LibraryBodyAnalysisService.ExecuteImage(
+                node.Assembly.Identity.Name + ".dll",
+                [.. node.Image],
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence))
+            .CallGraph;
         return new(node.Assembly, new NoAcquisitionResolver(), body);
     }
 

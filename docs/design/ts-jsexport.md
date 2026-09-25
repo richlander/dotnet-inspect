@@ -356,9 +356,69 @@ same generic union definition remains a closed substitution path and is
 analyzed through every supplied argument; cycle suppression applies only to
 recursive union-case traversal.
 
-A bidirectional record whose serialize and deserialize presence differs still
-fails visibly. Separate input and output declarations are a later
-direction-specific contract, not a shape the emitter guesses in this slice.
+### Direction-specific wire declarations
+
+Issue [#7279](https://github.com/richlander/dotnet-inspect/issues/7279)
+projects one managed type into distinct input and output declarations when its
+authenticated deserialization and serialization wire shapes differ. OpenAPI
+`readOnly`/`writeOnly` properties and TypeSpec visibility provide analogous
+direction-scoped schema projection. They are evidence for the distinction, not
+the contract owner: `ts-jsexport` continues to consume only direction,
+presence, and type evidence issued by `JsExportSurface`.
+
+The declaration identity is the managed `ApiType` plus one declaration
+direction:
+
+- `Both` when a bidirectional type's input and output projections are
+  equivalent;
+- `Deserialize` for a split input declaration; and
+- `Serialize` for a split output declaration.
+
+A type reached in only one direction keeps one declaration with that direction
+and its existing unsuffixed preferred name. A bidirectional type also keeps one
+`Both` declaration when its projections are equivalent. A split type instead
+receives the preferred names `TypeNameInput` and `TypeNameOutput`. The
+direction is part of the canonical allocation identity, so these preferred
+names participate in the existing deterministic module-wide collision
+allocation alongside managed types, operations, parameters, and
+infrastructure. No unsuffixed compatibility alias is emitted for a split
+declaration: it would recreate the ambiguous contract this feature removes.
+
+Equivalence is computed over the complete projected declaration, not only the
+type's direct attributes. The declaration planner starts with bidirectional
+records whose effective member participation, property requiredness, or
+present-value type differs by direction. It then repeatedly propagates the
+split through any bidirectional record or union whose projected member or case
+type selects different directional declarations. Traversal follows nullable,
+array, collection, dictionary, generic-instance, nested-record, and union case
+shapes. The fixed point handles recursion and mutually recursive strongly
+connected components without guessing an order. Generic parameters retain one
+parameter identity; supplied type arguments select their directional
+declarations at each reference site.
+
+Declaration emission, member type mapping, union case mapping, and operation
+signature mapping consume this one declaration plan. They do not independently
+decide whether a type is split. Within an output declaration every resolved
+local reference selects the serialize projection; within an input declaration
+every resolved local reference selects the deserialize projection. Public JSON
+input parameters select deserialize declarations. Parsed JSON returns,
+including `JsonText<T>` realization, select serialize declarations. Raw
+`[JSExport]` signatures remain unchanged.
+
+Directional projection does not broaden an unsupported serializer contract.
+In particular, polymorphic deserialization remains unsupported until its
+owning contract establishes reader-side case selection. A declaration whose
+active direction has unsupported constructor binding, converter evidence,
+member presence, or type mapping remains visibly unsupported in that
+direction. The supported opposite declaration does not authenticate it.
+
+The canonical Inspect Web facade remains the production drift gate. The
+compiled fixture facade additionally demonstrates the generated wrapper at
+runtime: a direction-sensitive DTO is accepted through its input declaration,
+serialized to the managed call, returned JSON is parsed through its output
+declaration, and the directional member difference is observable. Authored
+TypeScript consumers adopt changed generated names rather than retaining
+hand-written shared or compatibility shapes.
 
 ### Translating unions and nullability
 
@@ -1772,9 +1832,14 @@ The complete certification expansion adds these contract-defining gates:
 - compiled conditional-presence fixtures emit exact optional serialize-side
   properties under `exactOptionalPropertyTypes`, remove only member-level outer
   `null` from present values, preserve nested and unconditionally present
-  nullability, retain `Never` as required, declare `JsonValue` for member-level,
-  context-default, and polymorphic-only conditional JSON members, and continue
-  to reject a direction-sensitive bidirectional record;
+  nullability, retain `Never` as required, and declare `JsonValue` for
+  member-level, context-default, and polymorphic-only conditional JSON members;
+- direction-specific declaration fixtures prove direct, nested, recursive,
+  generic, and union split propagation; equivalent bidirectional shapes retain
+  one declaration; deterministic allocation resolves collisions with
+  `Input`/`Output` preferred names; operation inputs and parsed returns select
+  their respective declarations; and a compiled runtime wrapper demonstrates
+  serialization and parsing across the asymmetric contract;
 - an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;
