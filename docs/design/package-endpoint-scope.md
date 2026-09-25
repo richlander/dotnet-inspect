@@ -91,6 +91,14 @@ and limits. For example, the CLI supplies ranged access with the per-authority
 durable store, and Inspect Web supplies its browser store. The scope doesn't
 choose acquisition policy.
 
+The caller also supplies the demand; the scope doesn't infer it from the
+views a command renders. Today the CLI passes `Surface` for the API views and,
+after step 4, `SurfaceAndImplementation` for the body views. Once analysis
+[operation participation](https://github.com/richlander/dotnet-inspect/pull/8548)
+lands, the demand should follow from the universe requirements of the selected
+analyses, lowered by [package read demand](package-read-demand.md). The scope's
+input doesn't change when that happens.
+
 ### Participants
 
 An open scope exposes:
