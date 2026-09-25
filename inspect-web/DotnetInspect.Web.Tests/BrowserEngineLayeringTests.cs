@@ -460,6 +460,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+Rejected",
             "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+UnsupportedBindingPolicy",
             "DotnetInspector.Queries.AssemblyPairCallUseQuery",
+            "DotnetInspector.Queries.BodySignalComparisonBinding",
             "DotnetInspector.Queries.ImplementationComparisonBinding",
             "DotnetInspector.Queries.InspectionGraphSubject",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure",
@@ -481,6 +482,7 @@ public sealed class BrowserEngineLayeringTests
             "ILInspector.Metadata.AssemblyBindingOrigin",
             "ILInspector.Metadata.AssemblyBindingSelection",
             "ILInspector.Metadata.TypeResolutionRequest",
+            "ILInspector.Research.BodySignalComparisonInputOccurrence",
             "ILInspector.Research.ImplementationAssemblyInput",
             "ILInspector.Research.ImplementationComparisonInputOccurrence",
         ];
