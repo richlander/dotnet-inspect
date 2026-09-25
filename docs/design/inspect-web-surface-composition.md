@@ -580,14 +580,17 @@ Dependencies and Type Metadata retain Explore in their existing
 working-surface action region.
 
 Explore places the existing interactive result in a full-viewport dialog. Its
-shared header uses two levels of hierarchy: graph kind, result summary, and
-interaction guidance form a quiet utility row with the stable Close action;
-the selected overload signature is the primary heading and its package and
-declaring-type path is secondary context. These are structured values supplied
-by the graph consumer, not strings parsed from rendered content. The duplicate
-inline graph heading and summary do not appear in Explore. The graph occupies
-an inset canvas whose boundary, subtle grid, controls, scope, and legend make
-the full-page interaction distinct from a stretched inline card.
+shared header is one compact application bar: graph kind and result summary
+identify the active tool first; the selected subject and its package and
+declaring-type context form one secondary address; optional interaction guidance
+and the stable Close action complete the row. These are structured values
+supplied by the graph consumer, not strings parsed from rendered content. The
+full subject and context remain available to assistive technology and pointer
+tooltips, but the visual address truncates rather than growing into additional
+title rows at constrained widths. The duplicate inline graph heading and
+summary do not appear in Explore. The graph occupies an inset canvas whose
+boundary, subtle grid, controls, scope, and legend make the full-page
+interaction distinct from a stretched inline card.
 
 The diagram takes the remaining space rather than retaining the inline
 fixed-height card. An untouched sparse graph automatically reframes when its
