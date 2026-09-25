@@ -139,6 +139,7 @@ import {
   createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
+  packageQueryAssemblyId,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
   resolveReplacementPackageLibrary,
@@ -8381,7 +8382,7 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework,
-    packageModel.assemblyId),
+    packageQueryAssemblyId(packageModel)),
   queryPruning: async (packageModel, family) => {
     const target = await ensurePlatformCatalog(packageModel.activeFramework);
     return await inspectPackagePruning(
