@@ -555,7 +555,8 @@ internal static partial class MetadataRelationInspection
             ? 0
             : (long)startOrdinal + rowRequest.MaximumRows;
         var ordinals =
-            new Dictionary<AssemblyReferenceIdentity, int>();
+            new Dictionary<AssemblyReferenceIdentity, int>(
+                AssemblyReferenceIdentity.EquivalentComparer);
         var selected =
             new List<ReferenceAccumulator>();
         var selectedByOrdinal =

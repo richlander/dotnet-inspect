@@ -505,7 +505,7 @@ public sealed class MetadataRelationInspectionTests
             default,
             default);
         metadata.AddAssemblyReference(
-            metadata.GetOrAddString("Sample.First"),
+            metadata.GetOrAddString("sample.first"),
             new Version(1, 0),
             default,
             default,

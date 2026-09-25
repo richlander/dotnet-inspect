@@ -110,8 +110,8 @@ public sealed class MetadataRelationGraphAdapterTests
                                 SubjectRelationForm.AssemblyReference,
                                 InspectionGraphIntegrationsCatalog
                                     .MetadataReference.Id,
-                                SubjectRelationDirectionSelection.Both,
-                                SubjectRelationEvidenceKind.Declaration),
+                                SubjectRelationDirectionSelection.Outgoing,
+                                evidence: null),
                             rows:
                                 new SubjectRelationPopulationRowsRequest(
                                     2,
@@ -128,6 +128,28 @@ public sealed class MetadataRelationGraphAdapterTests
                     SubjectRelationPopulationRowsOutcome.Rejected>(
                         rejected.Population.Rows).Reason);
         }
+
+        Assert.Throws<ArgumentException>(() =>
+            MetadataAssemblyReferenceSubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Library,
+                    focus,
+                    population,
+                    new(
+                        new SubjectRelationPopulationSelection(
+                            SubjectRelationForm.AssemblyReference,
+                            InspectionGraphIntegrationsCatalog
+                                .MetadataReference.Id,
+                            SubjectRelationDirectionSelection.Both,
+                            SubjectRelationEvidenceKind.Declaration),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(2))),
+                correspondence,
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
 
         while (true)
         {

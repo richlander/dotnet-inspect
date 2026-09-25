@@ -398,8 +398,7 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
                         .MetadataReference.Id,
                     StringComparison.Ordinal)
             || selection.Direction
-                is not SubjectRelationDirectionSelection.Both
-                    and not SubjectRelationDirectionSelection.Outgoing
+                is not SubjectRelationDirectionSelection.Outgoing
             || selection.Evidence
                 is not null
                 and not SubjectRelationEvidenceKind.Declaration
