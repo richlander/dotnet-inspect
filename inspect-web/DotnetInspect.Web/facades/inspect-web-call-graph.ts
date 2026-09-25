@@ -194,3 +194,4 @@ export async function queryMemberCallGraph(packageId: string, version: string, t
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserCallGraph;
 }
+
