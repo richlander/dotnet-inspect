@@ -101,8 +101,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
                         int,
                         ImmutableArray<TypeRef>>(
                         plan.TypeScopeEvidenceSources);
-        if (plan.Includes(
+        if ((plan.Includes(
                 LibraryBodyAnalysisFeatures.MethodEvidence)
+                || plan.ImplementationMetrics is not null)
             && (bodyScope is not null
                 || plan.TypeScope is not null))
         {

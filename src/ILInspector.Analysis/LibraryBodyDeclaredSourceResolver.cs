@@ -471,8 +471,9 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
     LibraryBodyAnalysisPlan ExpandLiftedEvidenceScope(
         LibraryBodyAnalysisPlan plan)
     {
-        if (!plan.Includes(
+        if (!(plan.Includes(
                 LibraryBodyAnalysisFeatures.MethodEvidence)
+                || plan.ImplementationMetrics is not null)
             || !plan.IsScoped)
         {
             return plan;

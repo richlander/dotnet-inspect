@@ -564,6 +564,13 @@ count, completed count, and unavailable or failed count. An effective stage
 that has no eligible managed body remains visible as selected-but-not-started;
 it is not falsely reported as participating.
 
+The receipt separately states whether stage-participation instrumentation
+covers every execution path used by the request. That fact does not claim that
+the evidence population is complete: work-bound exhaustion, unavailable
+evidence, failures, and per-evidence outcomes remain authoritative for
+population completeness. A header-only request can therefore have complete
+stage participation while reporting budget-exhausted evidence.
+
 The receipt therefore distinguishes:
 
 - requested evidence from evidence added by semantic prerequisites;
