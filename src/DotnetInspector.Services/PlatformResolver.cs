@@ -676,18 +676,18 @@ public static class PlatformResolver
         // if the assembly isn't found locally, it's likely a NuGet package.
         if (!useRuntimeAssemblies && !string.IsNullOrEmpty(frameworkSpec))
         {
-            // Parse explicit version from frameworkSpec (e.g., "runtime@9.0.12")
-            string? explicitVersion = null;
-            if (frameworkSpec.Contains('@'))
-                explicitVersion = frameworkSpec[(frameworkSpec.LastIndexOf('@') + 1)..];
-
-            var requests = PlatformPackService.BuildPackRequests(assemblyName, explicitVersion);
-            await foreach (var _ in PlatformPackService.EnsurePacksAsync(
-                requests,
-                httpClient,
-                log,
-                sourceOptions: sourceOptions).ConfigureAwait(false))
+            // Download only the named framework's reference pack: the caller
+            // already chose the framework, so no other pack can hold the answer.
+            if (PlatformPackService.PackRequestFor(frameworkSpec)
+                is { } request)
             {
+                await foreach (var _ in PlatformPackService.EnsurePacksAsync(
+                    [request],
+                    httpClient,
+                    log,
+                    sourceOptions: sourceOptions).ConfigureAwait(false))
+                {
+                }
             }
 
             return ResolveAssembly(assemblyName, frameworkSpec, useRuntimeAssemblies: useRuntimeAssemblies, platformVersion: platformVersion);
