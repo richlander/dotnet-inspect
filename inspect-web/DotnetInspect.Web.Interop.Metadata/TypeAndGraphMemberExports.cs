@@ -4,9 +4,11 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using NuGetFetch;
 using QuerySpace;
 using QuerySpace.Operations;
 using QuerySpace.Rows;
@@ -119,7 +121,12 @@ public static partial class MetadataExports
                     typeDefinitionId,
                     ExactTypeSelectionKind.DefinitionIdentity,
                     Path.GetFileNameWithoutExtension(assemblyName),
-                    IncludeTypeInspection: true),
+                    new ExactLibrarySourceCoordinate.Package(
+                        PackageSourceCoordinate.Create(
+                            root.PackageId,
+                            root.Version),
+                        new ManagedMetadataIdentity.Assembly(
+                            participant.Assembly.Identity))),
                 new WorkspaceContextLoadOptions
                 {
                     HttpClient = BrowserPackageWorkspace.NetworkClient,
@@ -135,36 +142,28 @@ public static partial class MetadataExports
                 acceptedRelationPlan.Plan,
                 rows: new SubjectRelationPopulationRowsRequest(int.MaxValue));
         InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
-            hierarchyRelations
-                is ExactTypeRelationsInspectionOutcome.Available available
-                && available.Inspection?.Content.Inspection.IsAvailable
-                    is true
-                ? new(
-                    available.Inspection!.Content.Inspection,
-                    available.Inspection.Share,
-                    available.Inspection.Diagnostics)
-                : await ExactTypeInspectionOperation.ExecuteAsync(
-                    new ExactTypeInspectionRequest(
-                        packageId,
-                        version,
-                        targetFramework,
-                        typeDefinitionId,
-                        ExactTypeSelectionKind.DefinitionIdentity),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient =
-                            BrowserPackageWorkspace.NetworkClient,
-                        SourceAuthorization =
-                            BrowserPackageWorkspace
-                                .PackageSourceAuthorization,
-                        PackageStore =
-                            BrowserPackageWorkspace.SessionPackageStore,
-                        PackageTransferPolicy =
-                            BrowserPackageWorkspace.PackageTransferPolicy,
-                        PayloadLimits =
-                            BrowserPackageWorkspace.PackageLimits,
-                    },
-                    BrowserApiSurfacePolicy.Limits);
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    packageId,
+                    version,
+                    targetFramework,
+                    typeDefinitionId,
+                    ExactTypeSelectionKind.DefinitionIdentity),
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient =
+                        BrowserPackageWorkspace.NetworkClient,
+                    SourceAuthorization =
+                        BrowserPackageWorkspace
+                            .PackageSourceAuthorization,
+                    PackageStore =
+                        BrowserPackageWorkspace.SessionPackageStore,
+                    PackageTransferPolicy =
+                        BrowserPackageWorkspace.PackageTransferPolicy,
+                    PayloadLimits =
+                        BrowserPackageWorkspace.PackageLimits,
+                },
+                BrowserApiSurfacePolicy.Limits);
 
         (ResearchViews.TypeProjectionResult Projection,
             TypeDependencySectionResult Dependencies) result =

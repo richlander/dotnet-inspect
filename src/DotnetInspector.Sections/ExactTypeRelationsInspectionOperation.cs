@@ -1,4 +1,5 @@
 using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
@@ -25,6 +26,7 @@ public sealed record TypeRelationsInspectionRequest(
     ExactTypeSelectionKind SelectionKind =
         ExactTypeSelectionKind.Query,
     string? FocusAssemblyName = null,
+    ExactLibrarySourceCoordinate? FocusLibrary = null,
     bool IncludeTypeInspection = false);
 
 /// <summary>
@@ -131,6 +133,7 @@ public static class ExactTypeRelationsInspectionOperation
                         request.Type,
                         request.SelectionKind,
                         request.FocusAssemblyName,
+                        request.FocusLibrary,
                         cancellationToken: cancellationToken);
                 if (focus
                     is not WorkspaceExactTypeFocusOutcome.Found found)

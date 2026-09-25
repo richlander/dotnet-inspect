@@ -155,8 +155,6 @@ public static class ApiMemberSectionDescriptors
             .Add<TypeParameters>()
             .Add<TypeInterfaces>()
             .Add<Baseclass>()
-            .Add<Implementers>()
-            .Add<DerivedTypes>()
             .Add<Constructors>()
             .Add<Finalizer>()
             .Add<Fields>()
@@ -198,8 +196,6 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.TypeParameters,
                 SectionNames.TypeInterfaces,
                 SectionNames.Baseclass,
-                SectionNames.Implementers,
-                SectionNames.DerivedTypes,
                 SectionNames.Constructors,
                 SectionNames.Finalizer,
                 SectionNames.Fields,
@@ -841,13 +837,6 @@ public static class ApiMemberSectionPipelines
                 SectionCategoryNames.Performance,
                 Present(PerformanceSections))
             .AddCategory(
-                SectionCategoryNames.Relations,
-                Present(
-                [
-                    SectionNames.Implementers,
-                    SectionNames.DerivedTypes,
-                ]))
-            .AddCategory(
                 SectionCategoryNames.Source,
                 Present(SourceSections))
             .AddCategory(
@@ -856,13 +845,24 @@ public static class ApiMemberSectionPipelines
     }
 
     public static SectionPipeline<ApiType> Create(ApiOptions options)
-        => UsesDetailPipeline(options)
+        => options is TypeOptions
+            ? CreateTypePipeline()
+            : UsesDetailPipeline(options)
             ? ApiMemberDetailSectionDescriptors.CreatePipeline(
                 (options as MemberOptions)?.OverloadIndex)
             : UsesOverloadInventoryPipeline(options)
                 ? ApiMemberOverloadSectionDescriptors.CreatePipeline(
                     (options as MemberOptions)?.OverloadIndex)
             : ApiMemberSectionDescriptors.CreatePipeline();
+
+    internal static SectionPipeline<ApiType> CreateTypePipeline() =>
+        ApiMemberSectionDescriptors.CreatePipeline()
+            .Add<ApiMemberSectionDescriptors.Implementers>()
+            .Add<ApiMemberSectionDescriptors.DerivedTypes>()
+            .AddCategory(
+                SectionCategoryNames.Relations,
+                SectionNames.Implementers,
+                SectionNames.DerivedTypes);
 
     public static bool UsesDetailPipeline(ApiOptions options)
         => options is MemberOptions { OverloadIndex: not null }

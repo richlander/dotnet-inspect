@@ -580,12 +580,16 @@ public sealed partial class BrowserEngineBoundaryTests
             metadata.GraphEdges,
             edge => edge.FromId == typeName
                 && edge.ToId == typeof(IAsyncDisposable).FullName);
-        Assert.Empty(metadata.InspectionFailures);
+        Assert.True(
+            metadata.InspectionFailures.Length == 0,
+            string.Join(Environment.NewLine, metadata.InspectionFailures));
 
         const string authenticPackageId =
             "Browser.TypeDependencies.System.Text.Json";
         const string nestedType =
             "System.Collections.Generic.OrderedDictionary`2.KeyCollection";
+        const string nestedDefinition =
+            "System.Collections.Generic.OrderedDictionary`2+KeyCollection";
         _ = await Coordinate(
             authenticPackageId,
             Package(
@@ -607,14 +611,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 "framework": "net11.0"
               }
             ]
-            """);
+            """,
+            nestedDefinition);
 
         Assert.Contains(
             authentic.GraphEdges,
             edge => edge.FromId == nestedType
                 && edge.ToId
                     == "System.Collections.Generic.IList<TKey>");
-        Assert.Empty(authentic.InspectionFailures);
+        Assert.True(
+            authentic.InspectionFailures.Length == 0,
+            string.Join(
+                Environment.NewLine,
+                authentic.InspectionFailures));
     }
 
     [Fact]
@@ -681,6 +690,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.DoesNotContain(
             typeof(IAsyncDisposable).FullName!,
             exactType.Interfaces);
+        Assert.Empty(metadata.InspectionFailures);
     }
 
     [Fact]

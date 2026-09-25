@@ -954,8 +954,12 @@ public static class StructuralViewRegistry
             case InspectionCatalogIdentity.ApiMemberDetail:
             {
                 var pipeline =
-                    ApiInspectionCatalogRegistry.CreateMemberPipeline(
-                        route.Catalog);
+                    route.View.Identity == StructuralViewIdentity.Type
+                    && route.Catalog
+                        == InspectionCatalogIdentity.ApiMember
+                        ? ApiMemberSectionPipelines.CreateTypePipeline()
+                        : ApiInspectionCatalogRegistry
+                            .CreateMemberPipeline(route.Catalog);
                 schema = ApiCommand.GetStructuralSchema(route.Catalog);
                 if (route.View.Identity == StructuralViewIdentity.Type
                     && route.Catalog
@@ -980,9 +984,13 @@ public static class StructuralViewRegistry
                     }
                 }
                 selectableSections =
-                    ApiInspectionCatalogRegistry
-                        .Get(route.Catalog)
-                        .SectionNames;
+                    route.View.Identity == StructuralViewIdentity.Type
+                    && route.Catalog
+                        == InspectionCatalogIdentity.ApiMember
+                        ? pipeline.SelectableSectionNames
+                        : ApiInspectionCatalogRegistry
+                            .Get(route.Catalog)
+                            .SectionNames;
                 defaultSections =
                     route.View.Identity
                         == StructuralViewIdentity.Type

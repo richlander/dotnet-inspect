@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -36,6 +37,7 @@ public static class WorkspaceExactTypeFocusQuery
         ExactTypeSelectionKind selectionKind =
             ExactTypeSelectionKind.Query,
         string? assemblyName = null,
+        ExactLibrarySourceCoordinate? library = null,
         bool includeAll = true,
         CancellationToken cancellationToken = default)
     {
@@ -70,6 +72,11 @@ public static class WorkspaceExactTypeFocusQuery
             {
                 continue;
             }
+            if (library is not null
+                && member.Coordinate != library)
+            {
+                continue;
+            }
             WorkspaceDeclarationInventoryOutcome outcome =
                 population.ReadDeclarations(
                     member.Occurrence,
@@ -99,7 +106,16 @@ public static class WorkspaceExactTypeFocusQuery
             }
         }
 
-        if (!population.Receipt.IsRealizationComplete
+        if (library is not null && outcomes.Count == 0)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact focused Library is not present in the "
+                    + "candidate context.",
+                []);
+        }
+
+        if ((library is null
+                && !population.Receipt.IsRealizationComplete)
             || outcomes.Any(static outcome => !outcome.IsComplete))
         {
             return new WorkspaceExactTypeFocusOutcome.Unavailable(
