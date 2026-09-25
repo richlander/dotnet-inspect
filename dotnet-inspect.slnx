@@ -279,5 +279,6 @@
     <Project Path="tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj" />
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
+    <Project Path="tools/SourceCorpusCensus/SourceCorpusCensus.csproj" />
   </Folder>
 </Solution>
