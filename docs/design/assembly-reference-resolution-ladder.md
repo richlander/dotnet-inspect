@@ -186,7 +186,8 @@ derive focal-length meaning.
 issued for the exact referencing origin and operation scope. It contains:
 
 - the referencing-context rung and whether that exact context participates in
-  resolution of the request's binding target;
+  resolution of the request's binding target, evaluated over only the
+  participants admitted by the focal-scope receipt;
 - one deferred owner capability for forming external routes after context
   advancement;
 - identities for every contributing owner snapshot available before external
@@ -217,8 +218,8 @@ For an intrinsic CoreLib request, the external route set is specialized:
 This is not the ordinary package-overlap absence claim below. A package or
 uploaded assembly may declare a familiar framework name and key, but it remains
 ineligible for the intrinsic target. An entitled designated or Platform
-participant already present in the referencing context remains eligible there
-and is decided by rung 1.
+participant already present in the referencing context is decided by rung 1
+only when the operation's focal-scope receipt admits it.
 
 Only after an ordinary context returns `NoNameOwner`, or an intrinsic context
 is owner-attested as non-participating, does the deferred owner form
@@ -478,10 +479,12 @@ to delegate; one retained or undetermined edge prevents it.
 
 ## Rung 1: referencing context
 
-The first rung is the exact binding-consistent context containing the
-referencing assembly. It consumes that group's
-`SourceRelativeAssemblyGroupBindingPolicy` or an equivalent completed
-Workspace policy.
+The first rung is the operation-eligible projection of the exact
+binding-consistent context containing the referencing assembly. It consumes a
+completed Workspace policy that preserves the group's binding rules while
+exposing only participants admitted by the request's focal-scope receipt. The
+ladder cannot invoke an unfiltered group policy when that group also contains
+out-of-scope participants.
 
 The rung evaluates the exact request before any source, package, platform, or
 replacement work:
@@ -497,10 +500,12 @@ later package edge. Package realization retains all selected role participants
 and their exact surface-to-implementation correspondence, so an intra-package
 reference does not rediscover its own package through NuGet.
 
-For an intrinsic CoreLib target, a complete context whose participants are all
-in acquisition roles that cannot mint CoreLib identity is non-participating.
-The ladder records that route-plan fact and does not invoke its binding policy.
-An entitled participant, an unclassified acquisition role, or incomplete
+For an intrinsic CoreLib target, a complete operation-eligible projection whose
+participants are all in acquisition roles that cannot mint CoreLib identity is
+non-participating. Out-of-scope participants do not affect that decision merely
+because they are admitted to the same Workspace context. The ladder records the
+route-plan fact and does not invoke its binding policy. An eligible entitled
+participant, an eligible unclassified acquisition role, or incomplete eligible
 participant evidence requires context participation; any
 `Unavailable(UnsupportedScope)` result is then terminal rather than rewritten
 as advancement.
@@ -810,6 +815,8 @@ revision into the route-eligibility receipt:
 Exact-library and package-prefix registrations can contribute populations
 without proving that one package dependency edge satisfies one `AssemblyRef`.
 The ladder still requires origin-bound platform or package route evidence.
+The same receipt also constrains rung 1: Workspace admission alone does not make
+a participant eligible for a narrower operation.
 
 Registration remains inert. Forming the external route set may perform bounded
 catalog or dependency-evidence work only after an operation selects that
@@ -868,7 +875,9 @@ used as the lookup key.
 If the selected call-graph focal scope is `Self`, Platform is outside the
 operation scope. The external-route decision is `OutsideOperationScope`, the
 ladder returns `Incomplete` with that exact scope evidence, and no Platform
-catalog or acquisition work begins.
+catalog or acquisition work begins. A Platform participant already admitted to
+the same Workspace context remains outside this request's rung-1 projection and
+cannot satisfy the intrinsic target.
 
 ### Dependency evidence does not prove assembly correspondence
 
@@ -1084,6 +1093,7 @@ Required future Release gates:
 | Intrinsic CoreLib in a complete package-only context | The route plan records owner-attested non-participation; no invalid name miss or package route is formed |
 | Intrinsic CoreLib on an exact modern .NET Platform | The uniquely entitled `System.Private.CoreLib` participant is selected without interpreting `corelib` |
 | Intrinsic CoreLib when Platform is outside the selected focal scope | `OutsideOperationScope` returns `Incomplete` with the exact scope receipt and performs no Platform work |
+| `Self` over a package member in a mixed package/Platform context | The rung-1 projection excludes the admitted Platform participant and cannot select it |
 | Intrinsic CoreLib with zero or multiple entitled Platform participants | The binding owner's typed unavailable/rejected result or `Ambiguous` remains visible; no package fallback occurs |
 | Package or uploaded content declares a CoreLib-like name or key | It remains ineligible for the intrinsic target |
 | Context miss and exact platform match | Platform selection retains exact target and realization correspondence |
