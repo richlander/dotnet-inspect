@@ -63,6 +63,21 @@ internal sealed record ImplementationMetricWorkLimits
         long maximumEncodedIlBytes,
         int maximumAttributionProbeBodies,
         long maximumAttributionProbeIlBytes)
+        : this(
+            maximumPhysicalBodies,
+            maximumEncodedIlBytes,
+            maximumAttributionProbeBodies,
+            maximumAttributionProbeIlBytes,
+            isLegacyUnbounded: false)
+    {
+    }
+
+    private ImplementationMetricWorkLimits(
+        int maximumPhysicalBodies,
+        long maximumEncodedIlBytes,
+        int maximumAttributionProbeBodies,
+        long maximumAttributionProbeIlBytes,
+        bool isLegacyUnbounded)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(
             maximumPhysicalBodies,
@@ -83,6 +98,7 @@ internal sealed record ImplementationMetricWorkLimits
             maximumAttributionProbeBodies;
         MaximumAttributionProbeIlBytes =
             maximumAttributionProbeIlBytes;
+        IsLegacyUnbounded = isLegacyUnbounded;
     }
 
     internal int MaximumPhysicalBodies { get; }
@@ -93,15 +109,15 @@ internal sealed record ImplementationMetricWorkLimits
 
     internal long MaximumAttributionProbeIlBytes { get; }
 
-    internal bool IsLegacyUnbounded =>
-        this == LegacyUnbounded;
+    internal bool IsLegacyUnbounded { get; }
 
     internal static ImplementationMetricWorkLimits LegacyUnbounded
     { get; } = new(
         int.MaxValue,
         long.MaxValue,
         int.MaxValue,
-        long.MaxValue);
+        long.MaxValue,
+        isLegacyUnbounded: true);
 }
 
 internal sealed record ImplementationMetricAnalysisRequest(
@@ -174,6 +190,14 @@ internal sealed record ImplementationMetricAnalysisPlan(
             throw new ArgumentOutOfRangeException(
                 nameof(request),
                 "Implementation metric evidence contains an unknown kind.");
+        }
+        if (request.Origin
+                == ImplementationMetricRequestOrigin.Explicit
+            && request.Limits.IsLegacyUnbounded)
+        {
+            throw new ArgumentException(
+                "Explicit implementation metric requests require finite work limits.",
+                nameof(request));
         }
 
         ImplementationMetricEvidenceKind effective = requested;

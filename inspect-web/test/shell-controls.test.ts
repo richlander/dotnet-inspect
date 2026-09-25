@@ -205,6 +205,7 @@ function applicationActions(calls: string[]) {
     onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
     onNavigateBack: () => calls.push("navigate-back"),
     onNavigateForward: () => calls.push("navigate-forward"),
+    onOpenPackageTargetFramework: () => calls.push("open-package-framework"),
     onRetryNotice: () => calls.push("retry-notice"),
     onSearch: () => calls.push("search"),
   };
@@ -225,7 +226,9 @@ test("workbench shell binds persistent controls without eager work", () => {
   }
   const packageSubject = root.element({ subjectCopy: "0" });
   const typeSubject = root.element({ subjectCopy: "1" });
+  const targetFramework = root.element({ subjectFramework: "net10.0" });
   root.addAll("[data-subject-copy]", packageSubject, typeSubject);
+  root.addAll("[data-subject-framework]", targetFramework);
   const calls: string[] = [];
   let searchArgumentCount = -1;
 
@@ -244,8 +247,11 @@ test("workbench shell binds persistent controls without eager work", () => {
   }
   packageSubject.dispatch("click");
   typeSubject.dispatch("click");
-  assert.deepEqual(calls.slice(-2), ["copy-subject:0", "copy-subject:1"]);
-  assert.equal(calls.length, controls.size + 2);
+  targetFramework.dispatch("click");
+  assert.deepEqual(
+    calls.slice(-3),
+    ["copy-subject:0", "copy-subject:1", "open-package-framework"]);
+  assert.equal(calls.length, controls.size + 3);
   assert.equal(searchArgumentCount, 0);
 });
 
@@ -505,6 +511,7 @@ test("shell bindings tolerate inactive surfaces", () => {
     onDismissPackageNotice() {},
     onNavigateBack() {},
     onNavigateForward() {},
+    onOpenPackageTargetFramework() {},
     onRetryNotice() {},
     onSearch() {},
   }));

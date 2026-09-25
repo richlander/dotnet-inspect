@@ -438,6 +438,7 @@ import {
   renderTypeSource,
   TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
+  type SourceTextRange,
   typeMetadataSignature,
   typeSourceSignature,
   typeCodeViewText,
@@ -7139,9 +7140,9 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment =>
-    segment.qualifier
-      ? `${segment.label} · ${segment.qualifier}`
-      : segment.label).join(" > ");
+    [segment.label, segment.targetFramework, segment.qualifier]
+      .filter(Boolean)
+      .join(" · ")).join(" > ");
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
@@ -7524,6 +7525,7 @@ interface SubjectPathSegment {
   label: string;
   copyable: boolean;
   qualifier?: string;
+  targetFramework?: string;
 }
 
 function inspectedSubjectPath(
@@ -7546,6 +7548,9 @@ function inspectedSubjectPath(
             ? activeLibrarySubjectName()
             : packageDisplayName(pkg),
         copyable: true,
+        ...(state.rootKind === "package"
+          ? { targetFramework: pkg.activeFramework }
+          : {}),
       }]
     : [];
   if (state.atPackageRoot
@@ -7608,10 +7613,13 @@ function renderInspectedSubjectPath(
     const content = segment.copyable
       ? `<button type="button" class="subject-path-segment${root}${current}" data-subject-copy="${index}" title="Copy ${label}" aria-label="Copy ${escapeHtml(segment.kind)} name ${label}">${label}</button>`
       : `<span class="subject-path-segment${root}${current}">${label}</span>`;
+    const targetFramework = segment.targetFramework
+      ? `<button type="button" class="subject-path-framework" data-subject-framework="${escapeHtml(segment.targetFramework)}" title="Change target framework" aria-label="Target framework ${escapeHtml(segment.targetFramework)}. Change target framework for ${label}">· ${escapeHtml(segment.targetFramework)}</button>`
+      : "";
     const qualifier = segment.qualifier
       ? `<span class="subject-path-qualifier" aria-label="Defining Library ${escapeHtml(segment.qualifier)}">· ${escapeHtml(segment.qualifier)}</span>`
       : "";
-    return `${separator}${content}${qualifier}`;
+    return `${separator}${content}${targetFramework}${qualifier}`;
   }).join("");
 }
 
@@ -9476,6 +9484,7 @@ function renderMemberSourceHtml() {
         return renderSourceResult({
           source: source.source,
           text: memberSourceText(source, selectedPart),
+          leftJustify: source.parts.length > 0,
           escapeHtml,
           highlightCSharp,
         });
@@ -9920,15 +9929,34 @@ function highlight(value: string) {
     .replace(/\b(string|object|void|Type|Stream|Task|ValueTask|CancellationToken|TValue)\b/g, '<span class="primitive">$1</span>');
 }
 
-function highlightCSharp(value: string) {
-  const source = value;
-  if (prismCSharp.languages.csharp) {
-    return prismCSharp.highlight(
-      source,
-      prismCSharp.languages.csharp,
-      "csharp");
+function highlightCSharp(
+  source: string,
+  collapsedRanges: readonly SourceTextRange[] = [],
+) {
+  if (collapsedRanges.length === 0) {
+    return prismCSharp.languages.csharp
+      ? prismCSharp.highlight(
+          source,
+          prismCSharp.languages.csharp,
+          "csharp")
+      : escapeHtml(source);
   }
-  return escapeHtml(source);
+
+  const highlighting = createCSharpRangeHighlighter(
+    source,
+    prismCSharp,
+    escapeHtml);
+
+  let html = "";
+  let cursor = 0;
+  for (const range of collapsedRanges) {
+    html += highlighting.render(cursor, range.start - cursor);
+    html += `<span class="source-shared-indentation">${
+      highlighting.render(range.start, range.length)
+    }</span>`;
+    cursor = range.start + range.length;
+  }
+  return html + highlighting.render(cursor, source.length - cursor);
 }
 
 function annotatedSourceHighlighter(
@@ -11070,6 +11098,14 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     const segment = currentInspectedSubjectPath()[index];
     if (segment?.copyable)
       void copyText(segment.label, `${segment.kind} name copied`);
+  },
+  onOpenPackageTargetFramework: () => {
+    contentFramePane = "navigation";
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    render();
+    afterCurrentNavigationFrame(() => focusContentNavigation(document));
   },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
