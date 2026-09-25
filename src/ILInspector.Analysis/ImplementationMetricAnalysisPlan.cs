@@ -173,13 +173,17 @@ internal sealed record ImplementationMetricAnalysisPlan(
     ImplementationMetricWorkLimits Limits,
     ImplementationMetricRequestOrigin Origin)
 {
-    internal bool UsesHeaderOnlyExecution =>
-        (EffectiveEvidence & ~HeaderEvidence)
+    internal bool UsesPreContextExecution =>
+        (EffectiveEvidence & ~PreContextEvidence)
             == ImplementationMetricEvidenceKind.None;
 
     internal bool IncludesHeaderEvidence =>
         (EffectiveEvidence & HeaderEvidence)
             != ImplementationMetricEvidenceKind.None;
+
+    internal bool IncludesLocalEvidence =>
+        EffectiveEvidence.HasFlag(
+            ImplementationMetricEvidenceKind.Locals);
 
     internal ImplementationMetricEvidenceKind EvidenceCausesFor(
         ImplementationMetricWorkStage stage)
@@ -340,6 +344,10 @@ internal sealed record ImplementationMetricAnalysisPlan(
     const ImplementationMetricEvidenceKind HeaderEvidence =
         ImplementationMetricEvidenceKind.BodySize
         | ImplementationMetricEvidenceKind.ExceptionRegions;
+
+    const ImplementationMetricEvidenceKind PreContextEvidence =
+        HeaderEvidence
+        | ImplementationMetricEvidenceKind.Locals;
 
     const ImplementationMetricEvidenceKind ContextEvidence =
         ImplementationMetricEvidenceKind.InstructionShape

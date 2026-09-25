@@ -225,6 +225,36 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void MetricPlan_LocalsDecodeWithoutCanonicalContext()
+    {
+        var request = new ImplementationMetricAnalysisRequest(
+            ImplementationMetricEvidenceKind.Locals,
+            MetricLimits(),
+            ImplementationMetricRequestOrigin.Explicit);
+
+        ImplementationMetricAnalysisPlan plan =
+            ImplementationMetricAnalysisPlan.Create(request);
+
+        Assert.Equal(
+            ImplementationMetricEvidenceKind.Locals,
+            plan.EffectiveEvidence);
+        Assert.True(plan.UsesPreContextExecution);
+        Assert.True(plan.IncludesLocalEvidence);
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .ManagedBodyAcquisition));
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .LocalSignatureDecode));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .CanonicalMethodContext));
+    }
+
+    [Fact]
     public void MetricExecution_BodySizeStopsAfterBodyAcquisition()
     {
         string path =
@@ -296,6 +326,103 @@ public sealed class LibraryBodyAnalysisExecutionTests
                         .SafetyCollection
                     or ImplementationMetricWorkStage
                         .SiblingRelationshipProjection);
+    }
+
+    [Fact]
+    public void MetricExecution_LocalsStopsAfterLocalDecode()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.Analyze),
+                BindingFlags.Public | BindingFlags.Static,
+                [typeof(int), typeof(int)])!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.Locals,
+                        MetricLimits(),
+                        new HashSet<int> { token }));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies,
+                body => body.EvidenceMethod.MetadataToken == token);
+        Assert.Null(body.ILBytes);
+        Assert.Null(body.ExceptionRegions);
+        ImplementationMetricLocalEvidence locals =
+            Assert.IsType<ImplementationMetricLocalEvidence>(
+                body.Locals);
+        Assert.True(locals.DeclaredCount > 0);
+        Assert.True(locals.IsComplete);
+        Assert.Null(locals.IncompleteReason);
+        ImplementationMetricParticipationReceipt receipt =
+            Assert.IsType<ImplementationMetricParticipationReceipt>(
+                execution.ImplementationMetrics.Participation);
+        ImplementationMetricStageParticipation decode =
+            Assert.Single(
+                receipt.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .LocalSignatureDecode);
+        Assert.Equal(
+            ImplementationMetricEvidenceKind.Locals,
+            decode.EvidenceCauses);
+        Assert.Equal(1, decode.AttemptedBodies);
+        Assert.Equal(1, decode.CompletedBodies);
+        Assert.Equal(0, decode.FailedBodies);
+        Assert.DoesNotContain(
+            receipt.ActualStages,
+            stage => stage.Stage
+                == ImplementationMetricWorkStage
+                    .CanonicalMethodContext);
+        Assert.True(receipt.HasCompleteStageParticipation);
+    }
+
+    [Fact]
+    public void
+        MetricExecution_BodySizeAndZeroLocalsSharePreContextExecution()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.Other),
+                BindingFlags.Public | BindingFlags.Static)!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.BodySize
+                            | ImplementationMetricEvidenceKind
+                                .Locals,
+                        MetricLimits(),
+                        new HashSet<int> { token }));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies,
+                body => body.EvidenceMethod.MetadataToken == token);
+        Assert.True(body.ILBytes > 0);
+        ImplementationMetricLocalEvidence locals =
+            Assert.IsType<ImplementationMetricLocalEvidence>(
+                body.Locals);
+        Assert.Equal(0, locals.DeclaredCount);
+        Assert.True(locals.IsComplete);
+        Assert.DoesNotContain(
+            execution.ImplementationMetrics
+                .Participation!.ActualStages,
+            stage => stage.Stage
+                == ImplementationMetricWorkStage
+                    .CanonicalMethodContext);
     }
 
     [Fact]
@@ -424,6 +551,49 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.False(
             execution.ImplementationMetrics
                 .Participation!.HasCompleteStageParticipation);
+        Assert.True(
+            context.FeatureCauses.HasFlag(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+    }
+
+    [Fact]
+    public void
+        MetricExecution_CoRunningMethodEvidenceStillPublishesLocals()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.Analyze),
+                BindingFlags.Public | BindingFlags.Static,
+                [typeof(int), typeof(int)])!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.Locals,
+                        MetricLimits(),
+                        new HashSet<int> { token },
+                        LibraryBodyAnalysisFeatures.MethodEvidence));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies,
+                body => body.EvidenceMethod.MetadataToken == token);
+        Assert.NotNull(body.Locals);
+        ImplementationMetricStageParticipation context =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .CanonicalMethodContext);
+        Assert.Equal(
+            ImplementationMetricEvidenceKind.None,
+            context.EvidenceCauses);
         Assert.True(
             context.FeatureCauses.HasFlag(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -700,6 +870,50 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(2, acquisition.AttemptedBodies);
         Assert.Equal(2, acquisition.CompletedBodies);
         Assert.Equal(0, acquisition.FailedBodies);
+    }
+
+    [Fact]
+    public void MetricWorkBounds_ExhaustionStopsLaterLocalDecode()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int[] tokens = ManagedMethodTokens(path)
+            .Take(2)
+            .ToArray();
+        Assert.Equal(2, tokens.Length);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: int.MaxValue,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.Locals,
+                        limits,
+                        tokens.ToHashSet()));
+
+        Assert.Single(execution.ImplementationMetrics.Bodies);
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind.PhysicalBodies,
+            work.MetricExhaustedLimit);
+        Assert.Equal(tokens[1], work.MetricExhaustedMethodToken);
+        ImplementationMetricStageParticipation decode =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .LocalSignatureDecode);
+        Assert.Equal(1, decode.AttemptedBodies);
+        Assert.Equal(1, decode.CompletedBodies);
+        Assert.Equal(0, decode.FailedBodies);
     }
 
     [Fact]

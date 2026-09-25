@@ -568,7 +568,7 @@ The receipt separately states whether stage-participation instrumentation
 covers every execution path used by the request. That fact does not claim that
 the evidence population is complete: work-bound exhaustion, unavailable
 evidence, failures, and per-evidence outcomes remain authoritative for
-population completeness. A header-only request can therefore have complete
+population completeness. A pre-context request can therefore have complete
 stage participation while reporting budget-exhausted evidence.
 
 The receipt therefore distinguishes:
@@ -708,9 +708,9 @@ The counted implementation path is:
 
 1. Add the validated parameterized request, closed evidence vocabulary,
    versioned `CompleteProfileV1` set, work bounds, and prerequisite plan.
-2. Publish charged physical scope/source attribution and header-only body size
-   and exception-region evidence without constructing the canonical method
-   context.
+2. Publish charged physical scope/source attribution, body size,
+   exception-region evidence, and local-signature evidence without constructing
+   the canonical method context.
 3. Gate canonical context, call, signal, safety, allocation, and relationship
    stages by their effective causes and publish actual participation.
 4. Add producer-owned completion and limitation outcomes where current signal
