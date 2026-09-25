@@ -861,23 +861,47 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 
 #### Initial registrations
 
-Diff's existing keyed Finding Transitions routes become the first registered
-Compare participations:
+Diff's existing keyed comparison routes become the first registered Compare
+participations. Each row names the route the analysis's comparison view
+already runs:
 
-| Analysis | Finding descriptors | Compare report surfaces |
-| --- | --- | --- |
-| `api` | `api.type`, `api.member`, `api.attribute` | Type, Member |
-| `allocation` | `analysis.allocation` | Member |
-| `call-site` | `analysis.call-site` | Member |
-| `unsafety` | `analysis.unsafety` | Member |
-| `csharp` | `csharp.line` | Member |
-| `il` | `il.op` | Member |
+| Analysis | Compare report surfaces | Finding descriptors per surface | Comparison route and view |
+| --- | --- | --- | --- |
+| `api` | Library, Type, Member | Library and Type: `api.type`, `api.member`; Member: `api.member` | `ApiComparisonQuery` producing `ApiFindingComparison`; view `Changes` |
+| `api-attribute` | Type | `api.attribute` | Finding Transitions route for `api.attribute` |
+| `allocation` | Member | `analysis.allocation` | Finding Transitions route for `analysis.allocation` |
+| `call-site` | Member | `analysis.call-site` | Finding Transitions route for `analysis.call-site` |
+| `unsafety` | Member | `analysis.unsafety` | Finding Transitions route for `analysis.unsafety` |
+| `csharp` | Member | `csharp.line` | Finding Transitions route for `csharp.line` |
+| `il` | Member | `il.op` | Finding Transitions route for `il.op` |
 
-`--finding` then retires without an alias. It is replaced, not superseded by
-a compatibility bridge, under
-[CLI change classification](cli-change-classification.md). Within `api`,
-choosing between the Type and Member descriptors remains the existing
-report-surface rule. It is not a second selector.
+`api` binds the existing `Changes` producer at every surface, including the
+filterless Library surface of `diff A B`. `ApiFindingComparison` already
+carries keyed `api.type` and `api.member` comparisons beside Metadata's
+compatibility classification. The existing single-Library envelope terminal
+remains that view's delivery under
+[Envelope-complete adoption](#envelope-complete-adoption). The
+`api.type`/`api.member` Finding Transitions lens is an endpoint-confirmation
+view of the same analysis, selected with `-S "Finding Transitions"`, not a
+second analysis. Attribute comparison is not part of `ApiFindingComparison`,
+so it is the separate `api-attribute` analysis and stays reachable.
+
+#### Retiring pairwise `--finding`
+
+For pairwise requests, `--analysis` replaces `--finding` without an alias,
+under [CLI change classification](cli-change-classification.md). A pairwise
+request that supplies `--finding` is rejected with guidance naming the
+equivalent `--analysis` identity.
+
+`--history` requests keep `--finding` as the
+[History](diff-history.md) producer selector, unchanged. History is not a
+Compare participation in this adoption. It adopts analysis selection, and
+retires `--finding` entirely, in its own #8545 slice.
+
+The implementing change updates every shipped product skill that teaches
+pairwise `--finding`: the compatibility, correctness, and performance skills.
+It does so under the release-managed-file authorization rule, so that the
+skills match the behavior that ships.
 
 The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
 Structural Context routes are not keyed Finding comparisons and are
@@ -889,9 +913,10 @@ this adoption.
 
 #### Default set and default view
 
-Diff's default set is `api` alone, because API comparison is metadata-only and
-is the current default `Changes` view. Omitting `--analysis` therefore does not
-change existing output.
+Diff's default set is `api` alone. API comparison is metadata-only, and
+`api`'s declared route is the current default `Changes` producer at the
+Library, Type, and Member surfaces. Omitting `--analysis` therefore selects
+the route and view that `diff A B` runs today, and does not change its output.
 
 A body analysis joins the default set only with measured cost evidence and a
 decision under CLI change classification. Its participation declaration does
@@ -900,13 +925,12 @@ not add it automatically.
 The default view follows the single-high-value-section rule:
 
 - With one selected analysis, the default view is that analysis's comparison
-  view: `Changes` for `api` at a Type scope, and Finding Transitions scoped to
-  that analysis otherwise.
+  view from the registration table.
 - With more than one selected analysis, the default view is one `Summary`
   section.
   - It has one row per selected analysis, in selection order.
-  - Each row shows the analysis's outcome and its relation counts, projected
-    from the [Analysis diff](analysis-diff.md) classification vocabulary.
+  - Each row shows the analysis's outcome and its transition counts,
+    projected from its keyed comparison's owner-issued classification.
   - Each analysis's detail view is available through `-S`.
 
 `Summary` projects no analysis-specific columns.
@@ -917,7 +941,8 @@ A multi-analysis result is not a new Diff content type. Research already keeps
 typed comparisons in one descriptor-keyed container
 ([Research composition](finding-nomenclature.md#research-composition)).
 Selecting analyses selects entries of that container, and each retains its
-native `AnalysisDiff<T>` or `PairFinding<T>` comparison.
+native keyed comparison, such as `ApiFindingComparison` or
+`FindingComparison<T>`.
 
 - Each analysis keeps its own typed outcome. An unavailable or failed analysis
   is reported as that analysis's outcome, and it neither erases nor empties
@@ -936,11 +961,17 @@ The motivating real case is the member-scoped request above, over
 
 Current production output for the equivalent single-descriptor
 `--finding analysis.call-site` request reports that no selected Finding exists
-at either endpoint, even though `member … -S "Finding Census"` shows direct
-calls in the same 10.0.0 body. That discrepancy must be diagnosed before this
-case can serve as the adoption demo. The complete-census rule under
-[Content and failure](#content-and-failure) forbids reporting it as a
-successful empty comparison.
+at either endpoint. The member Finding Census for the same 10.0.0 body is also
+empty, although the annotated body source contains two direct `call`
+instructions (`GetTypeInfo` and `WriteString`). The call-site producer's
+result for this body must be diagnosed before this case can serve as the
+adoption demo. The complete-census rule under
+[Content and failure](#content-and-failure) forbids reporting an incomplete
+census as a successful empty comparison.
+
+The neighboring case is filterless `diff --package
+System.Text.Json@9.0.0..10.0.0`. It selects the default set `api` at the
+Library surface and must produce today's `Changes` output unchanged.
 
 ### Migration and production path
 

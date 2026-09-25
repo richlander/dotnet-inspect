@@ -333,7 +333,7 @@ kind enters the closed participation vocabulary only with its first adopter.
 
 | Operation kind | Declared binding | Admission rule |
 | --- | --- | --- |
-| Compare | Per supported report-surface kind, the ordered Finding descriptors the analysis issues for each endpoint and the producer route that yields each descriptor's old and new census | Every declared descriptor has `FindingKey` correspondence under [Finding coordinates](finding-coordinates.md), so the comparison is an `AnalysisDiff<T>` with no analysis-specific matching |
+| Compare | Per supported report-surface kind, the ordered Finding descriptors the analysis issues for each endpoint and the one producer route whose keyed comparison the operation dispatches for that surface | Every declared descriptor has `FindingKey` correspondence under [Finding coordinates](finding-coordinates.md), so the comparison needs no analysis-specific matching |
 
 Participation is declared per report surface because comparability depends on
 the report surface. For example, member-body allocation Findings are compared
@@ -531,7 +531,9 @@ The runtime implementation is verified by these named gates:
 
 Operation participation adds these gates with its first adoption:
 
-- `AnalysisIdentity_ConformsToGrammarAndIsUniquePerBuild`
+- `AnalysisIdentity_ConformsToGrammarAndIsUniquePerBuild`, over descriptors
+  that declare an operation participation; `analysis.integrations` enters it
+  when Graph adopts the grammar
 - `AnalysisParticipation_CompareRequiresKeyedFindingDescriptors`
 - `AnalysisSet_RejectsUnknownNonParticipatingAndDuplicateEntriesBeforeProducerExecution`
 - `AnalysisSet_RejectionReportsEveryOffendingEntryWithoutNarrowing`
