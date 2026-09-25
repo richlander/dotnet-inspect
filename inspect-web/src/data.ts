@@ -1335,17 +1335,45 @@ export interface CallGraphDiagnostics {
   bindingIdentityConflicts?: number;
   hasAnalysisFailureBoundary?: boolean;
   unavailableDependencyRoutes?: number;
+  hasIncompleteCorrespondence?: boolean;
+  unclassifiedBoundaryEdges?: number;
+  unclassifiedBoundaryNamedEdges?: number;
+  unclassifiedBoundaryAssemblies?: readonly string[];
+  physicalOccurrenceUnavailableEdges?: number;
 }
 
 export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | null | undefined): string {
   if (!diagnostics) return "";
   const evidence: string[] = [];
-  if ((diagnostics.incompleteNodes ?? 0) > 0)
-    evidence.push(`${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}`);
-  if ((diagnostics.incompleteEdges ?? 0) > 0)
-    evidence.push(`${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}`);
+  const unclassifiedAssemblies = [
+    ...new Set(
+      (diagnostics.unclassifiedBoundaryAssemblies ?? [])
+        .filter(assembly => assembly.trim().length > 0),
+    ),
+  ];
+  if ((diagnostics.unclassifiedBoundaryEdges ?? 0) > 0) {
+    const count = diagnostics.unclassifiedBoundaryEdges ?? 0;
+    const namedCount = Math.min(
+      diagnostics.unclassifiedBoundaryNamedEdges ?? 0,
+      count,
+    );
+    const target = namedCount === count && unclassifiedAssemblies.length
+      ? ` in ${plainTextList(unclassifiedAssemblies)}`
+      : "";
+    evidence.push(
+      `${count} call target${count === 1 ? "" : "s"}${target} could not be classified against the loaded package definitions`,
+    );
+  } else if (diagnostics.hasIncompleteCorrespondence
+    || (diagnostics.incompleteNodes ?? 0) > 0
+    || (diagnostics.incompleteEdges ?? 0) > 0) {
+    evidence.push("some member signatures could not be resolved against the loaded assemblies");
+  }
   if ((diagnostics.bindingIdentityConflicts ?? 0) > 0)
-    evidence.push(`${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}`);
+    evidence.push("some call targets matched conflicting assembly identities");
+  if ((diagnostics.physicalOccurrenceUnavailableEdges ?? 0) > 0) {
+    const count = diagnostics.physicalOccurrenceUnavailableEdges ?? 0;
+    evidence.push(`physical call-site evidence is unavailable for ${count} edge${count === 1 ? "" : "s"}`);
+  }
   if (diagnostics.hasAnalysisFailureBoundary)
     evidence.push("one or more method bodies could not be analyzed");
   if ((diagnostics.unavailableDependencyRoutes ?? 0) > 0)
@@ -1357,6 +1385,13 @@ export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | 
     ? `${evidence[0]} and ${evidence[1]}`
     : `${evidence.slice(0, -1).join(", ")}, and ${evidence.at(-1)}`;
   return `Partial call graph: ${detail}.`;
+}
+
+function plainTextList(values: readonly string[]): string {
+  const quoted = values.map(value => `"${value}"`);
+  if (quoted.length === 1) return quoted[0] ?? "";
+  if (quoted.length === 2) return `${quoted[0]} and ${quoted[1]}`;
+  return `${quoted.slice(0, -1).join(", ")}, and ${quoted.at(-1)}`;
 }
 
 export interface TitledParameter {

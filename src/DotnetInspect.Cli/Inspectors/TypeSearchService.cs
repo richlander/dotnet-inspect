@@ -204,8 +204,9 @@ internal static class TypeSearchService
             List<TypeFindResult> located;
             bool locatorHasFailures;
             bool locatorHasLoadFailures;
-            IReadOnlyList<TypeDeclarationLocatorSectionResult>
-                locatorSections;
+            IReadOnlyList<
+                InspectionEnvelope<TypeDeclarationLocatorSectionResult>>
+                locatorInspections;
             await using (
                 ConfiguredDeclarationLocatorWorkspace locator =
                     await ConfiguredDeclarationLocatorWorkspace.OpenAsync(
@@ -231,7 +232,7 @@ internal static class TypeSearchService
                         cancellationToken);
                 locatorHasFailures = locator.HasFailures;
                 locatorHasLoadFailures = locator.HasLoadFailures;
-                locatorSections = [.. locator.Sections];
+                locatorInspections = [.. locator.Inspections];
             }
 
             if (locatorHasLoadFailures
@@ -244,7 +245,7 @@ internal static class TypeSearchService
                     await FindWithCompatibilityAsync();
                 return compatibility with
                 {
-                    LocatorSections = locatorSections,
+                    LocatorInspections = locatorInspections,
                 };
             }
 
@@ -255,7 +256,7 @@ internal static class TypeSearchService
                     options.PackagePrefixLimitReached);
             return search with
             {
-                LocatorSections = locatorSections,
+                LocatorInspections = locatorInspections,
             };
         }
 

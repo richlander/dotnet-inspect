@@ -41,6 +41,7 @@ public enum MetadataRelationDiagnosticKind
     Limit,
     MalformedMetadata,
     UnsupportedShape,
+    StaleSource,
 }
 
 public sealed record MetadataRelationInspectionRequest
