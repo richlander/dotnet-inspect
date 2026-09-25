@@ -560,8 +560,9 @@ internal static class ResourceOwnershipSummaryAnalysis
                                         .From),
                             ],
                         });
-                    foreach (ImmutableArray<
-                        ResourceOccurrenceResourceKind> domain
+                    foreach ((
+                        ImmutableArray<ResourceOccurrenceResourceKind> domain,
+                        bool recovered)
                         in ReleaseDomains(
                             occurrences,
                             obligation,
@@ -569,6 +570,7 @@ internal static class ResourceOwnershipSummaryAnalysis
                             classification.OperationOffset,
                             classification.ParameterIndex))
                     {
+                        complete &= !recovered;
                         uses.Add(
                             new(
                                 ResourceOwnershipUseKind.Released,
@@ -610,8 +612,9 @@ internal static class ResourceOwnershipSummaryAnalysis
                     is ResourceOccurrenceRoot.IncomingArgument incoming
                 && incoming.ArgumentIndex == slot));
 
-    static IEnumerable<ImmutableArray<
-        ResourceOccurrenceResourceKind>> ReleaseDomains(
+    static IEnumerable<(
+        ImmutableArray<ResourceOccurrenceResourceKind> Domain,
+        bool Recovered)> ReleaseDomains(
         ResourceOccurrenceAnalysisResult occurrences,
         ResourceOccurrenceRoot.Acquisition? obligation,
         int? argumentSlot,
@@ -636,10 +639,79 @@ internal static class ResourceOwnershipSummaryAnalysis
                         is ResourceEffectLocation.Parameter parameter
                     && parameter.Index == calleeParameterIndex))
             {
-                yield return occurrence.Root.ResourceKinds;
+                yield return (occurrence.Root.ResourceKinds, false);
             }
         }
+
+        ImmutableArray<ResourceOccurrenceResourceKind> carriedKinds =
+            obligation is not null
+                ? obligation.ResourceKinds
+                :
+                [
+                    .. occurrences.Roots
+                        .OfType<ResourceOccurrenceRoot.IncomingArgument>()
+                        .Where(root =>
+                            argumentSlot is int slot
+                            && root.ArgumentIndex == slot)
+                        .SelectMany(static root => root.ResourceKinds),
+                ];
+        foreach (ResourceOccurrenceLimitation limitation
+            in occurrences.Limitations.Where(candidate =>
+                candidate.Root is null
+                && candidate.Call?.ILOffset == callOffset
+                && candidate.Effect
+                    is ResourceEffect.Release
+                    {
+                        Source: ResourceEffectLocation.Parameter parameter,
+                    }
+                && parameter.Index == calleeParameterIndex
+                && !candidate.ResourceKinds.IsEmpty))
+        {
+            ImmutableArray<ResourceOccurrenceResourceKind> matchingKinds =
+                carriedKinds.IsEmpty
+                    && obligation is null
+                    && argumentSlot is not null
+                ? limitation.ResourceKinds
+                :
+                [
+                    .. limitation.ResourceKinds.Where(
+                        candidate => carriedKinds.Any(
+                            carried => ResourceKindsMatch(
+                                carried,
+                                candidate))),
+                ];
+            if (!matchingKinds.IsEmpty)
+                yield return (matchingKinds, true);
+        }
     }
+
+    static bool ResourceKindsMatch(
+        ResourceOccurrenceResourceKind left,
+        ResourceOccurrenceResourceKind right) =>
+        left.Identity == right.Identity
+        && left.Arguments.Length == right.Arguments.Length
+        && left.Arguments.Zip(right.Arguments).All(pair =>
+            ResourceTypesMatch(pair.First, pair.Second));
+
+    static bool ResourceTypesMatch(
+        ResourceOccurrenceType left,
+        ResourceOccurrenceType right) =>
+        left.Type.Equals(right.Type)
+        && left.DefiningAssembly == right.DefiningAssembly
+        && left.DefinitionKind == right.DefinitionKind
+        && left.GenericScopeKind == right.GenericScopeKind
+        && left.Arguments.Length == right.Arguments.Length
+        && (left.Element is null) == (right.Element is null)
+        && (left.Element is null
+            || ResourceTypesMatch(left.Element, right.Element!))
+        && left.Arguments.Zip(right.Arguments).All(pair =>
+            ResourceTypesMatch(pair.First, pair.Second))
+        && left.Forwarding.Length == right.Forwarding.Length
+        && left.Forwarding.Zip(right.Forwarding).All(pair =>
+            pair.First.SourceAssembly == pair.Second.SourceAssembly
+            && pair.First.TargetReference == pair.Second.TargetReference
+            && pair.First.Declarations.AsSpan().SequenceEqual(
+                pair.Second.Declarations.AsSpan()));
 
     static bool IsDirectInvocation(DirectCall call) =>
         call.Kind is CallKind.Call
