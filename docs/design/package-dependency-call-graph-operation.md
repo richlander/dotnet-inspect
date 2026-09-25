@@ -269,6 +269,86 @@ retain their existing exception semantics.
 
 No non-success outcome contains an `InspectionGraphDocument`.
 
+## Dependency demand
+
+The graph walks the bodies of connector Packages and stops at boundary
+Packages. [Member call-graph supply-chain
+focus](member-call-graph-supply-chain-focus.md) classifies the focused root and
+the selected baseline Packages as connectors, and every other known Package as
+a highlighted boundary. A boundary call ends the graph at that call (gate 11).
+A boundary Package therefore contributes only the definition identity and
+Package ownership that classify its nodes. A connector Package contributes its
+bodies too.
+
+Measured on the CLI's real-network scenarios (2026-09-24). Every admitted edge
+is realized with its implementation, and every participant's bodies are
+analyzed:
+
+| Root | Packages realized | Assemblies the graph's edges reach | Received | Wall time |
+| --- | --- | --- | --- | --- |
+| `OpenTelemetry` 1.18.0, `net10.0` | 16 | 4 and `System.Private.CoreLib` | 6.5 MB | 13.5 s |
+| `Microsoft.Extensions.Http.Polly` 11.0.0-rc.1 | 10 | 2 and `System.Private.CoreLib` | 3.2 MB | 7.7 s |
+
+Every dependency archive in both scenarios is under the
+[size cut](package-cache-policy.md#size-first), so bytes are not the cost.
+Realizing and analyzing implementation the graph never follows is the cost.
+
+Two changes follow. Each keeps the exact root, the traversal, the route
+contracts, ownership classification, baseline classification, and the
+external-focused projection unchanged.
+
+1. **Demand follows the baseline class.** A Package's baseline class is known
+   before the graph is built: it is a function of the Package ID, the
+   captured registration revision, and the baseline selection, not of the
+   graph. Each admitted edge is realized with its class's demand:
+   - a connector Package, meaning a baseline Package under the request's
+     baseline, is realized with `SurfaceAndImplementation`, because the graph
+     walks its bodies;
+   - a boundary Package is realized with
+     [`Surface`](package-read-demand.md#asset-demand), because the graph needs
+     only its definitions and forwarders.
+
+   The implementation role, which is the analysis universe, then holds the
+   root's and the connectors' implementations only. Boundary participants
+   join the surface role, where type resolution and ownership classification
+   find them.
+2. **Only reached Packages are realized.** Expansion runs in rounds:
+   1. The first round builds the call tree over the root alone, within the
+      request's depth and node bounds.
+   2. The round collects the assembly references that the tree's calls use
+      but that no realized participant defines.
+   3. It then realizes the admitted edges whose Packages supply those
+      assemblies, each with its class's demand.
+   4. A realized connector extends the next round's tree. A boundary never
+      does.
+
+   A Package's supplied assemblies are read from the edge candidate's archive
+   directory, through a [document demand](package-read-demand.md#document-demand)
+   that names no entries, so only the root folder and the directory are read.
+   Forwarders into another Package's assembly are references like any other.
+   Expansion ends when a round finds no new Package, or when the depth or
+   node bound ends the tree, and the graph is built over the realized set.
+
+   An edge no round reaches is not realized. Its route summary says so, as
+   `NotReached`. That is a resource-free fact of this operation, not a
+   Workspace route outcome, and the detached result still carries one route
+   summary per admitted edge. A referenced assembly that no admitted edge
+   supplies remains unknown ownership, exactly as today.
+
+The first change needs no new ordering. Complete preparation, one sequential
+source execution, and one Workspace publication all stay as they are, with a
+per-edge demand. The second changes execution and publication, not
+preparation:
+- every admitted edge's execution is still validated before the first source
+  call;
+- source execution becomes one sequential step per round, under the same
+  lease; and
+- Workspace publication happens once per round, with the round's
+  contributions.
+
+A cancellation, timeout, or failure in any round stops expansion with the
+same outcomes as today.
+
 ## Production path
 
 The four slices are:
@@ -315,7 +395,14 @@ Release gates cover:
 13. cleanup failure cannot return a success-shaped graph and remains
     authoritative over simultaneous graph-phase cancellation; and
 14. existing edge realization, Workspace route, package-role, and ordinary
-    call-graph behavior remain unchanged.
+    call-graph behavior remain unchanged;
+15. boundary dependency edges are realized with `Surface` and connector edges
+    with `SurfaceAndImplementation`, the implementation role holds only the
+    root and connectors, and the graph's nodes, classification, and output
+    equal those of all-implementation realization on the real `OpenTelemetry`
+    and `Polly` scenarios under each baseline; and
+16. an admitted edge that no expansion round reaches is not realized, its
+    route summary is `NotReached`, and the graph's output is unchanged.
 
 ## Non-claims
 
@@ -325,6 +412,7 @@ This composition does not:
 - change root package, asset, type, or member selection;
 - change dependency traversal or its `net12.0` default;
 - acquire an unbounded dependency closure;
+- follow calls into boundary Package bodies;
 - redefine PackageHouse realization or Platform pruning;
 - add active Platform assemblies to the call-graph context;
 - change external-focused topology;
