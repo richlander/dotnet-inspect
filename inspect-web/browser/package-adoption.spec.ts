@@ -2550,19 +2550,31 @@ test.describe("bounded network-backed two-host demo", () => {
     const search = page.locator("#spotlight-input");
     await expect(search).toBeVisible({ timeout: 120_000 });
     await search.fill("System.Text.Json@9.0.4");
-    await page.locator('[data-sl-pkg-load="System.Text.Json"]').click();
+    const exactPackage = page.locator(
+      '[data-sl-pkg-load="System.Text.Json"][data-sl-pkg-version="9.0.4"]',
+    );
+    await expect(exactPackage)
+      .toContainText("9.0.4 · exact coordinate · listed or unlisted");
+    await exactPackage.dispatchEvent("click");
     await expect(page.locator(".inspected-target"))
       .toContainText("System.Text.Json", { timeout: 180_000 });
+    await expect(page.getByTitle("System.Text.Json@9.0.4", { exact: true }))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(page.locator("#app"))
+      .not.toHaveAttribute("aria-busy", "true", { timeout: 180_000 });
 
-    await page.locator("[data-product-navigation-button]").click();
-    await expect(page.locator('[data-product-destination="query"]'))
-      .not.toHaveAttribute("aria-disabled", "true", { timeout: 180_000 });
-    await page.locator('[data-product-destination="workspace"]')
+    await page.locator("[data-product-navigation-button]")
+      .dispatchEvent("click");
+    await page.locator(
+      '[data-product-navigation-menu]:not([hidden])'
+        + ':has([data-product-destination="query"]:not([aria-disabled="true"])) '
+        + '[data-product-destination="workspace"]',
+    )
       .dispatchEvent("click");
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
-    ).click();
+    ).dispatchEvent("click");
     await page.getByLabel("Workspace name", { exact: true })
       .fill("System.Text.Json 9.0.4");
     await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -2633,7 +2645,7 @@ test.describe("bounded network-backed two-host demo", () => {
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
-    ).click();
+    ).dispatchEvent("click");
     await page.getByLabel("Workspace name", { exact: true })
       .fill("Re-saved System.Text.Json 9.0.4");
     await page.getByRole("button", { name: "Save", exact: true }).click();
