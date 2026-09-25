@@ -25,17 +25,27 @@ public sealed partial class DesktopPackageSourceComposition
         PackagePayloadAccess access = PackagePayloadAccess.Complete,
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
-        IEnumerable<string>? implementationNames = null)
+        IEnumerable<string>? implementationNames = null,
+        PackageDocumentDemand? documentDemand = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
-        if (compileTargetContext is not null
+        if ((compileTargetContext is not null || documentDemand is not null)
             && operationContext is not null)
         {
             throw new ArgumentException(
-                "PackageHouse compile realization cannot use a legacy operation context.",
+                "PackageHouse compile realization and document demand cannot use a legacy operation context.",
                 nameof(operationContext));
         }
-        RequireRealizationForRangedAccess(access, compileTargetContext);
+        if (documentDemand is not null && compileTargetContext is not null)
+        {
+            throw new ArgumentException(
+                "A document demand is carried by an Acquire operation, not a compile realization.",
+                nameof(documentDemand));
+        }
+        RequireRealizationForRangedAccess(
+            access,
+            compileTargetContext,
+            documentDemand);
         if (implementationNames is not null && compileTargetContext is null)
         {
             throw new ArgumentException(
@@ -92,7 +102,8 @@ public sealed partial class DesktopPackageSourceComposition
                     compileTargetContext,
                     access,
                     assetDemand,
-                    implementationNames);
+                    implementationNames,
+                    documentDemand);
             sourceOperation = null;
             return execution;
         }

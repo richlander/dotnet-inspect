@@ -216,7 +216,9 @@ internal enum UnsafeCallProbeResult
 /// </summary>
 internal sealed class LibraryMethodAnalysisRunner(
     ILibraryMethodAnalysisInfrastructure infrastructure,
-    LibraryBodyExceptionTypeClassifier? exceptionTypes = null)
+    LibraryBodyExceptionTypeClassifier? exceptionTypes = null,
+    ImplementationMetricWorkBudget?
+        implementationMetricWork = null)
 {
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
@@ -224,6 +226,9 @@ internal sealed class LibraryMethodAnalysisRunner(
         new(infrastructure.Reader);
     readonly UnsafePresenceWorkBudget _unsafePresenceWork =
         new();
+    readonly ImplementationMetricWorkBudget?
+        _implementationMetricWork =
+            implementationMetricWork;
 
     internal UnsafeEvidencePresenceMethodResult ProbeUnsafeEvidence(
         TypeDefinitionHandle typeHandle,
@@ -884,6 +889,9 @@ internal sealed class LibraryMethodAnalysisRunner(
             MethodBodyData metadataBody = RequireMethodBody(
                 _infrastructure.PeReader,
                 caller.MetadataToken);
+            _implementationMetricWork?.AdmitMetricBody(
+                caller.MetadataToken,
+                metadataBody.IL.Length);
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
             var il = metadataBody.IL.ToArray();

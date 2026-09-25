@@ -19,7 +19,9 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
     MetadataReader reader,
     LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
     LibraryBodyLiftedSourceOwnerResolver liftedSourceOwnerResolver,
-    LibraryBodyAsyncSourceResolver asyncSourceResolver)
+    LibraryBodyAsyncSourceResolver asyncSourceResolver,
+    ImplementationMetricWorkBudget?
+        implementationMetricWork = null)
 {
     readonly MetadataReader _reader = reader;
     readonly LibraryBodyPrimaryMetadataResolver
@@ -28,6 +30,9 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         _liftedSourceOwnerResolver = liftedSourceOwnerResolver;
     readonly LibraryBodyAsyncSourceResolver
         _asyncSourceResolver = asyncSourceResolver;
+    readonly ImplementationMetricWorkBudget?
+        _implementationMetricWork =
+            implementationMetricWork;
 
     internal bool TryResolveAsyncSiblingSource(
         MethodIdentity method,
@@ -479,6 +484,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
             plan.ScopeExpansionDiagnostics.IsDefault
                 ? ImmutableArray.CreateBuilder<AnalysisDiagnostic>()
                 : plan.ScopeExpansionDiagnostics.ToBuilder();
+        bool attributionBudgetExhausted = false;
         foreach (TypeDefinitionHandle typeHandle
             in _reader.TypeDefinitions)
         {
@@ -521,7 +527,8 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                         || plan.TypeScope?.Invoke(
                             method.DeclaringType)
                             == true;
-                    if (_liftedSourceOwnerResolver.TryResolve(
+                    if (_liftedSourceOwnerResolver
+                        .TryResolveForScopeExpansion(
                             methodHandle,
                             methodDefinition,
                             method,
@@ -539,6 +546,23 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                             sourceOwner.Method;
                     }
                 }
+                catch (
+                    ImplementationMetricWorkLimitExceededException ex)
+                {
+                    if (!attributionBudgetExhausted)
+                    {
+                        diagnostics.Add(new AnalysisDiagnostic(
+                            ex.MethodToken,
+                            LibraryMethodAnalysisRunner
+                                .MethodLabel(
+                                    _reader,
+                                    typeHandle,
+                                    methodHandle),
+                            ex.Message,
+                            DeclaringType: method.DeclaringType));
+                    }
+                    attributionBudgetExhausted = true;
+                }
                 catch (Exception ex)
                     when (LibraryMethodAnalysisRunner
                         .IsRecoverableMethodFailure(ex))
@@ -554,6 +578,20 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                         DeclaringType: method.DeclaringType));
                 }
             }
+        }
+        ImplementationMetricWorkBudgetSnapshot? work =
+            _implementationMetricWork?.Snapshot();
+        if (!attributionBudgetExhausted
+            && work?.AttributionExhaustedLimit is { }
+                attributionLimit
+            && work.AttributionExhaustedMethodToken is { }
+                attributionToken)
+        {
+            diagnostics.Add(new AnalysisDiagnostic(
+                attributionToken,
+                $"0x{attributionToken:X8}",
+                ImplementationMetricWorkLimitExceededException
+                    .MessageFor(attributionLimit)));
         }
 
         IReadOnlySet<int>? methodScope = plan.MethodScope;

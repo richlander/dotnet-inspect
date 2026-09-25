@@ -29,6 +29,7 @@
     <PackageDownload Include="dotnet-outdated-tool" Version="[4.8.1]" />
     <PackageDownload Include="CrestApps.AgentSkills.Mcp.OrchardCore"
                      Version="[1.2.0]" />
+    <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -52,6 +53,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)crestapps.agentskills.mcp.orchardcore/1.2.0/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
           Link="RealAssets/SectionGrowth/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)newtonsoft.json/13.0.4/newtonsoft.json.13.0.4.nupkg"
+          Link="RealAssets/DocumentDemand/newtonsoft.json.13.0.4.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)npgsql.entityframeworkcore.postgresql/8.0.4/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
           Link="RealAssets/TypeDependencies/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
