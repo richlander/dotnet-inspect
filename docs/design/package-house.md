@@ -677,6 +677,14 @@ package-local selections and reports them as separate projections. It does not
 merge incompatible slices into one selected universe. The coordinator for that
 multi-selection operation owns its completion and ordering.
 
+The focused
+[PackageHouse framework-reference evidence](package-house-framework-reference-evidence.md)
+contract adds a bounded root-nuspec demand and resource-free projection over
+one exact acquired compile settlement. It uses the House target context,
+acquisition receipt, compile realization, and content generation directly.
+Legacy Root reacquisition and realized dependency-context paths do not own or
+reconstruct that evidence.
+
 ## Operation profiles
 
 Each request authorizes one maximum package work profile:

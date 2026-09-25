@@ -87,7 +87,7 @@ root README remains current without cataloging every focused capability.
 | Command placement, names, defaults, and disclosure | [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md), [Relationship Section Naming](design/relationship-section-naming.md), [Progressive Disclosure](design/progressive-disclosure.md), and [CLI Host Architecture](cli-architecture.md) |
 | Output data and rendering | [Output Shapes](design/output-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
 | Metadata and API inspection | [Assembly Inspection Query](design/assembly-inspection-query.md) |
-| Package composition | [PackageHouse](design/package-house.md) |
+| Package composition | [PackageHouse](design/package-house.md) and [PackageHouse framework-reference evidence](design/package-house-framework-reference-evidence.md) |
 | Package version selection and freshness | [Version Resolution](design/version-resolution.md) and [Package Version Service](design/package-version-service.md) |
 | Ranged reads of a package archive's directory and entries | [Package archive range access](design/package-archive-range-access.md) |
 | Which remote package archives are cached and which are read by range; durable identity for credential-free HTTP feeds | [Package cache policy](design/package-cache-policy.md) |
