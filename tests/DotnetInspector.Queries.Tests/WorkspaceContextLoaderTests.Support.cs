@@ -808,6 +808,10 @@ public sealed partial class WorkspaceContextLoaderTests
             EnumerateEntriesWithLengths() =>
             ((IPackageContentEntryManifest)inner)
                 .EnumerateEntriesWithLengths();
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            ((IPackageContentEntryManifest)inner)
+                .CreateEntryScanner();
     }
 
     sealed class FailingHandler : HttpMessageHandler

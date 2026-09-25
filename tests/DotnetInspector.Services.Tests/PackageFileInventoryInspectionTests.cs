@@ -95,6 +95,38 @@ public sealed class PackageFileInventoryInspectionTests
     }
 
     [Fact]
+    public void CountTerminalPullsAndDisposesScannerWithoutSnapshottingRows()
+    {
+        ScannerOnlyManifestContent? content = null;
+        PackageHouseSettlement.Acquired settlement =
+            CreateSettlement(
+                producerKey =>
+                    content = new ScannerOnlyManifestContent(
+                        producerKey));
+        var rows = RowSelectionIntent<string>.Create(
+            [
+                RowSelectionIntentOperation<string>.Head(2),
+            ]);
+
+        PackageFileInventoryDocument document =
+            PackageFileInventoryInspection.Execute(
+                new(
+                    settlement,
+                    PackageFileInventoryQuery.CreateRequest(
+                        rows,
+                        QuerySpaceTerminalRequirement.Count)))
+                .Content;
+
+        Assert.Equal(PackageFileInventoryStatus.Completed, document.Status);
+        Assert.Equal("contoso.inventory", document.PackageId);
+        Assert.Equal(2, document.Count);
+        Assert.Empty(document.Files);
+        Assert.True(document.HasAgentDocumentation);
+        Assert.Equal(6, content!.MoveNextCalls);
+        Assert.True(content.ScannerDisposed);
+    }
+
+    [Fact]
     public void RealPackageInventoryUsesArchiveManifestLengths()
     {
         string packagePath = Path.Combine(
@@ -295,11 +327,67 @@ public sealed class PackageFileInventoryInspectionTests
             return true;
         }
 
-        public IReadOnlyList<PackageContentEntry>
-            EnumerateEntriesWithLengths() =>
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            PackageContentEntryScanner.From(
             [
                 new("lib/net8.0/Contoso.dll", 1),
                 new("lib/net8.0/Contoso.dll", 1),
-            ];
+            ]);
+    }
+
+    private sealed class ScannerOnlyManifestContent(string producerKey)
+        : ManifestlessContent(producerKey), IPackageContentEntryManifest
+    {
+        private static readonly PackageContentEntry[] Entries =
+        [
+            new("_rels/.rels", 1),
+            new("contoso.inventory.nuspec", 2),
+            new("AGENTS.md", 3),
+            new("a.txt", 4),
+            new("b.txt", 5),
+        ];
+
+        public int MoveNextCalls { get; private set; }
+
+        public bool ScannerDisposed { get; private set; }
+
+        public bool TryGetEntryLength(
+            string relativePath,
+            out long length)
+        {
+            PackageContentEntry? entry = Entries.FirstOrDefault(
+                entry => entry.Path.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
+            length = entry?.Length ?? 0;
+            return entry is not null;
+        }
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            new TrackingScanner(this);
+
+        private sealed class TrackingScanner(
+            ScannerOnlyManifestContent owner)
+            : PackageContentEntryScanner
+        {
+            private int _index;
+
+            public override bool MoveNext(
+                out PackageContentEntry entry)
+            {
+                owner.MoveNextCalls++;
+                if (_index >= Entries.Length)
+                {
+                    entry = default;
+                    return false;
+                }
+
+                entry = Entries[_index++];
+                return true;
+            }
+
+            public override void Dispose() =>
+                owner.ScannerDisposed = true;
+        }
     }
 }

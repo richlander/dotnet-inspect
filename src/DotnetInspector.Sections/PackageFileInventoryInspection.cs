@@ -162,20 +162,6 @@ public static class PackageFileInventoryInspection
                 "The acquired package content does not expose declared file lengths.");
         }
 
-        IReadOnlyList<PackageContentEntry> entries =
-            manifest.EnumerateEntriesWithLengths();
-        if (!TryCreateRows(
-                entries,
-                out IReadOnlyList<PackageFileInventoryEntry> rows,
-                out string? validationError))
-        {
-            return Failed(
-                PackageFileInventoryStatus.Unavailable,
-                request.Query.Terminal,
-                "package-file-inventory.invalid-manifest",
-                validationError!);
-        }
-
         QuerySpaceRowIntentAssociation association =
             request.Query.RowIntents.Single();
         RowQueryResolutionResult<PackageFileInventoryEntry> resolution =
@@ -191,18 +177,23 @@ public static class PackageFileInventoryInspection
         }
 
         var coordinate = request.Settlement.Payload.Coordinate;
-        string packageId = ResolveDisplayPackageId(
-            coordinate.PackageId,
-            rows);
-        bool hasAgentDocumentation = rows.Any(
-            static row => row.Path.ToString().Equals(
-                "AGENTS.md",
-                StringComparison.OrdinalIgnoreCase));
+        using PackageContentEntryScanner scanner =
+            manifest.CreateEntryScanner();
         if (request.Query.Terminal
             == QuerySpaceTerminalRequirement.Count)
         {
+            if (!TryCountEntries(
+                    scanner,
+                    coordinate.PackageId,
+                    out PackageFileInventorySummary summary,
+                    out string? validationError))
+            {
+                return InvalidManifest(
+                    request.Query.Terminal,
+                    validationError!);
+            }
             if (!RowQueryExecutor.TryApplyCount(
-                    rows.Count,
+                    summary.Count,
                     resolution.Plan!,
                     out RowSelectionCountResult count))
             {
@@ -216,15 +207,26 @@ public static class PackageFileInventoryInspection
                 return FailedWindow(request.Query.Terminal, count.Failure!);
 
             var countDocument = PackageFileInventoryDocument.Completed(
-                packageId,
+                summary.PackageId,
                 coordinate.Version,
                 request.Query.Terminal,
                 [],
                 count.Count,
-                hasAgentDocumentation);
+                summary.HasAgentDocumentation);
             return Completed(countDocument);
         }
 
+        if (!TryCreateRows(
+                scanner,
+                coordinate.PackageId,
+                out IReadOnlyList<PackageFileInventoryEntry> rows,
+                out PackageFileInventorySummary rowsSummary,
+                out string? rowsValidationError))
+        {
+            return InvalidManifest(
+                request.Query.Terminal,
+                rowsValidationError!);
+        }
         RowSelectionResult<PackageFileInventoryEntry> selection =
             RowQueryExecutor.Apply(rows, resolution.Plan!);
         if (!selection.IsSuccess)
@@ -233,33 +235,52 @@ public static class PackageFileInventoryInspection
                 selection.Failure!);
 
         var document = PackageFileInventoryDocument.Completed(
-            packageId,
+            rowsSummary.PackageId,
             coordinate.Version,
             request.Query.Terminal,
             selection.Values,
             selection.Values.Count,
-            hasAgentDocumentation);
+            rowsSummary.HasAgentDocumentation);
         return Completed(document);
     }
 
-    private static string ResolveDisplayPackageId(
+    private static bool TryCountEntries(
+        PackageContentEntryScanner scanner,
         string packageId,
-        IReadOnlyList<PackageFileInventoryEntry> rows)
+        out PackageFileInventorySummary summary,
+        out string? error)
     {
+        summary = default;
+        var paths = new HashSet<string>(StringComparer.Ordinal);
         string expectedNuspec = $"{packageId}.nuspec";
-        foreach (PackageFileInventoryEntry row in rows)
+        string displayPackageId = packageId;
+        int count = 0;
+        bool hasAgentDocumentation = false;
+        while (scanner.MoveNext(out PackageContentEntry entry))
         {
-            string path = row.Path.ToString();
-            if (!path.Contains('/')
-                && path.Equals(
-                    expectedNuspec,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return path[..^".nuspec".Length];
-            }
+            if (!TryAdmitEntry(
+                    entry,
+                    paths,
+                    out bool admitted,
+                    out error))
+                return false;
+            if (!admitted)
+                continue;
+
+            count++;
+            ObservePackageWideFacts(
+                entry.Path,
+                expectedNuspec,
+                ref displayPackageId,
+                ref hasAgentDocumentation);
         }
 
-        return packageId;
+        summary = new(
+            displayPackageId,
+            count,
+            hasAgentDocumentation);
+        error = null;
+        return true;
     }
 
     private static InspectionEnvelope<PackageFileInventoryDocument>
@@ -292,41 +313,41 @@ public static class PackageFileInventoryInspection
     }
 
     private static bool TryCreateRows(
-        IReadOnlyList<PackageContentEntry> entries,
+        PackageContentEntryScanner scanner,
+        string packageId,
         out IReadOnlyList<PackageFileInventoryEntry> rows,
+        out PackageFileInventorySummary summary,
         out string? error)
     {
         var paths = new HashSet<string>(StringComparer.Ordinal);
-        var values = new List<PackageFileInventoryEntry>(entries.Count);
-        foreach (PackageContentEntry entry in entries)
+        var values = new List<PackageFileInventoryEntry>();
+        string expectedNuspec = $"{packageId}.nuspec";
+        string displayPackageId = packageId;
+        bool hasAgentDocumentation = false;
+        while (scanner.MoveNext(out PackageContentEntry entry))
         {
-            if (string.IsNullOrWhiteSpace(entry.Path))
+            if (!TryAdmitEntry(
+                    entry,
+                    paths,
+                    out bool admitted,
+                    out error))
             {
                 rows = [];
-                error = "The package entry manifest contains an empty path.";
+                summary = default;
                 return false;
             }
-            if (entry.Length < 0)
-            {
-                rows = [];
-                error =
-                    $"Package entry '{entry.Path}' has a negative declared length.";
-                return false;
-            }
-            if (!paths.Add(entry.Path))
-            {
-                rows = [];
-                error =
-                    $"Package entry '{entry.Path}' appears more than once.";
-                return false;
-            }
-            if (PackageFileInventoryQuery.IsPlumbingPath(entry.Path))
+            if (!admitted)
                 continue;
 
             values.Add(
                 new PackageFileInventoryEntry(
                     entry.Path,
                     entry.Length));
+            ObservePackageWideFacts(
+                entry.Path,
+                expectedNuspec,
+                ref displayPackageId,
+                ref hasAgentDocumentation);
         }
 
         values.Sort(
@@ -335,9 +356,74 @@ public static class PackageFileInventoryInspection
                     left.Path.ToString(),
                     right.Path.ToString()));
         rows = values;
+        summary = new(
+            displayPackageId,
+            values.Count,
+            hasAgentDocumentation);
         error = null;
         return true;
     }
+
+    private static bool TryAdmitEntry(
+        PackageContentEntry entry,
+        HashSet<string> paths,
+        out bool admitted,
+        out string? error)
+    {
+        admitted = false;
+        if (string.IsNullOrWhiteSpace(entry.Path))
+        {
+            error = "The package entry manifest contains an empty path.";
+            return false;
+        }
+        if (entry.Length < 0)
+        {
+            error =
+                $"Package entry '{entry.Path}' has a negative declared length.";
+            return false;
+        }
+        if (!paths.Add(entry.Path))
+        {
+            error =
+                $"Package entry '{entry.Path}' appears more than once.";
+            return false;
+        }
+
+        admitted = !PackageFileInventoryQuery.IsPlumbingPath(entry.Path);
+        error = null;
+        return true;
+    }
+
+    private static void ObservePackageWideFacts(
+        string path,
+        string expectedNuspec,
+        ref string packageId,
+        ref bool hasAgentDocumentation)
+    {
+        if (path.Equals(
+                "AGENTS.md",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            hasAgentDocumentation = true;
+        }
+        if (!path.Contains('/')
+            && path.Equals(
+                expectedNuspec,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            packageId = path[..^".nuspec".Length];
+        }
+    }
+
+    private static InspectionEnvelope<PackageFileInventoryDocument>
+        InvalidManifest(
+        QuerySpaceTerminalRequirement terminal,
+        string detail) =>
+        Failed(
+            PackageFileInventoryStatus.Unavailable,
+            terminal,
+            "package-file-inventory.invalid-manifest",
+            detail);
 
     private static InspectionEnvelope<PackageFileInventoryDocument> Failed(
         PackageFileInventoryStatus status,
@@ -365,4 +451,9 @@ public static class PackageFileInventoryInspection
             $"Package-file row stage {failure.StageNumber} requires "
                 + $"position {failure.RequiredPosition}, but only "
                 + $"{failure.AvailableCount} rows are available.");
+
+    private readonly record struct PackageFileInventorySummary(
+        string PackageId,
+        int Count,
+        bool HasAgentDocumentation);
 }

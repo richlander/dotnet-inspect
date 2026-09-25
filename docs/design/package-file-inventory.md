@@ -21,10 +21,10 @@ inspection infrastructure.
 
 The package-file inventory operation borrows one live
 `PackageHouseSettlement.Acquired` for the duration of synchronous package-entry
-enumeration. The acquired content must expose an entry manifest with declared
-expanded lengths. The operation excludes packaging and restore plumbing, orders
-the remaining paths ordinally, applies its package-file row QuerySpace, and
-returns an `InspectionEnvelope<PackageFileInventoryDocument>`.
+scanning. The acquired content must expose a pull-based entry scanner with
+declared expanded lengths. The operation excludes packaging and restore
+plumbing, applies its package-file row QuerySpace, and returns an
+`InspectionEnvelope<PackageFileInventoryDocument>`.
 
 The CLI recognizes this route before legacy extraction or package inspection.
 Its desktop host composition acquires the package directly through
@@ -48,11 +48,13 @@ an empty successful inventory.
 The first production adoption supports the single-package, exact `Package
 files` section without `--path`, a target-framework file predicate, discovery,
 or `--print`. Its QuerySpace admits Head, Tail, and Window stages and the Rows
-and Count terminals. Rows returns the selected detached entries; Count applies
-the same semantic stages to the validated inventory cardinality without
-retaining rows in the result. The CLI maps Rows into its existing section and
-shape projections, clears the rendered-row window after QuerySpace applies it,
-and does not apply semantic row selection a second time. Whole-document JSON
+and Count terminals. Rows constructs and ordinally sorts detached entries
+before selection. Count advances the entry scanner while validating paths and
+deriving package-wide facts, then applies the same semantic stages to the
+validated cardinality; it does not construct, sort, retain, or transport
+detached rows. The CLI maps Rows into its existing section and shape
+projections, clears the rendered-row window after QuerySpace applies it, and
+does not apply semantic row selection a second time. Whole-document JSON
 remains legacy because its existing contract includes unrelated package
 metadata; JSON shape projections and JSONL file rows use the inventory route.
 Pre-resolved Workspace packages, local archives, offline acquisition,
@@ -108,7 +110,9 @@ The production-route gates use a package whose `AGENTS.md` entry lies outside
 the selected row window and an admitted archive with a malformed nuspec body.
 They require package-wide agent-documentation state to remain true, require a
 non-first row window to render once, and require file inventory to complete
-without entering legacy nuspec/package inspection.
+without entering legacy nuspec/package inspection. A scanner-only Count fixture
+requires the operation to pull and dispose the manifest scanner, preserve
+package-wide facts, return cardinality, and transport no detached rows.
 
 Contract tests use an independently built local package whose matching TFM
 appears under `lib`, `ref`, nested `runtimes`, a custom root, and an `_._`
