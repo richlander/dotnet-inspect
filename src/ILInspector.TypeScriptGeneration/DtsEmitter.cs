@@ -51,7 +51,9 @@ static class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         TypeScriptGenerationDiagnostics? diagnostics = null)
     {
-        ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        WireDeclarationPlan declarationPlan =
+            CreateWireDeclarationPlan(surface);
+        ApiType[] declarationTypes = declarationPlan.Types;
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity =
                 DeclaredTypesByScopedIdentity(
@@ -59,7 +61,7 @@ static class DtsEmitter
                     TypeInventory(
                         surface,
                         declarationTypes));
-        ValidateTypeNames(declarationTypes);
+        ValidateTypeNames(declarationPlan.Declarations);
         ValidateWireNames(
             surface.AssemblyIdentity,
             declarationTypes,
@@ -72,12 +74,14 @@ static class DtsEmitter
             surface,
             declarationTypes,
             declaredTypesByScopedIdentity,
+            declarationPlan,
             diagnostics);
 
         foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
             EmitFunction(sb, GetFunctionSignature(
                 surface,
                 declarationTypes,
+                declarationPlan,
                 function,
                 diagnostics,
                 includeRawReturnType: false));
@@ -88,7 +92,9 @@ static class DtsEmitter
     internal static string EmitWireDeclarations(
         ILInspector.JsExportSurface.JsExportSurface surface,
         TypeScriptGenerationDiagnostics? diagnostics = null,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        WireDeclarationPlan? declarationPlan = null,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames = null,
         string? allocatedInertStringName = null,
         string? allocatedInertStringBrandName = null,
         string? allocatedDateTimeOffsetName = null,
@@ -96,7 +102,8 @@ static class DtsEmitter
         string? allocatedJsonTextName = null,
         string? allocatedJsonTextBrandName = null)
     {
-        ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        declarationPlan ??= CreateWireDeclarationPlan(surface);
+        ApiType[] declarationTypes = declarationPlan.Types;
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity =
                 DeclaredTypesByScopedIdentity(
@@ -104,7 +111,9 @@ static class DtsEmitter
                     TypeInventory(
                         surface,
                         declarationTypes));
-        ValidateTypeNames(declarationTypes, allocatedTypeNames);
+        ValidateTypeNames(
+            declarationPlan.Declarations,
+            allocatedTypeNames);
         ValidateWireNames(
             surface.AssemblyIdentity,
             declarationTypes,
@@ -116,6 +125,7 @@ static class DtsEmitter
             surface,
             declarationTypes,
             declaredTypesByScopedIdentity,
+            declarationPlan,
             diagnostics,
             allocatedTypeNames,
             allocatedInertStringName,
@@ -131,14 +141,19 @@ static class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         JsExportFunction function,
         TypeScriptGenerationDiagnostics? diagnostics = null,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        WireDeclarationPlan? declarationPlan = null,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames = null,
         string? allocatedInertStringName = null,
         string? allocatedDateTimeOffsetName = null,
         string? allocatedJsonTextName = null,
-        bool includeRawReturnType = true) =>
-        GetFunctionSignature(
+        bool includeRawReturnType = true)
+    {
+        declarationPlan ??= CreateWireDeclarationPlan(surface);
+        return GetFunctionSignature(
             surface,
-            GetDeclarationTypes(surface),
+            declarationPlan.Types,
+            declarationPlan,
             function,
             diagnostics,
             allocatedTypeNames,
@@ -146,6 +161,183 @@ static class DtsEmitter
             allocatedDateTimeOffsetName,
             allocatedJsonTextName,
             includeRawReturnType);
+    }
+
+    internal static WireDeclarationPlan CreateWireDeclarationPlan(
+        ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity =
+                DeclaredTypesByScopedIdentity(
+                    surface,
+                    TypeInventory(
+                        surface,
+                        declarationTypes));
+        HashSet<ApiType> recordTypes = surface.Records.ToHashSet();
+        Dictionary<ApiType, JsExportUnion> unionsByDefinition =
+            surface.Unions.ToDictionary(union => union.Definition);
+        var splitTypes = new HashSet<ApiType>(
+            declarationTypes.Where(type =>
+                surface.WireDirections.GetValueOrDefault(
+                    type,
+                    JsonWireDirection.Both)
+                    == JsonWireDirection.Both
+                && recordTypes.Contains(type)
+                && HasSupportedDirectionalDifference(
+                    surface,
+                    type,
+                    declaredTypesByScopedIdentity)));
+        var typesByDefinitionName = declarationTypes
+            .Where(type => type.DefinitionName is not null)
+            .GroupBy(type => type.DefinitionName!)
+            .Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single());
+
+        // Close over local references so recursive and generic containers pick
+        // one consistent declaration direction throughout their type graph.
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (ApiType type in declarationTypes)
+            {
+                if (splitTypes.Contains(type)
+                    || surface.WireDirections.GetValueOrDefault(
+                        type,
+                        JsonWireDirection.Both)
+                        != JsonWireDirection.Both)
+                {
+                    continue;
+                }
+
+                bool referencesSplit = recordTypes.Contains(type)
+                    ? HasSupportedDirectionalMembers(
+                            surface,
+                            type,
+                            declaredTypesByScopedIdentity,
+                            out _)
+                        && type.Members.Any(member =>
+                            GetEffectiveMemberPresence(
+                                surface,
+                                type,
+                                member,
+                                JsonWireDirection.Serialize,
+                                surface.AssemblyIdentity,
+                                declaredTypesByScopedIdentity)
+                                is JsonWireMemberPresence.Present
+                                    or JsonWireMemberPresence.Conditional
+                            && (ReferencesSplitType(
+                                    member.SignatureModel?.ReturnTypeShape,
+                                    declaredTypesByScopedIdentity,
+                                    splitTypes)
+                                || member.SignatureModel
+                                    ?.ReturnTypeReferences.Any(
+                                        reference =>
+                                            declaredTypesByScopedIdentity
+                                                .TryGetValue(
+                                                    reference,
+                                                    out ApiType? referenced)
+                                            && splitTypes.Contains(referenced))
+                                    == true))
+                    : unionsByDefinition.TryGetValue(
+                        type,
+                        out JsExportUnion? union)
+                    && union.CaseTypes.Any(caseType =>
+                        ReferencesSplitType(
+                            caseType,
+                            surface.AssemblyIdentity,
+                            typesByDefinitionName,
+                            splitTypes));
+                if (referencesSplit)
+                {
+                    splitTypes.Add(type);
+                    changed = true;
+                }
+            }
+        }
+        while (changed);
+
+        var declarations = new List<WireDeclarationIdentity>();
+        foreach (ApiType type in declarationTypes)
+        {
+            JsonWireDirection directions =
+                surface.WireDirections.GetValueOrDefault(
+                    type,
+                    JsonWireDirection.Both);
+            if (splitTypes.Contains(type))
+            {
+                declarations.Add(new WireDeclarationIdentity(
+                    type,
+                    JsonWireDirection.Deserialize,
+                    IsSplit: true));
+                declarations.Add(new WireDeclarationIdentity(
+                    type,
+                    JsonWireDirection.Serialize,
+                    IsSplit: true));
+            }
+            else
+            {
+                declarations.Add(new WireDeclarationIdentity(
+                    type,
+                    directions,
+                    IsSplit: false));
+            }
+        }
+        return new WireDeclarationPlan(
+            declarationTypes,
+            [.. declarations],
+            splitTypes);
+    }
+
+    static bool HasSupportedDirectionalDifference(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        ApiType type,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity)
+        => HasSupportedDirectionalMembers(
+            surface,
+            type,
+            declaredTypesByScopedIdentity,
+            out bool differs)
+        && differs;
+
+    static bool HasSupportedDirectionalMembers(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        ApiType type,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity,
+        out bool differs)
+    {
+        differs = false;
+        foreach (ApiMember member in type.Members)
+        {
+            JsonWireMemberPresence serialize =
+                GetEffectiveMemberPresence(
+                    surface,
+                    type,
+                    member,
+                    JsonWireDirection.Serialize,
+                    surface.AssemblyIdentity,
+                    declaredTypesByScopedIdentity);
+            JsonWireMemberPresence deserialize =
+                GetEffectiveMemberPresence(
+                    surface,
+                    type,
+                    member,
+                    JsonWireDirection.Deserialize,
+                    surface.AssemblyIdentity,
+                    declaredTypesByScopedIdentity);
+            if (serialize == JsonWireMemberPresence.Unsupported
+                || deserialize == JsonWireMemberPresence.Unsupported)
+            {
+                return false;
+            }
+            differs |= serialize != deserialize;
+        }
+
+        return true;
+    }
 
     static ApiType[] GetDeclarationTypes(
         ILInspector.JsExportSurface.JsExportSurface surface)
@@ -291,14 +483,88 @@ static class DtsEmitter
         .Concat(surface.ReferencedTypeDefinitions.Values)
         .Distinct();
 
+    static bool ReferencesSplitType(
+        ApiTypeShape? shape,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity,
+        IReadOnlySet<ApiType> splitTypes)
+    {
+        if (shape is null)
+            return false;
+
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(shape);
+        while (pending.TryPop(out ApiTypeShape? current))
+        {
+            if (current.Definition is { } definition
+                && declaredTypesByScopedIdentity.TryGetValue(
+                    definition,
+                    out ApiType? type)
+                && splitTypes.Contains(type))
+            {
+                return true;
+            }
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
+            }
+        }
+
+        return false;
+    }
+
+    static bool ReferencesSplitType(
+        TypeRef type,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<MetadataTypeDefinitionName, ApiType>
+            typesByDefinitionName,
+        IReadOnlySet<ApiType> splitTypes)
+    {
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
+        while (pending.TryPop(out TypeRef? current))
+        {
+            TypeRef definition = current.Kind == TypeRefKind.GenericInstance
+                ? current.ElementType!
+                : current;
+            if (TsTypeMapper.MatchesContainingAssembly(
+                    definition,
+                    assemblyIdentity)
+                && definition.Resolution?.Type is { } definitionName
+                && typesByDefinitionName.TryGetValue(
+                    definitionName,
+                    out ApiType? resolved)
+                && splitTypes.Contains(resolved))
+            {
+                return true;
+            }
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
+            }
+        }
+
+        return false;
+    }
+
     static void EmitWireDeclarations(
         StringBuilder sb,
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType[] declarationTypes,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity,
+        WireDeclarationPlan declarationPlan,
         TypeScriptGenerationDiagnostics? diagnostics,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames = null,
         string? allocatedInertStringName = null,
         string? allocatedInertStringBrandName = null,
         string? allocatedDateTimeOffsetName = null,
@@ -306,22 +572,14 @@ static class DtsEmitter
         string? allocatedJsonTextName = null,
         string? allocatedJsonTextBrandName = null)
     {
-        TypeMappingEnvironment typeEnvironment =
-            CreateKnownTypes(
-                surface,
-                declarationTypes,
-                allocatedTypeNames,
-                allocatedInertStringName,
-                allocatedDateTimeOffsetName);
-
         if (FindInertStringIdentity(surface) is { } inertStringIdentity)
         {
             string inertStringName =
                 allocatedInertStringName ?? "InertString";
             string inertStringBrandName =
                 allocatedInertStringBrandName ?? "inertStringBrand";
-            if (declarationTypes.Any(type =>
-                AllocatedTypeName(type, allocatedTypeNames)
+            if (declarationPlan.Declarations.Any(declaration =>
+                AllocatedTypeName(declaration, allocatedTypeNames)
                     == inertStringName))
             {
                 throw new UnsupportedWireContractException(
@@ -329,8 +587,8 @@ static class DtsEmitter
                     "the inert-string TypeScript brand collides with another type");
             }
             if (allocatedInertStringBrandName is null
-                && (declarationTypes.Any(type =>
-                        AllocatedTypeName(type, allocatedTypeNames)
+                && (declarationPlan.Declarations.Any(declaration =>
+                        AllocatedTypeName(declaration, allocatedTypeNames)
                             == inertStringBrandName)
                     || surface.Functions.Any(function =>
                         CamelCase.FromPascalCase(function.Name)
@@ -359,8 +617,8 @@ static class DtsEmitter
             string dateTimeOffsetBrandName =
                 allocatedDateTimeOffsetBrandName
                     ?? "dateTimeOffsetStringBrand";
-            if (declarationTypes.Any(type =>
-                AllocatedTypeName(type, allocatedTypeNames)
+            if (declarationPlan.Declarations.Any(declaration =>
+                AllocatedTypeName(declaration, allocatedTypeNames)
                     == dateTimeOffsetName))
             {
                 throw new UnsupportedWireContractException(
@@ -368,8 +626,8 @@ static class DtsEmitter
                     "the DateTimeOffset TypeScript brand collides with another type");
             }
             if (allocatedDateTimeOffsetBrandName is null
-                && (declarationTypes.Any(type =>
-                        AllocatedTypeName(type, allocatedTypeNames)
+                && (declarationPlan.Declarations.Any(declaration =>
+                        AllocatedTypeName(declaration, allocatedTypeNames)
                             == dateTimeOffsetBrandName)
                     || surface.Functions.Any(function =>
                         CamelCase.FromPascalCase(function.Name)
@@ -395,8 +653,8 @@ static class DtsEmitter
             string jsonTextName = allocatedJsonTextName ?? "JsonText";
             string jsonTextBrandName =
                 allocatedJsonTextBrandName ?? "jsonTextBrand";
-            if (declarationTypes.Any(type =>
-                AllocatedTypeName(type, allocatedTypeNames)
+            if (declarationPlan.Declarations.Any(declaration =>
+                AllocatedTypeName(declaration, allocatedTypeNames)
                     == jsonTextName))
             {
                 throw new UnsupportedWireContractException(
@@ -404,8 +662,8 @@ static class DtsEmitter
                     "the JSON-text TypeScript brand collides with another type");
             }
             if (allocatedJsonTextBrandName is null
-                && (declarationTypes.Any(type =>
-                        AllocatedTypeName(type, allocatedTypeNames)
+                && (declarationPlan.Declarations.Any(declaration =>
+                        AllocatedTypeName(declaration, allocatedTypeNames)
                             == jsonTextBrandName)
                     || surface.Functions.Any(function =>
                         CamelCase.FromPascalCase(function.Name)
@@ -429,8 +687,8 @@ static class DtsEmitter
         if (UsesJsonValue(surface))
         {
             const string jsonValueName = "JsonValue";
-            if (declarationTypes.Any(type =>
-                AllocatedTypeName(type, allocatedTypeNames)
+            if (declarationPlan.Declarations.Any(declaration =>
+                AllocatedTypeName(declaration, allocatedTypeNames)
                     == jsonValueName))
             {
                 throw new UnsupportedWireContractException(
@@ -451,44 +709,66 @@ static class DtsEmitter
                 """);
         }
 
-        foreach (ApiType enumType in surface.Enums
-            .Where(type => ShouldEmit(surface, type))
+        foreach (WireDeclarationIdentity declaration
+            in declarationPlan.Declarations
+            .Where(declaration =>
+                surface.Enums.Contains(declaration.Type))
             .OrderBy(
-                type => AllocatedTypeName(type, allocatedTypeNames),
+                declaration => AllocatedTypeName(
+                    declaration,
+                    allocatedTypeNames),
                 StringComparer.Ordinal))
             EmitEnum(
                 sb,
-                enumType,
-                AllocatedTypeName(enumType, allocatedTypeNames),
+                declaration.Type,
+                AllocatedTypeName(declaration, allocatedTypeNames),
                 diagnostics);
 
-        foreach (ApiType record in surface.Records
-            .Where(type => ShouldEmit(surface, type))
+        foreach (WireDeclarationIdentity declaration
+            in declarationPlan.Declarations
+            .Where(declaration =>
+                surface.Records.Contains(declaration.Type))
             .OrderBy(
-                type => AllocatedTypeName(type, allocatedTypeNames),
+                declaration => AllocatedTypeName(
+                    declaration,
+                    allocatedTypeNames),
                 StringComparer.Ordinal))
+        {
+            ApiType record = declaration.Type;
             EmitRecord(
                 sb,
                 surface,
                 record,
                 surface.Unions,
-                surface.WireDirections.TryGetValue(
+                declaration.Direction,
+                surface.WireDirections.GetValueOrDefault(
                     record,
-                    out JsonWireDirection recordDirections)
-                    ? recordDirections
-                    : JsonWireDirection.Both,
+                    JsonWireDirection.Both),
                 surface.AssemblyIdentity,
                 declaredTypesByScopedIdentity,
-                AllocatedTypeName(record, allocatedTypeNames),
-                typeEnvironment,
+                AllocatedTypeName(declaration, allocatedTypeNames),
+                CreateKnownTypes(
+                    surface,
+                    declarationTypes,
+                    declarationPlan,
+                    allocatedTypeNames,
+                    declaration.Direction
+                        == JsonWireDirection.Both
+                        ? JsonWireDirection.Serialize
+                        : declaration.Direction,
+                    allocatedInertStringName,
+                    allocatedDateTimeOffsetName),
                 diagnostics);
+        }
 
         foreach (JsExportPolymorphicUnion union
             in surface.PolymorphicUnions
                 .Where(union => ShouldEmit(surface, union.Definition))
                 .OrderBy(
                     union => AllocatedTypeName(
-                        union.Definition,
+                        declarationPlan.Resolve(
+                            union.Definition,
+                            JsonWireDirection.Serialize),
                         allocatedTypeNames),
                     StringComparer.Ordinal))
         {
@@ -499,19 +779,52 @@ static class DtsEmitter
                 surface.Unions,
                 surface.AssemblyIdentity,
                 declaredTypesByScopedIdentity,
-                typeEnvironment,
+                CreateKnownTypes(
+                    surface,
+                    declarationTypes,
+                    declarationPlan,
+                    allocatedTypeNames,
+                    JsonWireDirection.Serialize,
+                    allocatedInertStringName,
+                    allocatedDateTimeOffsetName),
+                declarationPlan,
                 allocatedTypeNames,
                 diagnostics);
         }
 
-        foreach (JsExportUnion union in surface.Unions
-            .Where(union => ShouldEmit(surface, union.Definition))
+        foreach (WireDeclarationIdentity declaration
+            in declarationPlan.Declarations
+            .Where(declaration =>
+                surface.Unions.Any(union =>
+                    ReferenceEquals(
+                        union.Definition,
+                        declaration.Type)))
             .OrderBy(
-                union => AllocatedTypeName(union.Definition, allocatedTypeNames),
+                declaration => AllocatedTypeName(
+                    declaration,
+                    allocatedTypeNames),
                 StringComparer.Ordinal))
         {
-            EmitUnion(sb, union, typeEnvironment,
-                AllocatedTypeName(union.Definition, allocatedTypeNames));
+            JsExportUnion union = surface.Unions.Single(candidate =>
+                ReferenceEquals(
+                    candidate.Definition,
+                    declaration.Type));
+            JsonWireDirection mappingDirection =
+                declaration.Direction == JsonWireDirection.Both
+                    ? JsonWireDirection.Serialize
+                    : declaration.Direction;
+            EmitUnion(
+                sb,
+                union,
+                CreateKnownTypes(
+                    surface,
+                    declarationTypes,
+                    declarationPlan,
+                    allocatedTypeNames,
+                    mappingDirection,
+                    allocatedInertStringName,
+                    allocatedDateTimeOffsetName),
+                AllocatedTypeName(declaration, allocatedTypeNames));
         }
     }
 
@@ -553,7 +866,9 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity,
         TypeMappingEnvironment typeEnvironment,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames,
+        WireDeclarationPlan declarationPlan,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames,
         TypeScriptGenerationDiagnostics? diagnostics)
     {
         ApiType root = union.Definition;
@@ -565,7 +880,9 @@ static class DtsEmitter
 
         foreach (JsExportPolymorphicCase @case in union.Cases.OrderBy(
             @case => AllocatedTypeName(
-                @case.Definition,
+                declarationPlan.Resolve(
+                    @case.Definition,
+                    JsonWireDirection.Serialize),
                 allocatedTypeNames),
             StringComparer.Ordinal))
         {
@@ -598,7 +915,11 @@ static class DtsEmitter
             }
 
             string declarationName =
-                AllocatedTypeName(caseType, allocatedTypeNames);
+                AllocatedTypeName(
+                    declarationPlan.Resolve(
+                        caseType,
+                        JsonWireDirection.Serialize),
+                    allocatedTypeNames);
             sb.Append("export interface ")
                 .Append(declarationName)
                 .Append(" {\n  readonly ")
@@ -686,13 +1007,19 @@ static class DtsEmitter
         }
 
         sb.Append("export type ")
-            .Append(AllocatedTypeName(root, allocatedTypeNames))
+            .Append(AllocatedTypeName(
+                declarationPlan.Resolve(
+                    root,
+                    JsonWireDirection.Serialize),
+                allocatedTypeNames))
             .Append(" = ")
             .AppendJoin(
                 " | ",
                 union.Cases.Select(@case =>
                     AllocatedTypeName(
-                        @case.Definition,
+                        declarationPlan.Resolve(
+                            @case.Definition,
+                            JsonWireDirection.Serialize),
                         allocatedTypeNames)))
             .Append(";\n\n");
     }
@@ -793,9 +1120,11 @@ static class DtsEmitter
     static TypeScriptFunctionSignature GetFunctionSignature(
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType[] declarationTypes,
+        WireDeclarationPlan declarationPlan,
         JsExportFunction function,
         TypeScriptGenerationDiagnostics? diagnostics,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames = null,
         string? allocatedInertStringName = null,
         string? allocatedDateTimeOffsetName = null,
         string? allocatedJsonTextName = null,
@@ -803,11 +1132,22 @@ static class DtsEmitter
     {
         var effectiveDiagnostics =
             diagnostics ?? new TypeScriptGenerationDiagnostics();
-        TypeMappingEnvironment typeEnvironment =
+        TypeMappingEnvironment outputTypeEnvironment =
             CreateKnownTypes(
                 surface,
                 declarationTypes,
+                declarationPlan,
                 allocatedTypeNames,
+                JsonWireDirection.Serialize,
+                allocatedInertStringName,
+                allocatedDateTimeOffsetName);
+        TypeMappingEnvironment inputTypeEnvironment =
+            CreateKnownTypes(
+                surface,
+                declarationTypes,
+                declarationPlan,
+                allocatedTypeNames,
+                JsonWireDirection.Deserialize,
                 allocatedInertStringName,
                 allocatedDateTimeOffsetName);
         bool validDelegateAssociations = TryIndexDelegateParameters(
@@ -832,13 +1172,13 @@ static class DtsEmitter
         }
         IReadOnlyDictionary<string, string> publicReturnTypeNames =
             MappedTypeNames(
-                typeEnvironment,
+                outputTypeEnvironment,
                 function.ReturnWireType is not null
                     ? function.ReturnWireTypeReferences
                     : function.ReturnTypeReferences);
         IReadOnlyDictionary<string, string> rawReturnTypeNames =
             MappedTypeNames(
-                typeEnvironment,
+                outputTypeEnvironment,
                 function.ReturnTypeReferences);
         int returnDiagnosticsBefore =
             effectiveDiagnostics.UnmappedTypes.Count;
@@ -847,30 +1187,30 @@ static class DtsEmitter
             ? TsTypeMapper.MapReturnEnvelope(
                 function.ReturnType,
                 returnWireType,
-                typeEnvironment.KnownTypeNames,
+                outputTypeEnvironment.KnownTypeNames,
                 effectiveDiagnostics,
                 $"{function.Name} return",
                 BlockedAliases(
                     function.ReturnWireTypeReferences,
-                    typeEnvironment.KnownTypeNames,
-                    typeEnvironment.KnownTypeIdentities),
+                    outputTypeEnvironment.KnownTypeNames,
+                    outputTypeEnvironment.KnownTypeIdentities),
                 publicReturnTypeNames,
                 function.ReturnWireTypeShape,
-                typeEnvironment.IdentityNames,
+                outputTypeEnvironment.IdentityNames,
                 BlockedAliases(
                     function.ReturnTypeReferences,
-                    typeEnvironment.KnownTypeNames,
-                    typeEnvironment.KnownTypeIdentities),
-                typeEnvironment.UnionContext)
+                    outputTypeEnvironment.KnownTypeNames,
+                    outputTypeEnvironment.KnownTypeIdentities),
+                outputTypeEnvironment.UnionContext)
             : TsTypeMapper.MapReturnType(
                 function.ReturnType,
-                typeEnvironment.KnownTypeNames,
+                outputTypeEnvironment.KnownTypeNames,
                 effectiveDiagnostics,
                 $"{function.Name} return",
                 BlockedAliases(
                     function.ReturnTypeReferences,
-                    typeEnvironment.KnownTypeNames,
-                    typeEnvironment.KnownTypeIdentities),
+                    outputTypeEnvironment.KnownTypeNames,
+                    outputTypeEnvironment.KnownTypeIdentities),
                 publicReturnTypeNames);
         bool isAsync =
             TsTypeMapper.IsAsyncReturnType(function.ReturnType);
@@ -887,13 +1227,13 @@ static class DtsEmitter
             && function.ReturnWireType is not null
             ? TsTypeMapper.MapReturnType(
                 function.ReturnType,
-                typeEnvironment.KnownTypeNames,
+                outputTypeEnvironment.KnownTypeNames,
                 effectiveDiagnostics,
                 $"{function.Name} raw return",
                 BlockedAliases(
                     function.ReturnTypeReferences,
-                    typeEnvironment.KnownTypeNames,
-                    typeEnvironment.KnownTypeIdentities),
+                    outputTypeEnvironment.KnownTypeNames,
+                    outputTypeEnvironment.KnownTypeIdentities),
                 rawReturnTypeNames)
             : publicReturnType;
         bool hasMappedReturn =
@@ -907,37 +1247,37 @@ static class DtsEmitter
                     {
                         string rawType = TsTypeMapper.MapParameterType(
                             parameter.Type,
-                            typeEnvironment.KnownTypeNames,
+                            inputTypeEnvironment.KnownTypeNames,
                             effectiveDiagnostics,
                             $"{function.Name}.{parameter.Name}",
                             BlockedAliases(
                                 parameter.TypeReferences,
-                                typeEnvironment.KnownTypeNames,
-                                typeEnvironment.KnownTypeIdentities),
+                                inputTypeEnvironment.KnownTypeNames,
+                                inputTypeEnvironment.KnownTypeIdentities),
                             MappedTypeNames(
-                                typeEnvironment,
+                                inputTypeEnvironment,
                                 parameter.TypeReferences),
                             delegateParameters.GetValueOrDefault(index),
-                            typeEnvironment.DelegateMappingContext);
+                            inputTypeEnvironment.DelegateMappingContext);
                         JsExportParameterWireBinding? wireBinding =
                             parameterWireBindings.GetValueOrDefault(index);
                         string publicType = wireBinding is null
                             ? rawType
                             : TsTypeMapper.MapJsonWireType(
                                 wireBinding.WireType,
-                                typeEnvironment.KnownTypeNames,
+                                inputTypeEnvironment.KnownTypeNames,
                                 effectiveDiagnostics,
                                 $"{function.Name}.{parameter.Name}",
                                 BlockedAliases(
                                     wireBinding.WireTypeReferences,
-                                    typeEnvironment.KnownTypeNames,
-                                    typeEnvironment.KnownTypeIdentities),
+                                    inputTypeEnvironment.KnownTypeNames,
+                                    inputTypeEnvironment.KnownTypeIdentities),
                                 MappedTypeNames(
-                                    typeEnvironment,
+                                    inputTypeEnvironment,
                                     wireBinding.WireTypeReferences),
                                 wireBinding.WireTypeShape,
-                                typeEnvironment.IdentityNames,
-                                typeEnvironment.UnionContext);
+                                inputTypeEnvironment.IdentityNames,
+                                inputTypeEnvironment.UnionContext);
                         return new TypeScriptParameterSignature(
                             CamelCase.FromPascalCase(parameter.Name),
                             rawType,
@@ -986,7 +1326,10 @@ static class DtsEmitter
         CreateKnownTypes(
             ILInspector.JsExportSurface.JsExportSurface surface,
             ApiType[] declarationTypes,
-            IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+            WireDeclarationPlan declarationPlan,
+            IReadOnlyDictionary<WireDeclarationIdentity, string>?
+                allocatedTypeNames,
+            JsonWireDirection mappingDirection,
             string? allocatedInertStringName = null,
             string? allocatedDateTimeOffsetName = null)
     {
@@ -1036,7 +1379,9 @@ static class DtsEmitter
                 .ToDictionary(
                     type => type.DefinitionName!,
                     type => AllocatedTypeName(
-                        type,
+                        declarationPlan.Resolve(
+                            type,
+                            mappingDirection),
                         allocatedTypeNames),
                     EqualityComparer<
                         MetadataTypeDefinitionName>.Default));
@@ -1049,12 +1394,20 @@ static class DtsEmitter
             ApiType type = group.Single();
             aliases.Add(
                 group.Key,
-                AllocatedTypeName(type, allocatedTypeNames));
+                AllocatedTypeName(
+                    declarationPlan.Resolve(
+                        type,
+                        mappingDirection),
+                    allocatedTypeNames));
         }
         foreach (ApiType type in declarationTypes)
         {
             string allocatedName =
-                AllocatedTypeName(type, allocatedTypeNames);
+                AllocatedTypeName(
+                    declarationPlan.Resolve(
+                        type,
+                        mappingDirection),
+                    allocatedTypeNames);
             aliases[type.FullName] = allocatedName;
             if (!string.IsNullOrEmpty(type.MetadataName))
                 aliases[type.MetadataName] = allocatedName;
@@ -1067,7 +1420,11 @@ static class DtsEmitter
         {
             identityNames.Add(
                 identity,
-                AllocatedTypeName(type, allocatedTypeNames));
+                AllocatedTypeName(
+                    declarationPlan.Resolve(
+                        type,
+                        mappingDirection),
+                    allocatedTypeNames));
         }
         if (inertStringIdentity is not null)
         {
@@ -1104,8 +1461,16 @@ static class DtsEmitter
                         .ToDictionary(
                             item => item.Identity,
                             item => item.Type.TypeParameters.Count),
-                GenericTypeNames(declarationTypes, allocatedTypeNames),
-                GenericTypeNameArities(declarationTypes, allocatedTypeNames),
+                GenericTypeNames(
+                    declarationTypes,
+                    declarationPlan,
+                    allocatedTypeNames,
+                    mappingDirection),
+                GenericTypeNameArities(
+                    declarationTypes,
+                    declarationPlan,
+                    allocatedTypeNames,
+                    mappingDirection),
                 delegateMappingContext,
                 typeIdentities
                     .Where(item =>
@@ -1181,12 +1546,17 @@ static class DtsEmitter
 
     static Dictionary<string, string> GenericTypeNames(
         IEnumerable<ApiType> types,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames)
+        WireDeclarationPlan declarationPlan,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames,
+        JsonWireDirection mappingDirection)
     {
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (ApiType type in types.Where(type => type.TypeParameters.Count > 0))
         {
-            string allocatedName = AllocatedTypeName(type, allocatedTypeNames);
+            string allocatedName = AllocatedTypeName(
+                declarationPlan.Resolve(type, mappingDirection),
+                allocatedTypeNames);
             foreach (string? alias in new string?[]
             {
                 type.Name,
@@ -1207,7 +1577,10 @@ static class DtsEmitter
 
     static Dictionary<string, int> GenericTypeNameArities(
         IEnumerable<ApiType> types,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames)
+        WireDeclarationPlan declarationPlan,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames,
+        JsonWireDirection mappingDirection)
     {
         var arities = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (ApiType type in types.Where(type => type.TypeParameters.Count > 0))
@@ -1217,7 +1590,11 @@ static class DtsEmitter
                 type.Name,
                 type.FullName,
                 type.MetadataName,
-                AllocatedTypeName(type, allocatedTypeNames),
+                AllocatedTypeName(
+                    declarationPlan.Resolve(
+                        type,
+                        mappingDirection),
+                    allocatedTypeNames),
             })
             {
                 if (!string.IsNullOrEmpty(alias))
@@ -1271,12 +1648,30 @@ static class DtsEmitter
     }
 
     static string AllocatedTypeName(
-        ApiType type,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames) =>
+        WireDeclarationIdentity declaration,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames) =>
         allocatedTypeNames is not null
-            && allocatedTypeNames.TryGetValue(type, out string? name)
+            && allocatedTypeNames.TryGetValue(
+                declaration,
+                out string? name)
                 ? name
-                : PreferredTypeName(type);
+                : PreferredDeclarationName(declaration);
+
+    internal static string PreferredDeclarationName(
+        WireDeclarationIdentity declaration)
+    {
+        string name = PreferredTypeName(declaration.Type);
+        return declaration.IsSplit
+            ? declaration.Direction switch
+            {
+                JsonWireDirection.Deserialize => name + "Input",
+                JsonWireDirection.Serialize => name + "Output",
+                _ => throw new InvalidOperationException(
+                    "A split declaration requires one wire direction."),
+            }
+            : name;
+    }
 
     internal static string PreferredTypeName(ApiType type)
     {
@@ -1351,23 +1746,16 @@ static class DtsEmitter
     }
 
     /// <summary>
-    /// Emits one record declaration for the <paramref name="directions"/> the
-    /// type was actually reached in.
+    /// Emits one record declaration for the declaration plan's active
+    /// direction.
     /// </summary>
-    /// <remarks>
-    /// A type reached in both directions whose members disagree between them
-    /// cannot be described by a single interface. Rather than silently picking
-    /// one direction's shape, emission is blocked for that type: a
-    /// direction-split declaration is a design change, not something to guess.
-    /// Gated by
-    /// <c>DtsEmitterTests.Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember</c>.
-    /// </remarks>
     static void EmitRecord(
         StringBuilder sb,
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType record,
         IReadOnlyList<JsExportUnion> unions,
-        JsonWireDirection directions,
+        JsonWireDirection declarationDirection,
+        JsonWireDirection wireDirections,
         ApiAssemblyIdentity? assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity,
@@ -1401,8 +1789,12 @@ static class DtsEmitter
             EmitBlockedType(sb, declarationName);
             return;
         }
-        if ((directions & JsonWireDirection.Deserialize)
-                != JsonWireDirection.None
+        bool requiresDeserializeSupport =
+            declarationDirection == JsonWireDirection.Deserialize
+            || (declarationDirection == JsonWireDirection.Both
+                && (wireDirections & JsonWireDirection.Deserialize)
+                    != JsonWireDirection.None);
+        if (requiresDeserializeSupport
             && record.Members.Any(
                 member => JsonWireMemberRules
                     .RequiresConstructorBindingEvidence(
@@ -1418,8 +1810,8 @@ static class DtsEmitter
             return;
         }
 
-        JsonWireDirection declarationDirection =
-            (directions & JsonWireDirection.Serialize)
+        JsonWireDirection activeDirection =
+            (declarationDirection & JsonWireDirection.Serialize)
                 != JsonWireDirection.None
                 ? JsonWireDirection.Serialize
                 : JsonWireDirection.Deserialize;
@@ -1428,26 +1820,12 @@ static class DtsEmitter
                     surface,
                     record,
                     member,
-                    declarationDirection,
+                    activeDirection,
                     assemblyIdentity,
                     declaredTypesByScopedIdentity)
                 == JsonWireMemberPresence.Unsupported))
         {
             ReportUnsupportedJsonWireShape(record.Name, diagnostics);
-            EmitBlockedType(sb, declarationName);
-            return;
-        }
-
-        if (directions == JsonWireDirection.Both
-            && record.Members.Any(member =>
-                JsonWireMemberRules.IsDirectionSensitive(
-                    surface,
-                    record,
-                    member,
-                    assemblyIdentity,
-                    declaredTypesByScopedIdentity)))
-        {
-            ReportDirectionSplitWireShape(record.Name, diagnostics);
             EmitBlockedType(sb, declarationName);
             return;
         }
@@ -1476,7 +1854,7 @@ static class DtsEmitter
                     surface,
                     record,
                     member,
-                    declarationDirection,
+                    activeDirection,
                     assemblyIdentity,
                     declaredTypesByScopedIdentity),
                 ResolvedName: member.JsonPropertyName
@@ -1890,32 +2268,33 @@ static class DtsEmitter
     }
 
     static void ValidateTypeNames(
-        IEnumerable<ApiType> types,
-        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
+        IEnumerable<WireDeclarationIdentity> declarations,
+        IReadOnlyDictionary<WireDeclarationIdentity, string>?
+            allocatedTypeNames = null)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (ApiType type in types)
+        foreach (WireDeclarationIdentity declaration in declarations)
         {
             string typeName =
-                AllocatedTypeName(type, allocatedTypeNames);
+                AllocatedTypeName(declaration, allocatedTypeNames);
             if (!TypeScriptIdentifier.IsBindingIdentifier(typeName))
             {
                 throw new UnsupportedWireContractException(
-                    FormatTypeLocation(type),
+                    FormatTypeLocation(declaration.Type),
                     "TypeScript declaration names must be identifiers");
             }
 
             if (!TypeScriptIdentifier.IsTypeDeclarationIdentifier(typeName))
             {
                 throw new UnsupportedWireContractException(
-                    FormatTypeLocation(type),
+                    FormatTypeLocation(declaration.Type),
                     "declaration name conflicts with TypeScript or generated binding vocabulary");
             }
 
             if (!names.Add(typeName))
             {
                 throw new UnsupportedWireContractException(
-                    FormatTypeLocation(type),
+                    FormatTypeLocation(declaration.Type),
                     "multiple JSON types project to the same TypeScript declaration name");
             }
         }
@@ -2264,13 +2643,7 @@ static class DtsEmitter
                                 type,
                                 member,
                                 surface.AssemblyIdentity,
-                                declaredTypesByScopedIdentity)))
-                || (directions == JsonWireDirection.Both
-                    && type.Members.Any(member =>
-                        JsonWireMemberRules.IsDirectionSensitive(
-                            member,
-                            surface.AssemblyIdentity,
-                            declaredTypesByScopedIdentity))))
+                                declaredTypesByScopedIdentity))))
             {
                 return false;
             }
@@ -2411,13 +2784,6 @@ static class DtsEmitter
             $"{location} JSON wire shape",
             "unsupported wire-shaping attributes or inheritance");
 
-    static void ReportDirectionSplitWireShape(
-        string location,
-        TypeScriptGenerationDiagnostics? diagnostics) =>
-        diagnostics?.ReportUnmappedType(
-            $"{location} JSON wire shape",
-            "serialization and deserialization member sets differ on a bidirectional type");
-
     static void ReportUnsupportedConstructorBinding(
         string location,
         TypeScriptGenerationDiagnostics? diagnostics) =>
@@ -2437,6 +2803,60 @@ static class DtsEmitter
 
     static void EmitBlockedType(StringBuilder sb, string declarationName) =>
         sb.Append("export type ").Append(declarationName).Append(" = unknown;\n\n");
+
+    internal readonly record struct WireDeclarationIdentity(
+        ApiType Type,
+        JsonWireDirection Direction,
+        bool IsSplit);
+
+    internal sealed class WireDeclarationPlan
+    {
+        readonly IReadOnlySet<ApiType> _splitTypes;
+        readonly IReadOnlyDictionary<ApiType, WireDeclarationIdentity>
+            _singleDeclarations;
+        readonly IReadOnlyDictionary<
+            (ApiType Type, JsonWireDirection Direction),
+            WireDeclarationIdentity> _splitDeclarations;
+
+        internal WireDeclarationPlan(
+            ApiType[] types,
+            WireDeclarationIdentity[] declarations,
+            IReadOnlySet<ApiType> splitTypes)
+        {
+            Types = types;
+            Declarations = declarations;
+            _splitTypes = splitTypes;
+            _singleDeclarations = declarations
+                .Where(declaration => !declaration.IsSplit)
+                .ToDictionary(
+                    declaration => declaration.Type);
+            _splitDeclarations = declarations
+                .Where(declaration => declaration.IsSplit)
+                .ToDictionary(
+                    declaration => (
+                        declaration.Type,
+                        declaration.Direction));
+        }
+
+        internal ApiType[] Types { get; }
+
+        internal WireDeclarationIdentity[] Declarations { get; }
+
+        internal WireDeclarationIdentity Resolve(
+            ApiType type,
+            JsonWireDirection direction)
+        {
+            if (!_splitTypes.Contains(type))
+                return _singleDeclarations[type];
+            if (direction is not JsonWireDirection.Serialize
+                and not JsonWireDirection.Deserialize)
+            {
+                throw new InvalidOperationException(
+                    $"Split type '{type.FullName}' requires one wire direction.");
+            }
+            return _splitDeclarations[(type, direction)];
+        }
+    }
 
     private sealed record TypeMappingEnvironment(
         HashSet<string> KnownTypeNames,
