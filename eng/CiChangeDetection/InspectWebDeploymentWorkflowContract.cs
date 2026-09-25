@@ -56,11 +56,11 @@ internal static class InspectWebDeploymentWorkflowContract
             ".github",
             "workflows",
             "deploy-inspect-web.yml");
-        string coreClrStagingPath = Path.Combine(
+        string runtimeSitesPath = Path.Combine(
             repository,
             ".github",
             "workflows",
-            "deploy-inspect-web-coreclr.yml");
+            "deploy-inspect-web-runtime-sites.yml");
         string runtimeCohortPath = Path.Combine(
             repository,
             ".github",
@@ -80,7 +80,7 @@ internal static class InspectWebDeploymentWorkflowContract
             "eng",
             "InspectWebAsyncLoweringReceipt.targets");
         string stagingWorkflow = File.ReadAllText(stagingPath);
-        string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
+        string runtimeSitesWorkflow = File.ReadAllText(runtimeSitesPath);
         string runtimeCohortWorkflow = File.ReadAllText(runtimeCohortPath);
         string runtimePinProposalWorkflow =
             File.ReadAllText(runtimePinProposalPath);
@@ -88,7 +88,9 @@ internal static class InspectWebDeploymentWorkflowContract
         string asyncLoweringReceiptTarget =
             File.ReadAllText(asyncLoweringReceiptTargetPath);
         ValidateStaging(stagingWorkflow);
-        ValidateCoreClrStaging(coreClrStagingWorkflow);
+        ValidateRuntimeSiteCandidateIdentity(
+            runtimeSitesWorkflow,
+            runtimeCohortWorkflow);
         ValidateRuntimeSdkGlobalJsonOverride(
             runtimeCohortWorkflow,
             "$DOTNET_SDK_VERSION",
@@ -120,6 +122,30 @@ internal static class InspectWebDeploymentWorkflowContract
                 "$candidate_sdk",
                 "runtime pin proposal"),
             "Runtime pin proposal contract accepted the repository SDK in the candidate SDK root.");
+        AssertMutationRejected(
+            runtimeSitesWorkflow,
+            "          eng/validate-release-candidate.sh \\\n",
+            "          true \\\n",
+            workflow => ValidateRuntimeSiteCandidateIdentity(
+                workflow,
+                runtimeCohortWorkflow),
+            "Runtime sites accepted an unvalidated candidate identity.");
+        AssertMutationRejected(
+            runtimeSitesWorkflow,
+            "          global-json-file: global.json\n",
+            "          dotnet-version: 10.0.x\n",
+            workflow => ValidateRuntimeSiteCandidateIdentity(
+                workflow,
+                runtimeCohortWorkflow),
+            "Runtime sites accepted validation without the candidate-pinned SDK.");
+        AssertMutationRejected(
+            runtimeCohortWorkflow,
+            "          ref: ${{ inputs.source_sha }}\n",
+            "          ref: ${{ github.sha }}\n",
+            workflow => ValidateRuntimeSiteCandidateIdentity(
+                runtimeSitesWorkflow,
+                workflow),
+            "Runtime cohort accepted a checkout outside the selected candidate SHA.");
 
         const string stagingDownload =
             """
@@ -159,12 +185,6 @@ internal static class InspectWebDeploymentWorkflowContract
             ValidateStaging,
             "Staging workflow contract accepted a deleted Vite asset path constraint.");
         AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            and .result == \"inspect-web-async-lowering-ok\"\n",
-            "            and .result == \"changed\"\n",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted a changed canary result.");
-        AssertMutationRejected(
             stagingWorkflow,
             "          jq -e '. as $manifest | type == \"object\" and (.[\"index.html\"] | type == \"object\") and all(to_entries[]; (.value | type == \"object\") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' \"$manifest\" >/dev/null\n",
             "",
@@ -189,23 +209,11 @@ internal static class InspectWebDeploymentWorkflowContract
             ValidateStaging,
             "Staging workflow contract accepted a non-rerun-safe artifact upload.");
         AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            -p:Features=runtime-async=on \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted classic async lowering.");
-        AssertMutationRejected(
             stagingWorkflow,
             "inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
             "inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
             ValidateStaging,
             "Staging contract accepted async evidence from the wrong assembly.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
-            "inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted async evidence from the wrong assembly.");
         AssertMutationRejected(
             asyncVerifier,
             "  \"$repo_root/inspect-web/scripts/verify-published-engine-facades.ts\" \\\n  \"$site\" \\\n  deployment \\\n  \"$domain\" \\\n  \"$smoke_result\"\n",
@@ -261,100 +269,6 @@ internal static class InspectWebDeploymentWorkflowContract
             ValidateAsyncLoweringReceiptTarget,
             "Async-lowering receipt target accepted compiler projects with the feature.");
         AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            -p:UseMonoRuntime=false \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted the Mono runtime.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          node inspect-web/scripts/runtime-cohort-pin.ts export \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted a missing shared runtime pin.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            --source \"$DOTNET_DAILY_FEED\" \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted workload installation without the daily feed.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            --configfile \"$nuget_config\" \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted publish restore without its mapped cohort feeds.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "                <package pattern=\"Microsoft.DotNet.ILCompiler\" />\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted verifier restore without the daily NativeAOT compiler.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          RestoreConfigFile=\"$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config\" \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted runtime verification without its mapped cohort feeds.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            -p:PublishReadyToRun=false \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted implicit ReadyToRun behavior.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            eng/test-inspect-web-package-adoption-gate.sh \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted a skipped package operation.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "            -p:WasmBuildNative=false \\\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted native relinking.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          grep -q GetDotNetRuntimeHeap \"$site\"/_framework/dotnet.native.*.js\n",
-            "          grep -q GetDotNetRuntimeHeap \"$site\"/_framework/dotnet.native.*.js || true\n",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted disabled runtime verification.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_CORECLR",
-            "secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_STAGING",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted the Mono staging credential.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          include-hidden-files: true\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted an artifact without hidden Function dependencies.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          skip_app_build: true\n",
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted Azure app build.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            """
-                  - name: Compare compiler-async and runtime-async receipts
-                    shell: bash
-                    run: |
-                      eng/verify-inspect-web-async-deployment.sh \
-                        --compare \
-                        artifacts/inspect-web-compiler-publish/async-lowering.json \
-                        artifacts/inspect-web-coreclr-publish/async-lowering.json
-
-            """,
-            "",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted removal of the paired receipt comparison.");
-
-        AssertMutationRejected(
             stagingWorkflow,
             "  workflow_dispatch:\n",
             "  workflow_dispatch:\n  pull_request_target:\n",
@@ -383,50 +297,89 @@ internal static class InspectWebDeploymentWorkflowContract
             """,
             ValidateStaging,
             "Staging workflow contract accepted PR-head checkout.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "  workflow_call:\n",
-            "  workflow_call:\n  pull_request_target:\n",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted pull_request_target.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          ref: ${{ inputs.source_sha }}\n",
-            "          ref: ${{ github.sha }}\n",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted checkout outside the promoted revision.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          artifact-ids: ${{ inputs.artifact_id }}\n",
-            "          name: inspect-web-site\n",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted artifact selection by name.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "          run-id: ${{ inputs.staging_run_id }}\n",
-            "          run-id: ${{ github.run_id }}\n",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted the caller run as artifact authority.");
-        AssertMutationRejected(
-            coreClrStagingWorkflow,
-            "      cancel-in-progress: false\n",
-            "      cancel-in-progress: true\n",
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted cancellation between promotions.");
-        AssertRejected(
-            coreClrStagingWorkflow +
-            """
-
-              bypass:
-                name: Bypass CoreCLR staging
-                environment: inspect-web-coreclr-staging
-                runs-on: ubuntu-26.04
-                steps:
-                  - run: echo bypass
-            """,
-            ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted an extra environment-scoped job.");
     }
+
+    private static void ValidateRuntimeSiteCandidateIdentity(
+        string runtimeSitesWorkflow,
+        string runtimeCohortWorkflow)
+    {
+        string[] runtimeSiteRequirements =
+        [
+            "  workflow_run:\n",
+            "      - Nightly release candidate\n",
+            "    name: Select completed candidate\n",
+            "          ref: ${{ steps.trigger.outputs.sha }}\n"
+                + "\n"
+                + "      - name: Setup candidate .NET SDK\n"
+                + "        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0\n"
+                + "        with:\n"
+                + "          global-json-file: global.json\n"
+                + "\n"
+                + "      - name: Validate candidate identity\n",
+            "          eng/validate-release-candidate.sh \\\n",
+            "      source_sha: ${{ needs.source.outputs.sha }}\n",
+            "      candidate_run_id: ${{ needs.source.outputs.run_id }}\n",
+            "      candidate_attempt: ${{ needs.source.outputs.run_attempt }}\n",
+            "            --candidate-identity \"$RUNNER_TEMP/runtime-site/evidence/candidate-identity.json\" \\\n",
+            "            --candidate-run-id \"${{ needs.source.outputs.run_id }}\" \\\n",
+            "            --candidate-attempt \"${{ needs.source.outputs.run_attempt }}\" \\\n",
+            "              .schema == 2\n",
+            "              and .candidate == {\n",
+        ];
+        string[] missingRuntimeSiteRequirements = runtimeSiteRequirements
+            .Where(value =>
+                !runtimeSitesWorkflow.Contains(value, StringComparison.Ordinal))
+            .ToArray();
+        if (missingRuntimeSiteRequirements.Length != 0
+            || Count(
+                runtimeSitesWorkflow,
+                "          ref: ${{ needs.source.outputs.sha }}\n") != 2
+            || Count(runtimeSitesWorkflow, "              .schema == 2\n") != 2
+            || Count(
+                runtimeSitesWorkflow,
+                "              and .candidate == {\n") != 2)
+        {
+            throw new InvalidOperationException(
+                "Runtime-site workflow does not bind deployment to one validated "
+                + "candidate identity. Missing: ["
+                + string.Join(", ", missingRuntimeSiteRequirements)
+                + "].");
+        }
+
+        string[] runtimeCohortRequirements =
+        [
+            "      source_sha:\n",
+            "        description: Exact source commit to build\n",
+            "          ref: ${{ inputs.source_sha }}\n",
+            "            -p:SourceRevisionId=\"${{ inputs.source_sha }}\" \\\n",
+            "            --source-commit \"${{ inputs.source_sha }}\" \\\n",
+            "              }' > \"$RUNNER_TEMP/runtime-cohort/evidence/candidate-identity.json\"\n",
+        ];
+        string[] missingRuntimeCohortRequirements = runtimeCohortRequirements
+            .Where(value =>
+                !runtimeCohortWorkflow.Contains(value, StringComparison.Ordinal))
+            .ToArray();
+        if (missingRuntimeCohortRequirements.Length != 0
+            || Count(
+                runtimeCohortWorkflow,
+                "          ref: ${{ inputs.source_sha }}\n") != 4
+            || Count(
+                runtimeCohortWorkflow,
+                "            -p:SourceRevisionId=\"${{ inputs.source_sha }}\" \\\n") != 2
+            || Count(
+                runtimeCohortWorkflow,
+                "            --source-commit \"${{ inputs.source_sha }}\" \\\n") != 1)
+        {
+            throw new InvalidOperationException(
+                "Runtime cohort does not preserve the selected source and "
+                + "candidate identity. Missing: ["
+                + string.Join(", ", missingRuntimeCohortRequirements)
+                + "].");
+        }
+    }
+
+    private static int Count(string value, string expected) =>
+        value.Split(expected, StringSplitOptions.None).Length - 1;
 
     private static void ValidateRuntimeSdkGlobalJsonOverride(
         string workflow,

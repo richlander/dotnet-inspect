@@ -68,7 +68,7 @@ superseded when a newer run covers the intended current head.
 | Every `main` push | `ci.yml` | Current-head repository health. |
 | Every `main` push | `deploy-inspect-web.yml` | Current-head staging build and deployment. |
 | 00:17 daily | `release-candidate.yml` | Build immutable packages and production site, then run exact-SHA release certification, census, and comprehensive Inspect Web evidence. |
-| 00:47 daily | `inspect-web-runtime-cohort-nightly.yml` | Controlled Mono, CoreCLR IL, and CoreCLR R2R admission and performance evidence. |
+| After each completed candidate | `deploy-inspect-web-runtime-sites.yml` | Rebuild the candidate SHA as controlled Mono, CoreCLR IL, and CoreCLR R2R evidence, then automatically deploy both comparison sites. |
 | 02:17 daily | `inspect-web-performance-nightly.yml` | Public production Mono/CoreCLR performance evidence. |
 | 04:38 daily | `codeql-scheduled.yml` | CodeQL analysis. |
 | 05:17 daily | `inspect-web-runtime-pin-proposal.yml` | Newer coherent .NET 12 candidate discovery, full cohort admission, and pin-only proposal branch. |
@@ -79,7 +79,9 @@ superseded when a newer run covers the intended current head.
 | 09:00 Monday | `deep-inspect.yml` | Top-package discovery sweep. |
 
 Query each scheduled workflow with `--event schedule`; do not mistake a manual
-dispatch for proof that its schedule fired. The release-candidate run calls Deep Inspect after assembling the retained
+dispatch for proof that its schedule fired. Query the comparison deployment
+with `--event workflow_run` and match its recorded candidate run, attempt, and
+SHA. The release-candidate run calls Deep Inspect after assembling the retained
 assets. Deep Inspect's own schedule has separate 09:00 daily and 09:00 Monday
 runs. Select them by creation time and inspect their jobs to confirm the
 expected lane actually ran.
