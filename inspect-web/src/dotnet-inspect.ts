@@ -9857,7 +9857,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
       : "";
     const directUseClusters = active && !platformView
-      ? renderDirectUseClusterInspection(active, state, escapeHtml)
+      ? renderDirectUseClusterInspection(
+          active,
+          state.memberCallGraphKey,
+          state,
+          escapeHtml)
       : "";
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building dependency-aware call graph…</h2><p>Resolving package dependencies under ${escapeHtml(state.callGraphTraversalFramework)} and scanning implementation IL.</p></section>`
@@ -11290,7 +11294,7 @@ function bindEvents() {
       if (!graph || !boundary) return;
       observeAsync(
         directUseClusterInspection.selectBoundary(
-          graph.mermaid,
+          state.memberCallGraphKey,
           boundary),
         "Inspecting a Library dependency boundary");
     },
@@ -20165,6 +20169,7 @@ function applyProductHomeDemoSelection(
   state.packageLens = "overview";
   resetMemberFilters();
   resetMemberSectionState();
+  directUseClusterInspection.reset();
   state.platformStack = [];
   state.memberBrowseTypeId = member ? type.id : "";
   state.selectedMemberKey = member?.key ?? "";

@@ -61,7 +61,7 @@ export function createDirectUseClusterInspectionController(
     state.directUseClusterGraphKey = graphKey;
     state.directUseClusterBoundary = boundary;
     if (changesBoundary) state.directUseClusterResult = null;
-    else if (selectedCluster > 0 && state.directUseClusterResult) {
+    else if (state.directUseClusterResult) {
       state.directUseClusterResult = {
         ...state.directUseClusterResult,
         selectedCluster: null,
@@ -125,11 +125,11 @@ export function createDirectUseClusterInspectionController(
 
 export function renderDirectUseClusterInspection(
   graph: InspectedCallGraph,
+  graphKey: string,
   state: DirectUseClusterInspectionState,
   escapeHtml: (value: string) => string,
 ): string {
   if (graph.boundaries.length === 0) return "";
-  const graphKey = graph.mermaid;
   const selected = state.directUseClusterGraphKey === graphKey
     ? state.directUseClusterBoundary
     : null;

@@ -160,6 +160,7 @@ test("cluster rendering exposes separate footprint dimensions and exact receipts
   current.directUseClusterResult = result(1);
   const html = renderDirectUseClusterInspection(
     graph(),
+    "graph-a",
     current,
     value => value);
 
@@ -193,6 +194,7 @@ test("focused loading preserves pair-wide cluster choices", async () => {
     render: () => {
       renders.push(renderDirectUseClusterInspection(
         graph(),
+        "graph-a",
         current,
         value => value));
     },
@@ -229,9 +231,74 @@ test("rejected inspection remains an explicit failure", () => {
 
   const html = renderDirectUseClusterInspection(
     graph(),
+    "graph-a",
     current,
     value => value);
 
   assert.match(html, /The selected Libraries are the same participant/);
   assert.doesNotMatch(html, /No direct use was observed/);
+});
+
+test("request identity hides selection from a replacement graph", () => {
+  const current = state();
+  current.directUseClusterGraphKey = "request-a";
+  current.directUseClusterBoundary = boundary;
+  current.directUseClusterResult = result(1);
+  const replacement = {
+    ...graph(),
+    boundaries: [{
+      ...boundary,
+      sourcePackageVersion: "2.0.0",
+      targetPackageVersion: "9.0.0",
+    }],
+  };
+
+  const html = renderDirectUseClusterInspection(
+    replacement,
+    "request-b",
+    current,
+    value => value);
+
+  assert.doesNotMatch(html, /Exact Call Sites/);
+  assert.doesNotMatch(html, /11111111-1111-1111-1111-111111111111/);
+  assert.match(html, /Consumer@2\.0\.0/);
+  assert.match(html, /Provider@9\.0\.0/);
+});
+
+test("failed pair-wide retry does not retain focused call sites", async () => {
+  const current = state();
+  let rejectRetry: ((reason?: unknown) => void) | undefined;
+  const controller = createDirectUseClusterInspectionController({
+    state: current,
+    query: request => {
+      if (request.selectedCluster === 1) return Promise.resolve(result(1));
+      if (current.directUseClusterResult === null) {
+        return Promise.resolve(result(null));
+      }
+      return new Promise((_, reject) => {
+        rejectRetry = reject;
+      });
+    },
+    describeError: error => String(error),
+    render: () => {},
+  });
+
+  await controller.selectBoundary("request-a", boundary);
+  await controller.selectCluster(1);
+  const retry = controller.selectBoundary("request-a", boundary);
+  assert.equal(current.directUseClusterResult?.selectedCluster, null);
+  assert.deepEqual(current.directUseClusterResult?.callSites, []);
+
+  assert.ok(rejectRetry);
+  rejectRetry(new Error("retry failed"));
+  await retry;
+
+  const html = renderDirectUseClusterInspection(
+    graph(),
+    "request-a",
+    current,
+    value => value);
+  assert.match(html, /retry failed/);
+  assert.doesNotMatch(html, /Exact Call Sites/);
+  assert.doesNotMatch(html, /11111111-1111-1111-1111-111111111111/);
 });
