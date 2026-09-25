@@ -36,7 +36,9 @@ Supporting owners remain authoritative:
 
 Presentation lowering, host disclosure, and interaction belong to their
 adopters. Whether a whitespace edit is *significant* belongs to a consumer or a
-later language-aware certifier. This design states facts only.
+later language-aware certifier. This design states facts, plus the
+[whitespace policy](#whitespace-policy) that the operator directed for every
+adopter; each adopter's slice implements it.
 
 ## Why
 
@@ -61,7 +63,8 @@ Undeclared whitespace policies already exist in comparison paths:
 
 The first three silently decide equivalence. This design replaces "decide
 equivalence" with "report the whitespace facts." Moving those paths onto the
-characterization is tracked by #8393 and is not part of this contract. The
+characterization is tracked by #8393 (S7 for RTS) and is not part of this
+contract, apart from the operator-directed policy those slices adopt. The
 member projection is a declared canonicalization of member placement, and it
 stays. The characterization sees only the whitespace that survives it.
 
@@ -415,9 +418,69 @@ Every mode must preserve these facts:
 - A host must never describe a whitespace-only difference as insignificant.
   Only a language certifier may make that claim.
 
+### Whitespace policy
+
+An adopter presents a comparison under one of two policies:
+
+- **Sensitive:** mark or highlight every `WhitespaceOnly` change.
+- **Insensitive:** suppress `WhitespaceOnly` changes as far as line
+  correspondence allows, and disclose what was suppressed.
+
+The default follows the provenance of the two endpoints, not the content:
+
+| Endpoints | Default | Reason |
+| --- | --- | --- |
+| Authored → authored | Sensitive | Both layouts are authored, so every whitespace change is an authored edit. |
+| Decompiled ↔ authored | Insensitive | The decompiled layout is emitted by the printer, so a whitespace difference reports printer layout, not an authored edit. |
+| Decompiled → decompiled | Sensitive | Both layouts are printer output, so a whitespace change is a printer change, which a decompiler developer reviews. |
+
+This is a provenance fact, not a significance claim. An insensitive
+presentation says that whitespace-only differences are not shown and counts
+them; it never calls them insignificant or the texts equivalent. A
+whitespace-only difference inside a string literal is still a real
+difference, and only a language certifier may say otherwise. A caller may
+always select the other policy explicitly.
+
+Insensitive presentation applies the Suppress mode with two constraints from
+line correspondence:
+
+- A `WhitespaceOnly` change is suppressed when both sides have the same
+  nonzero number of lines and it has no `LineBreaks` and no
+  `FinalLineTerminator` edit: its lines render as unchanged context. Every
+  edit then has equal boundary counts over the same lines, so line *i* of one
+  side corresponds to line *i* of the other and the two differ only within
+  the line or in terminator spelling, which is the `diff -w` notion of an
+  unchanged line. Equal boundary counts alone are not enough: a change whose
+  text is empty on one side, such as `""` against a lone `␠␠` line, has no
+  boundary on either side but zero lines against one.
+- Any other `WhitespaceOnly` change cannot pair its lines as context. The
+  common case is a blank line that authored code has and decompiled code
+  lacks; a brace moved onto its own line is another. A line re-cut keeps the
+  line count but not the correspondence: `if (c) {` after a blank line,
+  against `if (c)` then `{`, has two lines on each side and no line that
+  matches. A change that adds or removes the final line terminator pairs its
+  lines, but an unterminated final line must stay changed. Such a change is
+  hidden instead: the mapped diff keeps it as a change, and formatters leave
+  it out of the rendered lines. GNU `diff -B` leaves out hunks that only add
+  or remove blank lines; hiding goes further, because it also hides a
+  whitespace-only change next to a `Changed` change, where `-B` would show it.
+
+Moves are unaffected: a moved block is still presented as a move, and its
+whitespace-only content fact is shown only under the sensitive policy.
+`Changed` changes are unaffected under both policies.
+
+An insensitive summary is two-sided like the statistics it adjusts. It
+reports the Before and After counts without the lines of `WhitespaceOnly`
+changes, subtracting each line from every facet count that holds it, and
+reports the subtracted lines as a separate named Before and After count, so
+the subtraction is always stated. A brace moved onto its own line contributes
+one Before and two After whitespace-only lines; the removed blank line in
+`JToken.Remove()` contributes one Before and zero After.
+
 ### Markout lowering
 
-Each issued change lowers to one Markout `TextDiffChange`. Markout already
+Each issued change lowers to one Markout `TextDiffChange`, except a change
+suppressed under the insensitive policy, which lowers to none. Markout already
 accepts changes that are in order, don't overlap, and may be adjacent. Mark
 mode lowers the outcome to a change label. Highlight mode lowers the edits of
 a `WhitespaceOnly` replacement to `TextDiffInnerMapping` span pairs, which
@@ -426,6 +489,21 @@ Boundary edits lower through the line structure plus empty (insertion-point)
 spans. Whitespace-only additions and removals, such as blank lines, present at
 line level. The adopter takes the lowering from the issued changes and edits
 rather than re-deriving it.
+
+Suppress mode lowers a suppressed change to no Markout change at all. Its
+lines correspond one-to-one, so they fall into an unchanged gap; Markout
+accepts that correspondence claim and deliberately does not compare the text
+of an unchanged gap. Unified output prints context from the Before
+side, as `diff -w` and `git diff -w` do, so an adopter that compares decompiled
+with authored text places the authored text on the Before side where its
+command allows.
+
+A hidden change needs Markout slice M2, a caller-issued hidden flag on a
+change. This design needs two properties from it: a hidden change renders no
+removal or addition lines, and every format discloses each hidden run so
+nothing disappears silently. Markout's own design owns hunk selection and patch
+shape around hidden changes. The flag carries no whitespace meaning, just as a
+label carries none.
 
 Markout is the rendering substrate, not a consumer. The operator approved
 Markout slice M1, under the
@@ -560,7 +638,8 @@ This design does not define:
   line-diff characterization; boundaries inside a region are located, and the
   pair characterization locates every boundary difference);
 - host rendering, gestures, or interaction; or
-- adoption by any owner other than the first adopter.
+- adoption by any owner beyond the operator-directed decisions that
+  [Production adoption](#production-adoption) records.
 
 ## Production adoption
 
@@ -573,27 +652,96 @@ counted plan:
 | S1 | `Inspector.Text` | Pair and line-diff characterization, fixtures, soundness gates |
 | S2 | `DotnetInspector.Presentation` | First adopter: lowering and statistics for member source diffs; CLI member Source Diff |
 | M1 | Markout | Change labels in hunk headers, no merging across labels, visible whitespace glyphs |
-| S3 | `ILInspector.Research` and CLI | Authored-source text diff for `diff --pdb-source` |
+| M2 | Markout | Caller-issued hidden changes, disclosed as omissions |
+| S3 | `ILInspector.Research` and CLI | Authored-source text diff for `diff --pdb-source`, sensitive by default; its opt-in exclusion mode needs M2 |
 | S4 | Inspect Web source-diff transport | Typed Worker transport of the characterization |
-| S5 | Inspect Web diff viewer | The three presentation modes |
+| S5 | Inspect Web diff viewer | The three presentation modes for authored → authored comparisons; Suppress as an explicit choice |
+| S6 | `DotnetInspector.Presentation` and CLI | Insensitive policy for the member Source Diff, the default, with an explicit sensitive option; needs M2 |
+| S7 | Decompiler harness (RTS) | Insensitive decompiled ↔ authored Correct judgment in place of `NormalizeBody`; whitespace-only classification of A/B changes |
 
-The CLI is first reached at S2, which is three steps. Labeled hunks need M1
-first. Inspect Web is reached at S5, which follows S0–S2 and S4. S3 is
-independent of S4 and S5.
+S0–S2 and M1 have landed. S3, S6, and S7 are independent of each other,
+except that S3's exclusion mode and S6 both follow M2. S6
+changes only the lowering and summary of the existing CLI member Source Diff,
+and follows M2 under the [Markout co-development loop](../markout-co-development.md).
+M2 starts only after the operator approves it, as M1 was.
+Inspect Web is reached at S5, which follows S4. S3 is independent of S4 and
+S5.
 
 The operator directed S3's adoption decisions for `diff` with authored source
 on both sides. That owner's slice records them:
 
 - the diff body shows every change by default, including whitespace-only
   changes, which are labeled;
-- an opt-in mode excludes whitespace-only changes and discloses that it did;
+- an opt-in mode excludes whitespace-only changes and discloses that it did,
+  applying the insensitive rules;
 - a summary-only mode reports counts without the body; and
 - the summary reports changed lines, whitespace-only lines as a subset of the
   changed lines, and moved lines.
 
+The operator also directed the [whitespace policy](#whitespace-policy)
+defaults and their hosts:
+
+- The insensitive default for decompiled ↔ authored comparisons is a CLI and
+  RTS capability only; Inspect Web does not need it. This narrows the usual
+  CLI-and-browser adoption of shared substrate by the operator's explicit
+  approval. The facts stay in host-neutral `Inspector.Text`, which RTS
+  consumes directly. The browser adoption of the PDB and decompiled member
+  Source Diff that
+  [Member source diff presentation](member-source-diff-presentation.md) and
+  [Inspect Web source-diff transport](inspect-web-source-diff-transport.md)
+  plan is unchanged and stays with those owners; it presents that comparison
+  under the sensitive policy, as a recorded exception to the provenance
+  default.
+- For authored → authored comparisons, S5 offers all three modes. Mark and
+  Highlight are the sensitive default, and Suppress is an explicit viewer
+  choice that applies the insensitive rules above. S5's viewer renders from
+  the transported facts, so it owns how it leaves out a change that cannot
+  pair as context.
+- The member Source Diff compares PDB (authored) with decompiled text, so S6
+  makes it insensitive by default. The S2 labels remain its sensitive
+  presentation.
+- RTS consumes the facts, not a rendering. Its source probe already judges
+  decompiled ↔ authored text with the nested source judgments
+  `Printer exact ⊆ Correct ⊆ Valid` that
+  [the correctness pipeline](../decompiler-correctness-pipeline.md) owns.
+  Correct compares after `NormalizeBody`, which is the insensitive judgment.
+  Printer exact is an opt-in ordinal comparison that normalizes only line
+  terminators and one trailing newline; it is the existing explicit sensitive
+  selection for this endpoint pair, and S7 leaves it unchanged.
+- S7 replaces every `NormalizeBody` comparison in the probe with the pair
+  outcome: Correct holds when the outcome is `Identical` or `WhitespaceOnly`.
+  The probe records Printer exact only for a body that is already Correct,
+  as it does today, so the nesting holds by construction; Printer exact
+  compares its own printer-body extraction and is otherwise unchanged. S7 reports a body
+  that is not Correct with the line-diff facts: `Changed` lines, moved blocks,
+  and `WhitespaceOnly` lines counted separately. `NormalizeBody` removes every
+  .NET `\s` character, which includes U+00A0, U+000B, U+000C, U+0085, other
+  `Zs` characters, U+2028, and U+2029. This design's whitespace set
+  deliberately excludes them, so a body that differs only by those characters
+  stops being Correct. That change is intended, because a lookalike space must
+  not pass as whitespace; S7 reports any registered source-oracle member it
+  moves out of Correct as a manifest change in its own slice. Correct remains
+  RTS's judgment, not an equivalence verdict from this design: whitespace
+  inside a string literal stays a difference until a language certifier says
+  otherwise.
+- Decompiled → decompiled comparisons, such as RTS A/B runs across decompiler
+  builds, keep the sensitive default. RTS A/B compares trimmed text ordinally
+  today, which is sensitive to everything except leading and trailing
+  whitespace of the whole text. S7 replaces that equality with the pair
+  outcome: a method is unchanged only when the outcome is `Identical`, and
+  each changed method is classified as `WhitespaceOnly`, a printer layout
+  change, or `Changed`. Leading and trailing whitespace of the whole text
+  therefore becomes a whitespace-only change instead of no change. The
+  structural diff that explains changed methods is unchanged.
+
 Follow-on owners track separately in #8393:
 
 - `CSharpText` lexical certification;
-- decompiler structural-diff adoption of the pair primitive; and
-- retirement of the RTS `NormalizeBody` policy and the undeclared
-  `CSharpBodyDiff` line-identity trim.
+- syntax-level equivalence beyond lexical certification, such as an
+  expression-bodied member that corresponds to a one-statement block body,
+  which no slice plans yet;
+- decompiler structural-diff adoption of the pair primitive;
+- retirement of the undeclared `CSharpBodyDiff` line-identity trim; and
+- whether Printer exact gains the characterization as an explanation of a
+  `Different` result, or moves its verdict onto the pair outcome, which the
+  operator deferred to a discussion with the RTS owner.

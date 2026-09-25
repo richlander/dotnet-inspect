@@ -525,11 +525,15 @@ import {
 import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
+  libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
+  type LibraryApiDiffMemberExploreContext,
+  type LibraryApiDiffRenderOptions,
   type LibraryApiDiffSelection,
   type LibraryApiDiffState,
   type LibraryApiDiffSubject,
 } from "./library-api-diff.ts";
+import { createMemberDiffExplorer } from "./member-diff-explorer.ts";
 import {
   bindCompareFrame,
   restoreCompareTabFocus,
@@ -4330,6 +4334,27 @@ const libraryApiDiff = createLibraryApiDiffCoordinator({
   },
   render,
 });
+const memberDiffExplorer = createMemberDiffExplorer({
+  document,
+  operationAuthority,
+  query: (operationId, request) =>
+    engineClient.source.queryMemberSourceComparison(operationId, request),
+  cancel: (operationId, reason) => {
+    observeAsync(
+      engineClient.source.cancelMemberSourceComparison(operationId, reason),
+      "Cancelling Member Diff Authored Source",
+    );
+  },
+  describeError: errorMessage,
+  escapeHtml,
+  reportOperationDiagnostic: diagnostic => {
+    console.error(
+      "Member Diff Explore operation authority failure.",
+      diagnostic,
+    );
+    return undefined;
+  },
+});
 const compareClone = createCompareCloneCoordinator({
   state,
   operationAuthority,
@@ -6043,22 +6068,9 @@ function compareCloneJoin(subject: CompareSubject): CompareCloneJoin {
   };
 }
 
-function renderCompareSurface(): string {
-  const subject = currentCompareSubject();
-  if (!subject) return "";
-  const mode = currentCompareMode();
-  const subjectLabel = compareSubjectLabel(subject);
-  const targetText = compareTargetText(subject, mode);
-  const subjectKind: CompareSubjectKind = subject.kind;
-  if (mode === "clone") {
-    return renderCompareClone(state.compareClone, escapeHtml, {
-      subject: subjectKind,
-      subjectLabel,
-      targetText,
-      join: compareCloneJoin(subject),
-      selectedRank: state.compareCloneSelectedRank,
-    });
-  }
+function libraryApiDiffRenderOptions(
+  subject: CompareSubject,
+): LibraryApiDiffRenderOptions {
   let diffSubject: LibraryApiDiffSubject;
   let activatableTypes: ReadonlySet<string> | undefined;
   let activatableMembers: ReadonlySet<string> | undefined;
@@ -6081,13 +6093,46 @@ function renderCompareSurface(): string {
       memberFingerprint: subject.overload?.anchorDigest ?? "",
     };
   }
-  return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
+  return {
     subject: diffSubject,
-    subjectLabel,
-    targetText,
+    subjectLabel: compareSubjectLabel(subject),
+    targetText: compareTargetText(subject, "diff"),
     mode: "diff",
     ...(activatableTypes ? { activatableTypes } : {}),
     ...(activatableMembers ? { activatableMembers } : {}),
+  };
+}
+
+function currentMemberDiffExploreContext():
+LibraryApiDiffMemberExploreContext | null {
+  const subject = currentCompareSubject();
+  if (subject === null || currentCompareMode() !== "diff") return null;
+  return libraryApiDiffMemberExploreContext(
+    state.libraryApiDiff,
+    libraryApiDiffRenderOptions(subject),
+  );
+}
+
+function renderCompareSurface(): string {
+  const subject = currentCompareSubject();
+  if (!subject) return "";
+  const mode = currentCompareMode();
+  const subjectLabel = compareSubjectLabel(subject);
+  const targetText = compareTargetText(subject, mode);
+  const subjectKind: CompareSubjectKind = subject.kind;
+  if (mode === "clone") {
+    return renderCompareClone(state.compareClone, escapeHtml, {
+      subject: subjectKind,
+      subjectLabel,
+      targetText,
+      join: compareCloneJoin(subject),
+      selectedRank: state.compareCloneSelectedRank,
+    });
+  }
+  return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
+    ...libraryApiDiffRenderOptions(subject),
+    subjectLabel,
+    targetText,
   });
 }
 
@@ -6793,6 +6838,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
+    memberDiffExplorer.afterRender(
+      document.querySelector<HTMLElement>("#compare-title")
+        ?? document.querySelector<HTMLElement>("main h1"),
+    );
   }
 }
 
@@ -6800,6 +6849,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   sourceInspection.cancelHiddenRequest();
   libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
   compareClone.reconcile(currentCompareCloneTarget());
+  memberDiffExplorer.reconcile(currentMemberDiffExploreContext());
   const graphExplorerWasOpen = graphExplorer.isOpen;
   graphExplorer.beforeRender(graphExplorerKey());
   if (graphExplorerWasOpen && !graphExplorer.isOpen) {
@@ -7108,6 +7158,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
   const compareWorkingSurface = currentCompareSubject() !== null;
+  const memberDiffExploreTarget = currentMemberDiffExploreContext();
   const libraryReferencesWorkingSurface =
     activeScope === "library" && state.libraryLens === "references";
   const libraryIntegrationsWorkingSurface =
@@ -7175,8 +7226,11 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+              ${memberDiffExploreTarget
+                ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
+                : ""}
               ${metadataWorkingSurface
                 ? `<button type="button" id="type-graph-explore" data-graph-explore${typeGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
@@ -12252,6 +12306,14 @@ function bindCompareEvents() {
     activateType: activateCompareType,
     activateMember: activateCompareMember,
   });
+  const memberExplore = document.querySelector<HTMLElement>(
+    "[data-member-diff-explore]",
+  );
+  memberExplore?.addEventListener("click", () => {
+    const context = currentMemberDiffExploreContext();
+    if (context === null || memberExplore === null) return;
+    memberDiffExplorer.open(context, memberExplore);
+  });
   bindCompareCloneRows(document, {
     selectRank: rank => {
       if (state.compareCloneSelectedRank === rank) return;
@@ -12949,6 +13011,7 @@ function workbenchModalOwnsFocus() {
     || graphSourceIsOpen(state.graphSource)
     || documentViewerIsOpen(state.docViewer)
     || state.memberAnnotatedModal !== null
+    || memberDiffExplorer.isOpen
     || graphExplorer.isOpen;
 }
 
@@ -21470,6 +21533,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !graphSourceIsOpen(state.graphSource)
     && !documentViewerIsOpen(state.docViewer)
     && state.memberAnnotatedModal === null
+    && !memberDiffExplorer.isOpen
     && !state.spotlightOpen;
 }
 
@@ -21607,6 +21671,11 @@ registerContainedShortcuts(
   "graph-explorer.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.graphSource,
   () => graphExplorer.isOpen,
+);
+registerContainedShortcuts(
+  "member-diff-explorer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  () => memberDiffExplorer.isOpen,
 );
 
 keybindings.register({

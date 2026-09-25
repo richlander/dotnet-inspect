@@ -3159,15 +3159,16 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
-        Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Source", output);
-        Assert.Contains("## Annotated Source", output);
+        Assert.Contains("## PDB Source", output);
+        Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+        Assert.DoesNotContain("## IL", output);
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_SourceCategory_IncludesIlAndNoLoweredSource()
+    public async Task Member_SelectedOverload_SourceCategory_ExcludesDecompilerAnalysisViews()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -3175,10 +3176,11 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
-        Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Source", output);
-        Assert.Contains("## Annotated Source", output);
-        Assert.Contains("## IL", output);
+        Assert.Contains("## PDB Source", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.DoesNotContain("## Lowered Source", output);
     }
 
