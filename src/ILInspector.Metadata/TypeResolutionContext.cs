@@ -203,8 +203,24 @@ public sealed class TypeResolutionCatalog : IDisposable
         ResolvedAssemblyReference source,
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll = false,
-        bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool typesOnly = false) =>
+        ExtractApiSurface(
+            source,
+            bindingPolicy,
+            includeAll,
+            typesOnly,
+            includeCompilerGenerated: false);
+
+    /// <summary>
+    /// Extracts a resolution-aware API surface from the same retained candidate
+    /// image used by this catalog's resolution generations.
+    /// </summary>
+    public ResolutionAwareApiSurfaceOutcome ExtractApiSurface(
+        ResolvedAssemblyReference source,
+        IAssemblyBindingPolicy bindingPolicy,
+        bool includeAll,
+        bool typesOnly,
+        bool includeCompilerGenerated)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(bindingPolicy);

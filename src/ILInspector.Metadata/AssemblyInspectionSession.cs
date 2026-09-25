@@ -259,8 +259,26 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        bool typesOnly = false,
-        bool includeCompilerGenerated = false) =>
+        bool typesOnly = false) =>
+        ApiSurface(
+            source,
+            catalog,
+            bindingPolicy,
+            scope,
+            typesOnly,
+            includeCompilerGenerated: false);
+
+    /// <summary>
+    /// Projects one explicit API scope with resolution-aware generic
+    /// constraints.
+    /// </summary>
+    public ApiSurface ApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly,
+        bool includeCompilerGenerated) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,

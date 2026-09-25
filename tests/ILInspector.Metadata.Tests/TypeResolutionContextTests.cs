@@ -13,6 +13,30 @@ public class TypeResolutionContextTests
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
     [Fact]
+    public void PublicExtractionOverloads_PreserveOriginalClrSignatures()
+    {
+        Assert.NotNull(
+            typeof(TypeResolutionCatalog).GetMethod(
+                nameof(TypeResolutionCatalog.ExtractApiSurface),
+                [
+                    typeof(ResolvedAssemblyReference),
+                    typeof(IAssemblyBindingPolicy),
+                    typeof(bool),
+                    typeof(bool),
+                ]));
+        Assert.NotNull(
+            typeof(AssemblyInspectionSession).GetMethod(
+                nameof(AssemblyInspectionSession.ApiSurface),
+                [
+                    typeof(ResolvedAssemblyReference),
+                    typeof(TypeResolutionCatalog),
+                    typeof(IAssemblyBindingPolicy),
+                    typeof(ApiSurfaceExtractionScope),
+                    typeof(bool),
+                ]));
+    }
+
+    [Fact]
     public void Lineage_SharedForwarderKeepsBothContextsAndIntrinsicAnswers()
     {
         ResolvedAssemblyReference firstRoot =
