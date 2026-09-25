@@ -339,16 +339,38 @@ public partial class PackageCommand
             return 1;
         }
 
+        // The export names its document directly, so an archive above the
+        // size cut is read by range: the root folder and, for a Skill, the
+        // Skill's folder (docs/design/package-read-demand.md#document-demand).
+        PackageDocumentDemand documents;
+        try
+        {
+            int folderEnd = documentPath.LastIndexOf('/') + 1;
+            documents = isSkill
+                ? PackageDocumentDemand.Create(
+                    [documentPath],
+                    [documentPath[..folderEnd]])
+                : PackageDocumentDemand.Create([documentPath]);
+        }
+        catch (ArgumentException)
+        {
+            // A path the document demand cannot name, such as one with a
+            // '..' segment, keeps the existing package-content path.
+            return null;
+        }
+
         await using DesktopPackageSourceComposition composition =
             context.CreatePackageSourceComposition();
-        var store = new FileSystemPackageStore();
+        using var stores = new SearchPackageStores();
         ConfiguredPackagePayloadResult result =
             await composition.AcquirePinnedAsync(
                     target.PackageName,
                     pinnedVersion,
-                    (_, _) => store,
+                    stores.GetStore,
                     options.SourceOptions,
-                    context.Logger.Log)
+                    context.Logger.Log,
+                    access: PackagePayloadAccess.Ranged,
+                    documentDemand: documents)
                 .ConfigureAwait(false);
         if (result.HouseSettlement
                 is not PackageHouseSettlement.Acquired settlement)
@@ -356,8 +378,24 @@ public partial class PackageCommand
             return null;
         }
 
+        if (settlement.Result.Evidence.Acquisition?.Transfer
+            is { } transfer)
+        {
+            context.Logger.Log(
+                $"Package transfer for {target.PackageName}@{pinnedVersion} "
+                + $"({documents}): {transfer.Path}, "
+                + $"{transfer.RequestCount} package requests, "
+                + $"{transfer.BytesReceived} bytes received.");
+        }
+
+        // The directory lists every entry, so a ranged read answers this
+        // check as the complete archive does; a possible tool wrapper takes
+        // the complete package-content path, which follows the redirect.
         if (MayRequireLegacyToolWrapperHandling(settlement.Payload.Content))
         {
+            context.Logger.Log(
+                $"{target.PackageName}@{pinnedVersion} may be a .NET tool wrapper; "
+                + "exporting through the complete package-content path.");
             return null;
         }
 
