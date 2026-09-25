@@ -114,7 +114,11 @@ internal static class MetadataMethodGroupInspection
             {
                 return failure!;
             }
-            var matches = new List<MethodDefinitionHandle>();
+            int matchCount = 0;
+            List<MethodDefinitionHandle>? rowHandles =
+                materializeRows
+                    ? []
+                    : null;
             foreach (MethodDefinitionHandle handle in type.GetMethods())
             {
                 if (accessors.Contains(handle))
@@ -132,36 +136,40 @@ internal static class MetadataMethodGroupInspection
                     continue;
                 }
 
-                matches.Add(handle);
-                if (matches.Count > maximumMembers)
+                if (rowHandles is not null
+                    && matchCount >= startOrdinal
+                    && rowHandles.Count < maximumRows)
+                {
+                    rowHandles.Add(handle);
+                }
+                matchCount++;
+                if (matchCount > maximumMembers)
                 {
                     return new MetadataMethodGroupInspectionOutcome.Incomplete(
                         MetadataMethodGroupInspectionBound.Members,
                         maximumMembers,
-                        matches.Count);
+                        matchCount);
                 }
             }
 
-            if (matches.Count == 0)
+            if (matchCount == 0)
             {
                 return new MetadataMethodGroupInspectionOutcome
                     .MemberGroupNotFound();
             }
-            if (startOrdinal > matches.Count
-                || (startOrdinal == matches.Count && matches.Count != 0))
+            if (startOrdinal > matchCount
+                || (startOrdinal == matchCount && matchCount != 0))
             {
                 return new MetadataMethodGroupInspectionOutcome.Read(
                     declaringType,
                     MetadataTokens.GetToken(typeHandle),
-                    matches.Count,
+                    matchCount,
                     [],
                     NextOrdinal: null,
                     ContinuationOutOfRange: true);
             }
 
-            int rowCount = materializeRows
-                ? Math.Min(maximumRows, matches.Count - startOrdinal)
-                : 0;
+            int rowCount = rowHandles?.Count ?? 0;
             var rows =
                 ImmutableArray.CreateBuilder<MetadataMethodGroupRow>(
                     rowCount);
@@ -182,7 +190,7 @@ internal static class MetadataMethodGroupInspection
                 return new MetadataMethodGroupInspectionOutcome.Read(
                     declaringType,
                     MetadataTokens.GetToken(typeHandle),
-                    matches.Count,
+                    matchCount,
                     [],
                     NextOrdinal: null,
                     RowsFailed: true);
@@ -193,7 +201,7 @@ internal static class MetadataMethodGroupInspection
                 indexInGroup++)
             {
                 MethodDefinitionHandle handle =
-                    matches[startOrdinal + indexInGroup];
+                    rowHandles![indexInGroup];
                 MethodDefinition method =
                     reader.GetMethodDefinition(handle);
                 bool extension;
@@ -227,7 +235,7 @@ internal static class MetadataMethodGroupInspection
                     return new MetadataMethodGroupInspectionOutcome.Read(
                         declaringType,
                         MetadataTokens.GetToken(typeHandle),
-                        matches.Count,
+                        matchCount,
                         [],
                         NextOrdinal: null,
                         RowsFailed: true);
@@ -246,7 +254,7 @@ internal static class MetadataMethodGroupInspection
                     return new MetadataMethodGroupInspectionOutcome.Read(
                         declaringType,
                         MetadataTokens.GetToken(typeHandle),
-                        matches.Count,
+                        matchCount,
                         [],
                         NextOrdinal: null,
                         IncompleteRetainedTextCharacters:
@@ -270,9 +278,9 @@ internal static class MetadataMethodGroupInspection
             return new MetadataMethodGroupInspectionOutcome.Read(
                 declaringType,
                 MetadataTokens.GetToken(typeHandle),
-                matches.Count,
+                matchCount,
                 rows.MoveToImmutable(),
-                materializeRows && nextOrdinal < matches.Count
+                materializeRows && nextOrdinal < matchCount
                     ? nextOrdinal
                     : null);
         }
