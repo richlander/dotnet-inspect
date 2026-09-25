@@ -50,7 +50,8 @@ declaration, without mixing it into the text.
 
 ## Payload
 
-The document's Browser export (the document's adoption step ADD3) delivers
+The mode requests the document with IL included, since it offers both
+media. The document's Browser export (the document's adoption step ADD3) delivers
 one payload per destination, built in shared Presentation from the document,
 so the Browser neither compares nor lowers:
 
