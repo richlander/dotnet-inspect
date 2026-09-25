@@ -116,6 +116,20 @@ package, so equal package and Platform Type observations remain separate.
 Explicit source options remain authoritative; for example,
 `--platform System.Text.Json` does not add the package observation.
 
+Add a terminal `.*` to include the named namespace and its descendants:
+
+```bash
+dotnet-inspect find 'System.Text.Json.Serialization.*'
+```
+
+This is namespace-aware rather than an ordinary Type glob. It includes Types
+from `System.Text.Json.Serialization` and
+`System.Text.Json.Serialization.Metadata`, classifies them as `Namespace`, and
+uses the same package and Platform source policy as exact namespace discovery.
+The literal dot is significant: `System.Text.Json.Nodes.*` excludes
+`System.Text.Json.NodesExtra`, while `System.Text.Json.Nodes*` remains the
+broader lexical Type glob with `Glob` classification.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact
