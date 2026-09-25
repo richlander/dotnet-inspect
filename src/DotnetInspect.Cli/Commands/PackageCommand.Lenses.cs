@@ -211,8 +211,6 @@ public partial class PackageCommand
         InspectionEnvelope<PackageInfoMeasurements>? inspection = null;
         if (resolution.HouseSettlement
                 is PackageHouseSettlement.Acquired toolSettlement
-            && toolSettlement.Result.Evidence.Realization
-                is PackageHouseRealizationReceipt.Compile
             && await PackageToolDeclarationEvidence.TryCreateAsync(
                 toolSettlement.Payload) is { } declaration)
         {
@@ -227,9 +225,7 @@ public partial class PackageCommand
                             : requestedTargetFramework);
         }
         else if (resolution.HouseSettlement
-                is PackageHouseSettlement.Acquired settlement
-            && settlement.Result.Evidence.Realization
-                is PackageHouseRealizationReceipt.Compile)
+            is PackageHouseSettlement.Acquired settlement)
         {
             inspection =
                 PackageInfoMeasurementInspection.Project(settlement);

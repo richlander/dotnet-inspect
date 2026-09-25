@@ -1114,91 +1114,329 @@ public partial class PackageCommand
             .ToList();
     }
 
-    private enum PackageFilePopulationOutcome
+    private static async ValueTask<int?>
+        TryExecutePackageFileInventoryAsync(
+            PackageReferenceTarget target,
+            InspectionOptions options,
+            CommandContext context,
+            SectionPipeline<InspectionResult> pipeline)
     {
-        Legacy,
-        Infrastructure,
-        Failed,
-    }
-
-    private static async ValueTask<(
-        PackageFilePopulationOutcome Outcome,
-        int? Count)>
-        PopulatePackageFileSectionsAsync(
-            InspectionResult result,
-            PackageExtractionResult resolution,
-            string extractPath,
-            InspectionOptions options)
-    {
-        var packageReadme = result.PackageReadmeFile
-            ?? PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
-        result.PackageReadmeFile = packageReadme;
-        result.HasReadme = packageReadme != null;
-        result.HasAgentDocumentation = File.Exists(Path.Combine(extractPath, "AGENTS.md"));
-        if (CanUsePackageFileInventoryInfrastructure(
-                resolution,
-                options))
+        if (target.IsLocalFile
+            || DotnetInspector.Networking.HttpClientFactory.IsOffline
+            || !RequestsPackageFileInventoryInfrastructure(options))
         {
-            var terminal = options.Count
-                ? QuerySpaceTerminalRequirement.Count
-                : QuerySpaceTerminalRequirement.Rows;
-            var query = PackageFileInventoryQuery.CreateRequest(
-                options.PackageFileRowSelection
-                    ?? RowSelectionIntent<string>.Empty,
-                terminal);
-            InspectionEnvelope<PackageFileInventoryDocument> envelope =
-                await PackageFileInventoryCommandCapability.Binding
-                    .ExecuteAsync(
-                        new(
-                            (PackageHouseSettlement.Acquired)
-                                resolution.HouseSettlement!,
-                            query))
-                    .ConfigureAwait(false);
-            PackageFileInventoryDocument document = envelope.Content;
-            if (document.Status != PackageFileInventoryStatus.Completed)
-            {
-                CommandError.Write(
-                    "Could not inspect package files.",
-                    document.Detail?.ToString()
-                        ?? "The package-file inventory operation failed.");
-                return (PackageFilePopulationOutcome.Failed, null);
-            }
-
-            List<PackageFile> infrastructureFiles =
-            [
-                .. document.Files.Select(file =>
-                {
-                    string path = file.Path.ToString();
-                    return new PackageFile(
-                        path,
-                        file.Size,
-                        packageReadme is not null
-                            && path.Equals(
-                                packageReadme,
-                                StringComparison.OrdinalIgnoreCase),
-                        path.Equals(
-                            "AGENTS.md",
-                            StringComparison.OrdinalIgnoreCase),
-                        PackageFileLister.IsLicenseDocumentPath(
-                            path,
-                            result.DeclaredLicenseFile));
-                }),
-            ];
-            result.PackageFiles = infrastructureFiles;
-            result.Files = infrastructureFiles;
-            return (
-                PackageFilePopulationOutcome.Infrastructure,
-                document.Terminal
-                    == QuerySpaceTerminalRequirement.Count
-                    ? document.Count
-                    : null);
+            return null;
         }
 
-        PopulatePackageFileSectionsLegacy(
+        await using DesktopPackageSourceComposition composition =
+            context.CreatePackageSourceComposition();
+        using var stores = new SearchPackageStores();
+        ConfiguredPackagePayloadResult acquisition =
+            PackageExtractor.TryNormalizePackageVersion(
+                target.Version,
+                out string pinnedVersion)
+                ? await composition.AcquirePinnedAsync(
+                        target.PackageName,
+                        pinnedVersion,
+                        stores.GetStore,
+                        options.SourceOptions,
+                        context.Logger.Log)
+                    .ConfigureAwait(false)
+                : await composition.AcquireSelectedAsync(
+                        target.PackageName,
+                        target.Version.Length > 0
+                            ? target.Version
+                            : null,
+                        stores.GetStore,
+                        options.SourceOptions,
+                        context.Logger.Log,
+                        options.IncludePrerelease)
+                    .ConfigureAwait(false);
+        if (acquisition.HouseSettlement
+                is not PackageHouseSettlement.Acquired settlement)
+        {
+            WritePackageFileAcquisitionFailure(
+                target.PackageName,
+                target.Version,
+                acquisition);
+            return 1;
+        }
+
+        if (MayRequireLegacyToolWrapperHandling(
+                settlement.Payload.Content))
+        {
+            context.Logger.Log(
+                $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "
+                + "may be a .NET tool wrapper; listing its redirected payload "
+                + "through the legacy package path.");
+            return null;
+        }
+
+        var terminal = options.Count
+            ? QuerySpaceTerminalRequirement.Count
+            : QuerySpaceTerminalRequirement.Rows;
+        var query = PackageFileInventoryQuery.CreateRequest(
+            options.PackageFileRowSelection
+                ?? RowSelectionIntent<string>.Empty,
+            terminal);
+        InspectionEnvelope<PackageFileInventoryDocument> envelope =
+            await PackageFileInventoryCommandCapability.Binding
+                .ExecuteAsync(new(settlement, query))
+                .ConfigureAwait(false);
+        PackageFileInventoryDocument document = envelope.Content;
+        if (document.Status != PackageFileInventoryStatus.Completed)
+        {
+            CommandError.Write(
+                "Could not inspect package files.",
+                document.Detail?.ToString()
+                    ?? "The package-file inventory operation failed.");
+            return 1;
+        }
+
+        if (document.Terminal == QuerySpaceTerminalRequirement.Count)
+        {
+            CountOutput.WriteCount(
+                document.Count,
+                options.OutputPath,
+                rows: null);
+            return 0;
+        }
+
+        List<PackageFile> files =
+        [
+            .. document.Files.Select(file =>
+            {
+                string path = file.Path.ToString();
+                return new PackageFile(
+                    path,
+                    file.Size,
+                    IsAgents: path.Equals(
+                        "AGENTS.md",
+                        StringComparison.OrdinalIgnoreCase));
+            }),
+        ];
+        var result = new InspectionResult
+        {
+            PackageName = document.PackageId!,
+            Version = document.Version!,
+            Source = SourceKind.NuGet,
+            HasAgentDocumentation =
+                document.HasAgentDocumentation,
+            PackageFiles = files,
+            Files = files,
+        };
+        InspectionOptions renderOptions = options with
+        {
+            Rows = null,
+            PackageFileRowSelection = null,
+        };
+        if (options.Value
+            || options.Urls
+            || options.Paths
+            || options.Roots)
+        {
+            return WritePackageShapeProjection(
+                result,
+                renderOptions);
+        }
+
+        return WritePackageFileInventoryResult(
             result,
-            extractPath,
-            options);
-        return (PackageFilePopulationOutcome.Legacy, null);
+            renderOptions,
+            pipeline);
+    }
+
+    private static void WritePackageFileAcquisitionFailure(
+        string packageId,
+        string versionSelector,
+        ConfiguredPackagePayloadResult acquisition)
+    {
+        List<string> details =
+        [
+            .. acquisition.Failures.Select(
+                failure =>
+                    $"{failure.Authority}: {failure.Message}"),
+            .. acquisition.NotFoundAuthorities.Select(
+                authority =>
+                    $"{PackageSourceDisplay.ForDiagnostics(authority.Source)}: "
+                    + "package not found"),
+        ];
+        if (details.Count == 0)
+        {
+            details.Add(
+                "No eligible configured source supplied the selected package archive.");
+        }
+
+        string requested = string.IsNullOrEmpty(versionSelector)
+            ? packageId
+            : $"{packageId}@{versionSelector}";
+        CommandError.Write(
+            $"Package '{requested}' could not be acquired for file inventory.",
+            details.ToArray());
+    }
+
+    private static int WritePackageFileInventoryResult(
+        InspectionResult result,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        WarnEmptySections(result, options, pipeline);
+        bool hasProjection =
+            options.Fields is { Length: > 0 }
+            || options.Columns is { Length: > 0 };
+        if (options.Tabular)
+        {
+            if (options.Jsonl && !hasProjection)
+            {
+                WritePackageFilesJsonl(
+                    result,
+                    PackageSections.Files,
+                    rows: null);
+                return PackageIntegrityExitCode(result);
+            }
+
+            if (hasProjection)
+            {
+                var writerOptions =
+                    OutputFormatter.BuildWriterOptions(
+                        result,
+                        options,
+                        pipeline);
+                OutputFormatter.ConfigureTableWriterOptions(
+                    writerOptions,
+                    options.Tsv,
+                    options.Jsonl);
+                var view = new InspectionResultView(result);
+                string rendered = OutputFormatter.RenderTable(
+                    !options.NoHeader,
+                    (writer, formatter) =>
+                    {
+                        MarkoutSerializer.Serialize(
+                            view,
+                            writer,
+                            formatter,
+                            InspectionContext.Default,
+                            writerOptions);
+                    });
+                var manifest =
+                    RenderManifestFormatter.Capture(
+                        view,
+                        InspectionContext.Default,
+                        writerOptions,
+                        PackageDiscoverySchema(),
+                        writerOptions.IncludeSections?.SingleOrDefault());
+                if (options.Columns is { Length: > 0 }
+                    && options.Fields is { Length: > 0 })
+                {
+                    InspectionOptions fieldOptions =
+                        options with { Columns = null };
+                    MarkoutWriterOptions fieldWriterOptions =
+                        OutputFormatter.BuildWriterOptions(
+                            result,
+                            fieldOptions,
+                            pipeline);
+                    OutputFormatter.ConfigureTableWriterOptions(
+                        fieldWriterOptions,
+                        options.Tsv,
+                        options.Jsonl);
+                    manifest.MergeRenderedFieldTablesFrom(
+                        RenderManifestFormatter.Capture(
+                            view,
+                            InspectionContext.Default,
+                            fieldWriterOptions,
+                            PackageDiscoverySchema(),
+                            fieldWriterOptions.IncludeSections?
+                                .SingleOrDefault()));
+                }
+                ProjectionDiagnostics.DiagnoseProjected(
+                    options.Fields ?? options.Columns,
+                    manifest,
+                    PackageDiscoverySchema(),
+                    options.Fields is not null
+                        ? "field"
+                        : "column",
+                    writerOptions.IncludeSections,
+                    fieldSectionsAsColumns: true);
+                Console.Out.Write(rendered);
+            }
+            else
+            {
+                OutputFormatter.WritePackageTable(
+                    result,
+                    options,
+                    pipeline,
+                    showHeader: !options.NoHeader);
+            }
+
+            return PackageIntegrityExitCode(result);
+        }
+
+        if (ProjectionAudit.RejectUnloweredJson(
+                options,
+                options.JsonOutput))
+        {
+            return 1;
+        }
+
+        string output =
+            OutputFormatter.FormatResult(
+                result,
+                options,
+                pipeline);
+        if (hasProjection)
+        {
+            var view = new InspectionResultView(
+                result,
+                includeTitleVersion: false);
+            MarkoutWriterOptions writerOptions =
+                OutputFormatter.BuildPackageDocumentWriterOptions(
+                    result,
+                    options,
+                    pipeline);
+            var manifest =
+                RenderManifestFormatter.Capture(
+                    view,
+                    InspectionContext.Default,
+                    writerOptions,
+                    PackageDiscoverySchema());
+            if (options.Columns is { Length: > 0 }
+                && options.Fields is { Length: > 0 })
+            {
+                MarkoutWriterOptions fieldWriterOptions =
+                    OutputFormatter.BuildPackageDocumentWriterOptions(
+                        result,
+                        options with { Columns = null },
+                        pipeline);
+                manifest.MergeRenderedFieldTablesFrom(
+                    RenderManifestFormatter.Capture(
+                        view,
+                        InspectionContext.Default,
+                        fieldWriterOptions,
+                        PackageDiscoverySchema()));
+            }
+            ProjectionDiagnostics.DiagnoseProjected(
+                options.Fields ?? options.Columns,
+                manifest,
+                PackageDiscoverySchema(),
+                options.Fields is not null
+                    ? "field"
+                    : "column",
+                writerOptions.IncludeSections,
+                fieldSectionsAsColumns: true);
+        }
+
+        bool writesFile = !string.IsNullOrEmpty(
+            options.OutputPath);
+        OutputDestination.Write(
+            options.OutputPath,
+            null,
+            writer =>
+            {
+                writer.Write(output);
+                if (!writesFile)
+                    writer.WriteLine();
+            });
+        return PackageIntegrityExitCode(result);
     }
 
     private static void PopulatePackageFileSectionsLegacy(
@@ -1223,23 +1461,20 @@ public partial class PackageCommand
         }
     }
 
-    private static bool CanUsePackageFileInventoryInfrastructure(
-        PackageExtractionResult resolution,
-        InspectionOptions options)
-    {
-        if (resolution.HouseSettlement
-                is not PackageHouseSettlement.Acquired)
-        {
-            return false;
-        }
-
-        return RequestsPackageFileInventoryInfrastructure(options);
-    }
-
     private static bool RequestsPackageFileInventoryInfrastructure(
         InspectionOptions options) =>
         options.Discover is null
             && !options.Print
+            && !options.ShowContent
+            && !options.Raw
+            && !options.Tree
+            && !options.EnvelopeOutput
+            && (!options.JsonOutput
+                || options.Count
+                || options.Value
+                || options.Urls
+                || options.Paths
+                || options.Roots)
             && !HasPackageFileFilter(options)
             && options.IncludeSections is { Count: 1 } sections
             && sections.Single().Equals(

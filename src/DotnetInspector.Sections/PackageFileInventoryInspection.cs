@@ -24,6 +24,7 @@ public sealed record PackageFileInventoryDocument
         QuerySpaceTerminalRequirement terminal,
         ImmutableArray<PackageFileInventoryEntry> files,
         int count,
+        bool hasAgentDocumentation,
         InertString? detail)
     {
         Status = status;
@@ -32,6 +33,7 @@ public sealed record PackageFileInventoryDocument
         Terminal = terminal;
         Files = files;
         Count = count;
+        HasAgentDocumentation = hasAgentDocumentation;
         Detail = detail;
     }
 
@@ -47,6 +49,8 @@ public sealed record PackageFileInventoryDocument
 
     public int Count { get; }
 
+    public bool HasAgentDocumentation { get; }
+
     [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? Detail { get; }
 
@@ -55,7 +59,8 @@ public sealed record PackageFileInventoryDocument
         string version,
         QuerySpaceTerminalRequirement terminal,
         IEnumerable<PackageFileInventoryEntry> files,
-        int count)
+        int count,
+        bool hasAgentDocumentation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -91,6 +96,7 @@ public sealed record PackageFileInventoryDocument
             terminal,
             snapshot,
             count,
+            hasAgentDocumentation,
             detail: null);
     }
 
@@ -114,6 +120,7 @@ public sealed record PackageFileInventoryDocument
             terminal,
             [],
             count: 0,
+            hasAgentDocumentation: false,
             new InertString(TextPolicy.Field, detail));
     }
 }
@@ -184,6 +191,13 @@ public static class PackageFileInventoryInspection
         }
 
         var coordinate = request.Settlement.Payload.Coordinate;
+        string packageId = ResolveDisplayPackageId(
+            coordinate.PackageId,
+            rows);
+        bool hasAgentDocumentation = rows.Any(
+            static row => row.Path.ToString().Equals(
+                "AGENTS.md",
+                StringComparison.OrdinalIgnoreCase));
         if (request.Query.Terminal
             == QuerySpaceTerminalRequirement.Count)
         {
@@ -202,11 +216,12 @@ public static class PackageFileInventoryInspection
                 return FailedWindow(request.Query.Terminal, count.Failure!);
 
             var countDocument = PackageFileInventoryDocument.Completed(
-                coordinate.PackageId,
+                packageId,
                 coordinate.Version,
                 request.Query.Terminal,
                 [],
-                count.Count);
+                count.Count,
+                hasAgentDocumentation);
             return Completed(countDocument);
         }
 
@@ -218,12 +233,33 @@ public static class PackageFileInventoryInspection
                 selection.Failure!);
 
         var document = PackageFileInventoryDocument.Completed(
-            coordinate.PackageId,
+            packageId,
             coordinate.Version,
             request.Query.Terminal,
             selection.Values,
-            selection.Values.Count);
+            selection.Values.Count,
+            hasAgentDocumentation);
         return Completed(document);
+    }
+
+    private static string ResolveDisplayPackageId(
+        string packageId,
+        IReadOnlyList<PackageFileInventoryEntry> rows)
+    {
+        string expectedNuspec = $"{packageId}.nuspec";
+        foreach (PackageFileInventoryEntry row in rows)
+        {
+            string path = row.Path.ToString();
+            if (!path.Contains('/')
+                && path.Equals(
+                    expectedNuspec,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return path[..^".nuspec".Length];
+            }
+        }
+
+        return packageId;
     }
 
     private static InspectionEnvelope<PackageFileInventoryDocument>

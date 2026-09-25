@@ -57,8 +57,8 @@ public record PackageExtractionResult(
     public AcquiredPackageSourcePayload? AcquiredPayload { get; internal init; }
 
     /// <summary>
-    /// The exact PackageHouse settlement requested with this extraction,
-    /// when the caller opted into acquire-only retention or compile realization.
+    /// The exact PackageHouse compile realization requested with this extraction,
+    /// when the caller opted into one.
     /// </summary>
     public PackageHouseSettlement? HouseSettlement { get; internal init; }
 
@@ -366,11 +366,7 @@ public static class PackageExtractor
             authoritySession: null,
             cancellationToken: cancellationToken);
 
-    /// <summary>
-    /// Extracts an online caller-pinned package through configured authorities.
-    /// <paramref name="retainHouseSettlement"/> keeps the acquire-only House
-    /// settlement without requesting an asset realization.
-    /// </summary>
+    /// <summary>Extracts an online caller-pinned package through configured authorities.</summary>
     public static async Task<PackageExtractionOutcome> ExtractPinnedPackageAsync(
         HttpClient client,
         string packageId,
@@ -379,8 +375,7 @@ public static class PackageExtractor
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        PackageHouseTargetContext? compileTargetContext = null,
-        bool retainHouseSettlement = false)
+        PackageHouseTargetContext? compileTargetContext = null)
     {
         if (HttpClientFactory.IsOffline
             || !IsValidPackageId(packageId)
@@ -393,8 +388,7 @@ public static class PackageExtractor
             client.Timeout,
             tempDirPrefix,
             createComposition,
-            compileTargetContext,
-            retainHouseSettlement);
+            compileTargetContext);
         return await ExtractPackageCoreAsync(
             client, packageId, log, tempDirPrefix, sourceOptions,
             normalizedVersion, forceLatest: false, includePrerelease: false, session)
@@ -404,8 +398,6 @@ public static class PackageExtractor
     /// <summary>
     /// Selects and extracts an online package using current configured-authority
     /// evidence. Range selectors require an explicit address.
-    /// <paramref name="retainHouseSettlement"/> keeps the acquire-only House
-    /// settlement without requesting an asset realization.
     /// </summary>
     public static async Task<PackageExtractionOutcome> ExtractSelectedPackageAsync(
         HttpClient client,
@@ -417,8 +409,7 @@ public static class PackageExtractor
         bool includePrerelease = false,
         string? rangeAddress = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        PackageHouseTargetContext? compileTargetContext = null,
-        bool retainHouseSettlement = false)
+        PackageHouseTargetContext? compileTargetContext = null)
     {
         if (HttpClientFactory.IsOffline || !IsValidPackageId(packageId))
         {
@@ -430,8 +421,7 @@ public static class PackageExtractor
             client.Timeout,
             tempDirPrefix,
             createComposition,
-            compileTargetContext,
-            retainHouseSettlement);
+            compileTargetContext);
         PackageExtractionOutcome selected;
         using (FeedFailureTelemetry.Scope())
         {

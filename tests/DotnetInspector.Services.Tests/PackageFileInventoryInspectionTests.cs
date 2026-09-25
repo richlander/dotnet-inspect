@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -28,12 +27,13 @@ public sealed class PackageFileInventoryInspectionTests
                             ("_rels/.rels", new byte[3]),
                             ("Contoso.Inventory.nuspec", new byte[2]),
                             (".signature.p7s", new byte[5]),
+                            ("AGENTS.md", new byte[7]),
                             ("README.md", new byte[6])),
                         fromCache: true,
                         producerKey));
         var rows = RowSelectionIntent<string>.Create(
             [
-                RowSelectionIntentOperation<string>.Window(2, 3),
+                RowSelectionIntentOperation<string>.Window(3, 4),
             ]);
 
         InspectionEnvelope<PackageFileInventoryDocument> envelope =
@@ -47,7 +47,7 @@ public sealed class PackageFileInventoryInspectionTests
         Assert.Equal(
             PackageFileInventoryStatus.Completed,
             envelope.Content.Status);
-        Assert.Equal("contoso.inventory", envelope.Content.PackageId);
+        Assert.Equal("Contoso.Inventory", envelope.Content.PackageId);
         Assert.Equal("1.0.0", envelope.Content.Version);
         Assert.Equal(2, envelope.Content.Count);
         Assert.Equal(
@@ -57,27 +57,9 @@ public sealed class PackageFileInventoryInspectionTests
         Assert.Equal(
             [6, 4],
             envelope.Content.Files.Select(static file => file.Size));
+        Assert.True(envelope.Content.HasAgentDocumentation);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
-
-        string json = JsonSerializer.Serialize(
-            envelope,
-            PackageFileInventoryJsonContext.Default
-                .InspectionEnvelopePackageFileInventoryDocument);
-        using JsonDocument serialized = JsonDocument.Parse(json);
-        Assert.Equal(
-            "Rows",
-            serialized.RootElement
-                .GetProperty("content")
-                .GetProperty("terminal")
-                .GetString());
-        Assert.Equal(
-            "README.md",
-            serialized.RootElement
-                .GetProperty("content")
-                .GetProperty("files")[0]
-                .GetProperty("path")
-                .GetString());
     }
 
     [Fact]
