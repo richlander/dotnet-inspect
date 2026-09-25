@@ -1645,10 +1645,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.Files, "--tips", "q"]);
 
-        Assert.Equal(1, files.Exit);
+        Assert.True(
+            files.Exit == 0,
+            $"Exit {files.Exit}: {files.Error}");
         Assert.Contains(
-            "Package manifest is not well-formed XML",
-            files.Error);
+            $"{id}.nuspec",
+            files.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(files.Error);
     }
 
     [Fact]
