@@ -562,9 +562,17 @@ public partial class LibraryBodyIndexTests
             "MalformedLocal",
             localSignature => localSignature.WriteByte(0x06));
 
+    static ImmutableArray<byte>
+        EmitMalformedInstructionAssembly()
+        => EmitLocalSignatureAssembly(
+            "MalformedInstruction",
+            writeLocalSignature: null,
+            il: [0xfe]);
+
     static ImmutableArray<byte> EmitLocalSignatureAssembly(
         string assemblyName,
-        Action<BlobBuilder> writeLocalSignature)
+        Action<BlobBuilder>? writeLocalSignature,
+        byte[]? il = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -595,15 +603,19 @@ public partial class LibraryBodyIndexTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
-        var localSignature = new BlobBuilder();
-        writeLocalSignature(localSignature);
-        StandaloneSignatureHandle localSignatureHandle =
-            metadata.AddStandaloneSignature(
-                metadata.GetOrAddBlob(localSignature));
+        StandaloneSignatureHandle localSignatureHandle = default;
+        if (writeLocalSignature is not null)
+        {
+            var localSignature = new BlobBuilder();
+            writeLocalSignature(localSignature);
+            localSignatureHandle =
+                metadata.AddStandaloneSignature(
+                    metadata.GetOrAddBlob(localSignature));
+        }
 
         var bodies = new BlobBuilder();
         var code = new BlobBuilder();
-        code.WriteByte(0x2a);
+        code.WriteBytes(il ?? [0x2a]);
         int bodyOffset =
             new MethodBodyStreamEncoder(bodies)
                 .AddMethodBody(
@@ -612,7 +624,9 @@ public partial class LibraryBodyIndexTests
                     localVariablesSignature:
                         localSignatureHandle,
                     attributes:
-                        MethodBodyAttributes.InitLocals);
+                        writeLocalSignature is null
+                            ? MethodBodyAttributes.None
+                            : MethodBodyAttributes.InitLocals);
 
         var methodSignature = new BlobBuilder();
         new BlobEncoder(methodSignature)
