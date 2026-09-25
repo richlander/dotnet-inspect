@@ -29,8 +29,9 @@ public sealed partial class WorkspaceContextLoaderTests
                     new TypeDeclarationLocatorRequest.Pattern(
                         "Widget"),
                 ],
-                TypeDeclarationLocatorSectionPlan.All,
-                includeAll: true,
+                new TypeDeclarationLocatorSectionPlan(
+                    RowSelectionIntent<string>.Empty,
+                    TypeDeclarationVisibilityPlan.Default),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 

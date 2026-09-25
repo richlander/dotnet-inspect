@@ -181,11 +181,9 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             new TypeDeclarationLocatorRequest.Pattern(
                                 pattern)),
                 ],
+                // Find applies its compatibility visibility policy later from
+                // the same Metadata-issued declaration facts.
                 TypeDeclarationLocatorSectionPlan.All,
-                // Find's visibility policy differs from the locator's public
-                // surface. Retain all declarations and apply Find policy from
-                // Metadata-issued facts during row projection.
-                includeAll: true,
                 cancellationToken).ConfigureAwait(false);
         TypeDeclarationLocatorSectionResult section = inspection.Content;
         HasFailures |= section switch

@@ -15,7 +15,6 @@ public static class TypeDeclarationLocatorInspection
         InspectionWorkspace workspace,
         ImmutableArray<TypeDeclarationLocatorRequest> requests,
         TypeDeclarationLocatorSectionPlan plan,
-        bool includeAll = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -24,7 +23,7 @@ public static class TypeDeclarationLocatorInspection
         TypeDeclarationLocatorResult result =
             await workspace.GetDeclarationLocator().ExecuteAsync(
                     requests,
-                    includeAll,
+                    includeAll: true,
                     cancellationToken)
                 .ConfigureAwait(false);
         TypeDeclarationLocatorSectionResult content =
