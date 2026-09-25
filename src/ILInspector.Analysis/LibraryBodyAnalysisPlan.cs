@@ -4,6 +4,7 @@ namespace ILInspector.Analysis;
 
 internal sealed record LibraryBodyAnalysisPlan(
     LibraryBodyAnalysisFeatures Features,
+    LibraryBodyAnalysisFeatures RequestedFeatures,
     IReadOnlySet<int>? MethodScope,
     Func<TypeRef, bool>? TypeScope,
     IReadOnlyDictionary<int, ImmutableArray<TypeRef>>?
@@ -37,6 +38,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         ImplementationMetricAnalysisRequest?
             implementationMetrics = null)
     {
+        LibraryBodyAnalysisFeatures requestedFeatures =
+            features;
         if (includeResourceLifecycle && resourceEffects is null)
         {
             throw new ArgumentException(
@@ -67,7 +70,8 @@ internal sealed record LibraryBodyAnalysisPlan(
                 ? null
                 : ImplementationMetricAnalysisPlan.Create(
                     implementationMetrics);
-        if (metricPlan is not null)
+        if (metricPlan is not null
+            && !metricPlan.UsesPreContextExecution)
         {
             // Temporary execution bridge. The selective stages replace and
             // delete these compatibility features in later #8450 slices.
@@ -111,6 +115,7 @@ internal sealed record LibraryBodyAnalysisPlan(
 
         return new(
             features,
+            requestedFeatures,
             methodScope,
             typeScope,
             RequestedMethodScope: methodScope,

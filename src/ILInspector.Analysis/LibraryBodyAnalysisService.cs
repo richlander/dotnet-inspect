@@ -189,7 +189,17 @@ public static class LibraryBodyAnalysisService
             useReferenceResolution ? bindingPolicy : null;
         ImplementationMetricWorkBudget? implementationMetricWork =
             ImplementationMetricWorkBudget.Create(
-                plan.ImplementationMetrics);
+                plan.ImplementationMetrics,
+                chargeAttribution:
+                    plan.RequestedFeatures
+                        == LibraryBodyAnalysisFeatures.None);
+        ImplementationMetricExecutionRecorder?
+            implementationMetricRecorder =
+                plan.ImplementationMetrics is not { } metricPlan
+                    ? null
+                    : new(
+                        metricPlan,
+                        plan.RequestedFeatures);
         using var builder = new LibraryBodyAnalysisBuilder(
             sourceName,
             reader,
@@ -201,7 +211,9 @@ public static class LibraryBodyAnalysisService
                     : rootSnapshot,
             analysisBindingPolicy,
             implementationMetricWork:
-                implementationMetricWork);
+                implementationMetricWork,
+            implementationMetricRecorder:
+                implementationMetricRecorder);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyAnalysisExecution(

@@ -403,6 +403,7 @@ import {
   renderGraphSource as renderGraphSourcePure,
 } from "./graph-source.ts";
 import {
+  annotatedSourcePresentationText,
   annotatedFocusSelector,
   captureAnnotatedSourceScroll,
   renderAnnotatedSourcePageActions,
@@ -10945,7 +10946,10 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
 
   switch (action.kind) {
     case "copy":
-      void copyText(result.document.text, "annotated source copied");
+      void copyText(
+        annotatedSourcePresentationText(result, session),
+        "annotated source copied",
+      );
       return;
     case "explore":
       openAnnotatedSourceModal();

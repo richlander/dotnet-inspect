@@ -108,6 +108,20 @@ recorded approval and exact approved scope. Treat that record as a
 candidate-formation fact: verify that the design conforms to it, but do not
 infer, grant, or broaden approval.
 
+Check the exact head for substrate drift and layering. A change that adds a
+private copy of logic an existing shared substrate owns, defines a reusable
+declaration such as a row vocabulary, producer declaration, or descriptor in a
+host or behind host-only helpers, or filters, orders, limits, or counts product
+rows outside the owning QuerySpace vocabulary, or merges several consumers'
+requests for one resource outside QuerySpace, violates the repository's
+host-neutral substrate rule. Report it with the existing substrate symbol and
+the new copy or placement as evidence. For a QuerySpace adoption, verify
+whether predicates, Count, Exists, and limits reach acquisition or scope, or
+run only after a complete row list is materialized. Materializing and then
+filtering is a finding unless the owning design names it as a reference slice
+and names the deferred pushdown. Pre-existing drift the change does not touch
+is a non-blocking observation.
+
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
 host-specific path that bypasses it must identify the host, rationale, typed
