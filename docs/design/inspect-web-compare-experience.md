@@ -257,9 +257,42 @@ Compare working surface.
 
 Member Diff projects the exact Member entry from the containing Library-root
 Diff document. It summarizes correspondence, compatibility, and the complete
-API-change evidence carried there. Source or implementation coverage appears
-only when a separately owned immersive destination supplies it. **Explore**
-opens that owner-issued destination.
+API-change evidence carried there, in this order:
+
+```text
+Compare <Member> · result status                         Diff | Clone
+effective target                                         Change target
+What changed        classified API changes of the relation
+Before | After      one endpoint card per side
+Authored Source     inline diff viewer                   Explore
+```
+
+- **What changed** renders the relation's classified changes. When the
+  relation has none, it says the change belongs to the containing Type.
+- **Before** and **After** name each endpoint's version and Member. A present
+  endpoint is a link when an owner-issued navigation destination for that
+  exact Member at that endpoint exists; activating it opens the Member there.
+  An absent endpoint says **Not present on this side** and is not a link. The
+  card never builds a destination from its displayed text.
+- **Authored Source** appears only when the relation carries an owner-issued
+  Member diff destination. Fetching authored Source for both endpoints is
+  network work, so the section first offers one explicit **Compare authored
+  Source** action; activating it runs the paired authored-Source comparison
+  for the destination's exact endpoints and anchors and shows the result in
+  the embedded host of the
+  [Diff viewer interaction](inspect-web-diff-viewer-interaction.md). The
+  settled result is retained with the other Compare-local state, so returning
+  to the Member does not ask again. An endpoint without authored Source shows
+  its typed reason in the viewer's frame; the section never substitutes
+  decompiled text or an empty diff.
+- **Explore** sits in the Authored Source section header and opens the Member
+  diff destination owned by
+  [Inspect Web Compare Explore](inspect-web-compare-explore.md). It appears
+  when that destination is issued, whether or not authored Source was
+  requested, because Explore owns modes that do not need it.
+
+Member Diff shows no section whose evidence has no issued producer: it adds no
+placeholder, disabled section, or "not available yet" pane.
 
 Member Clone renders the Member-scoped globally ranked candidate rows and
 selected-candidate evidence supplied by Clone Candidates Presentation.
@@ -411,7 +444,10 @@ The staged path is:
 8. Member Clone detail and checked-relation composition when available; and
 9. whole-Type and Member immersive viewer adoption under their focused owners;
    the Member Diff destination is owned by
-   [Inspect Web Compare Explore](inspect-web-compare-explore.md).
+   [Inspect Web Compare Explore](inspect-web-compare-explore.md); and
+10. the inline Member Diff composition, which embeds the
+    [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) for the
+    paired authored-Source comparison.
 
 Each stage lands only when its own result and failure states are complete. An
 unimplemented downstream destination remains unavailable; the UI does not
@@ -423,8 +459,13 @@ Clone query. Stages 5 through 8 are the Browser's production Compare
 experiences: Library and Type Diff and Clone inventories, Member Diff and
 Member Clone detail. No checked clone relation is issued yet, so Member Clone
 labels its retrieval similarity and states that no relation was issued. Stage
-9 has no owner-issued destination yet, so Compare advertises no Explore or
-whole-Type action.
+9 issues the Member Diff destination; its Explore viewer is replaced under
+[Inspect Web Compare Explore](inspect-web-compare-explore.md). Stage 10 is the
+inline Member Diff composition above: endpoint links, the explicit Authored
+Source comparison in the embedded
+[Diff viewer interaction](inspect-web-diff-viewer-interaction.md) host, and
+Explore in that section's header. Compare still advertises no whole-Type
+action.
 
 The stage-3 Navigation capability follows Navigation's existing shared
 two-host plan: #6111 and #5513 consume its stateless exact-pair evaluator in
@@ -475,3 +516,16 @@ behavior.
     complete returned snapshot and aligns history before presenting the
     semantic outcome, without installing the rejected descendant or treating
     the drill-down as applied.
+12. Open Member Compare Diff for a changed Member whose endpoints both have
+    authored Source. Confirm that What changed, both endpoint cards, and the
+    Authored Source section appear in that order; that each present endpoint
+    card opens the exact Member at its version; that no comparison runs until
+    **Compare authored Source** is activated; and that the result then renders
+    in the embedded diff viewer and is still shown after navigating away and
+    back to the Member.
+13. Open Member Compare Diff for an added Member. Confirm that the Before card
+    says **Not present on this side** and is not a link, and that no
+    placeholder section appears for evidence without an issued producer.
+14. Confirm that Explore appears in the Authored Source section header only
+    when the Member diff destination is issued, and that it appears before
+    authored Source is requested.
