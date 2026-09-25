@@ -1,6 +1,5 @@
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures
-fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture
 fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures
@@ -45,9 +44,7 @@ fixtures/inspect-web/InspectWeb.DocumentationFixtures
 fixtures/inspect-web/InspectWeb.MethodBodyFixtures
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2
-fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures
 fixtures/js-export/ILInspector.JsExportSurface.Fixtures
-fixtures/js-export/ILInspector.JsExportSurface.JsonInputFixtures
 fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures
@@ -83,7 +80,6 @@ fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
 fixtures/metadata/ILInspector.Metadata.TypeDependencyReference
-fixtures/presentation/LibraryApiDiff.ConstraintDependency
 fixtures/presentation/LibraryApiDiff.V1
 fixtures/presentation/LibraryApiDiff.V2
 fixtures/queries/DotnetInspector.CloneSearchFixtures
@@ -113,6 +109,8 @@ src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PackageHouse.Execution
 src/DotnetInspector.PackageQueries
+src/DotnetInspector.PlatformHouse
+src/DotnetInspector.PlatformHouse.Execution
 src/DotnetInspector.PlatformHouse.Execution.Installed
 src/DotnetInspector.PlatformHouse.Execution.Packages
 src/DotnetInspector.PlatformHouse.Installed
@@ -133,7 +131,6 @@ src/TsJsExport.Contracts
 src/mdi
 src/runfaster
 src/ts-jsexport
-tests/BinaryFetch.Tests
 tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
 tests/DecompilerHarness.Tests
@@ -191,7 +188,6 @@ tests/NuGetFetch.Tests
 tests/QuerySpace.Consumer
 tests/TestExtensions
 tests/UntrustedDocuments.Tests
-tests/ZipFetch.Tests
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
 tests/nuget/PackageAssetSelection.BuildOracle/Consumer
@@ -205,6 +201,4 @@ tools/DiffHarnessCommon
 tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/InspectWebFixtureResolver
-tools/PackageHouse.CliBenchmarks
 tools/SectionRegistrySpike
-tools/SourceCorpusCensus

@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
-using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
 using ILInspector.Metadata;
@@ -23,7 +22,7 @@ public abstract record WorkspaceDeclarationRequest
         : WorkspaceDeclarationRequest;
 
     public sealed record PlatformPopulation(
-        PlatformPopulationRealizationReceipt Receipt)
+        PlatformFamilyTarget Target)
         : WorkspaceDeclarationRequest;
 
     public sealed record PackageScope(
@@ -46,7 +45,7 @@ public abstract record WorkspaceDeclarationOrigin
 
     public sealed record PlatformPopulation(
         PlatformFamilyTarget Target,
-        PlatformPopulationMemberRole Role,
+        WorkspacePlatformPopulationMemberRole Role,
         string Producer,
         string Assembly)
         : WorkspaceDeclarationOrigin;
@@ -55,6 +54,12 @@ public abstract record WorkspaceDeclarationOrigin
         WorkspacePackageOccurrenceDescriptor Occurrence,
         PackageCompileAsset Asset)
         : WorkspaceDeclarationOrigin;
+}
+
+public enum WorkspacePlatformPopulationMemberRole
+{
+    Focus,
+    BindingSupport,
 }
 
 /// <summary>

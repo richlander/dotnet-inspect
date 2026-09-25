@@ -384,14 +384,17 @@ The CLI Router consumes the source-neutral completed handoff from
 `InspectionWorkspace.AdmitLibraryBatchAsync`; after acceptance, the Workspace
 alone owns retirement.
 
-`WorkspacePlatformPopulationDeclarationAdmission` then joins the accepted
+Platform-aware companion assembly `DotnetInspector.PlatformQueries` owns
+`WorkspacePlatformPopulationDeclarationAdmission`, which joins the accepted
 Library admission receipt to the exact
 `PlatformPopulationRealizationValue` and
 `PlatformPopulationRealizationReceipt`. It validates Workspace identity,
 receipt availability, member/occurrence order, exact Library identity,
 Platform coordinate and target family, managed assembly identity, and
 source-contribution target correspondence before publishing one declaration
-context. It neither reacquires nor copies image bytes.
+context. The Queries-owned context retains only a detached target snapshot and
+member-role evidence; PlatformHouse receipt validation remains in the optional
+Platform-aware companion. It neither reacquires nor copies image bytes.
 
 The context reads declarations through
 `InspectionWorkspace.IssueLibraryOperation`. Each scoped operation invokes the

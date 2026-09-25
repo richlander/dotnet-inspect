@@ -261,7 +261,7 @@ public abstract record TypeDeclarationLocatorRealization
         string Producer,
         string Framework,
         string? Assembly,
-        DotnetInspector.PlatformHouse.PlatformPopulationMemberRole? Role)
+        WorkspacePlatformPopulationMemberRole? Role)
         : TypeDeclarationLocatorRealization;
 
     public sealed record EmbeddedRealization(

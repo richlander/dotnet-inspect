@@ -2,10 +2,11 @@ using System.Collections.Immutable;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
+using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.Queries;
+namespace DotnetInspector.PlatformQueries;
 
 public enum WorkspacePlatformPopulationDeclarationAdmissionRejection
 {
@@ -61,13 +62,6 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
                     WorkspacePlatformPopulationDeclarationAdmissionRejection
                         .ForeignWorkspace);
         }
-        if (!workspace.ContainsLibraryAdmission(admission))
-        {
-            return new WorkspacePlatformPopulationDeclarationAdmissionOutcome
-                .Rejected(
-                    WorkspacePlatformPopulationDeclarationAdmissionRejection
-                        .UnknownLibraryAdmission);
-        }
         if (populationReceipt.RealizedMembers is null
             || population.Members.Count != admission.Occurrences.Length
             || population.Members.Count
@@ -78,24 +72,19 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
                     WorkspacePlatformPopulationDeclarationAdmissionRejection
                         .PopulationMismatch);
         }
-
-        int order;
-        try
-        {
-            order = workspace.BeginDeclarationContext();
-        }
-        catch (ObjectDisposedException)
+        PlatformFamilyTarget? selectedTarget =
+            populationReceipt.HouseReceipt.TargetSettlement.SettledTarget;
+        if (selectedTarget is null)
         {
             return new WorkspacePlatformPopulationDeclarationAdmissionOutcome
                 .Rejected(
                     WorkspacePlatformPopulationDeclarationAdmissionRejection
-                        .WorkspaceUnavailable);
+                        .PopulationMismatch);
         }
+
         var members =
-            ImmutableArray.CreateBuilder<WorkspaceDeclarationMember>(
-                population.Members.Count);
-        var occurrences =
-            ImmutableArray.CreateBuilder<WorkspaceLibraryOccurrence>(
+            ImmutableArray.CreateBuilder<
+                WorkspaceLibraryDeclarationContextMember>(
                 population.Members.Count);
         for (int index = 0; index < population.Members.Count; index++)
         {
@@ -143,12 +132,20 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
 
             members.Add(
                 new(
-                    new(workspace.Identity, order, index),
                     coordinate,
                     assembly.Identity,
                     new WorkspaceDeclarationOrigin.PlatformPopulation(
                         member.Target,
-                        member.Role,
+                        member.Role switch
+                        {
+                            PlatformPopulationMemberRole.Focus =>
+                                WorkspacePlatformPopulationMemberRole.Focus,
+                            PlatformPopulationMemberRole.BindingSupport =>
+                                WorkspacePlatformPopulationMemberRole
+                                    .BindingSupport,
+                            _ => throw new InvalidOperationException(
+                                "Unknown Platform population member role."),
+                        },
                         provenance.Contribution.Capability.Name,
                         assembly.Identity.Name),
                     AssemblyResolutionProvenance.Platform(
@@ -163,32 +160,58 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
                         },
                         member.Target.Version.Value,
                         provenance.Contribution.Capability.Name)));
-            occurrences.Add(occurrence);
         }
 
-        WorkspaceDeclarationContext context = new(
-            new(
-                workspace.Identity,
-                order,
-                new WorkspaceDeclarationRequest.PlatformPopulation(
-                    populationReceipt),
-                isRealized: true,
-                members.MoveToImmutable(),
-                []),
-            occurrences.MoveToImmutable(),
-            bounds);
-        try
+        return WorkspaceLibraryDeclarationContextAdmission.Admit(
+            workspace,
+            admission,
+            new WorkspaceDeclarationRequest.PlatformPopulation(
+                selectedTarget),
+            members.MoveToImmutable(),
+            bounds) switch
         {
-            return new WorkspacePlatformPopulationDeclarationAdmissionOutcome
-                .Admitted(workspace.PublishDeclarationContext(context));
-        }
-        catch (ObjectDisposedException)
-        {
-            return new WorkspacePlatformPopulationDeclarationAdmissionOutcome
-                .Rejected(
-                    WorkspacePlatformPopulationDeclarationAdmissionRejection
-                        .WorkspaceUnavailable);
-        }
+            WorkspaceLibraryDeclarationContextAdmissionOutcome.Admitted
+                admitted =>
+                new WorkspacePlatformPopulationDeclarationAdmissionOutcome
+                    .Admitted(admitted.Context),
+            WorkspaceLibraryDeclarationContextAdmissionOutcome.Rejected
+            {
+                Reason:
+                    WorkspaceLibraryDeclarationContextAdmissionRejection
+                        .ForeignWorkspace
+            } =>
+                new WorkspacePlatformPopulationDeclarationAdmissionOutcome
+                    .Rejected(
+                        WorkspacePlatformPopulationDeclarationAdmissionRejection
+                            .ForeignWorkspace),
+            WorkspaceLibraryDeclarationContextAdmissionOutcome.Rejected
+            {
+                Reason:
+                    WorkspaceLibraryDeclarationContextAdmissionRejection
+                        .WorkspaceUnavailable
+            } =>
+                new WorkspacePlatformPopulationDeclarationAdmissionOutcome
+                    .Rejected(
+                        WorkspacePlatformPopulationDeclarationAdmissionRejection
+                            .WorkspaceUnavailable),
+            WorkspaceLibraryDeclarationContextAdmissionOutcome.Rejected
+            {
+                Reason:
+                    WorkspaceLibraryDeclarationContextAdmissionRejection
+                        .UnknownLibraryAdmission
+            } =>
+                new WorkspacePlatformPopulationDeclarationAdmissionOutcome
+                    .Rejected(
+                        WorkspacePlatformPopulationDeclarationAdmissionRejection
+                            .UnknownLibraryAdmission),
+            WorkspaceLibraryDeclarationContextAdmissionOutcome.Rejected =>
+                new WorkspacePlatformPopulationDeclarationAdmissionOutcome
+                    .Rejected(
+                        WorkspacePlatformPopulationDeclarationAdmissionRejection
+                            .PopulationMismatch),
+            _ => throw new InvalidOperationException(
+                "Unknown Workspace Library declaration admission outcome."),
+        };
 
         static WorkspacePlatformPopulationDeclarationAdmissionOutcome
             .Rejected Rejected(

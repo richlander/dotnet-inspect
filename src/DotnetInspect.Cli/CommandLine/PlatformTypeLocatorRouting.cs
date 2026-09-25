@@ -375,7 +375,15 @@ internal static class PlatformTypeLocatorRouting
                     candidate.Observation.AssemblyIdentity.Name,
                     @namespace,
                     completed.Target,
-                    role,
+                    role switch
+                    {
+                        WorkspacePlatformPopulationMemberRole.Focus =>
+                            PlatformPopulationMemberRole.Focus,
+                        WorkspacePlatformPopulationMemberRole.BindingSupport =>
+                            PlatformPopulationMemberRole.BindingSupport,
+                        _ => throw new InvalidOperationException(
+                            "Unknown Workspace Platform population member role."),
+                    },
                     candidate.Name,
                     candidate.Observation.ContextOrder,
                     candidate.Observation.MemberOrder);
