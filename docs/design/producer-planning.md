@@ -52,6 +52,23 @@ request scoped to exactly that body. A composed execution decodes the body once
 and visits the Analysis producers and then the Research producer, which joins
 their facts by IL offset.
 
+**A query narrows the plan.** The `library -S @Performance` triage over
+System.Text.Json 10.0.0 is filtered to one namespace, ranked, and cut to the top ten. The
+namespace predicate can be evaluated from metadata, so the plan's effective
+scope excludes every body outside that namespace, and those bodies are never
+read. The ranking and the top-ten cut need every candidate, so they run
+afterwards over the published rows. The answer equals running the whole query
+over every row.
+
+**Count and Rows share one read.** In one pass, one producer needs the number
+of types, one needs the generic types' signatures, and one needs every
+interface-implementation row. The first two describe the same population.
+When no one needs that population's rows, the count comes from the source,
+but only with evidence that the source counts exactly that population. The
+generic-type demand is a filtered projection. Its rows cannot supply the total,
+so the total is not derived from them. The interface rows are a separate
+population with their own read.
+
 **A single-threaded host gets the same answer.** Inspect Web runs the same plan
 on Browser/Wasm with an executor that yields between bodies. It publishes the
 same results and receipt facts as the desktop parallel executor, because both
@@ -122,6 +139,11 @@ the published library result. Whole-library facts such as leverage or a local
 call graph are completions, and completions may require other producers'
 completed results.
 
+A **library-scope input** is data that belongs to the module rather than to
+one body, such as type, member, and interface metadata. Its owner, Metadata,
+supplies it before any unit is visited. Body producers read it; they do not
+build it.
+
 A **plan** is the planner's output: the closed producer set, the substrates
 each unit needs, the effective scope with the reason for every expansion, and
 the order in which producers are visited. A plan is data. It can be inspected,
@@ -188,6 +210,42 @@ pushdown into acquisition.
 registration show how much a scheduler loses when dependencies surface only
 during execution. `LibraryBodyIndex`'s lazy members are the local instance:
 the index cannot know what its consumers will ask for.
+
+### Demand has shape, and a plan is a query source
+
+**Rule.** A requirement on shared data states a population, a terminal
+(Exists, Count, or Rows), and a projection, using
+[QuerySpace](query-space-library.md) terminal and row-query meaning rather
+than a second vocabulary. Exists and Count are defined as observations of the
+Rows of the same population. The planner combines requirements for each
+population into one read with the widest projection. Each consumer's own
+predicate then runs over that read. A cheaper answer, such as a count from
+the source, is a substitution that needs evidence.
+
+A request may carry a resolved row query. The plan then acts as a source
+under [source delegation](source-delegation.md): it accepts the part of the
+query it can prove, reports completion evidence, and leaves the rest to run
+over its published rows with unchanged meaning. Each row-vocabulary key
+declares whether it can be evaluated before any body is read, from metadata,
+or only after, from evidence. That split is what lets a predicate narrow the
+plan's scope. Source delegation is linear and excludes concurrent execution,
+so a parallel executor that answers a delegated query needs its own
+scheduling and publication model.
+
+A producer's row vocabulary is owned with its result type, is host-neutral,
+and is bound through QuerySpace composition. A host binds and presents it; a
+host never defines it.
+
+*Keeps possible:* questions that cost what they ask for, several consumers
+sharing one read, and the same pushdown in every host.
+
+*Lesson:* a query applied after everything is built can never make work
+cheaper. That is LINQ in QuerySpace clothing: the query is declared
+structurally, but the source still builds the complete row list before any
+predicate, Count, or limit runs.
+Databases share one scan among queries that need the same table. The
+repository's one vocabulary over Analysis output today is hosted in the CLI
+and filters complete results; #8571 records that drift.
 
 ### Producers are read-only and communicate only through declared results
 
@@ -353,7 +411,7 @@ is decided when the second tier adopts it.
 | [Library body Analysis service](library-body-analysis-service.md) | First adopter. Its producer coordination, features, and fixed result slots become declarations and a plan at adoption; its focused result types are unchanged. |
 | [Analysis catalog and operation participation](analysis-surfaces-and-universes.md#operation-participation) | Selects manifest-grade analyses and binds each to producer declarations. It owns cost, defaults, and discovery. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requirements that a plan exposes before execution. |
-| [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Precedent for reference semantics and exact substitution. A query over producer results may later push its predicates into a plan's scope. |
+| [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Own terminal, predicate, and completion-evidence meaning. A plan is a delegation source for queries over producer results. |
 | [Stateless core services](stateless-core-services.md) and [analysis index cache](analysis-index-cache.md) | Own retention and caching of the detached results this pattern publishes. |
 | [Instruction substrate](instruction-substrate.md) | Owns the lowest substrates: decoding and blocks. |
 | Research ([ownership paths](generic-research-ownership-paths.md), [assembly context](research-assembly-context-ownership.md)) | Intended second adopter as a higher tier. |
@@ -370,8 +428,9 @@ exist to keep them possible.
   a named equivalence gate.
 - **Early cutoff across versions.** Diff between two package versions reuses
   per-body results wherever a body's declared footprint is unchanged.
-- **Query pushdown.** A population query over producer results narrows a plan's
-  scope or producer set before execution, as source delegation does for rows.
+- **Deeper pushdown.** Beyond scope narrowing, a producer may skip emitting
+  rows that fail an evidence predicate, or a bounded Top may stop early, each
+  with its own proof.
 - **Persistent results** through the stateless-services cache port, keyed by
   footprint, declaration version, scope, and parameters.
 - **Workspace-level units** for assembly-group producers such as call census,
@@ -413,6 +472,9 @@ property above is **unverified**.
   determinism tests are the starting point.
 - **Minimum work:** the receipt for a single-producer request shows no
   unplanned producer or substrate participated.
+- **Pushdown equivalence:** a query with a metadata predicate returns the
+  same rows as the unpushed query, and its receipt shows fewer bodies
+  visited.
 - **Failure containment:** an injected producer failure leaves independent
   producers' results unchanged and gives dependents a typed prerequisite
   failure.
