@@ -68,6 +68,31 @@ that terminal is settled. Level 2 may stop the remaining work at the next unit
 boundary. Producers cut off by the stop report that they stopped because the
 request was satisfied, not that they completed.
 
+**A guard gates the work.** This example shows how protection could be
+orchestrated; it is not how the repository contains untrusted text.
+InertString containment remains construction-time, at the point data enters
+the product. Suppose a guard producer checks each subject for a contract
+violation that only analysis can detect. Other producers declare a
+dependency on the guard. That dependency, not the guard's position in any
+list, is what orders the guard first, so a parallel executor cannot run a
+dependent alongside it.
+
+- *Per unit.* The guard visits each body before its dependents do. When it
+  reports a violation in one body, each dependent receives a typed
+  prerequisite failure naming the guard for that body and skips it. Other
+  bodies continue. The work stays one fused pass.
+- *Per subject.* The guard's completion must finish before any dependent
+  visit starts. When it reports a violation, every dependent receives a
+  typed prerequisite failure, level 2 schedules no dependent work, and the
+  plan unwinds, with level 1 releasing the borrow once. The price is a
+  barrier: the guard reads every unit first, so dependents need a second
+  pass.
+
+In both scopes, a producer that does not depend on the guard keeps running.
+Which work stops is declared, not an accident of ordering. A guard failure is
+a failed prerequisite, which is a different outcome from work stopped because
+a request was satisfied.
+
 **A consumer owns its interpretation.** The JS export surface's JSON
 wire-contract rules need field-store, field-load, and return-flow facts.
 Analysis publishes those facts through a flow producer. The wire-contract
