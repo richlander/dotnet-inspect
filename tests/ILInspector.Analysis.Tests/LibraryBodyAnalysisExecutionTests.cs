@@ -276,7 +276,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(1, acquisition.AttemptedBodies);
         Assert.Equal(1, acquisition.CompletedBodies);
         Assert.Equal(0, acquisition.FailedBodies);
-        Assert.True(receipt.IsComplete);
+        Assert.True(receipt.HasCompleteStageParticipation);
         Assert.DoesNotContain(
             receipt.ActualStages,
             stage => stage.Stage
@@ -423,7 +423,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
             context.EvidenceCauses);
         Assert.False(
             execution.ImplementationMetrics
-                .Participation!.IsComplete);
+                .Participation!.HasCompleteStageParticipation);
         Assert.True(
             context.FeatureCauses.HasFlag(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
@@ -686,6 +686,10 @@ public sealed class LibraryBodyAnalysisExecutionTests
             ImplementationMetricWorkLimitKind.PhysicalBodies,
             work.MetricExhaustedLimit);
         Assert.Equal(tokens[1], work.MetricExhaustedMethodToken);
+        Assert.True(
+            execution.ImplementationMetrics
+                .Participation!
+                .HasCompleteStageParticipation);
         ImplementationMetricStageParticipation acquisition =
             Assert.Single(
                 execution.ImplementationMetrics

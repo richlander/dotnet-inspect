@@ -26,7 +26,7 @@ internal sealed record ImplementationMetricParticipationReceipt(
     ImplementationMetricEvidenceKind RequestedEvidence,
     ImplementationMetricEvidenceKind EffectiveEvidence,
     ImplementationMetricWorkStage PlannedStages,
-    bool IsComplete,
+    bool HasCompleteStageParticipation,
     ImmutableArray<ImplementationMetricStageParticipation>
         ActualStages,
     ImplementationMetricWorkBudgetSnapshot? Work);
