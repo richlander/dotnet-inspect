@@ -71,7 +71,7 @@ internal sealed record LibraryBodyAnalysisPlan(
                 : ImplementationMetricAnalysisPlan.Create(
                     implementationMetrics);
         if (metricPlan is not null
-            && !metricPlan.UsesHeaderOnlyExecution)
+            && !metricPlan.UsesPreContextExecution)
         {
             // Temporary execution bridge. The selective stages replace and
             // delete these compatibility features in later #8450 slices.
