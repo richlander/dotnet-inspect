@@ -176,7 +176,8 @@ public sealed partial class DesktopPackageSourceComposition
             PackagePayloadAccess access = PackagePayloadAccess.Complete,
             PackageAssetDemand assetDemand =
                 PackageAssetDemand.SurfaceAndImplementation,
-            IEnumerable<string>? implementationNames = null)
+            IEnumerable<string>? implementationNames = null,
+            PackageDocumentDemand? documentDemand = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
@@ -185,7 +186,8 @@ public sealed partial class DesktopPackageSourceComposition
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
             assetDemand,
-            implementationNames);
+            implementationNames,
+            documentDemand);
         return ExecuteAndProjectPayloadAsync(
             request,
             coordinate.PackageId,
@@ -202,21 +204,24 @@ public sealed partial class DesktopPackageSourceComposition
     }
 
     /// <summary>
-    /// Ranged access is a Realize-time contract: the realization's selection
-    /// bounds the read, so a caller that supplies no compile target has asked
-    /// for an unbounded ranged read and is refused before any work starts.
+    /// Ranged access must be bounded: a compile realization's selection or a
+    /// document demand bounds the read, so a caller that supplies neither has
+    /// asked for an unbounded ranged read and is refused before any work
+    /// starts (docs/design/package-read-demand.md#document-demand).
     /// </summary>
     private static void RequireRealizationForRangedAccess(
         PackagePayloadAccess access,
-        PackageHouseTargetContext? compileTargetContext)
+        PackageHouseTargetContext? compileTargetContext,
+        PackageDocumentDemand? documentDemand = null)
     {
         if (!Enum.IsDefined(access))
             throw new ArgumentOutOfRangeException(nameof(access));
         if (access == PackagePayloadAccess.Ranged
-            && compileTargetContext is null)
+            && compileTargetContext is null
+            && documentDemand is null)
         {
             throw new ArgumentException(
-                "Ranged payload access requires PackageHouse compile realization; supply a compile target context.",
+                "Ranged payload access requires PackageHouse compile realization or a document demand; supply a compile target context or a document demand.",
                 nameof(access));
         }
     }
@@ -388,7 +393,8 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseTargetContext? targetContext = null,
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
-        IEnumerable<string>? implementationNames = null) =>
+        IEnumerable<string>? implementationNames = null,
+        PackageDocumentDemand? documentDemand = null) =>
         new(
             demand,
             PackageHouseOperation.Create(
@@ -400,7 +406,8 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseAssetSelectionKind.Compile
                 : null,
             assetDemand: assetDemand,
-            implementationNames: implementationNames);
+            implementationNames: implementationNames,
+            documentDemand: documentDemand);
 
     private static bool TryCreateSelectionRequest(
         string packageId,
