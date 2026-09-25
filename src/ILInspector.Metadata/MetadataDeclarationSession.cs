@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
@@ -8,6 +9,7 @@ public sealed class MetadataDeclarationSession : IDisposable
     MetadataOperationContext? _operationContext;
     MetadataImageAdmissionResult? _imageAdmission;
     MetadataTypeDefinitionIndex? _typeDefinitionIndex;
+    MethodSemanticsAssociationSession? _methodSemanticsAssociations;
     bool _disposed;
 
     internal MetadataDeclarationSession(
@@ -22,6 +24,8 @@ public sealed class MetadataDeclarationSession : IDisposable
             assemblySession.GetMetadataReaderForDeclarationSession());
         _assemblySession = assemblySession;
         _operationContext = operationContext;
+        _methodSemanticsAssociations =
+            new MethodSemanticsAssociationSession(this);
     }
 
     public MetadataImageAdmissionResult ImageAdmission
@@ -30,6 +34,15 @@ public sealed class MetadataDeclarationSession : IDisposable
         {
             EnsureAccess();
             return _imageAdmission!;
+        }
+    }
+
+    public MethodSemanticsAssociationSession MethodSemanticsAssociations
+    {
+        get
+        {
+            EnsureAccess();
+            return _methodSemanticsAssociations!;
         }
     }
 
@@ -214,14 +227,27 @@ public sealed class MetadataDeclarationSession : IDisposable
         _assemblySession!.EnsureAliveForDeclarationSession();
     }
 
+    internal void EnsureAccessForMethodSemantics() => EnsureAccess();
+
+    internal MetadataImageAdmissionResult
+        ImageAdmissionForMethodSemantics => _imageAdmission!;
+
+    internal MetadataOperationContext OperationContextForMethodSemantics =>
+        _operationContext!;
+
+    internal PEReader PEReaderForMethodSemantics =>
+        _assemblySession!.GetPEReaderForDeclarationSession();
+
     public void Dispose()
     {
         if (_disposed)
             return;
 
         _disposed = true;
+        _methodSemanticsAssociations!.Retire();
         _imageAdmission = null;
         _typeDefinitionIndex = null;
+        _methodSemanticsAssociations = null;
         _operationContext = null;
         _assemblySession = null;
     }

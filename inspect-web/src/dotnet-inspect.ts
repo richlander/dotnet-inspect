@@ -139,6 +139,7 @@ import {
   createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
+  packageQueryAssemblyId,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
   resolveReplacementPackageLibrary,
@@ -397,6 +398,7 @@ import {
   renderGraphSource as renderGraphSourcePure,
 } from "./graph-source.ts";
 import {
+  annotatedSourcePresentationText,
   annotatedFocusSelector,
   captureAnnotatedSourceScroll,
   renderAnnotatedSourcePageActions,
@@ -8380,7 +8382,7 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework,
-    packageModel.assemblyId),
+    packageQueryAssemblyId(packageModel)),
   queryPruning: async (packageModel, family) => {
     const target = await ensurePlatformCatalog(packageModel.activeFramework);
     return await inspectPackagePruning(
@@ -10895,7 +10897,10 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
 
   switch (action.kind) {
     case "copy":
-      void copyText(result.document.text, "annotated source copied");
+      void copyText(
+        annotatedSourcePresentationText(result, session),
+        "annotated source copied",
+      );
       return;
     case "explore":
       openAnnotatedSourceModal();

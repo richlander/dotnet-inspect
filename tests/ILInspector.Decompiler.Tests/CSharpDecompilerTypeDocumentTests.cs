@@ -492,6 +492,73 @@ public sealed class CSharpDecompilerTypeDocumentTests
     }
 
     [Fact]
+    public void ProduceTypeDocument_AssociatesCapturingHelperWithExactBody()
+    {
+        var document = Available(Produce(Type<CapturingLocalHelper>()));
+        Assert.Contains(document.Artifacts, artifact =>
+            artifact.Representation.Role
+                == CSharpTypeArtifactRole.LoweredImplementationHelper);
+        string source = Project(document, new()).Text;
+        Assert.Contains("int AddSquare(int input)", source);
+        Assert.DoesNotContain("g__AddSquare", source);
+        AssertCompiles(source);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void ProduceTypeDocument_RaisesJsonDocumentLocalHelper()
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "StructuredTypes",
+            "System.Text.Json.dll");
+        Assert.True(File.Exists(assemblyPath), assemblyPath);
+        ApiType type = Type(
+            assemblyPath,
+            "System.Text.Json.JsonDocument");
+        var document = Available(Produce(type, assemblyPath));
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinition definition = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(
+                type.MetadataToken!.Value & 0x00FFFFFF));
+        int parentToken = MetadataTokens.GetToken(Assert.Single(
+            definition.GetMethods(),
+            handle => reader.GetString(
+                reader.GetMethodDefinition(handle).Name)
+                == "CreateForLiteral"));
+        int helperToken = MetadataTokens.GetToken(Assert.Single(
+            definition.GetMethods(),
+            handle => reader.GetString(
+                reader.GetMethodDefinition(handle).Name)
+                == "<CreateForLiteral>g__Create|81_0"));
+        Assert.Contains(document.Artifacts, artifact =>
+            artifact.Representation.Role
+                == CSharpTypeArtifactRole.LoweredImplementationHelper
+            && artifact.MetadataToken == helperToken);
+        string bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies)).Text;
+        Assert.DoesNotContain("<CreateForLiteral>g__Create|81_0", bodies);
+        string skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton)).Text;
+        Assert.NotEmpty(skeleton);
+        CSharpTypeDeclaration parent = Assert.Single(
+            document.Declarations,
+            declaration => declaration.DeclarationToken == parentToken);
+        string selected = Project(
+            document,
+            new(CSharpTypeBodyMode.SelectedBody, parent.Anchor)).Text;
+        Assert.Contains("CreateForLiteral", selected);
+        Assert.DoesNotContain(
+            "<CreateForLiteral>g__Create|81_0",
+            selected);
+    }
+
+    [Fact]
     public void ProduceTypeDocument_PreCancelledOperationRemainsCancelled()
     {
         using var cancellation = new CancellationTokenSource();

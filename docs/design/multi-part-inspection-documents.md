@@ -297,7 +297,10 @@ The pattern and its adopters remain focused efforts:
 3. Let the Implementation Diff Browser/Wasm consumer use the same envelope and
    Document without reconstructing native comparison meaning.
 4. Expose Call Graph's existing `InspectionGraphDocument` through complete
-   content JSON and one envelope shared by CLI and Browser/Wasm.
+   content JSON and one envelope shared by CLI and Browser/Wasm. The CLI
+   transport is implemented: exact `member -S "Call Graph" --json` emits
+   Content directly, and `--envelope` wraps the identical Content with Share
+   and diagnostics. Browser/Wasm consumption remains.
 5. Add the first Copilot App canvas vertical slice over that graph Document,
    with fixed follow-up actions and Inspect Web Share where projectable.
 6. Let the Diff History owner adopt the pattern for bounded automatic
