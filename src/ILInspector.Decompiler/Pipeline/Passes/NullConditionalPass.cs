@@ -33,20 +33,140 @@ namespace ILInspector.Decompiler.Pipeline;
 /// No slot is conflated here — the win is idiom only: the ternary becomes
 /// <c>n?.Member</c>, dropping the duplicate load.
 /// </item>
+/// <item>
+/// <b>Effectful void-call receiver.</b> The compiler evaluates the receiver
+/// once, duplicates it through two stack slots, and branches around the void
+/// call when it is null. The raise consumes only single-entry arms whose slots
+/// are dead outside the matched shape and whose null and call paths reach the
+/// same continuation.
+/// </item>
 /// </list>
-/// Both arms require a literal-null false arm, which proves the member result is
+/// The expression-valued arms require a literal-null false arm, which proves the member result is
 /// a reference type (a value-type <c>?.</c> lowers through <c>Nullable&lt;T&gt;</c>,
 /// never a bare <c>ldnull</c>). Runs to fixpoint so chained accesses raise.
 /// </summary>
 public sealed class NullConditionalPass : IIrPass
 {
-    public string Name => "null-conditional";
+    readonly bool _voidCallsOnly;
+
+    public NullConditionalPass(bool voidCallsOnly = false)
+        => _voidCallsOnly = voidCallsOnly;
+
+    public string Name => _voidCallsOnly
+        ? "void-null-conditional"
+        : "null-conditional";
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (RaiseSpilled(function, context.Stepper) || RaiseReevaluable(function, context.Stepper))
+        if (_voidCallsOnly)
+        {
+            while (RaiseVoidCall(function, context.Stepper))
+            {
+            }
+            return;
+        }
+
+        while (RaiseVoidCall(function, context.Stepper)
+            || RaiseSpilled(function, context.Stepper)
+            || RaiseReevaluable(function, context.Stepper))
         {
         }
+    }
+
+    /// <summary>
+    /// Arm 0: csc's effectful-receiver lowering for a void call. The importer
+    /// materializes the duplicated receiver in two stack slots, branches to
+    /// the call on non-null, and leaves a no-op return or branch on the null
+    /// path.
+    /// </summary>
+    static bool RaiseVoidCall(IrFunction function, Stepper stepper)
+    {
+        foreach (var container in function.Descendants.OfType<BlockContainer>())
+        {
+            var blocks = container.Blocks;
+            if (blocks.Count < 4)
+                continue;
+
+            var targetCounts = CollectTargetCounts(container);
+            for (int headIndex = 0; headIndex + 3 < blocks.Count; headIndex++)
+            {
+                var head = blocks[headIndex];
+                if (head.Children.Count < 3
+                    || head.Children[^3] is not StoreStackSlot receiverValue
+                    || head.Children[^2] is not StoreStackSlot callReceiver
+                    || callReceiver.Value is not LoadStackSlot copiedReceiver
+                    || copiedReceiver.Slot != receiverValue.Slot
+                    || head.Children[^1] is not ConditionalBranch guard
+                    || guard.Condition is not LoadStackSlot testedReceiver
+                    || testedReceiver.Slot != receiverValue.Slot)
+                {
+                    continue;
+                }
+
+                var nullArm = blocks[headIndex + 1];
+                var callArmIndex = container.IndexOfOffset(guard.TargetOffset);
+                if (callArmIndex != headIndex + 2
+                    || targetCounts.GetValueOrDefault(nullArm.StartOffset) != 0
+                    || targetCounts.GetValueOrDefault(blocks[callArmIndex].StartOffset) != 1)
+                {
+                    continue;
+                }
+
+                var callArm = blocks[callArmIndex];
+                if (callArm.Children is not [ExpressionStatement { Expression: Call call }]
+                    || !call.Callee.HasThis
+                    || !IsVoid(call.Callee.ReturnType)
+                    || call.Arguments.FirstOrDefault() is not LoadStackSlot memberReceiver
+                    || memberReceiver.Slot != callReceiver.Slot
+                    || !CanUseNullConditional(memberReceiver.Type, function.TypeShapes))
+                {
+                    continue;
+                }
+
+                int continuationIndex = callArmIndex + 1;
+                if (continuationIndex >= blocks.Count
+                    || !FallsThrough(callArm)
+                    || !NullArmReachesSameContinuation(
+                        nullArm,
+                        blocks[continuationIndex]))
+                {
+                    continue;
+                }
+
+                if (receiverValue.Slot == callReceiver.Slot
+                    || function.Descendants.OfType<StoreStackSlot>()
+                        .Count(store => store.Slot == receiverValue.Slot) != 1
+                    || function.Descendants.OfType<StoreStackSlot>()
+                        .Count(store => store.Slot == callReceiver.Slot) != 1
+                    || function.Descendants.OfType<LoadStackSlot>()
+                        .Count(load => load.Slot == receiverValue.Slot) != 2
+                    || function.Descendants.OfType<LoadStackSlot>()
+                        .Count(load => load.Slot == callReceiver.Slot) != 1)
+                {
+                    continue;
+                }
+
+                var receiver = (IrExpression)receiverValue.DetachChildren()[0];
+                call.Detach();
+                call.SetChild(0, receiver);
+                var raised = new ExpressionStatement(new NullConditional(call));
+                raised.InheritSourceOffset(callArm.Children[0]);
+
+                receiverValue.Detach();
+                callReceiver.Detach();
+                guard.Detach();
+                head.Add(raised);
+                nullArm.Detach();
+                callArm.Detach();
+
+                stepper.StepOver(
+                    $"raise void null-conditional call at IL_{head.StartOffset:X4}",
+                    container);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Arm 1: the spilled-receiver shape (adjacent receiver/result stores).</summary>
@@ -108,6 +228,52 @@ public sealed class NullConditionalPass : IIrPass
     static bool CanUseNullConditional(TypeRef? receiverType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => receiverType is not { Kind: TypeRefKind.Pointer or TypeRefKind.FunctionPointer or TypeRefKind.ByRef }
             && !TypeFamilies.IsKnownNonNullableValueType(receiverType, shapes);
+
+    static bool NullArmReachesSameContinuation(Block nullArm, Block continuation)
+    {
+        if (nullArm.Children is [Branch branch])
+            return branch.TargetOffset == continuation.StartOffset;
+
+        return nullArm.Children is [Return { Value: null }]
+            && continuation.Children is [Return { Value: null }];
+    }
+
+    static Dictionary<int, int> CollectTargetCounts(BlockContainer container)
+    {
+        var counts = new Dictionary<int, int>();
+        foreach (var node in container.Descendants)
+        {
+            switch (node)
+            {
+                case Branch branch:
+                    Add(branch.TargetOffset);
+                    break;
+                case ConditionalBranch conditional:
+                    Add(conditional.TargetOffset);
+                    break;
+                case Leave leave:
+                    Add(leave.TargetOffset);
+                    break;
+                case SwitchBranch switchBranch:
+                    foreach (int target in switchBranch.TargetOffsets)
+                        Add(target);
+                    break;
+            }
+        }
+        return counts;
+
+        void Add(int target) =>
+            counts[target] = counts.GetValueOrDefault(target) + 1;
+    }
+
+    static bool FallsThrough(Block block)
+        => block.Children.Count == 0
+            || block.Children[^1] is not (Branch or ConditionalBranch
+                or SwitchBranch or Leave or Return or Throw or EndFinally
+                or EndFilter);
+
+    static bool IsVoid(TypeRef type)
+        => type is { Namespace: "System", Name: "Void" };
 
     /// <summary>
     /// A <c>recv is not null ? member : null</c> ternary whose true arm is an

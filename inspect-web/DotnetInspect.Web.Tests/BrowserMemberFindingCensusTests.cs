@@ -344,6 +344,7 @@ public sealed class BrowserMemberFindingCensusTests
                 second.FactCensusReceipt,
                 first.Facts,
                 Assert.IsType<AnnotatedSourceDocument>(first.SourceDocument),
+                new InertString(TextPolicy.Field, "public void M()"),
                 first.SourceDocumentFactIdentities,
                 new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null));
@@ -375,6 +376,7 @@ public sealed class BrowserMemberFindingCensusTests
                 projection.FactCensusReceipt,
                 projection.Facts,
                 Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument),
+                new InertString(TextPolicy.Field, "public void M()"),
                 [identity, identity],
                 new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null));
@@ -705,6 +707,7 @@ public sealed class BrowserMemberFindingCensusTests
             projection.FactCensusReceipt,
             projection.Facts,
             Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument),
+            new InertString(TextPolicy.Field, "public void M()"),
             projection.SourceDocumentFactIdentities,
             new InertString(TextPolicy.Field, "test provenance"),
             contextLimitation: null);
@@ -718,6 +721,7 @@ public sealed class BrowserMemberFindingCensusTests
             projection.FactCensusReceipt,
             projection.Facts,
             Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument),
+            new InertString(TextPolicy.Field, "public void M()"),
             projection.SourceDocumentFactIdentities,
             new InertString(TextPolicy.Field, "test provenance"),
             contextLimitation: null,

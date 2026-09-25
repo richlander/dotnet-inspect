@@ -2243,6 +2243,47 @@ public sealed class StructuringPass : IIrPass
                 return null;
             return join;
         }
+
+        // An if/else-if chain can share a trailing return without an explicit
+        // branch from the first arm:
+        //
+        //   if (outer) {
+        //       if (!inner) goto JOIN;
+        //       ...;
+        //       return;
+        //   } else {
+        //       ...;            // falls through to JOIN
+        //   }
+        // JOIN: return;
+        //
+        // The terminating first arm proves it cannot fall into the sibling;
+        // the sibling's fallthrough proves the conditional target is their
+        // common join. Validation below still owns both complete regions.
+        // Generated MoveNext bodies are consumed as the classic async/iterator
+        // control-flow shell; this source-oriented alternative structuring is
+        // applied only after that cross-method reconstruction.
+        if (ctx.Function.Name == "MoveNext"
+            && GeneratedCodeIdentity.IsIteratorStateMachineTypeName(
+                ctx.Function.DeclaringType))
+        {
+            return null;
+        }
+        if (!EndsWithTerminator(blocks[trueStart - 1]))
+            return null;
+        for (int source = falseStart; source < trueStart; source++)
+        {
+            if (blocks[source].Children.LastOrDefault() is not ConditionalBranch conditional
+                || !offsetToIndex.TryGetValue(conditional.TargetOffset, out int sharedJoin)
+                || sharedJoin <= trueStart
+                || sharedJoin > stop
+                || !FallsThrough(blocks[sharedJoin - 1]))
+            {
+                continue;
+            }
+            if (HasSiblingArmEntry(ctx, falseStart, trueStart, sharedJoin, continueTarget))
+                return null;
+            return sharedJoin;
+        }
         return null;
     }
 

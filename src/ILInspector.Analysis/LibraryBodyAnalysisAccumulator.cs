@@ -74,6 +74,11 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var ownershipFlow =
             ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
+        var implementationMetrics =
+            ImmutableArray
+                .CreateBuilder<MethodImplementationMetricEvidence>();
+        var implementationMetricDiagnostics =
+            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         int none = 0, impl = 0, expl = 0, unavailable = 0;
 
         foreach (var result in results)
@@ -262,6 +267,10 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 scopeExcludedOpportunityTokens.Add(r.Token);
             if (r.HasSignals)
                 bodySignals[r.Token] = r.Signals;
+            if (r.ImplementationMetrics is { } implementationMetric)
+                implementationMetrics.Add(implementationMetric);
+            if (r.ImplementationMetricDiagnostic is { } metricDiagnostic)
+                implementationMetricDiagnostics.Add(metricDiagnostic);
             if (r.ImplementationProfile is { } implementationProfile)
             {
                 if (r.Diagnostic is { } profileDiagnostic)
@@ -327,6 +336,10 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 FieldLoads: fieldLoads.ToImmutable(),
                 ReturnFlows: returnFlows.ToImmutable(),
                 BodySignals: bodySignals,
+                ImplementationMetrics:
+                    implementationMetrics.ToImmutable(),
+                ImplementationMetricDiagnostics:
+                    implementationMetricDiagnostics.ToImmutable(),
                 ImplementationProfiles:
                     implementationProfiles.ToImmutable(),
                 InAssemblyTypeIsException: _includeMethodEvidence

@@ -8,6 +8,106 @@ namespace ILInspector.Metadata.Tests;
 public sealed class MetadataRelationInspectionTests
 {
     [Fact]
+    public void AssemblyReferencePopulationPushesCountAndBoundedRows()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    BuildDuplicateAssemblyReferenceImage(),
+                    writable: false));
+
+        var first =
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationOutcome.Available>(
+                    session.AssemblyReferenceRelations(
+                        new(
+                            MetadataOperationPolicy.Unbounded,
+                            new(),
+                            new(
+                                startOrdinal: 0,
+                                maximumRows: 1)),
+                        TestContext.Current.CancellationToken));
+
+        var counted =
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationCountOutcome
+                    .Counted>(first.Result.Count);
+        Assert.Equal(2, counted.Value);
+        var firstRows =
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationRowsOutcome
+                    .Read>(first.Result.Rows);
+        MetadataAssemblyReferenceRelationPopulationRow firstRow =
+            Assert.Single(firstRows.Items);
+        Assert.Equal("Sample.First", firstRow.Target.Name);
+        Assert.Equal(2, firstRow.MetadataTokens.Length);
+        Assert.Equal(1, firstRows.NextOrdinal);
+        Assert.Equal(3, first.Result.Coverage.Considered);
+        Assert.Equal(3, first.Result.Coverage.Examined);
+
+        var second =
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationOutcome.Available>(
+                    session.AssemblyReferenceRelations(
+                        new(
+                            MetadataOperationPolicy.Unbounded,
+                            rows: new(
+                                startOrdinal: firstRows.NextOrdinal!.Value,
+                                maximumRows: 1),
+                            expectedModuleVersionId:
+                                first.Result.Receipt.ModuleVersionId),
+                        TestContext.Current.CancellationToken));
+        var secondRows =
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationRowsOutcome
+                    .Read>(second.Result.Rows);
+        Assert.Equal(
+            "Sample.Second",
+            Assert.Single(secondRows.Items).Target.Name);
+        Assert.Null(secondRows.NextOrdinal);
+
+        var countOnly =
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationOutcome.Available>(
+                    session.AssemblyReferenceRelations(
+                        new(
+                            MetadataOperationPolicy.Unbounded,
+                            count: new()),
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(
+            2,
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationCountOutcome
+                    .Counted>(countOnly.Result.Count).Value);
+        Assert.Null(countOnly.Result.Rows);
+
+        var stale =
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationOutcome.Available>(
+                    session.AssemblyReferenceRelations(
+                        new(
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(
+                                startOrdinal: 0,
+                                maximumRows: 1),
+                            expectedModuleVersionId: Guid.NewGuid()),
+                        TestContext.Current.CancellationToken));
+        _ = Assert.IsType<
+            MetadataAssemblyReferenceRelationPopulationCountOutcome
+                .Failed>(stale.Result.Count);
+        Assert.Equal(
+            MetadataAssemblyReferenceRelationPopulationRowsRejection
+                .StaleSource,
+            Assert.IsType<
+                MetadataAssemblyReferenceRelationPopulationRowsOutcome
+                    .Rejected>(stale.Result.Rows).Reason);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.StaleSource,
+            Assert.Single(stale.Result.Diagnostics).Kind);
+    }
+
+    [Fact]
     public void ExtensionAndReferenceProducersRetainExactEvidence()
     {
         string path = typeof(MetadataFindings).Assembly.Location;
@@ -327,10 +427,10 @@ public sealed class MetadataRelationInspectionTests
         string argumentName) =>
         identity
             is MetadataTypeIdentity.GenericInstance
-            {
-                Definition: var definition,
-                Arguments: [MetadataTypeIdentity.Primitive primitive],
-            }
+        {
+            Definition: var definition,
+            Arguments: [MetadataTypeIdentity.Primitive primitive],
+        }
         && definition.Namespace.ToString() == @namespace
         && definition.Segments.Length == 1
         && definition.Segments[0].ToString() == name
@@ -361,6 +461,63 @@ public sealed class MetadataRelationInspectionTests
             default,
             default,
             AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    private static byte[] BuildDuplicateAssemblyReferenceImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ReferencePopulation.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ReferencePopulation"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Sample.First"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("sample.first"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Sample.Second"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            default);
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic,
             default,

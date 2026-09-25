@@ -1233,6 +1233,12 @@ subject lenses it advances.
    Integration traversal and producer selection. Peer connecting
    neighborhoods, explicit-subject induced sets, and presentation lowering
    remain.
+7. **Complete Call Graph transport.** Exact Member Call Graph JSON serializes
+   the semantic `InspectionGraphDocument` directly, while `--envelope` wraps
+   the identical Content with Share and diagnostics. Markout remains an
+   independent Markdown, Mermaid, tree, and edge-row lowering; it is not the
+   JSON transport. Call Graph Share remains explicitly non-projectable until a
+   Browser Workspace facet can restore the same inspection.
 
 ## Required implementation gates
 

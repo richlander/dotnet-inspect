@@ -444,8 +444,12 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            if (effectiveOptions.HasCallerScope)
+            if (effectiveOptions.HasCallerScope
+                && !ApiCommand.HasExactCallGraphDocumentSelection(
+                    effectiveOptions))
+            {
                 effectiveOptions = IncludeCallersSection(effectiveOptions);
+            }
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -519,6 +523,10 @@ public static class MemberCommand
                     {
                         Select = effectiveOptions.Select,
                         SelectDefault = effectiveOptions.SelectDefault,
+                        EnvelopeOutput =
+                            effectiveOptions.EnvelopeOutput,
+                        JsonOutput = effectiveOptions.JsonOutput,
+                        CompactJson = effectiveOptions.CompactJson,
                     };
             }
 
@@ -1257,9 +1265,14 @@ public static class MemberCommand
                     context.HttpClient,
                     logger);
 
-                // Supplying a caller scope is an explicit request for the Callers section, so it
-                // renders (with an empty-state note when nothing matches) even at low verbosity.
-                effectiveOptions = IncludeCallersSection(effectiveOptions) with
+                // A complete Call Graph document carries the caller-scope topology
+                // directly. Other presentations retain the implicit Callers section.
+                MemberOptions callerScopeOptions =
+                    ApiCommand.HasExactCallGraphDocumentSelection(
+                        effectiveOptions)
+                        ? effectiveOptions
+                        : IncludeCallersSection(effectiveOptions);
+                effectiveOptions = callerScopeOptions with
                 {
                     CallerScopeAssemblies = callerScopeAssemblySet.Assemblies,
                 };

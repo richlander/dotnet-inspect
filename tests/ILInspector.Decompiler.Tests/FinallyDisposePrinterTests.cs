@@ -12,18 +12,18 @@ namespace ILInspector.Decompiler.Tests;
 public class FinallyDisposePrinterTests
 {
     [Fact]
-    public void ReferenceTruthinessInFinally_RendersIsNull_NotBangOperator()
+    public void ReferenceTruthinessInFinally_RendersLegalNullConditional()
     {
         string body = RenderFixture(nameof(FinallyDisposeSamples.DisposeEnumeratorInFinally));
 
-        Assert.Contains("is null", body);
+        Assert.Contains("?.Dispose();", body);
         Assert.DoesNotContain("!S_", body);
         Assert.DoesNotContain("!enumerator", body);
         AssertCompiles("public static void M(System.Collections.IDictionary dictionary)", body);
     }
 
     [Fact]
-    public void ReferenceTruthiness_NestedFunctionReusesSlot_StillRendersIsNull()
+    public void ReferenceTruthiness_NestedFunctionReusesSlot_StillRendersLegalNullConditional()
     {
         // A nested local function reuses the same stack-slot number; provenance is
         // scoped to the current function body, so the outer finally-dispose slot
@@ -35,7 +35,7 @@ public class FinallyDisposePrinterTests
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
         var body = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method)).Output!;
 
-        Assert.Contains("is null", body);
+        Assert.Contains("?.Dispose();", body);
         Assert.DoesNotContain("!S_", body);
     }
 

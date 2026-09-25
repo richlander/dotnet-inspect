@@ -67,7 +67,9 @@ repository project; separately packaging it is future release scope.
 
 The generated module exports:
 
-- readonly producer-owned DTO and enum declarations;
+- readonly producer-owned DTO and enum declarations, with distinct
+  `TypeNameInput` and `TypeNameOutput` declarations only when one managed type
+  has different authenticated deserialization and serialization shapes;
 - `initializeRuntime()`, which creates and validates one terminal,
   module-local runtime acquisition;
 - `runEntryPoint(mainAssemblyName?, args?)`, which explicitly forwards to the

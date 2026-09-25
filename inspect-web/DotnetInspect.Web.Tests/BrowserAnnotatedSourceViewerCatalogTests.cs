@@ -774,6 +774,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         string envelopeJson = JsonSerializer.Serialize(
             BrowserAnnotatedSource.Create(
                 document,
+                new InertString(TextPolicy.Field, "public void M()"),
                 new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null),
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -785,6 +786,9 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         Assert.Equal(
             documentJson,
             envelope.RootElement.GetProperty("document").GetRawText());
+        JsonElement signature = envelope.RootElement.GetProperty("signature");
+        Assert.Equal(JsonValueKind.String, signature.ValueKind);
+        Assert.Equal("public void M()", signature.GetString());
         JsonElement provenance = envelope.RootElement.GetProperty("provenance");
         Assert.Equal(JsonValueKind.String, provenance.ValueKind);
         Assert.Equal(
@@ -826,6 +830,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         string envelopeJson = JsonSerializer.Serialize(
             BrowserAnnotatedSource.Create(
                 document,
+                new InertString(TextPolicy.Field, "public void M()"),
                 new InertString(TextPolicy.Field, "test provenance"),
                 contextLimitation: null,
                 [new(1, Target("n1", "Call"))]),
