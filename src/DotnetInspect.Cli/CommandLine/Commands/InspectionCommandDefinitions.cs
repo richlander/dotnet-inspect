@@ -214,7 +214,7 @@ public static class InspectionCommandDefinitions
                 || result.GetValue(historyOption))
                 return;
 
-            string? selector = result.GetValue(opts.Select);
+            string? selector = opts.SelectText(result);
             bool implementationTransport =
                 string.Equals(
                     selector,
