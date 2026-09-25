@@ -29,7 +29,8 @@ Adjacent owners retain their authority:
   outcome, and resource-free reacquisition request. [#7230](https://github.com/richlander/dotnet-inspect/issues/7230)
   stages retention of authorization independently from whether compatible
   fallback selected the implementation.
-- `PackageDependencyGroupsQuery` owns bounded manifest access and
+- `PackageManifestFactsProjection` owns bounded manifest parsing and facts;
+  `PackageDependencyGroupsQuery` owns root-manifest access and
   target-framework dependency-group selection.
 - [Package Dependency Evidence](package-dependency-evidence.md) owns normalized
   declarations, selected-group identity and status, completion, and failures.
