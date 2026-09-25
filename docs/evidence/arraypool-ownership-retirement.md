@@ -6,7 +6,7 @@
 
 - Fully legacy product: `0.25.0+473d56a` (`473d56a68e26338fc27aca9808c1e98dbf30b259`).
 - Shipped continuity product: `0.26.0+d236a7a` (`d236a7ad79bf4d76c63f0530cedfab0ede3cf3dd`).
-- Generic comparison head: `9801a38f1e6713e1b64c2cb1208b8e2742091a04`.
+- Generic comparison head: `7851686ca082f9db8315e00d7d02e913953734b4`.
 - The in-tree `LeakTriage`, `ArrayPoolOwnershipFlow`, and `ArrayPoolOwnershipPathFindings` oracle files are byte-for-byte unchanged from the v0.26.0 source tag; the producer refuses to run if that condition is false.
 
 ## Method
@@ -39,8 +39,8 @@ The current generic lifecycle product reports these untrusted-input ArrayPool ex
 
 | Input | Selected asset | Assembly SHA-256 | Package SHA-256 |
 | --- | --- | --- | --- |
-| `fixture:arraypool-lookalikes` | `artifacts/bin/ILInspector.Analysis.LookalikeFixtures/release/ILInspector.Analysis.LookalikeFixtures.dll` | `a087bb7fc3b49e2b8166d848acdc2154579e84af3c87a5d8ec062d1a9fbf19d0` | n/a |
-| `fixture:ownership-flow` | `artifacts/bin/ILInspector.Analysis.OwnershipFlowFixtures/release/ILInspector.Analysis.OwnershipFlowFixtures.dll` | `26aeffdf19d6371497c03cbe154a46f0b523ffac659cdc14f8c27c4f6b8b03da` | n/a |
+| `fixture:arraypool-lookalikes` | `artifacts/bin/ILInspector.Analysis.LookalikeFixtures/release/ILInspector.Analysis.LookalikeFixtures.dll` | `51964a7503c1ce9fa496429c276b03fb488c435a30a2c174b8a4f87ccbc425ab` | n/a |
+| `fixture:ownership-flow` | `artifacts/bin/ILInspector.Analysis.OwnershipFlowFixtures/release/ILInspector.Analysis.OwnershipFlowFixtures.dll` | `246bb117207587be26b5a14745a9bdb4497afe6e3d7a5ddd82bb3cbe9bd6c4b6` | n/a |
 | `nuget:MessagePack@2.5.192` | `lib/net6.0/MessagePack.dll` | `b2c1cc3fc4c262a0f7cfa14f668afc61c1f8b8b460b51d894d6331b63acc14b2` | `33d41410021e4a84a03b7c215643a8bb417c91b282349ec71c0bd3660cad90f5` |
 | `nuget:MimeKit@4.8.0` | `lib/net8.0/MimeKit.dll` | `34ecbae9877337e3bcd67038ef22c1548594239475a974f424ce1edaf6046916` | `e04079e24b415eeab9411203f62f04ec5cd4ed8653138c301fedb2afb8af8bf4` |
 | `nuget:Npgsql@8.0.4` | `lib/net8.0/Npgsql.dll` | `1323d6e67a66323309096c93eb874e0f6ec2154152c9924a5f2d3a25d0370d33` | `3b73ac4a9f870635650437ace6688c9822e31ac2e1d98f5f5dd72dd7bbed45d2` |
@@ -57,7 +57,7 @@ The current generic lifecycle product reports these untrusted-input ArrayPool ex
 | Input | Lifecycle findings | Research roots | Research paths | Intentional improvements | Defects |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `fixture:arraypool-lookalikes` | 0 | 1 | 1 | 2 | 0 |
-| `fixture:ownership-flow` | 26 | 47 | 42 | 90 | 0 |
+| `fixture:ownership-flow` | 27 | 48 | 43 | 93 | 0 |
 | `nuget:MessagePack@2.5.192` | 4 | 9 | 8 | 38 | 0 |
 | `nuget:MimeKit@4.8.0` | 4 | 19 | 13 | 74 | 0 |
 | `nuget:Npgsql@8.0.4` | 8 | 19 | 2 | 54 | 0 |
@@ -71,7 +71,7 @@ The current generic lifecycle product reports these untrusted-input ArrayPool ex
 
 ## Classification
 
-The ledger contains 1548 rows: 810 `Parity`, 725 `IntentionalImprovement`, 13 `AcceptedCompatibilityChange`, and 0 `Defect`.
+The ledger contains 1556 rows: 815 `Parity`, 728 `IntentionalImprovement`, 13 `AcceptedCompatibilityChange`, and 0 `Defect`.
 
 `IntentionalImprovement` is limited to owner-specified generic behavior: additional typed Resource Occurrence roots and root-local lifecycle outcomes, typed resource-aware Finding identity, and path-local and operation-level completeness. An omitted legacy acquisition or assessment, changed shared coordinate or sink, or other unowned difference is a `Defect`.
 
