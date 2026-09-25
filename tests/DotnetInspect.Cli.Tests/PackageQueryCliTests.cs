@@ -2076,6 +2076,7 @@ public class PackageQueryCliTests
     [Trait("Speed", "Slow")]
     public async Task CliLiteralStringQueryFindsCompanionLibrary()
     {
+        using var cache = new IsolatedCache();
         var search = await Run(
             ["explain", "literal", "--json"]);
         Assert.Equal(0, search.ExitCode);
