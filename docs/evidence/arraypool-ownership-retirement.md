@@ -6,7 +6,7 @@
 
 - Fully legacy product: `0.25.0+473d56a` (`473d56a68e26338fc27aca9808c1e98dbf30b259`).
 - Shipped continuity product: `0.26.0+d236a7a` (`d236a7ad79bf4d76c63f0530cedfab0ede3cf3dd`).
-- Generic comparison head: `4a9dc5b7fbe471b6ab141559129fccfaa9db5bac`.
+- Generic comparison head: `9801a38f1e6713e1b64c2cb1208b8e2742091a04`.
 - The in-tree `LeakTriage`, `ArrayPoolOwnershipFlow`, and `ArrayPoolOwnershipPathFindings` oracle files are byte-for-byte unchanged from the v0.26.0 source tag; the producer refuses to run if that condition is false.
 
 ## Method
@@ -39,8 +39,8 @@ The current generic lifecycle product reports these untrusted-input ArrayPool ex
 
 | Input | Selected asset | Assembly SHA-256 | Package SHA-256 |
 | --- | --- | --- | --- |
-| `fixture:arraypool-lookalikes` | `artifacts/bin/ILInspector.Analysis.LookalikeFixtures/release/ILInspector.Analysis.LookalikeFixtures.dll` | `42e0e163c73b2578c7428ab67bf6814bf8b283461c56f060f5e4eec626fb5c26` | n/a |
-| `fixture:ownership-flow` | `artifacts/bin/ILInspector.Analysis.OwnershipFlowFixtures/release/ILInspector.Analysis.OwnershipFlowFixtures.dll` | `e4274c208318ec1b21f09a77b0cd43e96226bb31d91e52861a045694ff0fb715` | n/a |
+| `fixture:arraypool-lookalikes` | `artifacts/bin/ILInspector.Analysis.LookalikeFixtures/release/ILInspector.Analysis.LookalikeFixtures.dll` | `a087bb7fc3b49e2b8166d848acdc2154579e84af3c87a5d8ec062d1a9fbf19d0` | n/a |
+| `fixture:ownership-flow` | `artifacts/bin/ILInspector.Analysis.OwnershipFlowFixtures/release/ILInspector.Analysis.OwnershipFlowFixtures.dll` | `26aeffdf19d6371497c03cbe154a46f0b523ffac659cdc14f8c27c4f6b8b03da` | n/a |
 | `nuget:MessagePack@2.5.192` | `lib/net6.0/MessagePack.dll` | `b2c1cc3fc4c262a0f7cfa14f668afc61c1f8b8b460b51d894d6331b63acc14b2` | `33d41410021e4a84a03b7c215643a8bb417c91b282349ec71c0bd3660cad90f5` |
 | `nuget:MimeKit@4.8.0` | `lib/net8.0/MimeKit.dll` | `34ecbae9877337e3bcd67038ef22c1548594239475a974f424ce1edaf6046916` | `e04079e24b415eeab9411203f62f04ec5cd4ed8653138c301fedb2afb8af8bf4` |
 | `nuget:Npgsql@8.0.4` | `lib/net8.0/Npgsql.dll` | `1323d6e67a66323309096c93eb874e0f6ec2154152c9924a5f2d3a25d0370d33` | `3b73ac4a9f870635650437ace6688c9822e31ac2e1d98f5f5dd72dd7bbed45d2` |
