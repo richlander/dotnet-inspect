@@ -636,11 +636,33 @@ them progressive merely because construction used batches.
 
 ### Open-ended line source
 
-For a line-native operation analogous to `ping -t`, Head(100) can stop after
-100 final matching rows. Exact Count is unavailable without an owner-defined
-finite horizon or eventual source completion. A retained live process may
-support an operation-stable outer receipt, but QueryOverflow owns no process
-or async enumeration.
+Suppose a Windows host starts `ping -t host`, frames each complete output line
+as one semantic row, and lowers `-n 100` to `Head(100)`. With an owner batch
+ceiling of 32 rows, execution may proceed as follows:
+
+```text
+request 1: at most 32 candidates -> consume and publish rows 1..32
+request 2: at most 32 candidates -> consume and publish rows 33..64
+request 3: at most 32 candidates -> consume and publish rows 65..96
+request 4: at most 4 candidates  -> consume and publish rows 97..100
+QueryOverflow: Completed; request no later batch
+process owner: cancel ping, await process shutdown, release streams and buffers
+```
+
+QueryOverflow lowers the fourth request because only four more candidate rows
+can contribute to `Head(100)`. If natural process read-ahead has already
+produced later lines, the source owner may discard that unread suffix because
+the logical query will not resume.
+
+Stopping the process is resource cleanup after successful semantic completion;
+it does not change the QueryOverflow result to `Cancelled` and does not report
+a source failure. Output produced while process cancellation takes effect is
+not admitted to the completed execution.
+
+Exact Count over the unrestricted process remains unavailable without an
+owner-defined finite horizon or eventual source completion. A retained live
+process may support an operation-stable outer receipt while the query still
+needs input, but QueryOverflow owns no process or async enumeration.
 
 ## Production adoption
 
@@ -670,6 +692,7 @@ QueryOverflow when it asks no row question.
 | `BatchSizeDoesNotChangeQueryMeaning` | Positive batch ceilings, short nonterminal batches, and natural source boundaries preserve rows, order, Count, completion, and callback observations. |
 | `BatchDemandIsNotSemanticSelection` | Candidate-row maximum, final-row credit, Head or Window, source completion, and physical byte/page limits remain independently observable and are never substituted for one another. |
 | `ConsumedPrefixPreservesUnconsumedSuffix` | A step that stops within a batch reports its exact consumed prefix; resumption neither skips nor duplicates the suffix. |
+| `HeadStopsOpenEndedSourcePull` | `Head(N)` over an instrumented live source admits exactly `N` final applicable rows, requests no later batch, and returns `Completed` so the outer owner releases the source without changing successful semantic completion into cancellation. |
 | `CheckpointOwnsNoReleasedBatchValue` | After a step releases its input owner, Count and position state remain valid, and every retained or published row has detached ownership. |
 | `ProgressiveRowsAreFinal` | Publication-safe plans publish each row exactly once in final order; plans with unresolved semantic failures or callbacks, completion-only plans, and strict all-or-failure plans withhold rows until their requirements are proven. |
 | `ExactCountRequiresTerminalSufficiency` | Count publishes once after population completion or another accepted QuerySpace terminal witness; `Head(N) -> Count` completes after `N` applicable ordered rows, while fewer rows still require completion, and no operational bound or observation substitutes for proof. |
