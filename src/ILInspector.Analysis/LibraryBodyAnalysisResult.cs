@@ -24,6 +24,10 @@ internal sealed record LibraryBodyAnalysisResult(
     internal ImplementationMetricWorkBudgetSnapshot?
         ImplementationMetricWork
     { get; init; }
+
+    internal ImplementationMetricStageParticipationSnapshot?
+        ImplementationMetricParticipation
+    { get; init; }
 }
 
 internal sealed record MethodBodyAnalysisResult(
@@ -36,6 +40,10 @@ internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<FieldLoadFact> FieldLoads,
     ImmutableArray<MethodReturnFlow> ReturnFlows,
     IReadOnlyDictionary<int, BodySignals> BodySignals,
+    ImmutableArray<MethodImplementationMetricEvidence>
+        ImplementationMetrics,
+    ImmutableArray<AnalysisDiagnostic>
+        ImplementationMetricDiagnostics,
     ImmutableArray<MethodBodyImplementationMetrics> ImplementationProfiles,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
