@@ -95,6 +95,11 @@ green. A schedule, successful candidate, successful comparison deployment, or
 prior release authorization never implies publication authority.
 
 Retries retain the selected run, attempt, artifact identities, and digests.
+NuGet.org adds its repository signature after upload, so retry validation
+compares the retained package's complete entry paths and payloads with the
+published package while requiring exactly one service-added `.signature.p7s`
+entry. It does not mistake that expected signature transform for different
+candidate content.
 Changing any member selects a different candidate and requires a new operator
 decision.
 

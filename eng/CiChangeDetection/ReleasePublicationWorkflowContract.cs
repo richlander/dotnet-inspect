@@ -55,10 +55,11 @@ internal static class ReleasePublicationWorkflowContract
             "Release workflow contract accepted production deployment before package publication.");
         AssertMutationRejected(
             workflow,
-            "                if ! cmp -s \"$pkg\" \"$published\"; then\n",
-            "                if false; then\n",
+            "            dotnet run eng/verify-nuget-retry-package.cs -- " +
+                "\"${retry_args[@]}\"\n",
+            "            true\n",
             Validate,
-            "Release workflow contract accepted a retry without package-byte comparison.");
+            "Release workflow contract accepted a retry without package identity verification.");
         AssertMutationRejected(
             workflow,
             "          skip_app_build: true\n",
@@ -263,7 +264,10 @@ internal static class ReleasePublicationWorkflowContract
             RequireContains(
                 retryCommand,
                 "https://api.nuget.org/v3-flatcontainer/");
-            RequireContains(retryCommand, "cmp -s \"$pkg\" \"$published\"");
+            RequireContains(
+                retryCommand,
+                "dotnet run eng/verify-nuget-retry-package.cs -- " +
+                    "\"${retry_args[@]}\"");
             int publishIndex = FindStepIndex(steps, "Publish retained packages");
             int releaseIndex =
                 FindStepIndex(steps, "Create GitHub release from retained packages");

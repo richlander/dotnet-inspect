@@ -176,6 +176,7 @@ internal static class ChangePlanTestSuite
             ("eng/test-inspect-web-source-comparison-gate.sh", "web"),
             ("eng/validate-release-candidate.cs", "packaging,web"),
             ("eng/validate-release-candidate.sh", "packaging,web"),
+            ("eng/verify-nuget-retry-package.cs", "code,packaging"),
             ("eng/verify-release-candidate-artifact.sh", "packaging,web"),
             ("eng/generate-inspect-web-engine-facade.sh",
                 "web,web-comprehensive"),

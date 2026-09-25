@@ -131,8 +131,9 @@ The package job then:
 3. downloads the exact artifact ID with digest mismatch configured as an
    error;
 4. verifies the retained receipt, manifests, package set, and site;
-5. compares any already-published NuGet package bytes with the retained package
-   before treating it as a retry;
+5. compares every original entry path and payload of an already-published
+   NuGet package with the retained package, allowing only NuGet.org's required
+   repository-signature entry, before treating it as a retry;
 6. obtains the temporary NuGet API key through OIDC;
 7. publishes native packages first, the managed fallback next, and the pointer
    last; and
@@ -201,9 +202,10 @@ Recovery preserves identity:
   Either decline the candidate or explicitly accept those concerns for this
   run and attempt.
 - **Package publication partially succeeds:** rerun `release.yml` with the
-  same inputs. Exact NuGet package-byte comparison, duplicate skipping, and
+  same inputs. Signing-aware NuGet payload comparison, duplicate skipping, and
   artifact revalidation retain the original release unit. A same-version
-  package with different bytes fails before any additional package is pushed.
+  package with a different original entry path or payload fails before any
+  additional package is pushed.
 - **The GitHub release exists:** verify its tag target and attached packages
   match the candidate before treating a retry as successful.
 - **Production deployment fails after packages publish:** rerun with the same

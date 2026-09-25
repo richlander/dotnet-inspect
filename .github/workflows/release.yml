@@ -165,6 +165,7 @@ jobs:
         run: |
           set -euo pipefail
           packages=artifacts/release-candidate/packages
+          retry_args=()
           for pkg in "$packages"/*.nupkg; do
             file=${pkg##*/}
             id=${file%."$VERSION".nupkg}
@@ -174,10 +175,7 @@ jobs:
             status=$(curl -sS -L -o "$published" -w '%{http_code}' "$url")
             case "$status" in
               200)
-                if ! cmp -s "$pkg" "$published"; then
-                  echo "::error::$id $VERSION already exists with different bytes." >&2
-                  exit 1
-                fi
+                retry_args+=("$pkg" "$published")
                 ;;
               404)
                 ;;
@@ -187,6 +185,9 @@ jobs:
                 ;;
             esac
           done
+          if (( ${#retry_args[@]} > 0 )); then
+            dotnet run eng/verify-nuget-retry-package.cs -- "${retry_args[@]}"
+          fi
 
       - name: NuGet login (OIDC to temporary API key)
         id: login

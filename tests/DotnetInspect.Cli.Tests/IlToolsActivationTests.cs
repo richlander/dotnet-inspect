@@ -634,6 +634,32 @@ public class IlToolsActivationTests
         Assert.Contains("self-test passed", stdout);
     }
 
+    [Fact]
+    public void NuGetRetryPackageVerifier_SelfTest()
+    {
+        var info = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = RepoRoot,
+        };
+        info.ArgumentList.Add("run");
+        info.ArgumentList.Add(Path.Combine("eng", "verify-nuget-retry-package.cs"));
+        info.ArgumentList.Add("--");
+        info.ArgumentList.Add("--self-test");
+
+        using var process = Process.Start(info)!;
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.True(
+            process.ExitCode == 0,
+            $"NuGet retry verifier self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        Assert.Contains("self-test passed", stdout);
+    }
+
     // --- harness ---
 
     sealed record ActivationResult(int ExitCode, string Stdout, string Stderr)
