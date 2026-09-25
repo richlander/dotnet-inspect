@@ -107,6 +107,7 @@ internal static class MetadataMethodGroupInspection
             TypeDefinition type = reader.GetTypeDefinition(typeHandle);
             if (!TryGetAccessorMethods(
                     reader,
+                    typeHandle,
                     type,
                     methodSemantics,
                     out HashSet<MethodDefinitionHandle> accessors,
@@ -295,6 +296,7 @@ internal static class MetadataMethodGroupInspection
 
     private static bool TryGetAccessorMethods(
         MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition type,
         MetadataMethodSemanticsAssociationResult methodSemantics,
         out HashSet<MethodDefinitionHandle> accessors,
@@ -334,7 +336,6 @@ internal static class MetadataMethodGroupInspection
         var eventRows = new HashSet<int>();
         foreach (EventDefinitionHandle handle in type.GetEvents())
             eventRows.Add(MetadataTokens.GetRowNumber(handle));
-        var methods = type.GetMethods().ToHashSet();
         var standardRoles = new HashSet<
             (
                 MetadataMethodSemanticsAssociationKind Kind,
@@ -355,7 +356,8 @@ internal static class MetadataMethodGroupInspection
                     _ => false,
                 };
             bool methodBelongsToType =
-                methods.Contains(row.Method);
+                reader.GetMethodDefinition(row.Method)
+                    .GetDeclaringType() == typeHandle;
             if (!associationBelongsToType
                 && !methodBelongsToType)
                 continue;
