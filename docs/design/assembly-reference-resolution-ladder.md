@@ -903,10 +903,11 @@ and Browser.
 Package-backed framework-route adoption in #8466 has two focused prerequisites
 before it can consume stages 3 through 6:
 
-1. [package framework-reference evidence](https://github.com/richlander/dotnet-inspect/issues/8503)
+1. [package framework-reference evidence](https://github.com/richlander/dotnet-inspect/issues/8504)
    issues complete evidence for the selected package Root and target from
-   package-manifest and target-selection facts; and
-2. [platform-package Library correspondence](https://github.com/richlander/dotnet-inspect/issues/8504)
+   [package-manifest framework-reference groups](https://github.com/richlander/dotnet-inspect/issues/8513)
+   and target-selection facts; and
+2. [platform-package Library correspondence](https://github.com/richlander/dotnet-inspect/issues/8503)
    issues exact correspondence between one prune-inventory package identity
    and one platform Library membership.
 
