@@ -232,7 +232,12 @@ and failed-attempt evidence. Browser Type Source instead consumes
 `ExecuteWithPdbLatencyHedgeAsync` through the existing browser projection and
 operation/cancellation bridge. The source case now preserves the shared
 envelope's Share and diagnostics beside the existing browser source value; its
-source policy, viewer, and rendering substrate remain unchanged.
+source policy, viewer, and rendering substrate remain unchanged. The Browser
+Source inspector also exposes an explicit **Decompiler source** choice. That
+choice consumes `TypeSourceInspection.DecompileAsync`, remains independently
+taste-aware, and does not attempt authored acquisition or report authored/PDB
+fallback limitations. The ordinary **Source** choice remains authored-first
+with decompilation fallback.
 `TypeSourceInspection.DecompileAsync` is the adjacent completed
 decompiled-only facade, returning
 `InspectionEnvelope<AssemblyTypeDecompilationEntry>` after exact Library and

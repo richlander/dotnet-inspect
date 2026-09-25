@@ -1246,28 +1246,30 @@ public class PlatformResolverTests
         }
     }
 
+    /// <summary>
+    /// A platform lookup downloads only the named framework's reference pack,
+    /// at the version the spec names.
+    /// </summary>
     [Theory]
-    [InlineData("System.Text.Json", "runtime")]
-    [InlineData("System.Runtime", "runtime")]
-    [InlineData("Microsoft.CSharp", "runtime")]
-    [InlineData("Microsoft.Win32.Registry", "runtime")]
-    [InlineData("Microsoft.VisualBasic", "runtime")]
-    [InlineData("Microsoft.AspNetCore.Http", "aspnetcore")]
-    [InlineData("Microsoft.Extensions.Logging", "aspnetcore")]
-    [InlineData("Microsoft.JSInterop.Something", "aspnetcore")]
-    [InlineData("Microsoft.Net.Http.Headers", "aspnetcore")]
-    public void GetBiasedPack_ReturnsCorrectPack(string assemblyName, string expected)
+    [InlineData("runtime@9.0.9", "Microsoft.NETCore.App.Ref", "9.0.9")]
+    [InlineData("runtime", "Microsoft.NETCore.App.Ref", null)]
+    [InlineData("runtime@", "Microsoft.NETCore.App.Ref", null)]
+    [InlineData("aspnetcore@10.0.1", "Microsoft.AspNetCore.App.Ref", "10.0.1")]
+    [InlineData("netstandard@2.1.0", "NETStandard.Library.Ref", "2.1.0")]
+    public void PackRequestFor_NamesOnlyTheRequestedFrameworksPack(
+        string frameworkSpec,
+        string expectedPack,
+        string? expectedVersion)
     {
-        Assert.Equal(expected, PlatformPackService.GetBiasedPack(assemblyName));
+        PlatformPackService.PackRequest request = Assert.IsType<PlatformPackService.PackRequest>(
+            PlatformPackService.PackRequestFor(frameworkSpec));
+        Assert.Equal(expectedPack, request.PackName);
+        Assert.Equal(expectedVersion, request.Version);
     }
 
-    [Theory]
-    [InlineData("mscorlib")]
-    [InlineData("netstandard")]
-    [InlineData("WindowsBase")]
-    [InlineData("Newtonsoft.Json")]
-    public void GetBiasedPack_ReturnsNull_ForNonBiasedNames(string assemblyName)
+    [Fact]
+    public void PackRequestFor_UnknownFramework_RequestsNothing()
     {
-        Assert.Null(PlatformPackService.GetBiasedPack(assemblyName));
+        Assert.Null(PlatformPackService.PackRequestFor("platform"));
     }
 }

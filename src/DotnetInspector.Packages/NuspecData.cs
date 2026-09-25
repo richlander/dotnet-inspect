@@ -1,18 +1,6 @@
-using DotnetInspector.Packages;
 using InertText;
 
-namespace DotnetInspector.Services;
-
-public enum PackageLicenseDeclarationKind
-{
-    Expression,
-    File,
-    Url,
-}
-
-public sealed record PackageLicenseDeclaration(
-    PackageLicenseDeclarationKind Kind,
-    string Value);
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// All metadata parsed from a .nuspec file.
@@ -43,4 +31,21 @@ public class NuspecData
     public string? IconUrl { get; set; }
     public string? ReadmeFile { get; set; }
     public List<DependencyGroup>? DependencyGroups { get; set; }
+    public List<NuspecFrameworkReferenceGroup>? FrameworkReferenceGroups
+    {
+        get;
+        set;
+    }
+}
+
+public sealed class NuspecFrameworkReferenceGroup
+{
+    public string? TargetFramework { get; set; }
+
+    public List<NuspecFrameworkReference> References { get; } = [];
+}
+
+public sealed class NuspecFrameworkReference
+{
+    public string? Name { get; set; }
 }

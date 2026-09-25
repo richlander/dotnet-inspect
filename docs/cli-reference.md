@@ -116,6 +116,20 @@ package, so equal package and Platform Type observations remain separate.
 Explicit source options remain authoritative; for example,
 `--platform System.Text.Json` does not add the package observation.
 
+Add a terminal `.*` to include the named namespace and its descendants:
+
+```bash
+dotnet-inspect find 'System.Text.Json.Serialization.*'
+```
+
+This is namespace-aware rather than an ordinary Type glob. It includes Types
+from `System.Text.Json.Serialization` and
+`System.Text.Json.Serialization.Metadata`, classifies them as `Namespace`, and
+uses the same package and Platform source policy as exact namespace discovery.
+The literal dot is significant: `System.Text.Json.Nodes.*` excludes
+`System.Text.Json.NodesExtra`, while `System.Text.Json.Nodes*` remains the
+broader lexical Type glob with `Glob` classification.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact
@@ -229,9 +243,9 @@ stderr rather than mixed into structured output.
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
-| Source | `type`/`member -S Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | `Source` is authored-first and retains provider and fallback context. Provider-specific views expose SourceLink URLs, member file/line locations, checksum-verified PDB source, and token+IL-offset mapping; `Decompiled Source` remains the local reconstructed view. |
+| Source | `type`/`member -S Source` / `@Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` | `Source` is authored-first and retains provider and fallback context. `@Source` adds forced `PDB Source` and `Decompiled Source` views plus `Source Diff`; SourceLink inventories remain separate. |
 | Performance analysis *(experimental)* | `library -S "Library Metrics"`, `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-library structural metrics, whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
+| Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
@@ -415,8 +429,10 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 
 ### Decompiler
 
-Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
-diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
+Use `member -S @Source` for the authored-first source view, forced PDB and
+decompiled provider views, and their source diff. Use `member -S @Decompiler`
+for decompiled and annotated C#, IL, and related analysis evidence. Use
+`Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
 source locations; these remain outside the default Finding set. **Explore**
 starts with one Relationships row per exact physical call, with explicit

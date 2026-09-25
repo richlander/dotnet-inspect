@@ -1194,7 +1194,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /createPackageChangesController\([\s\S]*if \(!state\.packageActivityOpen\) return;\s*schedulePackageActivityStreamRender\(\)/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
   assert.match(
     stylesSource,
     /@media \(max-width: 860px\) \{\s*body\.package-query-route,\s*body\.package-activity-route \{ min-width: 0; \}/);
@@ -1802,7 +1802,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| memberDiffExplorer\.isOpen\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
