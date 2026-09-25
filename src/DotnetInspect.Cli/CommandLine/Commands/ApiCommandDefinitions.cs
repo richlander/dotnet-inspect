@@ -522,6 +522,16 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(opts.Envelope)
+                && !parseResult.GetValue(matchOption)
+                && !IsExactCallGraphEnvelopeSelection(
+                    parseResult,
+                    opts))
+            {
+                CommandError.Write("--envelope on member requires --match.");
+                return 1;
+            }
+
             if (parseResult.GetValue(matchOption))
             {
                 return ApiCoordinateMatchOptionsParser.ParseMember(
@@ -684,6 +694,28 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    internal static bool IsExactCallGraphEnvelopeSelection(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        if (!parseResult.GetValue(opts.Envelope)
+            || parseResult.GetValue(opts.Count)
+            || opts.ParseSelectDefault(parseResult))
+        {
+            return false;
+        }
+
+        string[] selectors =
+        [
+            .. (opts.ParseSelect(parseResult) ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.CallGraph,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsProjectedMemberFactsJson(

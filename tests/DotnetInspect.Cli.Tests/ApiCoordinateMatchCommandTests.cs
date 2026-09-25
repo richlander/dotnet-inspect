@@ -234,6 +234,32 @@ public sealed class ApiCoordinateMatchCommandTests
     }
 
     [Fact]
+    public void MemberCallGraphEnvelope_IsAStandaloneRoute()
+    {
+        var options = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateMemberCommand(
+                options,
+                out _);
+        ParseResult parseResult = command.Parse(
+        [
+            typeof(MemberCallGraphFixture).FullName!,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--library",
+            typeof(MemberCallGraphFixture).Assembly.Location,
+            "-S", "Call Graph",
+            "--envelope",
+        ]);
+
+        Assert.Empty(parseResult.Errors);
+        Assert.True(
+            ApiCommandDefinitions
+                .IsExactCallGraphEnvelopeSelection(
+                    parseResult,
+                    options));
+    }
+
+    [Fact]
     public async Task TypeEnvelope_RequiresExactSharedRoute()
     {
         var result = await Invoke(
