@@ -56,6 +56,18 @@ before reading any body, so it narrows breadth. The ranking and the top-ten cut
 need every candidate, so they run over the published rows. The answer equals
 running the whole query over every row.
 
+**A count may need no visits.** A request for the number of TypeDef rows has
+a Count terminal and needs no row data. Metadata can answer it exactly from its
+table header, so level 2 answers from the source and no unit is visited. If
+the request were for public types only, the source count would not cover that
+population, and the answer would come from counting the matching rows.
+
+**A settled question stops work.** The unsafe-evidence question above has an
+Exists terminal. When the safety producer publishes its first unsafe evidence,
+that terminal is settled. Level 2 may stop the remaining work at the next unit
+boundary. Producers cut off by the stop report that they stopped because the
+request was satisfied, not that they completed.
+
 **A consumer owns its interpretation.** The JS export surface's JSON
 wire-contract rules need field-store, field-load, and return-flow facts.
 Analysis publishes those facts through a flow producer. The wire-contract
@@ -133,6 +145,20 @@ A **work description** is this level's output: the closed producer set, each
 producer's requests, the dependency edges among producers and completions, and
 the result, outcome, and receipt shapes. It is data. It can be inspected,
 explained, compared, and handed to level 2 before any work begins.
+
+## The reference picture
+
+The meaning of a work description is a single-threaded loop. For each unit in
+metadata order, each producer that requested the unit is visited once, in an
+order consistent with the dependency edges. After the last unit, each
+completion runs after its inputs. Every producer's result is what it published
+during that loop.
+
+The loop defines results; it does not prescribe execution. Level 2 may visit
+in another order, run units in parallel, answer a request from the source
+without visiting at all, or stop early when a request is settled, as long as
+each published result equals what the loop would publish, or is marked as
+stopped.
 
 ## Planning
 
@@ -223,16 +249,28 @@ and schedule in parallel, all without producer changes.
 N analyzers one walk. Analyses that walk the program themselves cannot be
 interrupted, parallelized, or fused.
 
-### Nothing outlives its visit except the published result
+### Access is borrowed for the visit
 
-**Rule.** A producer copies whatever it publishes out of the unit's data during
-its visit. No result or completion refers to a unit's data after the visit.
+**Rule.** A producer receives each unit's data as a
+[snapshot callback](resource-ownership-and-borrowing.md#snapshot-callbacks) borrow: a read-only view
+available only while the visit runs. Where C# can enforce it, the view uses
+the scoped, non-escaping `readonly ref struct` shape, so that retaining it is a
+compile error. A producer copies out whatever it publishes during the visit.
+No producer receives a bare reference to the subject or a path from which to
+reopen it.
 
-*Lets the lower levels:* discard each unit's data after the last visit, so
-memory is bounded by the largest body.
+The borrow bounds access, not the subject's lifetime. The subject lives for
+the whole work under level 1. Discarding derived per-unit data after the last
+visit is an optional level 2 optimization.
 
-*Lesson:* whole-program analyzers that retain every method's IR run out of
-memory before they run out of time.
+*Lets the lower levels:* share one subject among any number of producers,
+account for every use, and reuse or release the subject on the owner's
+schedule.
+
+*Lesson:* a bare reference ties a resource's lifetime to its longest holder,
+and nobody can see who that is. A path is worse: it lets a holder reacquire
+content that may differ. `LibraryBodyIndex.Path`, and a Research lookup that
+reopens an entry's path, are the local instances.
 
 ### Results are detached, comparable, and keyed by their inputs
 
@@ -253,7 +291,8 @@ facts are serializable by contract, which allows separate-process drivers.
 ### Outcomes are per producer and typed
 
 **Rule.** Each producer's result carries its own outcome: not requested,
-complete, incomplete with an owner-issued limitation, or failed. A failure is
+complete, incomplete with an owner-issued limitation, stopped because the
+request it served was satisfied, or failed. A failure is
 contained to that producer. Each dependent receives a typed prerequisite
 failure rather than a missing value, and independent producers are
 unaffected.
@@ -306,8 +345,9 @@ description needs; the owning level decides how to meet it.
 
 1. One immutable image per subject for the whole life of the work. Analysis
    never opens or reopens a subject by path.
-2. Every producer and source borrows the subject. The lease outlives all work
-   that reads it, and detached results outlive the lease without retaining it.
+2. Every producer and source borrows the subject; access is never given as a
+   bare reference or a path. The lease outlives all work that reads it, and
+   detached results outlive the lease without retaining it.
 3. Reuse and joins use session or content identity, never the reference
    identity of a derived result object.
 4. Release happens once and deterministically, however many producers
@@ -328,6 +368,12 @@ gap.
 4. Publish results equal to a serial execution of the work description,
    whatever ordering, batching, collapse, or parallelism it uses.
 5. Record actual participation in the receipt shape defined here.
+6. Stop work early only when each consumer the stopped work serves has a
+   settled terminal, such as Exists, or an explicit fail-fast request. Mark
+   each stopped producer with the stopped outcome.
+7. Keep named answers independent of scheduling. When an answer names a row,
+   such as the first violation found, it is the row the reference loop would
+   name, not whichever row a parallel executor reached first.
 
 Request collapse is tracked in #8574, and method bodies as a source in #8577.
 
