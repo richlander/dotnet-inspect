@@ -137,7 +137,8 @@ internal static class BrowserLibraryApiDiffWireProjection
 
         BrowserLibraryApiDiffType[] types =
         [
-            .. document.Comparison.Subjects.Select(Project),
+            .. document.Comparison.Subjects.Select(
+                subject => Project(subject, targetEndpoint, currentEndpoint)),
         ];
         LibraryApiDiffSummary summary = document.Summary;
         return new BrowserLibraryApiDiffResult(
@@ -402,7 +403,9 @@ internal static class BrowserLibraryApiDiffWireProjection
             truncation.ProjectedRetainedTextCharacters);
 
     static BrowserLibraryApiDiffType Project(
-        ComparisonSubject<LibraryApiTypeDiff> subject)
+        ComparisonSubject<LibraryApiTypeDiff> subject,
+        BrowserLibraryApiDiffEndpoint target,
+        BrowserLibraryApiDiffEndpoint current)
     {
         LibraryApiTypeDiff type = subject.Comparison;
         return new(
@@ -427,7 +430,10 @@ internal static class BrowserLibraryApiDiffWireProjection
             type.PotentiallyBreakingCount,
             type.Before is null ? null : Project(type.Before),
             type.After is null ? null : Project(type.After),
-            [.. type.Members.Select(member => Project(member, type))],
+            [
+                .. type.Members.Select(
+                    member => Project(member, type, target, current)),
+            ],
             [
                 .. type.CompatibilityChanges
                     .Where(change =>
@@ -514,8 +520,19 @@ internal static class BrowserLibraryApiDiffWireProjection
 
     static BrowserLibraryApiDiffMember Project(
         LibraryApiMemberDiff member,
-        LibraryApiTypeDiff type) =>
-        new(
+        LibraryApiTypeDiff type,
+        BrowserLibraryApiDiffEndpoint target,
+        BrowserLibraryApiDiffEndpoint current)
+    {
+        BrowserLibraryApiDiffMemberIdentity? before =
+            member.Relation.Before is null
+                ? null
+                : Project(member.Relation.Before);
+        BrowserLibraryApiDiffMemberIdentity? after =
+            member.Relation.After is null
+                ? null
+                : Project(member.Relation.After);
+        return new(
             member.Relation.Identifier,
             member.Relation.PairKind switch
             {
@@ -543,12 +560,8 @@ internal static class BrowserLibraryApiDiffWireProjection
                     member.Role,
                     "Unknown Library API member relation role."),
             },
-            member.Relation.Before is null
-                ? null
-                : Project(member.Relation.Before),
-            member.Relation.After is null
-                ? null
-                : Project(member.Relation.After),
+            before,
+            after,
             [
                 .. type.CompatibilityChanges
                     .Where(change => Describes(change, member.Relation))
@@ -558,7 +571,32 @@ internal static class BrowserLibraryApiDiffWireProjection
                 ? null
                 : new BrowserLibraryApiDiffMatch(
                     member.Relation.Match.Tier.Id,
-                    member.Relation.Match.Confidence));
+                    member.Relation.Match.Confidence),
+            Explore(target, current, before, after));
+    }
+
+    static BrowserLibraryApiDiffMemberExploreDestination? Explore(
+        BrowserLibraryApiDiffEndpoint target,
+        BrowserLibraryApiDiffEndpoint current,
+        BrowserLibraryApiDiffMemberIdentity? before,
+        BrowserLibraryApiDiffMemberIdentity? after) =>
+        before is null && after is null
+            ? null
+            : new(
+                BrowserLibraryApiDiffExploreDestinationKind.MemberDiff,
+                ExploreEndpoint(target, before),
+                ExploreEndpoint(current, after));
+
+    static BrowserLibraryApiDiffMemberExploreEndpoint ExploreEndpoint(
+        BrowserLibraryApiDiffEndpoint endpoint,
+        BrowserLibraryApiDiffMemberIdentity? member) =>
+        new(
+            endpoint.PackageId,
+            endpoint.Version,
+            endpoint.Framework,
+            endpoint.Asset,
+            endpoint.Assembly,
+            member);
 
     static BrowserLibraryApiDiffMemberIdentity Project(
         LibraryApiMemberIdentity identity) =>

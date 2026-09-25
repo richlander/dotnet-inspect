@@ -77,7 +77,8 @@ Library signals describe assemblies: SourceLink presence/reachability, PDB/symbo
 - `Source Locations` is SourceLink-backed file/line URL evidence without fetching source bodies.
 - `Decompiled Source` is raised C#, a best-effort readable reconstruction from IL; it may use PDB debug names when available.
 - `Annotated Source` is raised C# with hidden-fact comments and interleaved IL.
-- `@Source` selects `Decompiled Source`, `Annotated Source`, `PDB Source`, and `IL`.
+- `@Source` selects `Source`, `PDB Source`, `Decompiled Source`, and `Source Diff`.
+- `@Decompiler` selects decompiler and analysis views, including `Annotated Source` and `IL`.
 - `IL` and `Annotated Source` are the highest-fidelity views for exact instructions, offsets, branches, tokens, and calls.
 
 ## Skill guidance

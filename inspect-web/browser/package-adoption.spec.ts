@@ -2366,7 +2366,50 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel).toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );
-    await expect(panel).not.toContainText("Explore");
+    const explore = page.locator("#member-diff-explore");
+    await expect(explore).toBeVisible();
+    const memberLocation = page.url();
+    const memberHistoryLength = await page.evaluate(() => history.length);
+    await explore.focus();
+    await explore.click();
+    const memberDiffExplorer = page.locator("dialog.member-diff-explorer");
+    await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
+      .toBeFocused();
+    expect(page.url()).toBe(memberLocation);
+    expect(await page.evaluate(() => history.length))
+      .toBe(memberHistoryLength);
+    await page.keyboard.press("ArrowDown");
+    await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
+      .toContainText("First");
+    expect(page.url()).toBe(memberLocation);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-pane"))
+      .toHaveCount(3);
+    await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
+      .toContainText("First");
+    await expect(memberDiffExplorer).toContainText(
+      "No Member-level change is classified: the containing Type was added as a whole.",
+    );
+    await expect(memberDiffExplorer.locator(".member-diff-declaration-unavailable"))
+      .toBeVisible();
+    await expect(memberDiffExplorer.locator(
+      ".member-diff-source-endpoint",
+    ).first()).toContainText("Not present on this side.");
+    await expect(memberDiffExplorer.locator(".member-diff-source-unavailable"))
+      .toBeVisible({ timeout: 120_000 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollWidth - window.innerWidth,
+      explorer: (document.querySelector(".member-diff-explorer")?.scrollWidth
+        ?? window.innerWidth) - window.innerWidth,
+    }));
+    expect(overflow.document).toBeLessThanOrEqual(0);
+    expect(overflow.explorer).toBeLessThanOrEqual(0);
+    await memberDiffExplorer.locator("[data-member-diff-close]").click();
+    await expect(memberDiffExplorer).toHaveCount(0);
+    await expect(explore).toBeFocused();
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
@@ -2390,7 +2433,29 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("Breaking");
     await expect(changeRows.first().locator(".library-api-diff-change-category"))
       .toHaveText("Signature");
-    await page.locator("#nav-back").click();
+    await expect(explore).toBeVisible();
+    await explore.click();
+    await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator(
+      ".member-diff-explorer-source .member-diff-source-endpoint",
+    ))
+      .toHaveCount(2);
+    await expect(memberDiffExplorer).not.toContainText(
+      "Not present on this side.",
+    );
+    await expect(memberDiffExplorer.locator(".member-diff-source-unavailable"))
+      .toBeVisible({ timeout: 120_000 });
+    await page.keyboard.press("Escape");
+    await expect(memberDiffExplorer).toHaveCount(0);
+    await expect(explore).toBeFocused();
+
+    await explore.click();
+    await expect(memberDiffExplorer).toBeVisible();
+    await page.locator("#nav-back")
+      .evaluate((button: HTMLButtonElement) => button.click());
+    await expect(memberDiffExplorer).toHaveCount(0);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    await expect(panel.locator("#compare-title")).toBeFocused();
     await page.locator("#nav-back").click();
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
 
