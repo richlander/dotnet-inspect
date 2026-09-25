@@ -281,8 +281,9 @@ Authored Source     inline diff viewer                   Explore
   - The **After** endpoint is the current subject in the retained Package
     model, so its card opens that Member through the Member lens
     destinations Inspection Subject Navigation already issues for it.
-  - The **Before** endpoint is the Diff baseline version, which is not the
-    retained Package model. Its card is a link only when Navigation issues a
+  - The **Before** endpoint is the Diff baseline version, which may be older,
+    newer, or equal to the current version but is never the retained Package
+    model. Its card is a link only when Navigation issues a
     canonical location for that package version and exact Member anchor. The
     link opens a new browsing context, so this Compare state is kept. Until
     Navigation issues that location, the Before card is not a link; that
@@ -307,17 +308,26 @@ Authored Source     inline diff viewer                   Explore
   in the What changed section header.
 
 The inline comparison runs under
-[Operation Authority](inspect-web-operation-authority.md), keyed by the exact
-Member diff destination, the retained Package model, and the Diff result it
-was issued from. Changing the Package Diff baseline, replacing the Diff
-result, replacing or removing the Package model, or navigating away from the
-Member supersedes a pending comparison, and its late completion publishes
-nothing. A settled successful or identical result is retained under the same
-key, so returning to the Member shows it without asking again; it is
-discarded when the Diff result is replaced, the baseline changes, or the
-Package model is replaced or removed. A failed, rejected, or canceled result
-is not retained, and the action offers it again. Explore may use a retained
-result for the same key instead of running the comparison again.
+[Operation Authority](inspect-web-operation-authority.md). Its identity is the
+comparison request, which is immutable: the retained Package model, the
+current and resolved target package versions, framework, compile asset, and
+the Member diff destination's endpoint anchors. It does not include the Diff
+result instance, which leaving and reentering Compare replaces.
+
+A pending comparison is superseded, and its late completion publishes
+nothing, when the Package Diff baseline changes, the Package model is
+replaced or removed, Compare switches from Diff to Clone, or the user
+navigates away from the Member.
+
+A settled successful or identical result is retained under the request
+identity. Any later visit to the same Member Diff whose destination yields the
+same identity shows it without asking again, whether the user returns by
+Back, by drilling down from Type, or by switching lenses. It is discarded when
+a new Diff result carries a different identity for that Member, when the
+baseline changes, or when the Package model is replaced or removed. A failed,
+rejected, or canceled result is not retained, and the action offers it again.
+Explore may use a retained result with the same identity instead of running
+the comparison again.
 
 A property, field, or event Member has no Authored Source section until a
 product-issued accessor-level comparison exists; its What changed section and
