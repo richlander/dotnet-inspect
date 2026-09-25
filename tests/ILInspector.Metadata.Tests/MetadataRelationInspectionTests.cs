@@ -108,6 +108,209 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void ExtensionPopulationPushesCountAndBoundedRowsForHttpClient()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Net.Http.Json.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        AssemblyReferenceIdentity receiverAssembly =
+            Assert.Single(
+                session.AssemblyReferenceIdentities(),
+                static reference =>
+                    reference.Name == "System.Net.Http");
+        var receiver = new MetadataExtensionReceiverSelection(
+            receiverAssembly,
+            TypeName("System.Net.Http", "HttpClient"));
+
+        var first =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(
+                                startOrdinal: 0,
+                                maximumRows: 2)),
+                        TestContext.Current.CancellationToken));
+        int expected =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationCountOutcome.Counted>(
+                    first.Result.Count).Value;
+        Assert.True(expected > 2);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            first.Result.Disposition);
+        Assert.True(first.Result.Coverage.Excluded > 0);
+
+        var drained =
+            new List<MetadataExtensionRelationPopulationRow>();
+        MetadataExtensionRelationPopulationResult current = first.Result;
+        while (true)
+        {
+            var rows =
+                Assert.IsType<
+                    MetadataExtensionRelationPopulationRowsOutcome.Read>(
+                        current.Rows);
+            Assert.InRange(rows.Items.Length, 0, 2);
+            drained.AddRange(rows.Items);
+            if (rows.NextOrdinal is null)
+                break;
+
+            current =
+                Assert.IsType<
+                    MetadataExtensionRelationPopulationOutcome.Available>(
+                        session.ExtensionRelations(
+                            new(
+                                receiver,
+                                MetadataOperationPolicy.Unbounded,
+                                rows: new(
+                                    rows.NextOrdinal.Value,
+                                    maximumRows: 2),
+                                expectedModuleVersionId:
+                                    current.Receipt.ModuleVersionId),
+                            TestContext.Current.CancellationToken))
+                    .Result;
+        }
+
+        Assert.Equal(expected, drained.Count);
+        Assert.All(
+            drained.SelectMany(static row => row.Occurrences),
+            occurrence =>
+            {
+                Assert.Equal(
+                    HandleKind.MethodDefinition,
+                    MetadataTokens.EntityHandle(
+                        occurrence.DeclarationMetadataToken).Kind);
+                AssertNamedType(
+                    occurrence.Receiver,
+                    "System.Net.Http",
+                    "HttpClient");
+            });
+        Assert.Contains(
+            drained.SelectMany(static row => row.Occurrences),
+            static occurrence =>
+                occurrence.Member.MemberName == "GetFromJsonAsync");
+
+        var countOnly =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            MetadataOperationPolicy.Unbounded,
+                            count: new()),
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(
+            expected,
+            Assert.IsType<
+                MetadataExtensionRelationPopulationCountOutcome.Counted>(
+                    countOnly.Result.Count).Value);
+        Assert.Null(countOnly.Result.Rows);
+
+        var stale =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(0, 1),
+                            expectedModuleVersionId: Guid.NewGuid()),
+                        TestContext.Current.CancellationToken));
+        _ = Assert.IsType<
+            MetadataExtensionRelationPopulationCountOutcome.Failed>(
+                stale.Result.Count);
+        Assert.Equal(
+            MetadataExtensionRelationPopulationRowsRejection.StaleSource,
+            Assert.IsType<
+                MetadataExtensionRelationPopulationRowsOutcome.Rejected>(
+                    stale.Result.Rows).Reason);
+
+        var limited =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            new MetadataOperationPolicy(
+                                maxMetadataRows: long.MaxValue,
+                                maxRelationshipEdges: 0),
+                            count: new(),
+                            rows: new(0, 1)),
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            limited.Result.Disposition);
+        _ = Assert.IsType<
+            MetadataExtensionRelationPopulationCountOutcome.Incomplete>(
+                limited.Result.Count);
+        _ = Assert.IsType<
+            MetadataExtensionRelationPopulationRowsOutcome.Incomplete>(
+                limited.Result.Rows);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.Limit,
+            Assert.Single(limited.Result.Diagnostics).Kind);
+    }
+
+    [Fact]
+    public void ExtensionPopulationPreservesConstructedReceiverContext()
+    {
+        string path =
+            typeof(Inspector.Findings.FindingExtensions).Assembly.Location;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        AssemblyReferenceIdentity receiverAssembly =
+            Assert.Single(
+                session.AssemblyReferenceIdentities(),
+                static reference =>
+                    reference.Name == "System.Runtime");
+        var receiver = new MetadataExtensionReceiverSelection(
+            receiverAssembly,
+            TypeName("System.Collections.Generic", "IEnumerable`1"));
+
+        var available =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            receiver,
+                            MetadataOperationPolicy.Unbounded,
+                            count: new(),
+                            rows: new(0, 10)),
+                        TestContext.Current.CancellationToken));
+        MetadataExtensionRelationPopulationRow row =
+            Assert.Single(
+                Assert.IsType<
+                    MetadataExtensionRelationPopulationRowsOutcome.Read>(
+                        available.Result.Rows).Items);
+        MetadataExtensionRelationEvidence evidence =
+            Assert.Single(row.Occurrences);
+
+        Assert.Equal("Keys<T>", evidence.Member.MemberName);
+        var generic =
+            Assert.IsType<MetadataTypeIdentity.GenericInstance>(
+                evidence.Receiver);
+        Assert.Equal(
+            "IEnumerable`1",
+            generic.Definition.Segments[0].ToString());
+        Assert.Contains(
+            generic.Arguments,
+            static argument =>
+                ContainsGenericParameter(argument));
+        Assert.Equal(
+            1,
+            Assert.IsType<
+                MetadataExtensionRelationPopulationCountOutcome.Counted>(
+                    available.Result.Count).Value);
+    }
+
+    [Fact]
     public void ExtensionAndReferenceProducersRetainExactEvidence()
     {
         string path = typeof(MetadataFindings).Assembly.Location;
@@ -162,6 +365,27 @@ public sealed class MetadataRelationInspectionTests
             HandleKind.PropertyDefinition,
             MetadataTokens.EntityHandle(
                 property.DeclarationMetadataToken).Kind);
+        MetadataExtensionReceiverSelection propertyReceiver =
+            ReceiverSelection(
+                available.Result.Receipt.Assembly!,
+                property.Receiver);
+        var propertyPopulation =
+            Assert.IsType<
+                MetadataExtensionRelationPopulationOutcome.Available>(
+                    session.ExtensionRelations(
+                        new(
+                            propertyReceiver,
+                            MetadataOperationPolicy.Unbounded,
+                            rows: new(0, 100)),
+                        TestContext.Current.CancellationToken));
+        Assert.Contains(
+            Assert.IsType<
+                MetadataExtensionRelationPopulationRowsOutcome.Read>(
+                    propertyPopulation.Result.Rows)
+                .Items.SelectMany(static row => row.Occurrences),
+            occurrence =>
+                occurrence.DeclarationMetadataToken
+                    == property.DeclarationMetadataToken);
 
         Assert.Equal(
             MetadataRelationFamilyDisposition.Complete,
@@ -405,6 +629,50 @@ public sealed class MetadataRelationInspectionTests
             $"Type '{@namespace}.{name}' was not found.");
     }
 
+    private static MetadataTypeDefinitionName TypeName(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [.. segments])).Name;
+
+    private static MetadataExtensionReceiverSelection ReceiverSelection(
+        AssemblyReferenceIdentity source,
+        MetadataTypeIdentity receiver)
+    {
+        MetadataNamedTypeIdentity named = receiver switch
+        {
+            MetadataTypeIdentity.Named value => value.Definition,
+            MetadataTypeIdentity.GenericInstance value =>
+                value.Definition,
+            _ => throw new Xunit.Sdk.XunitException(
+                "Expected a named extension receiver."),
+        };
+        AssemblyReferenceIdentity assembly =
+            named.Scope.Kind switch
+            {
+                MetadataTypeScopeKind.CurrentModule
+                    or MetadataTypeScopeKind.ModuleReference =>
+                    source,
+                MetadataTypeScopeKind.AssemblyReference
+                    when named.Scope.Assembly is { } reference =>
+                    new(
+                        reference.Name.ToString(),
+                        reference.Version,
+                        reference.Culture?.ToString(),
+                        reference.PublicKeyToken?.ToString()),
+                _ => throw new Xunit.Sdk.XunitException(
+                    "Expected a resolvable extension receiver scope."),
+            };
+        return new(
+            assembly,
+            TypeName(
+                named.Namespace.ToString(),
+                [.. named.Segments.Select(static segment =>
+                    segment.ToString())]));
+    }
+
     private static void AssertNamedType(
         MetadataTypeIdentity identity,
         string @namespace,
@@ -444,6 +712,29 @@ public sealed class MetadataRelationInspectionTests
         && named.Definition.Namespace.ToString() == @namespace
         && named.Definition.Segments.Length == 1
         && named.Definition.Segments[0].ToString() == name;
+
+    private static bool ContainsGenericParameter(
+        MetadataTypeIdentity identity) =>
+        identity switch
+        {
+            MetadataTypeIdentity.GenericParameter => true,
+            MetadataTypeIdentity.GenericInstance generic =>
+                generic.Arguments.Any(ContainsGenericParameter),
+            MetadataTypeIdentity.SzArray array =>
+                ContainsGenericParameter(array.Element),
+            MetadataTypeIdentity.Array array =>
+                ContainsGenericParameter(array.Element),
+            MetadataTypeIdentity.Pointer pointer =>
+                ContainsGenericParameter(pointer.Element),
+            MetadataTypeIdentity.ByReference byReference =>
+                ContainsGenericParameter(byReference.Element),
+            MetadataTypeIdentity.Modified modified =>
+                ContainsGenericParameter(modified.Modifier)
+                || ContainsGenericParameter(modified.Type),
+            MetadataTypeIdentity.Pinned pinned =>
+                ContainsGenericParameter(pinned.Type),
+            _ => false,
+        };
 
     private static byte[] BuildInvalidModuleMvidImage()
     {
