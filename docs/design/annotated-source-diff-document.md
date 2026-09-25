@@ -319,5 +319,5 @@ or a throw.
     as added or removed.
 11. With Before facts `alloc List<int>`, `alloc List<int>`, `call X` and
     After facts `call X`, `alloc List<int>`, confirm `call X` is Present, the
-    allocations are one Removed pair of two and one Added, no allocation is
+    allocations are two Removed and one Added, no allocation is
     paired by position, and no pair carries a moved difference.
