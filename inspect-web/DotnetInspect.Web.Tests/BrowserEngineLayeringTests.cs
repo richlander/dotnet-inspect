@@ -471,6 +471,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.PackageInspectionAssemblyReference",
             "DotnetInspector.Sections.AssemblyPairCallUseInspection",
             "DotnetInspector.Sections.MetadataAssemblyReferenceSubjectRelationsOperation",
+            "DotnetInspector.Sections.MetadataExtensionSubjectRelationsOperation",
             "DotnetInspector.Sections.SelectedContextExactTypeLiveTarget",
             "DotnetInspector.Services.PlatformTypeLookupCandidate",
             "ILInspector.Analysis.CallerResolutionPlan",
