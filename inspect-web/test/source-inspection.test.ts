@@ -164,7 +164,7 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
     /onExploreSource: \(\) => \{[\s\S]*scope\(\) === "type" && state\.lens === "source"[\s\S]*openTypeExplorerRoute\(\)[\s\S]*openSettings\("source"\)/);

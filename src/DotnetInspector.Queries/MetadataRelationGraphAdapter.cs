@@ -410,6 +410,109 @@ public static class MetadataRelationGraphAdapter
         ];
     }
 
+    public static ImmutableArray<SubjectRelationRow>
+        BindAssemblyReferenceRows(
+            ResolvedAssemblyReference source,
+            IEnumerable<
+                MetadataAssemblyReferenceRelationPopulationRow> rows,
+            SubjectRelationFocusCorrespondence correspondence)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(correspondence);
+
+        InspectionGraphSubject sourceSubject =
+            InspectionGraphSubject.ForAcquiredAssembly(source);
+        var result = ImmutableArray.CreateBuilder<SubjectRelationRow>();
+        int occurrenceId = 0;
+        foreach (MetadataAssemblyReferenceRelationPopulationRow row
+            in rows)
+        {
+            InspectionGraphSubject targetSubject =
+                InspectionGraphSubject.ForMetadataAssembly(row.Target);
+            var occurrences =
+                new InspectionGraphOccurrence[row.MetadataTokens.Length];
+            for (int index = 0;
+                 index < row.MetadataTokens.Length;
+                 index++)
+            {
+                var evidence =
+                    new MetadataAssemblyReferenceRelationEvidence(
+                        source.Identity,
+                        row.Target,
+                        row.MetadataTokens[index]);
+                occurrences[index] =
+                    new(
+                        occurrenceId++,
+                        InspectionGraphIntegrationsCatalog
+                            .MetadataReference,
+                        sourceSubject,
+                        targetSubject,
+                        new MetadataReferenceGraphEvidence(
+                            source.Registration,
+                            evidence),
+                        []);
+            }
+
+            result.Add(
+                new(
+                    SubjectRelationForm.AssemblyReference,
+                    SubjectRelationEvidenceKind.Declaration,
+                    InspectionGraphIntegrationsCatalog.MetadataReference,
+                    sourceSubject,
+                    targetSubject,
+                    correspondence,
+                    occurrences));
+        }
+
+        return result.ToImmutable();
+    }
+
+    public static SubjectRelationProducerOutcome
+        AssemblyReferenceProducerOutcome(
+            MetadataAssemblyReferenceRelationPopulationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return Outcome(
+            AssemblyReferenceQuery,
+            result.Disposition,
+            result.Coverage,
+            result.Diagnostics,
+            [
+                InspectionGraphIntegrationsCatalog
+                    .MetadataReference,
+            ]);
+    }
+
+    public static void ValidateAssemblyReferencePopulation(
+        ResolvedAssemblyReference source,
+        MetadataAssemblyReferenceRelationPopulationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(result);
+        Guid? moduleVersionId = result.Receipt.ModuleVersionId;
+        AssemblyReferenceIdentity? assembly = result.Receipt.Assembly;
+        bool requiresIdentity =
+            result.Disposition
+                is MetadataRelationFamilyDisposition.Complete
+                    or MetadataRelationFamilyDisposition.Partial;
+        if ((requiresIdentity
+                && (moduleVersionId is null
+                    || assembly is null))
+            || assembly is not null
+                && !source.Identity.IsEquivalentTo(assembly)
+            || requiresIdentity
+                && source.Registration.ModuleVersionId is Guid bound
+                && moduleVersionId is Guid receipt
+                && bound != receipt)
+        {
+            throw new ArgumentException(
+                "The Metadata assembly-reference population must belong "
+                    + "to the exact resolved acquisition.",
+                nameof(result));
+        }
+    }
+
     private static void ProjectHierarchy(
         ResolvedAssemblyReference source,
         MetadataRelationFamilyResult<MetadataHierarchyRelationEvidence>
@@ -592,9 +695,26 @@ public static class MetadataRelationGraphAdapter
             ?? throw new ArgumentException(
                 "A requested Metadata relation family requires coverage.",
                 nameof(result));
-        return new(
+        return Outcome(
             query,
-            result.Disposition switch
+            result.Disposition
+                ?? throw new ArgumentException(
+                    "A requested Metadata relation family requires disposition.",
+                    nameof(result)),
+            coverage,
+            result.Diagnostics,
+            relationships);
+    }
+
+    private static SubjectRelationProducerOutcome Outcome(
+        InspectionQueryDefinition query,
+        MetadataRelationFamilyDisposition disposition,
+        MetadataRelationCoverage coverage,
+        IEnumerable<MetadataRelationDiagnostic> diagnostics,
+        IEnumerable<InspectionGraphRelationshipDescriptor> relationships) =>
+        new(
+            query,
+            disposition switch
             {
                 MetadataRelationFamilyDisposition.Complete =>
                     SubjectRelationProducerDisposition.Complete,
@@ -604,7 +724,8 @@ public static class MetadataRelationGraphAdapter
                     SubjectRelationProducerDisposition.Unavailable,
                 MetadataRelationFamilyDisposition.Failed =>
                     SubjectRelationProducerDisposition.Failed,
-                _ => throw new ArgumentOutOfRangeException(nameof(result)),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(disposition)),
             },
             new(
                 coverage.Considered,
@@ -613,13 +734,12 @@ public static class MetadataRelationGraphAdapter
                 coverage.Unavailable,
                 coverage.Limited),
             relationships,
-            result.Diagnostics.Select(diagnostic =>
+            diagnostics.Select(diagnostic =>
                 SubjectRelationProducerDiagnostic.Create(
                     diagnostic.Kind == MetadataRelationDiagnosticKind.Limit
                         ? SubjectRelationProducerDiagnosticKind.Limit
                         : SubjectRelationProducerDiagnosticKind.Failure,
                     diagnostic)));
-    }
 
     private static MetadataGenericBindingContext? GenericContext(
         MetadataTypeIdentity type,

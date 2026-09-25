@@ -8,11 +8,19 @@ internal sealed record ImplementationMetricExceptionRegionCounts(
     int FinallyCount,
     int FaultCount);
 
+internal sealed record ImplementationMetricLocalEvidence(
+    int DeclaredCount,
+    string? IncompleteReason)
+{
+    internal bool IsComplete => IncompleteReason is null;
+}
+
 internal sealed record MethodImplementationMetricEvidence(
     MethodIdentity Method,
     MethodIdentity EvidenceMethod,
     int? ILBytes,
-    ImplementationMetricExceptionRegionCounts? ExceptionRegions);
+    ImplementationMetricExceptionRegionCounts? ExceptionRegions,
+    ImplementationMetricLocalEvidence? Locals);
 
 internal sealed record ImplementationMetricStageParticipation(
     ImplementationMetricWorkStage Stage,

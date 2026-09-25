@@ -608,10 +608,10 @@ internal sealed class LibraryMethodAnalysisRunner(
         bool includeLocalThrows = plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
         if (plan.ImplementationMetrics
-                is { UsesHeaderOnlyExecution: true }
+                is { UsesPreContextExecution: true }
             && !includeMethodEvidence)
         {
-            return AnalyzeHeaderOnlyImplementationMetrics(
+            return AnalyzePreContextImplementationMetrics(
                 typeHandle,
                 typeDefinition,
                 typeSourceGenerated,
@@ -1001,6 +1001,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                     body,
                     scope);
             localDecode?.Complete();
+            if (plan.ImplementationMetrics
+                    is { IncludesLocalEvidence: true }
+                && metricBodyAdmitted)
+            {
+                result.ImplementationMetrics =
+                    CreateLocalMetrics(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        localTypes);
+            }
             using ImplementationMetricExecutionRecorder.StageAttempt?
                 contextConstruction = StartMetricStage(
                     plan,
@@ -1382,7 +1393,7 @@ internal sealed class LibraryMethodAnalysisRunner(
         }
     }
 
-    LibraryMethodAnalysisResult AnalyzeHeaderOnlyImplementationMetrics(
+    LibraryMethodAnalysisResult AnalyzePreContextImplementationMetrics(
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition,
         bool typeSourceGenerated,
@@ -1513,7 +1524,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             ImplementationMetricAnalysisPlan metricPlan =
                 plan.ImplementationMetrics
                 ?? throw new InvalidOperationException(
-                    "Header metric execution requires a metric plan.");
+                    "Pre-context metric execution requires a metric plan.");
             _implementationMetricWork
                 ?.ThrowIfMetricWorkExhausted(
                     caller.MetadataToken);
@@ -1525,16 +1536,63 @@ internal sealed class LibraryMethodAnalysisRunner(
             MethodBodyData metadataBody = RequireMethodBody(
                 _infrastructure.PeReader,
                 caller.MetadataToken);
+            MethodBodyBlock? body =
+                metricPlan.IncludesLocalEvidence
+                    ? _infrastructure.PeReader.GetMethodBody(
+                        methodDefinition.RelativeVirtualAddress)
+                    : null;
             bodyAcquisition?.Complete();
             _implementationMetricWork?.AdmitMetricBody(
                 caller.MetadataToken,
                 metadataBody.IL.Length);
-            result.ImplementationMetrics =
-                CreateHeaderMetrics(
-                    metricPlan,
-                    result.DeclaredMethod ?? caller,
-                    caller,
-                    metadataBody);
+            if (metricPlan.IncludesHeaderEvidence)
+            {
+                result.ImplementationMetrics =
+                    CreateHeaderMetrics(
+                        metricPlan,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        metadataBody);
+            }
+            if (body is not null)
+            {
+                try
+                {
+                    using ImplementationMetricExecutionRecorder.StageAttempt?
+                        localDecode = StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .LocalSignatureDecode);
+                    LocalTypeDecodeResult localTypes =
+                        DecodeLocalTypesWithStatus(
+                            body,
+                            scope);
+                    localDecode?.Complete();
+                    result.ImplementationMetrics =
+                        CreateLocalMetrics(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            localTypes);
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic =
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+            }
         }
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))
@@ -1611,7 +1669,28 @@ internal sealed class LibraryMethodAnalysisRunner(
                 ImplementationMetricEvidenceKind.BodySize)
                 ? body.IL.Length
                 : null,
-            exceptionRegions);
+            exceptionRegions,
+            null);
+    }
+
+    static MethodImplementationMetricEvidence CreateLocalMetrics(
+        MethodImplementationMetricEvidence? existing,
+        MethodIdentity method,
+        MethodIdentity evidenceMethod,
+        LocalTypeDecodeResult locals)
+    {
+        ImplementationMetricLocalEvidence evidence =
+            new(
+                locals.DeclaredCount,
+                locals.IncompleteReason);
+        return existing is null
+            ? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                evidence)
+            : existing with { Locals = evidence };
     }
 
     LibraryMethodAnalysisResult AnalyzeLeakTriageMethod(

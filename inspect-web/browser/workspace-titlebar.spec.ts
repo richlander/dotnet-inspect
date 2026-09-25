@@ -87,7 +87,7 @@ test("the top shell row separates product navigation from inspection subjects", 
   await expect(page.locator("[data-product-destination='home']"))
     .toBeFocused();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+    .toHaveText(["Home", "Query", "Workspace", "Activity", "Demos"]);
   await expect(page.locator("[data-product-action='open-library']"))
     .toHaveText("Open Library…");
   await expect(page.locator(".product-navigation-menu [role='separator']"))
@@ -2350,7 +2350,7 @@ test("query header keeps product navigation collapsed and preserves navigation f
 
   await expect(page.locator(".product-navigation-menu")).toBeHidden();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+    .toHaveText(["Home", "Query", "Workspace", "Activity", "Demos"]);
   await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {

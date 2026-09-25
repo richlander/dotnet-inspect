@@ -342,7 +342,7 @@ public sealed class LibraryBodyAnalysisExecution
                 metricPlan.RequestedEvidence,
                 metricPlan.EffectiveEvidence,
                 metricPlan.WorkStages,
-                metricPlan.UsesHeaderOnlyExecution
+                metricPlan.UsesPreContextExecution
                     && plan.RequestedFeatures
                         == LibraryBodyAnalysisFeatures.None,
                 analysis.ImplementationMetricParticipation
