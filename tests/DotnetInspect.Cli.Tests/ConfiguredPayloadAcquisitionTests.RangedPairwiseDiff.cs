@@ -21,7 +21,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     /// <summary>
     /// The three API views over the real System.Text.Json 9.0.0 and 10.0.0
-    /// archives (6.3 MB and 7.9 MB, one Library in <c>lib/net8.0</c>, no
+    /// archives (1.9 MB and 2.2 MB, one Library in <c>lib/net8.0</c>, no
     /// <c>ref/</c>): Library API Diff, API changes (a member target leaves
     /// the Library API Diff route), and API Finding Transitions.
     /// </summary>

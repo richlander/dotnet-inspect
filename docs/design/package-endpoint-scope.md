@@ -151,7 +151,9 @@ never retain a participant after the scope is disposed.
      kind, so the scope's surface is extracted without it. Library API Diff
      resolves no constraints on either path and doesn't need this rule.
 
-   Every other request takes the legacy path unchanged. Evidence for the
+   Every other request takes the legacy path unchanged. The selector rule is
+   decided after the ranged read, so a cold request that falls back has
+   also read its surface folders by range; the entry cache keeps them. Evidence for the
    selector rule: with `--tfm`, `TfmSelector.SelectAssembliesByTfmFromPackage`
    merges the `ref/<tfm>`, `lib/<tfm>`, and `tools/<tfm>` DLLs. For `Avalonia`
    11.3.14..12.1.2 with `--tfm net8.0`, that doubles every change row and adds
