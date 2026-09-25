@@ -5238,7 +5238,7 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   background: var(--bg);
 }
@@ -5253,7 +5253,7 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-.compare-head-copy { min-width: 0; display: flex; align-items: baseline; gap: 12px; padding: 8px 0; }
+.compare-head-copy { min-width: 0; flex: 1 1 auto; display: flex; align-items: baseline; gap: 12px; padding: 8px 0; }
 .compare-kicker {
   flex: none;
   margin: 0;
@@ -5276,6 +5276,15 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 .compare-mode-tabs button { min-height: 40px; padding: 6px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font: 12px var(--mono); cursor: pointer; }
 .compare-mode-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
 .compare-mode-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.compare-status {
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: var(--dim);
+  font: 10px/1.5 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .compare-target {
   min-width: 0;
   display: flex;
@@ -5304,13 +5313,6 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 .compare-change-target { margin-left: auto; }
 .compare-change-target:hover,
 .compare-retry:hover { color: var(--text); }
-.compare-status {
-  margin: 0;
-  padding: 9px 18px;
-  border-bottom: 1px solid var(--line);
-  color: var(--dim);
-  font: 10px/1.5 var(--mono);
-}
 .compare-panel {
   min-width: 0;
   min-height: 0;
@@ -5453,7 +5455,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   .compare-mode-tabs { width: 100%; }
   .compare-target { padding: 8px 12px; }
   .compare-change-target { margin-left: 0; }
-  .compare-status { padding-inline: 12px; }
   .library-api-diff-members { padding-inline: 12px; }
   .library-api-diff-member-detail { padding-inline: 12px; }
   .library-api-diff-note { margin-inline: 12px; }
