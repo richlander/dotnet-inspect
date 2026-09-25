@@ -275,6 +275,26 @@ proof. It can ask product code for an artifact, but it should not construct C#
 itself. It can use Research facts, but Research should not know that a particular
 fact is required to turn `RecompileFail` into `Exact`.
 
+#### Standalone method target selection
+
+The standalone selector returns a tools-owned plan containing selected targets,
+typed exclusions, and candidate/eligibility counters. A method enters its
+cap-eligible sequence only after one completed CSharp decision:
+
+- an ordinary method has a positive `CSharpMemberArtifactEligibility` result;
+- an explicit or operator MethodImpl body has a
+  `CSharpMethodDeclarationPost.Capture` plus
+  `CSharpDeclarationRepresentability.Decide` result of `Representable`.
+
+The exact path retains the accepted declaration request. `Unrepresentable` and
+`Unavailable` results remain typed selector exclusions and never fall through
+to ordinary artifact eligibility. Positive MethodSemantics evidence or an
+owning property/event accessor token defers accessors to their separately owned
+adoption, and unavailable MethodSemantics is also an exclusion rather than
+proof of an ordinary method. Stable sampling and the cross-assembly cap apply
+only after those product decisions and the canonical target signature are
+complete.
+
 ### Product artifact provider
 
 Own C# artifact production.

@@ -85,6 +85,16 @@ export type TypeSourceResult = BrowserSource;
 export type MemberSourcePartSelection =
   Exclude<BrowserMemberSourcePartKind, number>;
 
+export interface SourceTextRange {
+  start: number;
+  length: number;
+}
+
+export type SourceHighlighter = (
+  value: string,
+  collapsedRanges?: readonly SourceTextRange[],
+) => string;
+
 export interface MemberSourcePartSelector {
   current(
     signature: string,
@@ -782,7 +792,7 @@ export function typeSourceSignature(
     item.assembly,
     item.definitionId ?? item.id,
     view,
-  ], view === "source" ? taste : []);
+  ], view === "source" || view === "decompiler-source" ? taste : []);
 }
 
 export type TypeSourceStateSlice = SourceResultState<BrowserTypeCodeView>;
@@ -805,26 +815,40 @@ export interface RenderTypeSourceOptions {
   sourceState: TypeSourceStateSlice;
   view?: TypeSourceView;
   escapeHtml: EscapeHtml;
-  highlightCSharp: (value: string) => string;
+  highlightCSharp: SourceHighlighter;
 }
 
 export interface RenderSourceResultOptions {
   source: TypeSourceResult;
   text?: string;
+  leftJustify?: boolean;
   escapeHtml: EscapeHtml;
-  highlightCSharp: (value: string) => string;
+  highlightCSharp: SourceHighlighter;
 }
 
 export function renderSourceResult(options: RenderSourceResultOptions): string {
-  const { source, text = source.text, escapeHtml, highlightCSharp } = options;
+  const {
+    source,
+    text = source.text,
+    leftJustify = false,
+    escapeHtml,
+    highlightCSharp,
+  } = options;
   return `<section class="source-result" aria-label="Source">
-      ${renderSourceCode(text, highlightCSharp)}
+      ${renderSourceCode(text, highlightCSharp, leftJustify)}
       <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
     </section>`;
 }
 
-function renderSourceCode(text: string, highlightCSharp: (value: string) => string): string {
-  return `<pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(text)}</code></pre>`;
+function renderSourceCode(
+  text: string,
+  highlightCSharp: SourceHighlighter,
+  leftJustify = false,
+): string {
+  const collapsedRanges = leftJustify
+    ? sharedLeadingIndentationRanges(text)
+    : undefined;
+  return `<pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(text, collapsedRanges)}</code></pre>`;
 }
 
 export interface RenderSourcePageActionsOptions {
@@ -858,6 +882,7 @@ export function renderSourcePageActions(
           <span>View</span>
           <select id="type-source-view" aria-label="Select type code view">
             <option value="source"${typeView === "source" ? " selected" : ""}>Source</option>
+            <option value="decompiler-source"${typeView === "decompiler-source" ? " selected" : ""}>Decompiler source</option>
             <option value="api-declarations"${typeView === "api-declarations" ? " selected" : ""}>API Declarations</option>
             <option value="all-declarations"${typeView === "all-declarations" ? " selected" : ""}>All Declarations</option>
           </select>
@@ -876,7 +901,9 @@ export function renderSourcePageActions(
     ${source?.url
       ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
       : ""}
-    ${copyButtonId !== "copy-type-source" || typeView === "source"
+    ${copyButtonId !== "copy-type-source"
+      || typeView === "source"
+      || typeView === "decompiler-source"
       ? `<button id="explore-source" class="primary-action" type="button"
           title="Explore source options">Explore</button>`
       : ""}`;
@@ -907,6 +934,70 @@ export function memberSourceText(
     return span.leadingIndentation
       + memberSource.source.text.slice(span.start, span.end);
   }).join("\n");
+}
+
+export function sharedLeadingIndentationRanges(
+  text: string,
+): SourceTextRange[] {
+  const lines: Array<{
+    start: number;
+    indentation: string;
+  }> = [];
+  let commonIndentation: string | null = null;
+  let lineStart = 0;
+
+  while (lineStart <= text.length) {
+    let lineEnd = lineStart;
+    while (lineEnd < text.length && !isLineTerminator(text[lineEnd]!))
+      lineEnd++;
+
+    let indentationEnd = lineStart;
+    while (indentationEnd < lineEnd
+      && isInlineWhitespace(text[indentationEnd]!)) {
+      indentationEnd++;
+    }
+
+    if (indentationEnd < lineEnd) {
+      const indentation = text.slice(lineStart, indentationEnd);
+      commonIndentation = commonIndentation === null
+        ? indentation
+        : commonPrefix(commonIndentation, indentation);
+      lines.push({ start: lineStart, indentation });
+      if (commonIndentation.length === 0) return [];
+    }
+
+    if (lineEnd === text.length) break;
+    lineStart = lineEnd + (
+      text[lineEnd] === "\r" && text[lineEnd + 1] === "\n" ? 2 : 1);
+  }
+
+  if (!commonIndentation) return [];
+  return lines.map(line => ({
+    start: line.start,
+    length: commonIndentation.length,
+  }));
+}
+
+function commonPrefix(left: string, right: string): string {
+  let length = 0;
+  while (length < left.length
+    && length < right.length
+    && left[length] === right[length]) {
+    length++;
+  }
+  return left.slice(0, length);
+}
+
+function isInlineWhitespace(value: string): boolean {
+  return !isLineTerminator(value) && /^\s$/u.test(value);
+}
+
+function isLineTerminator(value: string): boolean {
+  return value === "\r"
+    || value === "\n"
+    || value === "\u0085"
+    || value === "\u2028"
+    || value === "\u2029";
 }
 
 function availableMemberSourceParts(
@@ -970,7 +1061,9 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
   } = options;
   const loading = view === "source"
     ? `<h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p>`
-    : `<h2>Reading API declarations…</h2><p>Projecting bodyless declarations from the selected library metadata.</p>`;
+    : view === "decompiler-source"
+      ? `<h2>Decompiling type…</h2><p>Projecting implementation C# directly from the selected library.</p>`
+      : `<h2>Reading API declarations…</h2><p>Projecting bodyless declarations from the selected library metadata.</p>`;
   if (sourceState.status === "idle"
     || sourceState.signature !== currentSignature) {
     return `<section class="document-section source-progress"><span class="loader"></span>${loading}</section>`;

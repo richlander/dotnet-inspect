@@ -263,7 +263,8 @@ public sealed class PackageHouseRequest
         PackageHouseRequestAssociation? association = null,
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
-        IEnumerable<string>? implementationNames = null)
+        IEnumerable<string>? implementationNames = null,
+        PackageDocumentDemand? documentDemand = null)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -307,6 +308,14 @@ public sealed class PackageHouseRequest
             }
         }
 
+        if (documentDemand is not null
+            && operation.Profile != PackageHouseOperationProfile.Acquire)
+        {
+            throw new ArgumentException(
+                "Only an Acquire operation carries a document demand.",
+                nameof(documentDemand));
+        }
+
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
@@ -314,6 +323,7 @@ public sealed class PackageHouseRequest
         LibraryHandoff = libraryHandoff;
         Association = association;
         AssetDemand = assetDemand;
+        DocumentDemand = documentDemand;
         ImplementationNames = implementationNames is null
             ? null
             : PackageImplementationNames.Create(
@@ -347,4 +357,13 @@ public sealed class PackageHouseRequest
     /// (docs/design/package-read-demand.md).
     /// </summary>
     public PackageImplementationNames? ImplementationNames { get; }
+
+    /// <summary>
+    /// The package documents an Acquire operation reads, or
+    /// <see langword="null"/>. It bounds a ranged read, which an Acquire
+    /// operation may take only with one, and every named entry and folder
+    /// must be listed by the acquired archive's directory
+    /// (docs/design/package-read-demand.md#document-demand).
+    /// </summary>
+    public PackageDocumentDemand? DocumentDemand { get; }
 }
