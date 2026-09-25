@@ -480,7 +480,11 @@ and Research body aliases into one `HashSet<string>`.
 `ResearchDiffOptions` pass that untyped set through to mechanism-specific
 filters. This loses the selection occurrence, side, admitted input, resolution
 attempt, typed diagnostic, accessor role, and proof that a one-sided target is
-absent rather than unavailable.
+absent rather than unavailable. For generic members, the rebuilt text also
+fails to match the method side's own identity, so the member is silently
+dropped ([#8570](https://github.com/richlander/dotnet-inspect/issues/8570)).
+Body-signal targeting has left this path. Implementation, complexity, and the
+IL and C# Finding routes remain on it until they migrate.
 
 The body paths then disagree about missing evidence. Semantic IL comparison
 intersects method keys and can omit a one-sided member; retained IL Finding
@@ -569,16 +573,39 @@ behaviorally, with borrowed capabilities that throw when used, and structurally,
 with an IL call-reference walk over every admission-reachable product method for
 both rank-1 profiles.
 
-The identity and atomic-association contract applies to both rank-1 profiles.
-The target-resolution path in this design initially applies only to the
-implementation-comparison profile, whose admitted assembly content can supply
-Metadata-owned target evidence. The body-signal profile admits only the
-Analysis method population today. Research does not reopen that execution's
-source, manufacture an `ApiType`, or reimplement Metadata selection over
-Analysis identity. Body-signal target requests migrate from the string-keyed
-compatibility path only when that profile also carries exact typed Metadata
-target evidence. That is step 2 of the Research slice of #7553, which
-absorbs #4777.
+The identity and atomic-association contract applies to both rank-1 profiles,
+and so does target resolution. Its exact claim for the body-signal profile is:
+
+> The body-signal profile admits each Analysis execution together with the
+> acquisition-owned assembly descriptor and resolver it was produced from, and
+> Research selects body-signal members only from `ResearchTargetResolver`
+> correspondence outcomes, so a resolved target that selects no Analysis method
+> is a typed failure, never an empty comparison.
+
+Both profiles supply the same Metadata-owned target evidence: an admitted
+descriptor and resolver that Research opens, validates against the Analysis
+module identity, and resolves through Metadata's `MemberTargetResolver`. They
+also supply the Analysis method population from which Research issues the
+`ResearchTargetBodyIdentity`. A body-signal occurrence additionally carries
+the focused Analysis results its producer compares. Research does not
+reimplement Metadata selection over Analysis identity, and it does not derive
+body-signal member identity from display or canonical-signature text.
+
+For a targeted request, cross-version pairing comes from the correspondence
+key, not from a body-signal method key. A `Paired` outcome selects exactly the
+endpoint method on each side by its resolved address. An untargeted
+whole-assembly comparison makes no target request and keeps its existing
+method pairing. One-sided, absent,
+counterpart-unavailable, and blocked outcomes keep their typed meaning. A
+resolved endpoint whose address selects no method in that side's Analysis
+population is a typed body-signal failure. The body-signal producer
+classifies inspection topology over those endpoints under
+[Finding inspection topology](finding-nomenclature.md#typed-inspection-topology).
+
+The body-signal path is host-neutral. The CLI `diff` Finding Transitions and
+Analysis Diff routes adopt it first. Browser/Wasm adopts the same query
+through the website Implementation Diff track, with no second targeting
+path.
 
 ### Side-local requests and attempts
 
@@ -1013,10 +1040,9 @@ Migration preserves owner and dependency direction:
    proof. No producer is invoked and no inspection topology is classified.
    This step has landed.
 4. The ResearchQueries companion consumes the admission API and constructs its
-   Queries-owned receipt for both profiles. Body-signal target resolution
-   remains on its compatibility path until Queries prerequisite #4777 supplies
-   exact Metadata target evidence; Research does not compensate for that
-   missing input.
+   Queries-owned receipt for both profiles. The body-signal profile carries
+   the same descriptor and resolver target evidence as the implementation
+   profile, which closes #4777.
 5. The Findings topology and focused native-producer migrations have landed.
    Rank 4 under
    [#5441](https://github.com/richlander/dotnet-inspect/issues/5441)
@@ -1024,9 +1050,10 @@ Migration preserves owner and dependency direction:
    design is specified below, but its Research implementation remains
    unimplemented. Producer adapters classify endpoint topology and retain their
    native typed results; Research adds no generic body disposition.
-6. Rank 6 later migrates the implementation-comparison public path from string
-   target identities and publishes the outer result. Body-signal migration
-   follows #4777 independently.
+6. Body-signal targeting migrates to the typed target path, and its
+   string-keyed identity bag is removed. Rank 6 later migrates the
+   implementation-comparison public path, and the IL and C# Finding routes,
+   from string target identities and publishes the outer result.
 
 The admission, scope, domain, request, and attempt gates have landed and are
 listed under
@@ -1084,10 +1111,17 @@ inspection state or generic body disposition. A cross-module address fixture
 must become a blocking attempt before any key or correspondence is exposed. The
 string-key gate inspects the new target-path public and internal signatures
 rather than only exercising a successful fixture; explicit compatibility
-adapters remain until the dependent migration removes them. Purpose-built
-profile fixtures also prove that a body-signal admission cannot enter the
-target path without the typed prerequisite from
-[#4777](https://github.com/richlander/dotnet-inspect/issues/4777).
+adapters remain until the dependent migration removes them.
+
+The body-signal target path adds these gates:
+
+- `ResearchTargetResolver_ResolvesBodySignalProfileThroughAdmittedEvidence`
+- `BodySignalComparison_SelectsMembersOnlyFromCorrespondence`
+- `BodySignalComparison_ResolvedTargetWithoutAnalysisMethodIsTypedFailure`
+- `ResearchBodySignalTargetPath_HasNoStringKeyedIdentityBag`
+- `BodySignalComparisonQuery_PairsGenericSystemTextJsonMember`, over
+  System.Text.Json 9.0.0 and 10.0.0 `JsonSerializer.Serialize:1` and a
+  non-generic neighbor
 
 ### Target-resolution non-goals
 
@@ -1097,7 +1131,6 @@ This boundary does not define:
   shape;
 - Metadata selector parsing, single-surface resolution, anchor/address
   construction, or diagnostic semantics;
-- the Queries-owned body-signal target-evidence prerequisite tracked by #4777;
 - package acquisition, role planning, workspace composition, resource cleanup,
   or budgets;
 - Finding inspection-state definition or producer-specific applicability and
@@ -1648,9 +1681,8 @@ Implementation proceeds in focused owner order:
    adoption.
 4. Source remains outside the local catalog; its
    [authored-source composition](#research-authored-source-comparison) owns
-   its prerequisites. Body-signal target migration follows
-   [#4777](https://github.com/richlander/dotnet-inspect/issues/4777)
-   independently.
+   its prerequisites. Body-signal targeting uses the same resolution but is
+   compared by its own producer outside this catalog.
 
 ### Producer-session non-goals
 

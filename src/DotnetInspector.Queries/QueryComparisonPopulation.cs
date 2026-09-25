@@ -8,6 +8,7 @@ namespace DotnetInspector.Queries;
 public enum QueryComparisonProfile
 {
     ImplementationComparison,
+    BodySignal,
 }
 
 public enum QueryComparisonSide
@@ -54,8 +55,7 @@ public sealed record ImplementationComparisonBinding(
 public sealed record ImplementationComparisonPopulationRequest(
     IReadOnlyList<ImplementationComparisonBinding?>? Before,
     IReadOnlyList<ImplementationComparisonBinding?>? After,
-    IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
+    IReadOnlySet<string>? TypeFilters = null);
 
 public sealed class QueryComparisonInput<TBinding> where TBinding : class
 {
@@ -76,14 +76,12 @@ public abstract class QueryComparisonPopulation
         QueryComparisonProfile profile,
         QueryComparisonQuestionId question,
         ImmutableArray<QueryComparisonInputId> inputIds,
-        ImmutableHashSet<string>? typeFilters,
-        ImmutableHashSet<string>? memberTargetIdentities)
+        ImmutableHashSet<string>? typeFilters)
     {
         Profile = profile;
         Question = question;
         InputIds = inputIds;
         TypeFilters = typeFilters;
-        MemberTargetIdentities = memberTargetIdentities;
     }
 
     public QueryComparisonProfile Profile { get; }
@@ -91,7 +89,6 @@ public abstract class QueryComparisonPopulation
     public QueryComparisonQuestionId Question { get; }
     public ImmutableArray<QueryComparisonInputId> InputIds { get; }
     public ImmutableHashSet<string>? TypeFilters { get; }
-    public ImmutableHashSet<string>? MemberTargetIdentities { get; }
 }
 
 public sealed class QueryComparisonPopulation<TBinding> :
@@ -102,11 +99,10 @@ public sealed class QueryComparisonPopulation<TBinding> :
         QueryComparisonQuestionId question,
         ImmutableArray<QueryComparisonInput<TBinding>> before,
         ImmutableArray<QueryComparisonInput<TBinding>> after,
-        ImmutableHashSet<string>? typeFilters,
-        ImmutableHashSet<string>? memberTargetIdentities)
+        ImmutableHashSet<string>? typeFilters)
         : base(profile, question,
             [.. before.Select(input => input.Id), .. after.Select(input => input.Id)],
-            typeFilters, memberTargetIdentities)
+            typeFilters)
     {
         Before = before;
         After = after;
@@ -125,8 +121,8 @@ public enum QueryPopulationRejectionKind
     MissingAssembly,
     MissingResolver,
     MissingMethodPopulation,
+    MissingAnalysis,
     MissingTypeFilter,
-    MissingMemberTarget,
 }
 
 /// <summary>Coordinates locate invalid input; they are never population identity.</summary>
