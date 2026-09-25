@@ -316,27 +316,6 @@ public sealed class AssemblyInspectionSession :
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
 
-    public MetadataMethodGroupInspectionOutcome MethodGroup(
-        MetadataTypeDefinitionName declaringType,
-        string methodName,
-        int startOrdinal,
-        int maximumRows,
-        bool materializeRows,
-        int maximumMembers,
-        int maximumRetainedTextCharacters)
-    {
-        _image.EnsureAlive();
-        return MetadataMethodGroupInspection.Read(
-            _image.GetMetadataReader(),
-            declaringType,
-            methodName,
-            startOrdinal,
-            maximumRows,
-            materializeRows,
-            maximumMembers,
-            maximumRetainedTextCharacters);
-    }
-
     /// <summary>
     /// The API surface at one explicit extraction scope under hard retention bounds. An image
     /// that does not fit is abandoned before it is materialized, and reported as

@@ -17,6 +17,7 @@ public enum MetadataMethodReceiver
 public enum MetadataMethodGroupInspectionBound
 {
     Members,
+    MethodSemanticsAssociations,
 }
 
 public sealed record MetadataMethodGroupRow(
@@ -55,6 +56,7 @@ public abstract record MetadataMethodGroupInspectionOutcome
 
     public sealed record Incomplete(
         MetadataMethodGroupInspectionBound Bound,
+        long Limit,
         long Measured)
         : MetadataMethodGroupInspectionOutcome;
 
@@ -66,6 +68,7 @@ internal static class MetadataMethodGroupInspection
 {
     public static MetadataMethodGroupInspectionOutcome Read(
         MetadataReader reader,
+        MetadataMethodSemanticsAssociationResult methodSemantics,
         MetadataTypeDefinitionName declaringType,
         string methodName,
         int startOrdinal,
@@ -75,6 +78,7 @@ internal static class MetadataMethodGroupInspection
         int maximumRetainedTextCharacters)
     {
         ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(methodSemantics);
         ArgumentNullException.ThrowIfNull(declaringType);
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
@@ -101,12 +105,15 @@ internal static class MetadataMethodGroupInspection
 
             TypeDefinitionHandle typeHandle = definitions[0];
             TypeDefinition type = reader.GetTypeDefinition(typeHandle);
-            bool extensionContainer =
-                AttributeReader.HasExtensionAttribute(
+            if (!TryGetAccessorMethods(
                     reader,
-                    type.GetCustomAttributes());
-            HashSet<MethodDefinitionHandle> accessors =
-                GetAccessorMethods(reader, type);
+                    type,
+                    methodSemantics,
+                    out HashSet<MethodDefinitionHandle> accessors,
+                    out MetadataMethodGroupInspectionOutcome? failure))
+            {
+                return failure!;
+            }
             var matches = new List<MethodDefinitionHandle>();
             foreach (MethodDefinitionHandle handle in type.GetMethods())
             {
@@ -130,6 +137,7 @@ internal static class MetadataMethodGroupInspection
                 {
                     return new MetadataMethodGroupInspectionOutcome.Incomplete(
                         MetadataMethodGroupInspectionBound.Members,
+                        maximumMembers,
                         matches.Count);
                 }
             }
@@ -157,6 +165,28 @@ internal static class MetadataMethodGroupInspection
             var rows =
                 ImmutableArray.CreateBuilder<MetadataMethodGroupRow>(
                     rowCount);
+            bool extensionContainer;
+            try
+            {
+                extensionContainer =
+                    rowCount != 0
+                    && AttributeReader.HasExtensionAttribute(
+                        reader,
+                        type.GetCustomAttributes());
+            }
+            catch (Exception exception) when (
+                exception is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                return new MetadataMethodGroupInspectionOutcome.Read(
+                    declaringType,
+                    MetadataTokens.GetToken(typeHandle),
+                    matches.Count,
+                    [],
+                    NextOrdinal: null,
+                    RowsFailed: true);
+            }
             long retainedTextCharacters = 0;
             for (int indexInGroup = 0;
                 indexInGroup < rowCount;
@@ -166,16 +196,17 @@ internal static class MetadataMethodGroupInspection
                     matches[startOrdinal + indexInGroup];
                 MethodDefinition method =
                     reader.GetMethodDefinition(handle);
-                bool extension =
-                    extensionContainer
-                    && (method.Attributes & MethodAttributes.Static) != 0
-                    && AttributeReader.HasExtensionAttribute(
-                        reader,
-                        method.GetCustomAttributes());
+                bool extension;
                 MetadataMethodDeclaration declaration;
                 MemberAnchor anchor;
                 try
                 {
+                    extension =
+                        extensionContainer
+                        && (method.Attributes & MethodAttributes.Static) != 0
+                        && AttributeReader.HasExtensionAttribute(
+                            reader,
+                            method.GetCustomAttributes());
                     declaration =
                         MetadataDeclarationQuery.GetMethod(
                             reader,
@@ -254,38 +285,115 @@ internal static class MetadataMethodGroupInspection
         }
     }
 
-    private static HashSet<MethodDefinitionHandle> GetAccessorMethods(
+    private static bool TryGetAccessorMethods(
         MetadataReader reader,
-        TypeDefinition type)
+        TypeDefinition type,
+        MetadataMethodSemanticsAssociationResult methodSemantics,
+        out HashSet<MethodDefinitionHandle> accessors,
+        out MetadataMethodGroupInspectionOutcome? failure)
     {
-        var accessors = new HashSet<MethodDefinitionHandle>();
+        accessors = [];
+        failure = methodSemantics switch
+        {
+            MetadataMethodSemanticsAssociationResult.Rejected
+                {
+                    Failure.Reason:
+                        MetadataMethodSemanticsFailureReason.BudgetExceeded,
+                    Failure.BudgetLimit: long limit,
+                    Failure.RowsVisited: int rowsVisited,
+                } =>
+                new MetadataMethodGroupInspectionOutcome.Incomplete(
+                    MetadataMethodGroupInspectionBound
+                        .MethodSemanticsAssociations,
+                    limit,
+                    rowsVisited),
+            MetadataMethodSemanticsAssociationResult.Completed => null,
+            _ => new MetadataMethodGroupInspectionOutcome.Failed(),
+        };
+        if (methodSemantics
+            is not MetadataMethodSemanticsAssociationResult.Completed success)
+            return false;
+        if (!success.AssociationsAreNondecreasing)
+        {
+            failure =
+                new MetadataMethodGroupInspectionOutcome.Failed();
+            return false;
+        }
+
+        var propertyRows = new HashSet<int>();
         foreach (PropertyDefinitionHandle handle in type.GetProperties())
-        {
-            PropertyAccessors property =
-                reader.GetPropertyDefinition(handle).GetAccessors();
-            Add(property.Getter);
-            Add(property.Setter);
-            foreach (MethodDefinitionHandle other in property.Others)
-                Add(other);
-        }
+            propertyRows.Add(MetadataTokens.GetRowNumber(handle));
+        var eventRows = new HashSet<int>();
         foreach (EventDefinitionHandle handle in type.GetEvents())
+            eventRows.Add(MetadataTokens.GetRowNumber(handle));
+        var methods = type.GetMethods().ToHashSet();
+        var standardRoles = new HashSet<
+            (
+                MetadataMethodSemanticsAssociationKind Kind,
+                int Row,
+                ushort Role)>();
+        foreach (MetadataMethodSemanticsAssociation row
+            in success.Associations)
         {
-            EventAccessors @event =
-                reader.GetEventDefinition(handle).GetAccessors();
-            Add(@event.Adder);
-            Add(@event.Remover);
-            Add(@event.Raiser);
-            foreach (MethodDefinitionHandle other in @event.Others)
-                Add(other);
+            bool belongsToType =
+                row.AssociationKind switch
+                {
+                    MetadataMethodSemanticsAssociationKind.Property =>
+                        propertyRows.Contains(
+                            row.AssociationRowNumber),
+                    MetadataMethodSemanticsAssociationKind.Event =>
+                        eventRows.Contains(
+                            row.AssociationRowNumber),
+                    _ => false,
+                };
+            if (!belongsToType)
+                continue;
+            if (!methods.Contains(row.Method)
+                || !TryValidateRole(row, standardRoles))
+            {
+                failure =
+                    new MetadataMethodGroupInspectionOutcome.Failed();
+                return false;
+            }
+
+            accessors.Add(row.Method);
         }
 
-        return accessors;
+        return true;
+    }
 
-        void Add(MethodDefinitionHandle handle)
-        {
-            if (!handle.IsNil)
-                accessors.Add(handle);
-        }
+    private static bool TryValidateRole(
+        MetadataMethodSemanticsAssociation row,
+        HashSet<(
+            MetadataMethodSemanticsAssociationKind Kind,
+            int Row,
+            ushort Role)> standardRoles)
+    {
+        const ushort Setter = 0x0001;
+        const ushort Getter = 0x0002;
+        const ushort Other = 0x0004;
+        const ushort Adder = 0x0008;
+        const ushort Remover = 0x0010;
+        const ushort Raiser = 0x0020;
+
+        ushort role = row.RawSemantics;
+        if (role == Other)
+            return true;
+        bool recognized =
+            row.AssociationKind switch
+            {
+                MetadataMethodSemanticsAssociationKind.Property =>
+                    role is Setter or Getter,
+                MetadataMethodSemanticsAssociationKind.Event =>
+                    role is Adder or Remover or Raiser,
+                _ => false,
+            };
+        return recognized
+            && standardRoles.Add(
+                (
+                    row.AssociationKind,
+                    row.AssociationRowNumber,
+                    role));
     }
 
     private static bool IsPublic(MethodAttributes attributes) =>

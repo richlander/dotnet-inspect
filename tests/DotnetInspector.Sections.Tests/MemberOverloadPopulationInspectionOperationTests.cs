@@ -382,6 +382,101 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public async Task
+        MalformedSelectedMethodAttributePreservesIndependentCount()
+    {
+        byte[] content =
+            BuildMalformedExtensionAttributeImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent result =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: true,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C")));
+
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    result.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            MemberOverloadRowsFailure.MalformedMetadata,
+            Assert.IsType<MemberOverloadRowsOutcome.Failed>(
+                    result.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MalformedExtensionContainerAttributePreservesIndependentCount()
+    {
+        byte[] content =
+            BuildMalformedExtensionAttributeImage(
+                malformedContainer: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent result =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: true,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C")));
+
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    result.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            MemberOverloadRowsFailure.MalformedMetadata,
+            Assert.IsType<MemberOverloadRowsOutcome.Failed>(
+                    result.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        DuplicateStandardAccessorRolesFailThePopulation()
+    {
+        byte[] content = BuildDuplicateGetterImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionFailure.MalformedMetadata,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Failed>(
+                    Execute(
+                        library,
+                        "M",
+                        count: true,
+                        new(maximumRows: 2),
+                        declaringType: Name("N", "C"))
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
     [Theory]
     [InlineData(".ctor")]
     [InlineData(".cctor")]
@@ -477,26 +572,8 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         BlobBuilder signature)
     {
         var metadata = new MetadataBuilder();
-        metadata.AddModule(
-            0,
-            metadata.GetOrAddString("Synthetic.dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
-            default,
-            default);
-        metadata.AddAssembly(
-            metadata.GetOrAddString("Synthetic"),
-            new Version(1, 0, 0, 0),
-            default,
-            default,
-            default,
-            default);
-        metadata.AddTypeDefinition(
-            TypeAttributes.NotPublic,
-            default,
-            metadata.GetOrAddString("<Module>"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
+        AddAssembly(metadata);
+        AddModuleType(metadata);
         metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
@@ -512,6 +589,151 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             bodyOffset: -1,
             parameterList: MetadataTokens.ParameterHandle(1));
 
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildMalformedExtensionAttributeImage(
+        bool malformedContainer = false)
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle extensionAttribute =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("ExtensionAttribute"));
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                extensionAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+        BlobHandle attributeValue =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        AddModuleType(metadata);
+        TypeDefinitionHandle type =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        metadata.AddCustomAttribute(
+            type,
+            malformedContainer
+                ? MetadataTokens.MemberReferenceHandle(2)
+                : constructor,
+            attributeValue);
+        metadata.AddCustomAttribute(
+            method,
+            malformedContainer
+                ? constructor
+                : MetadataTokens.MemberReferenceHandle(2),
+            attributeValue);
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildDuplicateGetterImage()
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AddModuleType(metadata);
+        TypeDefinitionHandle type =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle first =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle second =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("P"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x28, 0x00, 0x01 }));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            first);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            second);
+        return Serialize(metadata);
+    }
+
+    private static void AddAssembly(MetadataBuilder metadata)
+    {
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+    }
+
+    private static void AddModuleType(MetadataBuilder metadata) =>
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+    private static byte[] Serialize(MetadataBuilder metadata)
+    {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(

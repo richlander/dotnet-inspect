@@ -210,7 +210,7 @@ public static class LibraryMethodGroupInspection
 
             cancellationToken.ThrowIfCancellationRequested();
             MetadataMethodGroupInspectionOutcome group =
-                session.MethodGroup(
+                declarationSession.InspectMethodGroup(
                     request.DeclaringType,
                     request.MethodName,
                     staleContinuation

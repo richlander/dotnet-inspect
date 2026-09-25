@@ -232,6 +232,7 @@ public enum MemberOverloadPopulationBound
 {
     MetadataRows,
     Members,
+    MethodSemanticsAssociations,
     RetainedTextCharacters,
 }
 

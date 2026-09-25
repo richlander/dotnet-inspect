@@ -161,8 +161,18 @@ public static class MemberOverloadPopulationInspectionOperation
                         .MemberGroupNotFound),
             MetadataMethodGroupInspectionOutcome.Incomplete incomplete =>
                 Incomplete(
-                    MemberOverloadPopulationBound.Members,
-                    request.Plan.Bounds.MaxMembers,
+                    incomplete.Bound switch
+                    {
+                        MetadataMethodGroupInspectionBound.Members =>
+                            MemberOverloadPopulationBound.Members,
+                        MetadataMethodGroupInspectionBound
+                                .MethodSemanticsAssociations =>
+                            MemberOverloadPopulationBound
+                                .MethodSemanticsAssociations,
+                        _ => throw new InvalidOperationException(
+                            "Unknown Member-group inspection bound."),
+                    },
+                    incomplete.Limit,
                     incomplete.Measured),
             MetadataMethodGroupInspectionOutcome.Failed =>
                 Failed(

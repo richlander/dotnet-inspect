@@ -46,6 +46,32 @@ public sealed class MetadataDeclarationSession : IDisposable
         }
     }
 
+    public MetadataMethodGroupInspectionOutcome InspectMethodGroup(
+        MetadataTypeDefinitionName declaringType,
+        string methodName,
+        int startOrdinal,
+        int maximumRows,
+        bool materializeRows,
+        int maximumMembers,
+        int maximumRetainedTextCharacters)
+    {
+        EnsureAccess();
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+            return new MetadataMethodGroupInspectionOutcome.Failed();
+
+        return MetadataMethodGroupInspection.Read(
+            _assemblySession!
+                .GetMetadataReaderForDeclarationSession(),
+            _methodSemanticsAssociations!.Post(),
+            declaringType,
+            methodName,
+            startOrdinal,
+            maximumRows,
+            materializeRows,
+            maximumMembers,
+            maximumRetainedTextCharacters);
+    }
+
     public MetadataMethodDeclarationResult PostMethodDeclaration(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress method,
