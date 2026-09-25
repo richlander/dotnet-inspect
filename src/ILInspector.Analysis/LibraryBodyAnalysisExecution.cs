@@ -275,6 +275,10 @@ public sealed class LibraryBodyAnalysisExecution
     public LibraryResourceLifecycleAnalysisResult ResourceLifecycle
     { get; }
 
+    internal ImplementationMetricWorkBudgetSnapshot?
+        ImplementationMetricWork =>
+        _analysis.ImplementationMetricWork;
+
     internal bool HasMaterializedCompatibilityIndex =>
         _compatibilityIndex is not null;
 
