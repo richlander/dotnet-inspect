@@ -1217,7 +1217,7 @@ static class ResearchTargetResolutionValidator
 
         LibraryBodyModuleIdentity expectedModule =
             ((ImplementationComparisonInputOccurrence)input.Occurrence)
-                .BodyIndex.ModuleIdentity;
+                .MethodPopulation.ModuleIdentity;
         Require(
             ReferenceEquals(resolved.Module, expectedModule)
                 && resolved.Module.AssemblyIdentity is not null,
@@ -1283,7 +1283,7 @@ static class ResearchTargetResolutionValidator
 
         MethodIdentity? method = null;
         foreach (MethodIdentity candidate
-            in occurrence.BodyIndex.DeclaredMethods)
+            in occurrence.MethodPopulation.DeclaredMethods)
         {
             if (candidate.MetadataToken != metadataToken)
                 continue;
@@ -1460,7 +1460,7 @@ static class ResearchTargetResolutionValidator
         var occurrence =
             (ImplementationComparisonInputOccurrence)input.Occurrence;
         LibraryBodyModuleIdentity analysis =
-            occurrence.BodyIndex.ModuleIdentity;
+            occurrence.MethodPopulation.ModuleIdentity;
         if (!evidence.IsAssembly)
             return ResearchTargetDiagnosticKind.StandaloneModule;
         if (analysis.AssemblyIdentity is null

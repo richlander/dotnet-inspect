@@ -1,9 +1,21 @@
 name: Deploy Inspect Web runtime sites
 
 on:
-  schedule:
-    - cron: '47 0 * * *'
+  workflow_run:
+    workflows:
+      - Nightly release candidate
+    types:
+      - completed
   workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Completed release-candidate workflow run
+        required: true
+        type: string
+      candidate_attempt:
+        description: Exact complete workflow attempt
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -16,25 +28,84 @@ concurrency:
 
 jobs:
   source:
-    name: Select green main source
+    name: Select completed candidate
     runs-on: ubuntu-26.04
+    outputs:
+      run_id: ${{ steps.trigger.outputs.run_id }}
+      run_attempt: ${{ steps.candidate.outputs.run_attempt }}
+      sha: ${{ steps.candidate.outputs.sha }}
     steps:
-      - name: Require green main
+      - name: Resolve candidate trigger
+        id: trigger
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          INPUT_RUN_ID: ${{ inputs.candidate_run_id }}
+          INPUT_RUN_ATTEMPT: ${{ inputs.candidate_attempt }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/main"
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
-            --jq '
-              [.check_runs[] | select(.name == "ci-required")]
-              | sort_by(.id)
-              | last
-              | .status == "completed" and .conclusion == "success"
-            ' | grep -Fx true
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            run_id=$EVENT_RUN_ID
+            run_attempt=$EVENT_RUN_ATTEMPT
+          else
+            run_id=$INPUT_RUN_ID
+            run_attempt=$INPUT_RUN_ATTEMPT
+          fi
+          [[ "$run_id" =~ ^[1-9][0-9]*$ ]]
+          [[ "$run_attempt" =~ ^[1-9][0-9]*$ ]]
+
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
+          conclusion=$(jq -r .conclusion <<<"$run")
+          case "$conclusion" in
+            success)
+              accept_concerns=false
+              ;;
+            failure)
+              accept_concerns=true
+              ;;
+            *)
+              echo "::error::Candidate run concluded '$conclusion'." >&2
+              exit 1
+              ;;
+          esac
+          sha=$(jq -r .head_sha <<<"$run")
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          {
+            echo "run_id=$run_id"
+            echo "run_attempt=$run_attempt"
+            echo "sha=$sha"
+            echo "accept_concerns=$accept_concerns"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.trigger.outputs.sha }}
+
+      - name: Setup candidate .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Validate candidate identity
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ steps.trigger.outputs.run_id }}
+          RUN_ATTEMPT: ${{ steps.trigger.outputs.run_attempt }}
+          ACCEPT_CONCERNS: ${{ steps.trigger.outputs.accept_concerns }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/candidate"
+          eng/validate-release-candidate.sh \
+            "$RUN_ID" \
+            "$RUN_ATTEMPT" \
+            "$ACCEPT_CONCERNS" \
+            "$output"
+          cat "$output" >> "$GITHUB_OUTPUT"
 
   cohort:
     name: Build and admit runtime cohort
@@ -43,6 +114,9 @@ jobs:
       contents: read
     uses: ./.github/workflows/inspect-web-runtime-cohort-nightly.yml
     with:
+      source_sha: ${{ needs.source.outputs.sha }}
+      candidate_run_id: ${{ needs.source.outputs.run_id }}
+      candidate_attempt: ${{ needs.source.outputs.run_attempt }}
       samples: 5
       member_count: 10
 
@@ -52,6 +126,8 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -77,6 +153,7 @@ jobs:
   prepare:
     name: Prepare ${{ matrix.variant }} site
     needs:
+      - source
       - cohort
       - api
     runs-on: ubuntu-26.04
@@ -89,6 +166,8 @@ jobs:
           - coreclr-r2r
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -128,7 +207,10 @@ jobs:
             --variant-root "$RUNNER_TEMP/runtime-site/variant" \
             --api-root "$RUNNER_TEMP/runtime-site/api" \
             --cohort "$RUNNER_TEMP/runtime-site/evidence/runtime-cohort.json" \
-            --source-commit "$GITHUB_SHA" \
+            --candidate-identity "$RUNNER_TEMP/runtime-site/evidence/candidate-identity.json" \
+            --source-commit "${{ needs.source.outputs.sha }}" \
+            --candidate-run-id "${{ needs.source.outputs.run_id }}" \
+            --candidate-attempt "${{ needs.source.outputs.run_attempt }}" \
             --output "$RUNNER_TEMP/runtime-site/deployment"
 
       - name: Upload deployment artifact
@@ -142,7 +224,9 @@ jobs:
 
   deploy-il:
     name: Deploy CoreCLR IL site
-    needs: prepare
+    needs:
+      - source
+      - prepare
     environment:
       name: inspect-web-coreclr-staging
       url: https://coreclr.dotnet-inspect.ca
@@ -164,11 +248,17 @@ jobs:
             sha256sum --check --quiet deployment-sha256.txt
           )
           jq -e \
-            --arg source "$GITHUB_SHA" \
+            --arg source "${{ needs.source.outputs.sha }}" \
+            --arg run_id "${{ needs.source.outputs.run_id }}" \
+            --argjson attempt "${{ needs.source.outputs.run_attempt }}" \
             '
-              .schema == 1
+              .schema == 2
               and .site == "coreclr-il"
               and .sourceCommit == $source
+              and .candidate == {
+                runId: $run_id,
+                attempt: $attempt
+              }
               and .runtime.implementation == "CoreCLR"
               and .configuration.publishReadyToRun == false
               and .admission.status == "admitted"
@@ -189,7 +279,9 @@ jobs:
 
   deploy-r2r:
     name: Deploy CoreCLR ReadyToRun site
-    needs: prepare
+    needs:
+      - source
+      - prepare
     environment:
       name: inspect-web-coreclr-r2r-staging
       url: https://coreclr-r2r.dotnet-inspect.ca
@@ -211,11 +303,17 @@ jobs:
             sha256sum --check --quiet deployment-sha256.txt
           )
           jq -e \
-            --arg source "$GITHUB_SHA" \
+            --arg source "${{ needs.source.outputs.sha }}" \
+            --arg run_id "${{ needs.source.outputs.run_id }}" \
+            --argjson attempt "${{ needs.source.outputs.run_attempt }}" \
             '
-              .schema == 1
+              .schema == 2
               and .site == "coreclr-r2r"
               and .sourceCommit == $source
+              and .candidate == {
+                runId: $run_id,
+                attempt: $attempt
+              }
               and .runtime.implementation == "CoreCLR"
               and .configuration.publishReadyToRun == true
               and .configuration.publishReadyToRunComposite == false

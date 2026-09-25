@@ -122,6 +122,7 @@ dotnet-inspect
   Query
   Workspace
   Activity
+  Demos
   ───────────
   Open Library…
 ```
@@ -152,6 +153,8 @@ The shell may land before adjacent redesign owners. During that transition:
 - the `dotnet-inspect` product-navigation menu is the sole persistent Home
   affordance, with Home as its first item and Open Library as its separated
   product action;
+- that menu is also the sole Open Library affordance on routed pages; Home
+  and Demos carry no separate Open Library button;
 - existing direct Share, Settings, and keyboard Help controls may remain in the
   shell until
   [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
@@ -184,8 +187,8 @@ The Application menu starts from three established patterns:
 
 The deliberate divergence is that the separate Application menu remains small
 and non-navigational. It contains only the shell-owned Share, Settings, and
-Keyboard help actions. Home, Query, Workspace, and Activity instead live in
-the brand-triggered product-navigation menu, where they remain prominent
+Keyboard help actions. Home, Query, Workspace, Activity, and Demos instead live
+in the brand-triggered product-navigation menu, where they remain prominent
 without competing horizontally with Subject and Inspector navigation.
 Open Library follows those destinations as a separated product action rather
 than pretending to be a routed destination or an application utility. Search,
@@ -198,13 +201,15 @@ becomes scarce.
 
 The visible `dotnet-inspect` wordmark and product mark form one button with a
 disclosure indicator. Activation opens a vertically stacked navigation
-popover containing Home, Query, Workspace, and Activity in that order,
-followed by a separator and Open Library. The current routed destination is
-marked with `aria-current="page"`; ordinary inspection has no falsely selected
-destination. Open Library is a modal product action, never receives
-`aria-current`, and keeps the existing Open overlay's visible startup,
+popover containing Home, Query, Workspace, Activity, and Demos in that
+order, followed by a separator and Open Library. The current routed
+destination is marked with `aria-current="page"`; ordinary inspection has no
+falsely selected destination. Open Library is a modal product action, never
+receives `aria-current`, and keeps the existing Open overlay's visible startup,
 progress, validation, and failure behavior. Workspace remains visible but is
 `aria-disabled` with an accessible reason when no Workspace is available.
+Demos is always available; the Demos page reports its own catalog loading or
+unavailability, and `/demos` marks Demos as the current destination.
 Query and Activity likewise remain visible but are `aria-disabled` with an
 accessible reason while runtime startup, inspection loading, or an inspection
 error prevents their route handlers from entering those destinations.
@@ -219,17 +224,17 @@ Home, and End move through destinations and Open Library; Escape closes it and
 returns focus to the trigger. Tab follows ordinary document order. Outside
 pointer or focus movement closes it without stealing focus.
 Shell maintenance that replaces an open menu while the current routed product
-destination remains Home, Query, Workspace, or Activity preserves the open
-state and the focused stable destination. A product-destination change closes
+destination remains Home, Query, Workspace, Activity, or Demos preserves the
+open state and the focused stable destination. A product-destination change closes
 the outgoing menu and follows the ordinary routed destination-focus contract.
 Surfaces outside that product-destination inventory retain their own
 replacement-focus contract.
 
-Home, Query, Activity, and Workspace continue to use their existing routed
-navigation outcomes, browser-history classification, retained Workspace
-state, and destination-focus behavior. Returning from Query or Activity to an
-inspection focuses the current rendered product-navigation trigger rather
-than a destroyed menu item.
+Home, Query, Activity, Workspace, and Demos continue to use their existing
+routed navigation outcomes, browser-history classification, retained
+Workspace state, and destination-focus behavior. Returning from Query or
+Activity to an inspection focuses the current rendered product-navigation
+trigger rather than a destroyed menu item.
 Activating Open Library closes the menu before opening the existing modal.
 Ordinary modal dismissal focuses the current rendered product-navigation
 trigger, including after shell replacement.
@@ -491,6 +496,23 @@ Initial focus moves to the dialog's visible heading. The dialog follows the
 shared modal containment, Escape, close, one-modal-at-a-time, and
 ordinary-dismissal focus-return rules.
 
+## Notice retry
+
+A query notice that carries a retry action shows the same `retry` control on
+every surface that renders it, including Home and Demos, and the control
+reruns that action. The `retry` and dismiss controls do not overlap.
+
+After a redeploy, an open tab can still reference hashed code chunks that no
+longer exist, so a lazy import fails and an in-place retry would request the
+same missing URL. When Vite reports a failed dynamic import
+(`vite:preloadError`), the shell records a stale deployment without
+suppressing the original failure. A retryable notice then says that
+dotnet-inspect was updated and that retry reloads the page, and retry reloads
+onto the current build. A lazily imported module whose load fails is not
+memoized, so a transient failure can succeed on the next attempt. The
+load-error screen and surface-specific retry controls keep their existing
+behavior.
+
 ## Command palette
 
 The existing command palette is the keyboard counterpart to the visible
@@ -576,8 +598,8 @@ outcomes.
 1. Confirm that row one contains the `dotnet-inspect` product-navigation
    control, Subject and Inspector navigation, Back and Forward, Search, and
    the Application menu, with no Package coordinate controls. Open the
-   product-navigation menu and confirm Home, Query, Workspace, Activity, a
-   separator, and Open Library in that order. Activate Open Library and confirm
+   product-navigation menu and confirm Home, Query, Workspace, Activity, Demos,
+   a separator, and Open Library in that order. Activate Open Library and confirm
    that the existing modal opens, receives its owned initial focus, and returns
    focus to the current product-navigation trigger on ordinary dismissal.
 2. Confirm that row one contains no workspace tabs, numeric workspace

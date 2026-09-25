@@ -11,12 +11,12 @@ namespace ILInspector.Research;
 public enum ResearchComparisonProfile
 {
     /// <summary>
-    /// Two acquired assembly descriptors, their resolvers, and their body
-    /// indexes compared for C# and IL implementation evidence.
+    /// Two acquired assembly descriptors, their resolvers, and their Analysis
+    /// call-graph results compared for C# and IL implementation evidence.
     /// </summary>
     ImplementationComparison,
 
-    /// <summary>Analysis body indexes compared for body signals.</summary>
+    /// <summary>Analysis call-graph results compared for body signals.</summary>
     BodySignal,
 }
 

@@ -31,6 +31,12 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 public partial class ApiCommand
 {
+    private static readonly InspectionEnvelopeJsonContract<
+        InspectionGraphDocument> s_callGraphJson =
+        new(
+            "member-call-graph",
+            1,
+            CallGraphInspectionJson.Write);
 
     // ===== Single Type Rendering =====
 
@@ -204,6 +210,14 @@ public partial class ApiCommand
         bool projectedFactsJson = IsProjectedFactsJson(options);
         bool callsJson = IsCallsJson(options);
         bool callersJson = IsCallersJson(options);
+        if (options is MemberOptions transportOptions
+            && !ValidateCallGraphTransport(transportOptions))
+        {
+            return 1;
+        }
+        bool callGraphTransport =
+            options is MemberOptions callGraphOptions
+            && IsCallGraphTransport(callGraphOptions);
         bool typeApiDeclarationsJson =
             options.JsonOutput
             && !options.Count
@@ -276,7 +290,8 @@ public partial class ApiCommand
             && !typeApiDeclarationsJson
             && !sourceJson
             && !sourceDocumentJson && !findingCensusJson && !factsJson
-            && !projectedFactsJson && !callsJson && !callersJson)
+            && !projectedFactsJson && !callsJson && !callersJson
+            && !callGraphTransport)
         {
             if (SectionNames.IncludesBodyMetrics(
                     GetRequestedMemberSections(type, options)))
@@ -974,6 +989,26 @@ public partial class ApiCommand
         {
             if (!TryPopulateSource(view, options))
                 return 1;
+        }
+
+        if (callGraphTransport
+            && options is MemberOptions memberCallGraphOptions)
+        {
+            if (view.MemberCode?.CallGraphInspection is not { } inspection)
+            {
+                CommandError.Write(
+                    "Call Graph output requires exactly one selected method overload.",
+                    "Select an overload by Name:N, Name~digest, or --index N.");
+                return 1;
+            }
+
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                inspection,
+                s_callGraphJson,
+                memberCallGraphOptions.EnvelopeOutput,
+                memberCallGraphOptions.CompactJson);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return wrote ? 0 : 1;
         }
 
         if (options.Print)

@@ -541,16 +541,40 @@ public partial class LibraryBodyIndexTests
 
     static ImmutableArray<byte>
         EmitGuardRejectedLocalSignatureAssembly()
+        => EmitLocalSignatureAssembly(
+            "DeepLocal",
+            localSignature =>
+            {
+                localSignature.WriteByte(0x07);
+                localSignature.WriteByte(0x01);
+                for (int i = 0;
+                    i < SignatureBlobGuard.DefaultMaxDepth;
+                    i++)
+                {
+                    localSignature.WriteByte(0x1d);
+                }
+                localSignature.WriteByte(0x08);
+            });
+
+    static ImmutableArray<byte>
+        EmitMalformedLocalSignatureAssembly()
+        => EmitLocalSignatureAssembly(
+            "MalformedLocal",
+            localSignature => localSignature.WriteByte(0x06));
+
+    static ImmutableArray<byte> EmitLocalSignatureAssembly(
+        string assemblyName,
+        Action<BlobBuilder> writeLocalSignature)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
-            metadata.GetOrAddString("DeepLocal.dll"),
+            metadata.GetOrAddString($"{assemblyName}.dll"),
             metadata.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(
-            metadata.GetOrAddString("DeepLocal"),
+            metadata.GetOrAddString(assemblyName),
             new Version(1, 0, 0, 0),
             default,
             default,
@@ -572,15 +596,7 @@ public partial class LibraryBodyIndexTests
             MetadataTokens.MethodDefinitionHandle(1));
 
         var localSignature = new BlobBuilder();
-        localSignature.WriteByte(0x07);
-        localSignature.WriteByte(0x01);
-        for (int i = 0;
-            i < SignatureBlobGuard.DefaultMaxDepth;
-            i++)
-        {
-            localSignature.WriteByte(0x1d);
-        }
-        localSignature.WriteByte(0x08);
+        writeLocalSignature(localSignature);
         StandaloneSignatureHandle localSignatureHandle =
             metadata.AddStandaloneSignature(
                 metadata.GetOrAddBlob(localSignature));

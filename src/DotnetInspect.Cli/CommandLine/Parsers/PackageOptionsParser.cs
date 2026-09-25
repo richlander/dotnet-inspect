@@ -633,7 +633,7 @@ public static class PackageOptionsParser
         }
 
         string[]? selectors =
-            ParseSelectors(result.GetValue(opts.Select));
+            ParseSelectors(opts.SelectText(result));
         string? typeFilter =
             result.GetValue(args.TypeFilterOption);
         if (!string.IsNullOrWhiteSpace(typeFilter))
@@ -704,7 +704,7 @@ public static class PackageOptionsParser
         }
 
         string[]? selectors =
-            ParseSelectors(result.GetValue(opts.Select));
+            ParseSelectors(opts.SelectText(result));
         if (result.GetResult(args.PathOption)
             is { Implicit: false })
         {
@@ -754,7 +754,7 @@ public static class PackageOptionsParser
             return false;
 
         string[]? selectors =
-            ParseSelectors(result.GetValue(opts.Select));
+            ParseSelectors(opts.SelectText(result));
         if (selectors is not { Length: > 0 })
             return false;
 
@@ -782,7 +782,7 @@ public static class PackageOptionsParser
             return false;
 
         string[]? selectors =
-            ParseSelectors(result.GetValue(opts.Select));
+            ParseSelectors(opts.SelectText(result));
         if (selectors is not { Length: > 0 })
             return false;
 
@@ -966,7 +966,7 @@ public static class PackageOptionsParser
         }
 
         string[]? selectors =
-            ParseSelectors(result.GetValue(opts.Select));
+            ParseSelectors(opts.SelectText(result));
         return selectors is [var selector]
             && selector.Equals(
                 SectionNames.CloneCandidates,
