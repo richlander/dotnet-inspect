@@ -883,7 +883,10 @@ remains that view's delivery under
 [Envelope-complete adoption](#envelope-complete-adoption). The
 `api.type`/`api.member` Finding Transitions lens is an endpoint-confirmation
 view of the same analysis, selected with `-S "Finding Transitions"`, not a
-second analysis. Attribute comparison is not part of `ApiFindingComparison`,
+second analysis. That lens emits every descriptor the analysis declares for
+the request's surface, in declaration order: `api.type` then `api.member` at
+Type, and `api.member` at Member. It therefore covers today's
+`--finding api.type` and `--finding api.member` selections at those surfaces. Attribute comparison is not part of `ApiFindingComparison`,
 so it is the separate `api-attribute` analysis and stays reachable.
 
 #### Retiring pairwise `--finding`

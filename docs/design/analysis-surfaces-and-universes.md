@@ -330,8 +330,10 @@ so a portable record can later name an analysis set durably.
 - A host accepts the exact ID. A host may present a title, but it does not
   mint aliases, slugs, or case-folded spellings.
 - One analysis may issue several Finding descriptors. Analysis identity and
-  Finding descriptor identity are separate: `api` issues `api.type`,
-  `api.member`, and `api.attribute`.
+  Finding descriptor identity are separate: for example, `api` issues
+  `api.type` and `api.member`.
+- At one report surface, each Finding descriptor is issued by exactly one
+  participating analysis, so a descriptor maps to one analysis identity.
 - The only existing descriptor, `analysis.integrations`, adopts the grammar
   when Graph adopts operation participation.
 
