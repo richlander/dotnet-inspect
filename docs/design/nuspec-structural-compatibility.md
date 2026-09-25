@@ -69,6 +69,11 @@ framework identity. Each direct `frameworkReference` retains its required
 non-empty `name` source spelling and a group-local semantic identity using
 NuGet's ordinal-ignore-case comparer.
 
+Packages uses `NuGet.Frameworks` as the canonicalization authority rather than
+implementing a second target-framework grammar. The dependency is
+host-neutral, NativeAOT-compatible, and shared by CLI and Browser/Wasm
+consumers of the package-owned projection.
+
 The semantic reference list contains one identity per case-insensitive name,
 using the first source spelling. The occurrence list remains complete and
 associates case-only duplicates with that same identity. Explicitly empty
