@@ -108,14 +108,14 @@ public sealed record DependencyInspectionLicense(
                 },
                 item.Declaration?.Kind switch
                 {
-                    DotnetInspector.Services.PackageLicenseDeclarationKind
+                    DotnetInspector.Packages.PackageLicenseDeclarationKind
                         .Expression =>
                             DependencyInspectionLicenseDeclarationKind
                                 .Expression,
-                    DotnetInspector.Services.PackageLicenseDeclarationKind
+                    DotnetInspector.Packages.PackageLicenseDeclarationKind
                         .File =>
                             DependencyInspectionLicenseDeclarationKind.File,
-                    DotnetInspector.Services.PackageLicenseDeclarationKind
+                    DotnetInspector.Packages.PackageLicenseDeclarationKind
                         .Url =>
                             DependencyInspectionLicenseDeclarationKind.Url,
                     null => null,

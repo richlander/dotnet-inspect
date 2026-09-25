@@ -411,7 +411,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Packages.InMemoryPackageStore",
             "DotnetInspector.Packages.InMemoryPdbStore",
             "DotnetInspector.Packages.SnupkgPdbReader",
-            "DotnetInspector.Services.NuspecParser",
+            "DotnetInspector.Packages.NuspecParser",
             "NuGetFetch.NuGetApi",
             "NuGetFetch.PackageExtractor",
             "NuGetFetch.PackageSignatureVerifier",

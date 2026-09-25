@@ -2,6 +2,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -9,7 +10,7 @@ public sealed partial class AssemblyContextSourceQueryTests
 {
     // PR-fast: exact Source line coordinates are independent of acquisition.
     [Fact]
-    public async Task SourceDocumentLinesReconstructExactDecodedText()
+    public async Task SourceViewLinesReconstructExactDecodedText()
     {
         TestAssembly assembly =
             TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
@@ -29,60 +30,60 @@ public sealed partial class AssemblyContextSourceQueryTests
 
         const string mixed =
             "A\r\n😀B\rC\nD\u0085E\u2028F\u2029G";
-        SourceDocument document =
+        SourceView view =
             AvailableDocument(
-                SourceDocumentInspection.Project(
+                SourceViewInspection.Project(
                     WithTypeText(template, mixed)));
 
-        Assert.Equal(mixed, Reconstruct(document));
+        Assert.Equal(mixed, Reconstruct(view));
         Assert.Collection(
-            document.Lines,
+            view.Lines,
             line => AssertLine(
                 line,
                 1,
                 0,
                 "A",
-                SourceDocumentLineTerminator.CarriageReturnLineFeed),
+                SourceViewLineTerminator.CarriageReturnLineFeed),
             line => AssertLine(
                 line,
                 2,
                 3,
                 "😀B",
-                SourceDocumentLineTerminator.CarriageReturn),
+                SourceViewLineTerminator.CarriageReturn),
             line => AssertLine(
                 line,
                 3,
                 7,
                 "C",
-                SourceDocumentLineTerminator.LineFeed),
+                SourceViewLineTerminator.LineFeed),
             line => AssertLine(
                 line,
                 4,
                 9,
                 "D",
-                SourceDocumentLineTerminator.NextLine),
+                SourceViewLineTerminator.NextLine),
             line => AssertLine(
                 line,
                 5,
                 11,
                 "E",
-                SourceDocumentLineTerminator.LineSeparator),
+                SourceViewLineTerminator.LineSeparator),
             line => AssertLine(
                 line,
                 6,
                 13,
                 "F",
-                SourceDocumentLineTerminator.ParagraphSeparator),
+                SourceViewLineTerminator.ParagraphSeparator),
             line => AssertLine(
                 line,
                 7,
                 15,
                 "G",
-                SourceDocumentLineTerminator.None));
+                SourceViewLineTerminator.None));
 
-        SourceDocument empty =
+        SourceView empty =
             AvailableDocument(
-                SourceDocumentInspection.Project(
+                SourceViewInspection.Project(
                     WithTypeText(template, "")));
         Assert.Collection(
             empty.Lines,
@@ -91,12 +92,12 @@ public sealed partial class AssemblyContextSourceQueryTests
                 1,
                 0,
                 "",
-                SourceDocumentLineTerminator.None));
+                SourceViewLineTerminator.None));
         Assert.Equal("", Reconstruct(empty));
 
-        SourceDocument finalEmpty =
+        SourceView finalEmpty =
             AvailableDocument(
-                SourceDocumentInspection.Project(
+                SourceViewInspection.Project(
                     WithTypeText(template, "A\n")));
         Assert.Collection(
             finalEmpty.Lines,
@@ -105,21 +106,21 @@ public sealed partial class AssemblyContextSourceQueryTests
                 1,
                 0,
                 "A",
-                SourceDocumentLineTerminator.LineFeed),
+                SourceViewLineTerminator.LineFeed),
             line => AssertLine(
                 line,
                 2,
                 2,
                 "",
-                SourceDocumentLineTerminator.None));
+                SourceViewLineTerminator.None));
         Assert.Equal("A\n", Reconstruct(finalEmpty));
     }
 
-    // PR-fast: completed type/member Source envelopes keep provider evidence,
-    // while unsuccessful envelopes retain their exact typed content.
+    // PR-fast: successful Source target views retain their distinct artifact
+    // association, provider evidence, and exact typed failure behavior.
     [Fact]
     public async Task
-        SourceDocumentProjectionPreservesProviderAndFailureEvidence()
+        SourceViewProjectionDistinguishesArtifactsAndPreservesEvidence()
     {
         TestAssembly typeAssembly =
             TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
@@ -168,36 +169,48 @@ public sealed partial class AssemblyContextSourceQueryTests
                 partialEntry,
                 pdbType.Share,
                 pdbType.Diagnostics);
-        InspectionEnvelope<SourceDocument> projectedType =
+        InspectionEnvelope<SourceView> projectedType =
             Assert.IsType<
-                    SourceDocumentProjection<AssemblyTypeSourceEntry>
+                    SourceViewProjection<AssemblyTypeSourceEntry>
                         .Available>(
-                    SourceDocumentInspection.Project(partialEnvelope))
+                    SourceViewInspection.Project(partialEnvelope))
                 .Inspection;
-        SourceDocument typeDocument = projectedType.Content;
+        SourceView typeView = projectedType.Content;
 
-        Assert.Equal(SourceDocumentProvider.Pdb, typeDocument.Provider);
+        Assert.Equal(SourceViewProvider.Pdb, typeView.Provider);
         Assert.Equal(
-            SourceDocumentLanguage.CSharp,
-            typeDocument.Language);
+            SourceViewKind.AuthoredWholeDocument,
+            typeView.Kind);
+        Assert.Equal(
+            SourceViewLanguage.CSharp,
+            typeView.Language);
         Assert.Equal(
             typeAvailable.Subject.Identity,
-            typeDocument.Identity.Assembly);
+            typeView.Identity.Assembly);
         Assert.Same(
             typeAvailable.Subject.Provenance,
-            typeDocument.Identity.Resolution);
+            typeView.Identity.Resolution);
         Assert.Equal(
             typeAvailable.Request,
-            Assert.IsType<SourceDocumentRequest.Type>(
-                    typeDocument.Request)
+            Assert.IsType<SourceViewRequest.Type>(
+                    typeView.Request)
                 .Value);
-        Assert.NotEmpty(typeDocument.Binding.Value);
-        Assert.Empty(typeof(SourceDocumentBinding).GetConstructors());
-        Assert.NotNull(typeDocument.Authored);
-        Assert.Null(typeDocument.AuthoredAttempt);
-        SourceDocumentTypeMappingEvidence typeMapping =
-            Assert.IsType<SourceDocumentTypeMappingEvidence>(
-                typeDocument.TypeMapping);
+        Assert.NotEmpty(typeView.Binding.Value);
+        Assert.Empty(typeof(SourceViewBinding).GetConstructors());
+        var typeOrigin =
+            Assert.IsType<SourceViewOrigin.AuthoredWholeDocument>(
+                typeView.Origin);
+        Assert.Same(typePdb.Provenance, typeOrigin.Artifact!.Provenance);
+        Assert.Equal(
+            partialInspection.Document,
+            typeOrigin.Artifact.Document);
+        Assert.Equal(
+            partialInspection.ChecksumVerification,
+            typeOrigin.Artifact.ChecksumVerification);
+        Assert.Null(typeView.AuthoredAttempt);
+        SourceViewTypeMappingEvidence typeMapping =
+            Assert.IsType<SourceViewTypeMappingEvidence>(
+                typeView.TypeMapping);
         Assert.True(typeMapping.IsPartial);
         Assert.Single(typeMapping.AdditionalDocuments);
         Assert.Same(partialEnvelope.Share, projectedType.Share);
@@ -233,21 +246,24 @@ public sealed partial class AssemblyContextSourceQueryTests
                 TestContext.Current.CancellationToken);
         }
 
-        SourceDocument visualBasicDocument =
+        SourceView visualBasicView =
             Assert.IsType<
-                    SourceDocumentProjection<AssemblyTypeSourceEntry>
+                    SourceViewProjection<AssemblyTypeSourceEntry>
                         .Available>(
-                    SourceDocumentInspection.Project(visualBasicType))
+                    SourceViewInspection.Project(visualBasicType))
                 .Inspection.Content;
         Assert.Equal(
-            SourceDocumentProvider.Pdb,
-            visualBasicDocument.Provider);
+            SourceViewProvider.Pdb,
+            visualBasicView.Provider);
         Assert.Equal(
-            SourceDocumentLanguage.VisualBasic,
-            visualBasicDocument.Language);
+            SourceViewKind.AuthoredWholeDocument,
+            visualBasicView.Kind);
+        Assert.Equal(
+            SourceViewLanguage.VisualBasic,
+            visualBasicView.Language);
         Assert.Contains(
             "Public Interface BodylessSourceFixture",
-            Reconstruct(visualBasicDocument),
+            Reconstruct(visualBasicView),
             StringComparison.Ordinal);
 
         TestAssembly fallbackAssembly =
@@ -269,22 +285,25 @@ public sealed partial class AssemblyContextSourceQueryTests
                 TestContext.Current.CancellationToken);
         }
 
-        InspectionEnvelope<SourceDocument> projectedFallback =
+        InspectionEnvelope<SourceView> projectedFallback =
             Assert.IsType<
-                    SourceDocumentProjection<AssemblyTypeSourceEntry>
+                    SourceViewProjection<AssemblyTypeSourceEntry>
                         .Available>(
-                    SourceDocumentInspection.Project(fallbackType))
+                    SourceViewInspection.Project(fallbackType))
                 .Inspection;
         Assert.Equal(
-            SourceDocumentProvider.Decompiled,
+            SourceViewProvider.Decompiled,
             projectedFallback.Content.Provider);
         Assert.Equal(
-            SourceDocumentLanguage.CSharp,
+            SourceViewKind.DecompiledType,
+            projectedFallback.Content.Kind);
+        Assert.Equal(
+            SourceViewLanguage.CSharp,
             projectedFallback.Content.Language);
-        Assert.Null(projectedFallback.Content.Authored);
+        Assert.Null(projectedFallback.Content.Origin.Artifact);
         var authoredAttempt =
             Assert.IsType<
-                SourceDocumentAuthoredAttemptEvidence.Type>(
+                SourceViewAuthoredAttemptEvidence.Type>(
                 projectedFallback.Content.AuthoredAttempt);
         Assert.Equal(
             PdbTypeSourceOutcome.ChecksumMismatch,
@@ -305,14 +324,16 @@ public sealed partial class AssemblyContextSourceQueryTests
             TestAssembly.CreatePackage(
                 File.ReadAllBytes(memberPath),
                 memberPdbPath);
-        using var memberHost = QueryHost.WithPdb(
-            memberPdbPath,
+        byte[] memberDocumentBytes =
             File.ReadAllBytes(
                 Path.Combine(
                     AppContext.BaseDirectory,
                     "RealAssets",
                     "LibraryAdapter",
-                    "MemberTextSlicer.cs")),
+                    "MemberTextSlicer.cs"));
+        using var memberHost = QueryHost.WithPdb(
+            memberPdbPath,
+            memberDocumentBytes,
             maxDecompilerBodyProjections: 0);
         InspectionEnvelope<AssemblyMemberSourceEntry> pdbMember;
         await using (var workspace = new InspectionWorkspace())
@@ -330,22 +351,42 @@ public sealed partial class AssemblyContextSourceQueryTests
                 TestContext.Current.CancellationToken);
         }
 
-        InspectionEnvelope<SourceDocument> projectedMember =
+        InspectionEnvelope<SourceView> projectedMember =
             Assert.IsType<
-                    SourceDocumentProjection<AssemblyMemberSourceEntry>
+                    SourceViewProjection<AssemblyMemberSourceEntry>
                         .Available>(
-                    SourceDocumentInspection.Project(pdbMember))
+                    SourceViewInspection.Project(pdbMember))
                 .Inspection;
         Assert.Equal(
-            SourceDocumentProvider.Pdb,
+            SourceViewProvider.Pdb,
             projectedMember.Content.Provider);
-        Assert.IsType<SourceDocumentRequest.Member>(
+        Assert.Equal(
+            SourceViewKind.AuthoredDeclarationExcerpt,
+            projectedMember.Content.Kind);
+        Assert.IsType<SourceViewRequest.Member>(
             projectedMember.Content.Request);
         Assert.Null(projectedMember.Content.TypeMapping);
-        Assert.Equal(
+        var memberOrigin =
+            Assert.IsType<
+                SourceViewOrigin.AuthoredDeclarationExcerpt>(
+                projectedMember.Content.Origin);
+        var memberAvailable =
             Assert.IsType<AssemblyMemberSourceEntry.Available>(
-                    pdbMember.Content)
-                .Source.Text,
+                pdbMember.Content);
+        var memberPdb =
+            Assert.IsType<AssemblyMemberSource.Pdb>(
+                memberAvailable.Source);
+        Assert.Same(
+            memberPdb.Inspection.Mapping,
+            memberOrigin.Mapping);
+        Assert.Equal(
+            memberPdb.Inspection.Document,
+            memberOrigin.Artifact!.Document);
+        Assert.NotEqual(
+            SourceLinkService.DecodeSourceText(memberDocumentBytes),
+            Reconstruct(projectedMember.Content));
+        Assert.Equal(
+            memberAvailable.Source.Text,
             Reconstruct(projectedMember.Content));
 
         TestAssembly fallbackMemberAssembly =
@@ -369,19 +410,23 @@ public sealed partial class AssemblyContextSourceQueryTests
                 TestContext.Current.CancellationToken);
         }
 
-        InspectionEnvelope<SourceDocument> projectedFallbackMember =
+        InspectionEnvelope<SourceView> projectedFallbackMember =
             Assert.IsType<
-                    SourceDocumentProjection<AssemblyMemberSourceEntry>
+                    SourceViewProjection<AssemblyMemberSourceEntry>
                         .Available>(
-                    SourceDocumentInspection.Project(fallbackMember))
+                    SourceViewInspection.Project(fallbackMember))
                 .Inspection;
         Assert.Equal(
-            SourceDocumentProvider.Decompiled,
+            SourceViewProvider.Decompiled,
             projectedFallbackMember.Content.Provider);
+        Assert.Equal(
+            SourceViewKind.DecompiledMember,
+            projectedFallbackMember.Content.Kind);
+        Assert.Null(projectedFallbackMember.Content.Origin.Artifact);
         Assert.Equal(
             PdbMemberSourceOutcome.ChecksumMismatch,
             Assert.IsType<
-                    SourceDocumentAuthoredAttemptEvidence.Member>(
+                    SourceViewAuthoredAttemptEvidence.Member>(
                     projectedFallbackMember.Content.AuthoredAttempt)
                 .Outcome);
 
@@ -399,9 +444,9 @@ public sealed partial class AssemblyContextSourceQueryTests
                 pdbType.Diagnostics);
         var retainedRejected =
             Assert.IsType<
-                SourceDocumentProjection<AssemblyTypeSourceEntry>
+                SourceViewProjection<AssemblyTypeSourceEntry>
                     .Retained>(
-                SourceDocumentInspection.Project(rejectedEnvelope));
+                SourceViewInspection.Project(rejectedEnvelope));
         Assert.Same(rejectedEnvelope, retainedRejected.Inspection);
 
         var unavailableContent =
@@ -422,9 +467,9 @@ public sealed partial class AssemblyContextSourceQueryTests
                 pdbType.Diagnostics);
         var retainedUnavailable =
             Assert.IsType<
-                SourceDocumentProjection<AssemblyTypeSourceEntry>
+                SourceViewProjection<AssemblyTypeSourceEntry>
                     .Retained>(
-                SourceDocumentInspection.Project(unavailableEnvelope));
+                SourceViewInspection.Project(unavailableEnvelope));
         Assert.Same(unavailableEnvelope, retainedUnavailable.Inspection);
 
         var incompleteAvailable =
@@ -442,10 +487,10 @@ public sealed partial class AssemblyContextSourceQueryTests
                 pdbType.Diagnostics);
         InvalidOperationException incompleteError =
             Assert.Throws<InvalidOperationException>(
-                () => SourceDocumentInspection.Project(
+                () => SourceViewInspection.Project(
                     incompleteAvailableEnvelope));
         Assert.Contains(
-            "complete decoded document",
+            "complete decoded view",
             incompleteError.Message);
     }
 
@@ -471,24 +516,24 @@ public sealed partial class AssemblyContextSourceQueryTests
             template.Diagnostics);
     }
 
-    private static SourceDocument AvailableDocument(
-        SourceDocumentProjection<AssemblyTypeSourceEntry> projection) =>
+    private static SourceView AvailableDocument(
+        SourceViewProjection<AssemblyTypeSourceEntry> projection) =>
         Assert.IsType<
-                SourceDocumentProjection<AssemblyTypeSourceEntry>
+                SourceViewProjection<AssemblyTypeSourceEntry>
                     .Available>(projection)
             .Inspection.Content;
 
-    private static string Reconstruct(SourceDocument document) =>
+    private static string Reconstruct(SourceView view) =>
         string.Concat(
-            document.Lines.Select(
+            view.Lines.Select(
                 static line => line.Content + line.TerminatorText));
 
     private static void AssertLine(
-        SourceDocumentLine line,
+        SourceViewLine line,
         int number,
         int start,
         string content,
-        SourceDocumentLineTerminator terminator)
+        SourceViewLineTerminator terminator)
     {
         Assert.Equal(number, line.Number);
         Assert.Equal(start, line.Start);
