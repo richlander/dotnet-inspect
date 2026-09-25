@@ -161,13 +161,17 @@ public sealed class PackageHouseVersionPopulationCell
 
     /// <summary>
     /// Prepares one exact candidate-bound House execution for this cell.
+    /// <paramref name="assetDemand"/> bounds a ranged read of the cell's
+    /// payload (docs/design/package-read-demand.md#asset-demand).
     /// </summary>
     public PackageHouseVersionPopulationCellExecution PrepareExecution(
         PackageHouseOperation operation,
         PackageHouseTargetContext? targetContext = null,
         PackageHouseAssetSelectionKind? assetSelection = null,
         PackageHouseLibraryHandoffMode libraryHandoff =
-            PackageHouseLibraryHandoffMode.PackageOnly)
+            PackageHouseLibraryHandoffMode.PackageOnly,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation)
     {
         ArgumentNullException.ThrowIfNull(operation);
         return new(
@@ -176,21 +180,25 @@ public sealed class PackageHouseVersionPopulationCell
                 operation,
                 targetContext,
                 assetSelection,
-                libraryHandoff));
+                libraryHandoff,
+                assetDemand));
     }
 
     internal PackageHouseRequest CreateRequest(
         PackageHouseOperation operation,
         PackageHouseTargetContext? targetContext,
         PackageHouseAssetSelectionKind? assetSelection,
-        PackageHouseLibraryHandoffMode libraryHandoff) =>
+        PackageHouseLibraryHandoffMode libraryHandoff,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation) =>
         new(
             new PackageHouseDemand.Candidate(Candidate),
             operation,
             targetContext,
             assetSelection,
             libraryHandoff,
-            Association);
+            Association,
+            assetDemand);
 }
 
 /// <summary>

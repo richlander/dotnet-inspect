@@ -208,7 +208,8 @@ public static partial class SourceExports
                     cancellationToken),
                 Evidence: null);
         }
-        if (view != "source")
+        bool decompilerOnly = view == "decompiler-source";
+        if (view != "source" && !decompilerOnly)
             throw new ArgumentException($"Unknown type code view '{view}'.", nameof(view));
 
         (
@@ -228,6 +229,27 @@ public static partial class SourceExports
             var request = AssemblyTypeSourceRequest.From(
                 type,
                 BrowserStyleOptions.Resolve(styleOptionsJson));
+            if (decompilerOnly)
+            {
+                InspectionEnvelope<AssemblyTypeDecompilationEntry>
+                    decompilationInspection =
+                    await scope.UseImplementationParticipant(
+                        participant,
+                        (group, member) =>
+                            TypeSourceInspection.DecompileAsync(
+                                group,
+                                member,
+                                request,
+                                BrowserSourceQueryContext.Create(),
+                                cancellationToken: cancellationToken));
+                return new(
+                    new BrowserTypeCodeView.Source(
+                        Adapt(decompilationInspection.Content, participant),
+                        decompilationInspection.Share,
+                        decompilationInspection.Diagnostics),
+                    Evidence: null);
+            }
+
             var builder =
                 new EvidenceInspectionBuilder<
                     AssemblyTypeSourceEntry,
@@ -546,6 +568,39 @@ public static partial class SourceExports
                 "Unknown assembly type source result."),
         };
 
+    internal static BrowserSource Adapt(
+        AssemblyTypeDecompilationEntry result,
+        BrowserWorkspaceParticipant participant) =>
+        result switch
+        {
+            AssemblyTypeDecompilationEntry.Settled
+            {
+                Attempt:
+                {
+                    Status: CSharpDecompilationStatus.Available,
+                    Text: { } text,
+                },
+            } => new BrowserSource(
+                "decompiled",
+                DecompiledProvenance(participant),
+                null,
+                null,
+                text),
+            AssemblyTypeDecompilationEntry.Settled settled =>
+                throw new TypeSourceUnavailableException(
+                    "Decompiler source unavailable: "
+                    + DecompilerAttemptReason(settled.Attempt)),
+            AssemblyTypeDecompilationEntry.Rejected rejected =>
+                throw new TypeSourceUnavailableException(
+                    $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
+            AssemblyTypeDecompilationEntry.Unavailable unavailable =>
+                throw new TypeSourceUnavailableException(
+                    SourceUnavailable(unavailable.Failure).Message,
+                    unavailable.Failure.Error),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly type decompilation result."),
+        };
+
     sealed class TypeSourceUnavailableException(string message, Exception? inner = null)
         : InvalidOperationException(message, inner);
 
@@ -720,6 +775,12 @@ public static partial class SourceExports
                 failed.Error.Reason,
             _ => null,
         };
+
+    static string DecompilerAttemptReason(
+        CSharpDecompilationAttempt attempt) =>
+        attempt.DiagnosticSummary is { Length: > 0 } detail
+            ? detail
+            : $"decompilation ended with status {attempt.Status}";
 
     internal static InvalidOperationException SourceUnavailable(
         AssemblySourceFailure failure,
