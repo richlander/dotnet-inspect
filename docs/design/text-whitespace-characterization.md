@@ -653,7 +653,7 @@ counted plan:
 | S4 | Inspect Web source-diff transport | Typed Worker transport of the characterization |
 | S5 | Inspect Web diff viewer | The three presentation modes for authored → authored comparisons; Suppress as an explicit choice |
 | S6 | `DotnetInspector.Presentation` and CLI | Insensitive policy for the member Source Diff, the default, with an explicit sensitive option; needs M2 |
-| S7 | Decompiler harness (RTS) | Insensitive decompiled ↔ authored comparison in place of `NormalizeBody` |
+| S7 | Decompiler harness (RTS) | Insensitive decompiled ↔ authored Correct judgment in place of `NormalizeBody`; whitespace-only classification of A/B changes |
 
 S0–S2 and M1 have landed. S3, S6, and S7 are independent of each other,
 except that S3's exclusion mode and S6 both follow M2. S6
@@ -722,9 +722,14 @@ defaults and their hosts:
   inside a string literal stays a difference until a language certifier says
   otherwise.
 - Decompiled → decompiled comparisons, such as RTS A/B runs across decompiler
-  builds, keep the sensitive default. RTS A/B compares trimmed text
-  ordinally today, which is sensitive to everything except leading and
-  trailing whitespace of the whole text, so no slice changes them.
+  builds, keep the sensitive default. RTS A/B compares trimmed text ordinally
+  today, which is sensitive to everything except leading and trailing
+  whitespace of the whole text. S7 replaces that equality with the pair
+  outcome: a method is unchanged only when the outcome is `Identical`, and
+  each changed method is classified as `WhitespaceOnly`, a printer layout
+  change, or `Changed`. Leading and trailing whitespace of the whole text
+  therefore becomes a whitespace-only change instead of no change. The
+  structural diff that explains changed methods is unchanged.
 
 Follow-on owners track separately in #8393:
 
@@ -732,5 +737,8 @@ Follow-on owners track separately in #8393:
 - syntax-level equivalence beyond lexical certification, such as an
   expression-bodied member that corresponds to a one-statement block body,
   which no slice plans yet;
-- decompiler structural-diff adoption of the pair primitive; and
-- retirement of the undeclared `CSharpBodyDiff` line-identity trim.
+- decompiler structural-diff adoption of the pair primitive;
+- retirement of the undeclared `CSharpBodyDiff` line-identity trim; and
+- whether Printer exact gains the characterization as an explanation of a
+  `Different` result, or moves its verdict onto the pair outcome, which the
+  operator deferred to a discussion with the RTS owner.
