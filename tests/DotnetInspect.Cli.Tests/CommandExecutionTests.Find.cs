@@ -991,6 +991,59 @@ public partial class CommandExecutionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task
+        Find_PackageMultiPatternNamespaceDescendantsUseLibraryPopulation()
+    {
+        const string NamespacePattern = "System.Text.Json.Nodes.*";
+        const string DirectPattern =
+            "System.Text.Json.JsonSerializer";
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            $"{NamespacePattern},{DirectPattern}",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(6, rows.Length);
+        Assert.All(
+            rows,
+            static row =>
+                Assert.Equal(
+                    "System.Text.Json",
+                    row.GetProperty("source").GetString()));
+        Assert.All(
+            rows[..5],
+            static row =>
+            {
+                Assert.Equal(
+                    NamespacePattern,
+                    row.GetProperty("pattern").GetString());
+                Assert.Equal(
+                    "Namespace",
+                    row.GetProperty("match").GetString());
+            });
+        Assert.Equal(
+            DirectPattern,
+            rows[^1].GetProperty("pattern").GetString());
+        Assert.Equal(
+            DirectPattern,
+            rows[^1].GetProperty("full_name").GetString());
+        Assert.Equal(
+            "Direct",
+            rows[^1].GetProperty("match").GetString());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task Find_LocatorMixedPatternsPreservePatternOrderBeforeLimit()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1185,6 +1238,73 @@ public partial class CommandExecutionTests
                     row.GetProperty("namespace").GetString()
                         == "System.Text.Json.Serialization.Metadata");
         }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task
+        Find_DefaultMultiPatternNamespaceDescendantsPreserveAllSources()
+    {
+        const string NamespacePattern = "System.Text.Json.Nodes.*";
+        const string DirectPattern =
+            "System.Text.Json.JsonSerializer";
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            $"{NamespacePattern},{DirectPattern}",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        JsonElement[] namespaceRows =
+        [
+            .. rows.Where(
+                static row =>
+                    row.GetProperty("pattern").GetString()
+                        == NamespacePattern),
+        ];
+        Assert.Equal(10, namespaceRows.Length);
+        Assert.Equal(
+            5,
+            namespaceRows.Count(
+                static row =>
+                    row.GetProperty("source").GetString()
+                        == "System.Text.Json"));
+        Assert.Equal(
+            5,
+            namespaceRows.Count(
+                static row =>
+                    row.GetProperty("source").GetString()
+                        == "runtime"));
+        Assert.All(
+            namespaceRows,
+            static row =>
+                Assert.Equal(
+                    "Namespace",
+                    row.GetProperty("match").GetString()));
+
+        JsonElement directRow =
+            Assert.Single(
+                rows,
+                static row =>
+                    row.GetProperty("pattern").GetString()
+                        == DirectPattern);
+        Assert.Equal(
+            DirectPattern,
+            directRow.GetProperty("full_name").GetString());
+        Assert.Equal(
+            "Direct",
+            directRow.GetProperty("match").GetString());
+        Assert.Equal(
+            NamespacePattern,
+            rows[0].GetProperty("pattern").GetString());
+        Assert.Equal(
+            DirectPattern,
+            rows[^1].GetProperty("pattern").GetString());
     }
 
     [Fact]

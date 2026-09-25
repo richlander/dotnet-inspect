@@ -143,7 +143,9 @@ same package and Platform operations, and classifies every resulting row as
 `System.Text.Json.Nodes.*` includes `System.Text.Json.Nodes` and its descendant
 namespaces but excludes `System.Text.Json.NodesExtra`. Other wildcard forms,
 including `System.Text.Json.Nodes*`, retain the established Type-glob grammar
-and `Glob` classification.
+and `Glob` classification. Each terminal `.*` pattern in a multi-pattern
+request executes the same namespace operation independently; adding a
+neighboring pattern does not narrow its eligible source observations.
 
 Locator-backed exact namespace rows restore caller source order before
 eliminating repeated Type identities within one logical source. Repeated

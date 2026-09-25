@@ -59,6 +59,40 @@ internal static class TypeSearchService
                 if (configured is null)
                     return new([], HasFailures: true);
 
+                async Task<List<TypeFindResult>>
+                    InspectConfiguredNamespaceAsync(string pattern)
+                {
+                    if (!TryGetNamespaceSearchPattern(
+                            pattern,
+                            out NamespaceSearchPattern namespacePattern))
+                    {
+                        return [];
+                    }
+
+                    InspectionEnvelope<
+                        PackageNamespaceDiscoveryOutcome>? inspection =
+                            await configured.InspectNamespaceAsync(
+                                namespacePattern.Namespace,
+                                namespacePattern.Match,
+                                cancellationToken);
+                    if (inspection is null)
+                    {
+                        MarkFailure();
+                        return [];
+                    }
+
+                    (
+                        List<TypeFindResult> rows,
+                        bool inspectionFailed) =
+                            ProjectPackageNamespace(
+                                inspection,
+                                options,
+                                namespacePattern.Pattern);
+                    if (inspectionFailed)
+                        MarkFailure();
+                    return rows;
+                }
+
                 List<TypeFindResult> configuredResults =
                     patterns.Length == 1
                     ? await FindSinglePatternAsync(
@@ -71,39 +105,7 @@ internal static class TypeSearchService
                             configured,
                             MarkFailure,
                             cancellationToken),
-                        async pattern =>
-                        {
-                            if (!TryGetNamespaceSearchPattern(
-                                    pattern,
-                                    out NamespaceSearchPattern
-                                        namespacePattern))
-                            {
-                                return [];
-                            }
-
-                            InspectionEnvelope<
-                                PackageNamespaceDiscoveryOutcome>? inspection =
-                                    await configured.InspectNamespaceAsync(
-                                        namespacePattern.Namespace,
-                                        namespacePattern.Match,
-                                        cancellationToken);
-                            if (inspection is null)
-                            {
-                                MarkFailure();
-                                return [];
-                            }
-
-                            (
-                                List<TypeFindResult> rows,
-                                bool inspectionFailed) =
-                                    ProjectPackageNamespace(
-                                        inspection,
-                                        options,
-                                        namespacePattern.Pattern);
-                            if (inspectionFailed)
-                                MarkFailure();
-                            return rows;
-                        })
+                        InspectConfiguredNamespaceAsync)
                     : await FindMultiPatternAsync(
                         patterns,
                         options,
@@ -113,7 +115,8 @@ internal static class TypeSearchService
                             logger,
                             configured,
                             MarkFailure,
-                            cancellationToken));
+                            cancellationToken),
+                        InspectConfiguredNamespaceAsync);
                 return CreateSearchResult(
                     configuredResults,
                     hasFailures || platformCatalogFailed,
@@ -123,12 +126,14 @@ internal static class TypeSearchService
             Func<string, Task<List<TypeFindResult>>>?
                 inspectImplicitNamespace = null;
             if (commandContext is not null
-                && patterns.Length == 1
-                && CanUseImplicitPlatformNamespacePath(
-                    options,
-                    request,
-                    patterns[0]))
+                && patterns.Any(pattern =>
+                    CanUseImplicitPlatformNamespacePath(
+                        options,
+                        request,
+                        pattern)))
             {
+                Task<CliPlatformTypeCatalogOutcome>? catalogTask = null;
+                bool catalogFailureReported = false;
                 inspectImplicitNamespace = async pattern =>
                 {
                     if (!TryGetNamespaceSearchPattern(
@@ -139,10 +144,12 @@ internal static class TypeSearchService
                     }
 
                     CliPlatformTypeCatalogOutcome catalogOutcome =
-                        await PlatformTypeCatalogRouting.LoadAsync(
-                            commandContext,
-                            options.SourceOptions ?? new(),
-                            cancellationToken);
+                        await (catalogTask ??=
+                            PlatformTypeCatalogRouting.LoadAsync(
+                                    commandContext,
+                                    options.SourceOptions ?? new(),
+                                    cancellationToken)
+                                .AsTask());
                     if (catalogOutcome
                         is not CliPlatformTypeCatalogOutcome.Completed
                             completed)
@@ -151,11 +158,15 @@ internal static class TypeSearchService
                         var failure =
                             (CliPlatformTypeCatalogOutcome.NotCompleted)
                                 catalogOutcome;
-                        CommandError.WriteWarning(
-                            "Platform namespace discovery could not use the "
-                                + "PlatformHouse type catalog "
-                                + $"({failure.Kind}); continuing with "
-                                + "compatibility search.");
+                        if (!catalogFailureReported)
+                        {
+                            catalogFailureReported = true;
+                            CommandError.WriteWarning(
+                                "Platform namespace discovery could not use "
+                                    + "the PlatformHouse type catalog "
+                                    + $"({failure.Kind}); continuing with "
+                                    + "compatibility search.");
+                        }
                         return [];
                     }
 
@@ -1136,7 +1147,8 @@ internal static class TypeSearchService
             await FindMultiPatternAsync(
                 patterns,
                 options,
-                Collect),
+                Collect,
+                inspectNamespace),
             hasFailures,
             options.PackagePrefixLimitReached);
     }
@@ -1169,7 +1181,9 @@ internal static class TypeSearchService
     private static async Task<List<TypeFindResult>> FindMultiPatternAsync(
         string[] patterns,
         FindOptions options,
-        Func<string?, Task<List<TypeSearchResult>>> collect)
+        Func<string?, Task<List<TypeSearchResult>>> collect,
+        Func<string, Task<List<TypeFindResult>>>?
+            inspectNamespace = null)
     {
         var allTypes = await collect(null);
         var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
@@ -1187,6 +1201,29 @@ internal static class TypeSearchService
                     pattern,
                     out NamespaceSearchPattern namespacePattern))
             {
+                if (inspectNamespace is not null)
+                {
+                    List<TypeFindResult> inspected =
+                        await inspectNamespace(pattern);
+                    if (inspected.Count > 0)
+                    {
+                        IEnumerable<TypeFindResult> selected =
+                            inspected;
+                        if (options.Limit is { } inspectedLimit)
+                        {
+                            selected = selected.Take(inspectedLimit);
+                        }
+                        resultsByPattern[pattern] =
+                        [
+                            .. selected.Select(
+                                static result =>
+                                    ToSearchResult(result)),
+                        ];
+                        namespacePatterns.Add(pattern);
+                        continue;
+                    }
+                }
+
                 List<TypeSearchResult> namespaceMatches =
                 [
                     .. NamespaceCandidates(
@@ -1293,6 +1330,20 @@ internal static class TypeSearchService
             similarityByPattern,
             namespacePatterns);
     }
+
+    private static TypeSearchResult ToSearchResult(
+        TypeFindResult result) =>
+        new()
+        {
+            TypeName = result.Type,
+            Namespace = result.Namespace,
+            FullName = result.FullName,
+            Kind = result.Kind,
+            Assembly = result.Library,
+            Source = result.Source,
+            SourceVersion = result.SourceVersion,
+            Location = result.Location,
+        };
 
     private static bool TryGetNamespacePrefixMatches(
         string pattern,
