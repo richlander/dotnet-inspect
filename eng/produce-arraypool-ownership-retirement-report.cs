@@ -138,16 +138,30 @@ static class RetirementReport
                 "Corpus manifest identities must be unique.");
         }
         var inputs = new List<Input>();
+        var corpusAssemblyFiles =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var corpusIdentities =
+            new HashSet<string>(StringComparer.Ordinal);
         foreach (string line in File.ReadLines(options.CorpusList))
         {
             string path = Path.GetFullPath(line.Trim());
             string fileName = Path.GetFileName(path);
+            if (!corpusAssemblyFiles.Add(fileName))
+            {
+                throw new InvalidOperationException(
+                    $"Corpus assembly file '{fileName}' is duplicated.");
+            }
             if (!manifest.TryGetValue(
                     fileName,
                     out CorpusManifest? entry))
             {
                 throw new InvalidOperationException(
                     $"No corpus manifest entry exists for '{fileName}'.");
+            }
+            if (!corpusIdentities.Add(entry.Identity))
+            {
+                throw new InvalidOperationException(
+                    $"Corpus identity '{entry.Identity}' is duplicated.");
             }
             inputs.Add(new(
                 entry.Identity,
@@ -161,11 +175,10 @@ static class RetirementReport
                     : Path.GetFullPath(entry.PackageFile)));
         }
         inputs.AddRange(options.Fixtures);
-        if (manifest.Count != inputs.Count(
-                static input => input.Kind != "fixture"))
+        if (!corpusAssemblyFiles.SetEquals(manifest.Keys))
         {
             throw new InvalidOperationException(
-                "The corpus list and provenance manifest populations differ.");
+                "The corpus list and provenance manifest memberships differ.");
         }
 
         foreach (Input input in inputs)
