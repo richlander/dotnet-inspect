@@ -1201,11 +1201,9 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.Source,
-                SectionNames.DecompiledSource,
-                SectionNames.AnnotatedSource,
                 SectionNames.PdbSource,
-                SectionNames.SourceDiff,
-                SectionNames.IL
+                SectionNames.DecompiledSource,
+                SectionNames.SourceDiff
             ],
             categories[SectionCategoryNames.Source]);
     }
@@ -1218,11 +1216,9 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.Source,
-                SectionNames.DecompiledSource,
-                SectionNames.AnnotatedSource,
                 SectionNames.PdbSource,
-                SectionNames.SourceDiff,
-                SectionNames.IL
+                SectionNames.DecompiledSource,
+                SectionNames.SourceDiff
             ],
             categories[SectionCategoryNames.Source]);
     }
