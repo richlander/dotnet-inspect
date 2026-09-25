@@ -1136,7 +1136,6 @@ export interface CapabilityCatalogSearchDocument {
 }
 
 export interface CapabilityCatalogSearchResult {
-  readonly rank: number;
   readonly similarity: number;
   readonly matchedTerm: string;
   readonly matchSource: CapabilityCatalogSearchMatchSource;

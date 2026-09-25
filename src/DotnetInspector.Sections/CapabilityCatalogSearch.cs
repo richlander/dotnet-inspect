@@ -67,7 +67,6 @@ public sealed record CapabilityCatalogSearchBinding(
     string ResourcePath);
 
 public sealed record CapabilityCatalogSearchResult(
-    int Rank,
     double Similarity,
     string MatchedTerm,
     CapabilityCatalogSearchMatchSource MatchSource,
@@ -135,9 +134,8 @@ public static class CapabilityCatalogSearch
         [
             .. matches
                 .Take(request.MaximumResults)
-                .Select((match, index) =>
+                .Select(match =>
                     match.Candidate.ToResult(
-                        index + 1,
                         match.Similarity,
                         match.Term)),
         ];
@@ -507,11 +505,9 @@ public static class CapabilityCatalogSearch
         }
 
         public CapabilityCatalogSearchResult ToResult(
-            int rank,
             double similarity,
             SearchTerm term) =>
             new(
-                rank,
                 similarity,
                 term.Value,
                 term.Source,

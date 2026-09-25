@@ -19,7 +19,6 @@ public sealed class CapabilityCatalogSearchTests
                 new("literal"));
 
         CapabilityCatalogSearchResult result = envelope.Content.Results[0];
-        Assert.Equal(1, result.Rank);
         Assert.Equal(1.0, result.Similarity);
         Assert.Equal("literal", result.MatchedTerm);
         Assert.Equal(

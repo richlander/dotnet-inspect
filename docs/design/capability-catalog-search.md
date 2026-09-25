@@ -324,7 +324,6 @@ CapabilityCatalogSearchDocument
   Results[]
 
 CapabilityCatalogSearchResult
-  Rank
   Similarity
   MatchedTerm
   MatchSource

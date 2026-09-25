@@ -75,7 +75,6 @@ public sealed class CapabilityCatalogSearchTableView
 }
 
 public sealed record CapabilityCatalogSearchRow(
-    int Rank,
     string Score,
     string Kind,
     string Key,
@@ -87,7 +86,6 @@ public sealed record CapabilityCatalogSearchRow(
     public static CapabilityCatalogSearchRow Create(
         CapabilityCatalogSearchResult result) =>
         new(
-            result.Rank,
             result.Similarity.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture),
             KindName(result.ResourceKind),
             result.CanonicalKeys.FirstOrDefault() ?? "",
