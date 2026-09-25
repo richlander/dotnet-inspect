@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
@@ -8,7 +9,7 @@ using InertText;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Request for exact namespace discovery in one retained package realization.
+/// Request for namespace discovery in one retained package realization.
 /// </summary>
 public sealed record PackageNamespaceDiscoveryRequest
 {
@@ -16,14 +17,38 @@ public sealed record PackageNamespaceDiscoveryRequest
         string @namespace,
         ApiSurfaceExtractionBounds bounds,
         AssemblyContextLibraryMaterializationLimits materializationLimits)
+        : this(
+            @namespace,
+            bounds,
+            materializationLimits,
+            MetadataNamespaceMatch.Exact)
+    {
+    }
+
+    [JsonConstructor]
+    public PackageNamespaceDiscoveryRequest(
+        string @namespace,
+        ApiSurfaceExtractionBounds bounds,
+        AssemblyContextLibraryMaterializationLimits materializationLimits,
+        MetadataNamespaceMatch namespaceMatch)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(@namespace);
+        if (namespaceMatch
+            is not MetadataNamespaceMatch.Exact
+            and not MetadataNamespaceMatch.ExactOrDescendant)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(namespaceMatch),
+                namespaceMatch,
+                "Package namespace discovery supports exact or descendant matching.");
+        }
         Namespace = @namespace;
         Bounds = bounds ?? throw new ArgumentNullException(nameof(bounds));
         MaterializationLimits =
             materializationLimits
             ?? throw new ArgumentNullException(
                 nameof(materializationLimits));
+        NamespaceMatch = namespaceMatch;
     }
 
     public string Namespace { get; }
@@ -32,10 +57,11 @@ public sealed record PackageNamespaceDiscoveryRequest
     {
         get;
     }
+    public MetadataNamespaceMatch NamespaceMatch { get; }
 }
 
 /// <summary>
-/// One exact package Library observation and its public namespace declarations.
+/// One package Library observation and its public namespace declarations.
 /// </summary>
 public sealed record PackageNamespaceDiscoveryHit(
     string PackageId,
@@ -168,7 +194,7 @@ public static class PackageNamespaceDiscoveryInspection
                                         .DefinitionsAndForwarders,
                                     ApiTypeInventoryKinds.All,
                                     request.Namespace,
-                                    MetadataNamespaceMatch.Exact),
+                                    request.NamespaceMatch),
                                 request.Bounds)),
                         lease,
                         cancellationToken);
@@ -213,7 +239,7 @@ public static class PackageNamespaceDiscoveryInspection
                         Diagnostic(
                             "package-namespace-discovery.rows",
                             candidate,
-                            "The exact namespace Type rows were not fully drained."));
+                            "The namespace Type rows were not fully drained."));
                     continue;
                 }
                 if (rows.Items.IsEmpty)
@@ -309,27 +335,27 @@ public static class PackageNamespaceDiscoveryInspection
                     Document.Types.Rows:
                         LibraryTypePopulationRowsOutcome.Unavailable rows,
                 } =>
-                    $"The exact namespace rows are unavailable ({rows.Reason}).",
+                    $"The namespace rows are unavailable ({rows.Reason}).",
             LibraryInspectionOutcome.Available
                 {
                     Document.Types.Rows:
                         LibraryTypePopulationRowsOutcome.Rejected rows,
                 } =>
-                    $"The exact namespace rows were rejected ({rows.Reason}).",
+                    $"The namespace rows were rejected ({rows.Reason}).",
             LibraryInspectionOutcome.Available
                 {
                     Document.Types.Rows:
                         LibraryTypePopulationRowsOutcome.Incomplete rows,
                 } =>
-                    $"The exact namespace rows exceeded {rows.Bound} "
+                    $"The namespace rows exceeded {rows.Bound} "
                         + $"({rows.Measured} > {rows.Limit}).",
             LibraryInspectionOutcome.Available
                 {
                     Document.Types.Rows:
                         LibraryTypePopulationRowsOutcome.Failed rows,
                 } =>
-                    $"The exact namespace rows failed ({rows.Reason}).",
-            _ => "The exact namespace inspection returned no readable rows.",
+                    $"The namespace rows failed ({rows.Reason}).",
+            _ => "The namespace inspection returned no readable rows.",
         };
 
     private static async ValueTask<bool> RetireAsync(
