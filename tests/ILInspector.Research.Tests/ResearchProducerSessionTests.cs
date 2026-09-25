@@ -110,7 +110,7 @@ public partial class ResearchProducerSessionTests
                         ResearchComparisonProfile.BodySignal,
                         [
                             new ResearchComparisonAdmissionQuestion(
-                                [new BodySignalComparisonInputOccurrence(bodyIndex)],
+                                [new BodySignalComparisonInputOccurrence(bodyIndex.CallGraphAnalysis)],
                                 []),
                         ]))).Population;
         Assert.Equal(
@@ -384,7 +384,7 @@ public partial class ResearchProducerSessionTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            beforeIndex);
+            beforeIndex.CallGraphAnalysis);
         SessionFixture fixture = SessionFixture.Create(
             changed,
             Occurrence(v1));
@@ -836,6 +836,7 @@ public partial class ResearchProducerSessionTests
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
             typeof(LibraryBodyIndex),
+            typeof(LibraryCallGraphAnalysisResult),
             typeof(MetadataSource),
             typeof(Stream),
             typeof(Delegate),
@@ -981,7 +982,7 @@ public partial class ResearchProducerSessionTests
                     tfm: null,
                     rid: null)),
             new NullResolver(),
-            index);
+            index.CallGraphAnalysis);
     }
 
     sealed class SessionFixture

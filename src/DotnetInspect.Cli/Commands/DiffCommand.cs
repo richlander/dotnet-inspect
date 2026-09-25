@@ -1738,7 +1738,7 @@ public class DiffCommand
         IReadOnlySet<int> metadataTokens,
         ISet<string> identities)
     {
-        foreach (MethodIdentity method in assembly.BodyIndex.DeclaredMethods)
+        foreach (MethodIdentity method in assembly.MethodPopulation.DeclaredMethods)
         {
             if (metadataTokens.Contains(method.MetadataToken))
             {
@@ -1762,7 +1762,7 @@ public class DiffCommand
         return new(
             assembly,
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            session.BodyIndex,
+            session.CallGraphAnalysis,
             session.AnalysisExecution.ImplementationProfiles);
     }
 
@@ -2145,24 +2145,24 @@ public class DiffCommand
         var indexed =
             new List<(
                 string Path,
-                LibraryBodyIndex Index,
+                LibraryCallGraphAnalysisResult MethodPopulation,
                 AssemblyContextParticipant Participant)>();
         foreach (string path in paths)
         {
             try
             {
-                LibraryBodyIndex index = MethodBodyInspectionSession.Open(
+                LibraryCallGraphAnalysisResult methodPopulation = MethodBodyInspectionSession.Open(
                         path,
                         includeAllocations: false,
                         includeOpportunities: false)
-                    .BodyIndex;
+                    .CallGraphAnalysis;
                 AssemblyContextParticipant participant =
                     CreateSourceParticipant(
                         path,
                         options,
                         oldSide,
                         FindAssemblySetEntry(path, entries));
-                indexed.Add((path, index, participant));
+                indexed.Add((path, methodPopulation, participant));
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
@@ -2188,13 +2188,13 @@ public class DiffCommand
         var sourceContext = CreateSourceQueryContext(options, httpClient, logger);
         await using var workspace = new InspectionWorkspace();
 
-        foreach ((string path, LibraryBodyIndex index,
+        foreach ((string path, LibraryCallGraphAnalysisResult methodPopulation,
             AssemblyContextParticipant participant) in indexed)
         {
             foreach (string failure in PdbSourceDeclarationIndexFailures(
                 path,
-                index.DeclaredMethods,
-                index.Diagnostics))
+                methodPopulation.DeclaredMethods,
+                methodPopulation.Diagnostics))
             {
                 logger.Log(failure);
                 indexingFailures.Add(failure);
@@ -2212,7 +2212,7 @@ public class DiffCommand
                     in endpointMethods)
                 {
                     if (method.ModuleVersionId
-                            != index.ModuleIdentity.ModuleVersionId
+                            != methodPopulation.ModuleIdentity.ModuleVersionId
                         || results.ContainsKey(subjectId))
                     {
                         continue;
@@ -2222,7 +2222,7 @@ public class DiffCommand
                     targetSubjects.Add(subjectId);
                 }
             }
-            foreach (MethodIdentity method in index.DeclaredMethods)
+            foreach (MethodIdentity method in methodPopulation.DeclaredMethods)
             {
                 ResearchSubjectKey derived =
                     ResearchMemberIdentity.SubjectFromMethod(method);
@@ -2241,7 +2241,7 @@ public class DiffCommand
                 endpointFailures?.Values.Any(
                     failure => failure.AmbiguousMethods.Any(
                         method => method.ModuleVersionId
-                            == index.ModuleIdentity.ModuleVersionId))
+                            == methodPopulation.ModuleIdentity.ModuleVersionId))
                 == true;
             if (targets.Count == 0 && !hasEndpointFailures)
                 continue;
@@ -2271,7 +2271,7 @@ public class DiffCommand
             {
                 ProjectPdbSourceEndpointFailures(
                     endpointFailures,
-                    index.ModuleIdentity.ModuleVersionId,
+                    methodPopulation.ModuleIdentity.ModuleVersionId,
                     requestIndex,
                     subjects,
                     results);

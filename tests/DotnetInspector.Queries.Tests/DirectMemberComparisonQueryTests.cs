@@ -522,15 +522,19 @@ public sealed class DirectMemberComparisonQueryTests
 
     sealed class PublicationFixture : IDisposable
     {
-        readonly LibraryBodyIndex _index;
+        readonly LibraryCallGraphAnalysisResult _callGraph;
 
         internal PublicationFixture()
         {
             byte[] image = Image();
-            _index = LibraryBodyIndex.OpenFromPrefetchedImage(
-                "fixture", [.. image], LibraryBodyAnalysisFeatures.MethodEvidence);
+            _callGraph = LibraryBodyAnalysisService.ExecuteImage(
+                    "fixture",
+                    [.. image],
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures.MethodEvidence))
+                .CallGraph;
             var binding = new ImplementationComparisonBinding(
-                Assembly(image, () => new CleanupStream(image, FailCleanup)), new NullResolver(), _index);
+                Assembly(image, () => new CleanupStream(image, FailCleanup)), new NullResolver(), _callGraph);
             var population = (QueryComparisonPopulation<ImplementationComparisonBinding>)
                 Assert.IsType<QueryPopulationSealingOutcome.Sealed>(
                     QueryComparisonPopulationSealer.Execute(
@@ -565,7 +569,7 @@ public sealed class DirectMemberComparisonQueryTests
             string name) =>
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.Create(@namespace, [name])).Name;
-        public void Dispose() => _index.ReleaseCallGraphCaches();
+        public void Dispose() => _callGraph.ReleaseCaches();
     }
 
     static ResolvedAssemblyReference Assembly(byte[] image, Func<Stream>? open = null)

@@ -450,7 +450,7 @@ internal static class WorkspaceImplementationComparisonRunner
                     path
                     ?? throw new InvalidOperationException(
                         $"The realized assembly '{assembly.Identity.Name}' has no local image path.")),
-            MethodBodyInspectionSession.Open(assembly).BodyIndex);
+            MethodBodyInspectionSession.Open(assembly).CallGraphAnalysis);
 
     static bool IsPackageRoot(
         AssemblySetEntry entry,

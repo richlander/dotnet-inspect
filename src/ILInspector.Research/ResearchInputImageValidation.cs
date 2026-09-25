@@ -31,7 +31,7 @@ internal static class ResearchInputImageValidation
         ResearchTargetInputValidationEvidence evidence,
         ImplementationComparisonInputOccurrence occurrence)
     {
-        LibraryBodyModuleIdentity analysis = occurrence.BodyIndex.ModuleIdentity;
+        LibraryBodyModuleIdentity analysis = occurrence.MethodPopulation.ModuleIdentity;
         if (!evidence.IsAssembly)
             return ResearchTargetDiagnosticKind.StandaloneModule;
         if (analysis.AssemblyIdentity is null)
