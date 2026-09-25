@@ -976,6 +976,15 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{member\.overloads\.length} overloads/);
   assert.match(
     renderMember,
+    /const callGraphExplore = state\.memberSection === "call-graph"[\s\S]*class="member-surface-actions"[\s\S]*id="call-graph-explore" data-graph-explore/);
+  const targetbarActions =
+    appSource.match(/contextualActionsHtml:[\s\S]*?inspectedTargetHtml:/)?.[0]
+    ?? "";
+  assert.doesNotMatch(
+    targetbarActions,
+    /callGraphPageContext|id="call-graph-explore"/);
+  assert.match(
+    renderMember,
     /class="member-surface-scroll"[\s\S]*?class="api-list api-surface-list member-surface-list"/);
   assert.match(
     renderMember,

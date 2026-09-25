@@ -7187,8 +7187,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
-  const callGraphPageContext =
-    activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment =>
     [segment.label, segment.targetFramework, segment.qualifier]
@@ -7226,8 +7224,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}
@@ -7236,9 +7234,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
                 : ""}
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
-                : ""}
-              ${callGraphPageContext
-                ? `<button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>`
                 : ""}
               ${annotatedPageContext
                 ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
@@ -9874,17 +9869,25 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     assertNever(state.memberSection, "member section");
   }
   if (!memberSectionUsesWorkingSurface(state.memberSection)) return content;
+  const callGraphExplore = state.memberSection === "call-graph"
+    ? `<div class="member-surface-actions" role="group" aria-label="Call graph actions">
+        <button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>
+      </div>`
+    : "";
   // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
   // the top scope+lens bar, so the detail view renders only the section content itself.
   return `
     <section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-        <p>${escapeHtml(member.kind)} <span>· ${
-          state.memberSection === "implementation-profiles"
-            ? `${member.overloads.length} overloads`
-            : `${overloadIndex + 1} of ${member.overloads.length}`
-        }</span></p>
+        <div class="member-surface-meta">
+          <p>${escapeHtml(member.kind)} <span>· ${
+            state.memberSection === "implementation-profiles"
+              ? `${member.overloads.length} overloads`
+              : `${overloadIndex + 1} of ${member.overloads.length}`
+          }</span></p>
+          ${callGraphExplore}
+        </div>
       </header>
       <div class="member-surface-scroll">${content}</div>
     </section>`;
@@ -17615,7 +17618,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       }
       targetContainer.innerHTML =
         '<div class="graph-viewport"></div>'
-        + graphControlsHtml();
+        + graphControlsHtml(true);
       const viewport =
         targetContainer.querySelector<HTMLElement>(".graph-viewport");
       if (!viewport) {
@@ -17628,6 +17631,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       targetContainer.dataset.graphDef = definition;
       bindGraphPanZoom(targetContainer, viewport, {
         keybindings,
+        focusNodeSelector: "g.node.target",
         resolveCallGraphNode: nodeId =>
           callGraphNodeBinding(mounted, nodeId),
       });
@@ -18083,6 +18087,7 @@ function graphExplorerTarget() {
   if (dependencies) {
     return {
       key,
+      role: "dependency" as const,
       kind: "Dependency graph",
       subject: packageCoordinateLabel(pkg),
       context: `Target framework ${pkg.activeFramework}`,
@@ -18096,6 +18101,7 @@ function graphExplorerTarget() {
   if (typeRelationships) {
     return {
       key,
+      role: "type" as const,
       kind: "Type relationships",
       subject: path.at(-1)?.label ?? "Selected type",
       context: packageCoordinateLabel(pkg),
@@ -18120,6 +18126,7 @@ function graphExplorerTarget() {
     : packageCoordinateLabel(pkg);
   return {
     key,
+    role: "call" as const,
     kind: "Call graph",
     subject: overload?.signature ?? path.at(-1)?.label ?? "Selected member",
     context: `${packageContext} · ${parent}`,

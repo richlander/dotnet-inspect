@@ -2,6 +2,7 @@ import { trapModalTab } from "./shell-controls.ts";
 
 export interface GraphExplorerTarget {
   key: string;
+  role: "call" | "dependency" | "type";
   kind: string;
   subject: string;
   context: string;
@@ -39,6 +40,7 @@ export function createGraphExplorer(document: Document) {
     next.content.before(placeholder);
     contentHost!.replaceChildren(next.content);
     dialog!.setAttribute("aria-label", next.kind);
+    dialog!.dataset.graphKind = next.role;
     kind!.textContent = next.kind;
     heading!.textContent = next.subject;
     context!.textContent = next.context;
@@ -83,19 +85,22 @@ export function createGraphExplorer(document: Document) {
       dialog.className = "graph-explorer";
       dialog.innerHTML = `
         <header class="graph-explorer-head">
-          <div class="graph-explorer-heading">
+          <div class="graph-explorer-bar">
             <div class="graph-explorer-meta">
               <span class="graph-explorer-kind"></span>
               <span class="graph-explorer-summary"></span>
+              <span class="graph-explorer-hint">Drag to pan · Scroll to zoom · Fit for overview</span>
             </div>
-            <h2 id="graph-explorer-title" tabindex="-1"></h2>
+            <button type="button" id="graph-explorer-close">Close</button>
+          </div>
+          <div class="graph-explorer-heading">
+            <h1 id="graph-explorer-title" tabindex="-1"></h1>
             <span class="graph-explorer-context"></span>
           </div>
-          <button type="button" id="graph-explorer-close">Close</button>
         </header>
         <div class="graph-explorer-content"></div>`;
       kind = dialog.querySelector<HTMLElement>(".graph-explorer-kind")!;
-      heading = dialog.querySelector<HTMLElement>("h2")!;
+      heading = dialog.querySelector<HTMLElement>("h1")!;
       context = dialog.querySelector<HTMLElement>(".graph-explorer-context")!;
       summary = dialog.querySelector<HTMLElement>(".graph-explorer-summary")!;
       contentHost = dialog.querySelector<HTMLElement>(".graph-explorer-content")!;

@@ -90,6 +90,46 @@ test("pristine framing follows the viewport while a user-adjusted view stays fix
   expect(await svg.getAttribute("style")).not.toBe(fitted);
 });
 
+test("dense Call graph opens on a readable target and keeps Fit as the overview", async ({ page }) => {
+  await page.goto("/browser/graph-explorer.html?graph=dense");
+  const svg = page.locator("#diagram svg");
+  await expect(svg).toBeVisible();
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  const viewport = page.locator(".graph-explorer .graph-viewport");
+  const target = viewport.locator("g.node.target");
+
+  const focused = await page.evaluate(() => {
+    const viewportElement =
+      document.querySelector<HTMLElement>(".graph-explorer .graph-viewport")!;
+    const targetElement =
+      viewportElement.querySelector<SVGGElement>("g.node.target")!;
+    const svgElement = viewportElement.querySelector<SVGSVGElement>("svg")!;
+    const viewportRect = viewportElement.getBoundingClientRect();
+    const targetRect = targetElement.getBoundingClientRect();
+    return {
+      deltaX: Math.abs(
+        targetRect.left + targetRect.width / 2
+        - (viewportRect.left + viewportRect.width / 2)),
+      deltaY: Math.abs(
+        targetRect.top + targetRect.height / 2
+        - (viewportRect.top + viewportRect.height / 2)),
+      scale: Number(
+        /scale\(([^)]+)\)/
+          .exec(svgElement.getAttribute("style") || "")?.[1]),
+    };
+  });
+  expect(focused.scale).toBeGreaterThanOrEqual(0.65);
+  expect(focused.deltaX).toBeLessThan(2);
+  expect(focused.deltaY).toBeLessThan(2);
+  await expect(target).toBeInViewport();
+
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  const overview = await svg.getAttribute("style");
+  expect(overview).not.toContain("scale(0.65)");
+  await page.getByRole("button", { name: "Target", exact: true }).click();
+  expect(await svg.getAttribute("style")).not.toBe(overview);
+});
+
 test("production Call graph roles match the legend palette in both themes", async ({ page }) => {
   const colors = async () => ({
     target: await page.locator("#diagram g.node.target rect.label-container")
