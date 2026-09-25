@@ -305,6 +305,9 @@ static class RetirementReport
                 rootCount,
                 pathCount,
                 lifecycle.ActionableFindings,
+                current.StandardError.Contains(
+                    "analysis was incomplete",
+                    StringComparison.OrdinalIgnoreCase),
                 inputRows.Count(row =>
                     row.Classification == "IntentionalImprovement"),
                 inputRows.Count(row =>
@@ -330,6 +333,7 @@ static class RetirementReport
                 0,
                 0,
                 [],
+                false,
                 0,
                 1);
         }
@@ -1442,6 +1446,31 @@ static class RetirementReport
             + "machine-readable classification. No display text is used as a "
             + "typed comparison authority.");
         text.AppendLine();
+        text.AppendLine("## Product boundary");
+        text.AppendLine();
+        string[] publiclyIncomplete =
+        [
+            .. summaries
+                .Where(static summary => summary.PublicAnalysisIncomplete)
+                .Select(static summary => summary.Input),
+        ];
+        text.AppendLine(
+            $"The current public CLI succeeds on the framework input and emits "
+            + $"the two findings below. It fails closed with explicit incomplete-"
+            + $"analysis diagnostics on {publiclyIncomplete.Length} of "
+            + $"{summaries.Count} comparison inputs: "
+            + string.Join(
+                ", ",
+                publiclyIncomplete.Select(static input => $"`{input}`"))
+            + ".");
+        text.AppendLine();
+        text.AppendLine(
+            "The typed lifecycle and Research comparisons resolve the selected "
+            + "assemblies in process and therefore complete on those inputs. "
+            + "They certify replacement semantics for the measured engines; "
+            + "they do not establish that the public CLI can complete those "
+            + "same library inspections.");
+        text.AppendLine();
         text.AppendLine("## Positive framework findings");
         text.AppendLine();
         ActionableLifecycleFinding[] platformFindings =
@@ -1713,6 +1742,7 @@ static class RetirementReport
         int ResearchRoots,
         int ResearchPaths,
         ImmutableArray<ActionableLifecycleFinding> ActionableFindings,
+        bool PublicAnalysisIncomplete,
         int IntentionalImprovements,
         int Defects);
 
