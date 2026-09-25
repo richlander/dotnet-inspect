@@ -3,6 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
@@ -12,6 +13,255 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class MetadataRelationGraphAdapterTests
 {
+    [Fact]
+    public void AssemblyReferencePopulationCarriesTerminalsToMetadata()
+    {
+        string path = typeof(MetadataFindings).Assembly.Location;
+        AssemblyReferenceIdentity identity = ReadIdentity(path);
+        ResolvedAssemblyReference assembly = Resolved(path, identity);
+        var coordinate =
+            new RealizedMemberCoordinate.Package(
+                "ilinspector.metadata",
+                "1.0.0",
+                "local",
+                "net11.0",
+                runtimeIdentifier: null);
+        StructuralSubjectTestData.PackageContext package =
+            StructuralSubjectTestData.Package(coordinate);
+        var libraryInput =
+            new WorkspaceContextMember(
+                WorkspaceMemberCoordinate.Package(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    coordinate.Framework,
+                    coordinate.RuntimeIdentifier),
+                coordinate,
+                new AssemblyContextParticipant(
+                    assembly,
+                    NoResolverAssemblyBindingPolicy.Instance));
+        StructuralSubjectIdentity.LibrarySubject focus =
+            StructuralSubjectIdentity.ForLibrary(
+                package.Subject,
+                libraryInput);
+        SubjectRelationPopulationAuthority population =
+            SubjectRelationPopulationAuthority.Capture(
+                package.Workspace,
+                new object());
+        SubjectRelationFocusCorrespondence correspondence =
+            SubjectRelationFocusCorrespondence.Create(
+                focus,
+                population,
+                InspectionGraphSubject.ForAcquiredAssembly(assembly),
+                InspectionGraphEndpointRole.Source,
+                new object());
+        var selection =
+            new SubjectRelationPopulationSelection(
+                SubjectRelationForm.AssemblyReference,
+                InspectionGraphIntegrationsCatalog.MetadataReference.Id,
+                SubjectRelationDirectionSelection.Outgoing,
+                SubjectRelationEvidenceKind.Declaration);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        MetadataAssemblyReferenceSubjectRelationsExecution execution =
+            MetadataAssemblyReferenceSubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Library,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(2))),
+                correspondence,
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        int expected =
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    execution.Population.Count).Value;
+        var allRows = new List<SubjectRelationRow>();
+        var initialRows =
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Read>(
+                    execution.Population.Rows);
+        if (initialRows.Continuation is not null)
+        {
+            SubjectRelationPopulationContinuationAuthority
+                initialAuthority =
+                    execution.ContinuationAuthority
+                    ?? throw new Xunit.Sdk.XunitException(
+                        "Expected initial continuation authority.");
+            MetadataAssemblyReferenceSubjectRelationsExecution rejected =
+                MetadataAssemblyReferenceSubjectRelationsOperation.Execute(
+                    session,
+                    assembly,
+                    new(
+                        SubjectRelationsRouteKind.Library,
+                        focus,
+                        population,
+                        new(
+                            new SubjectRelationPopulationSelection(
+                                SubjectRelationForm.AssemblyReference,
+                                InspectionGraphIntegrationsCatalog
+                                    .MetadataReference.Id,
+                                SubjectRelationDirectionSelection.Both,
+                                SubjectRelationEvidenceKind.Declaration),
+                            rows:
+                                new SubjectRelationPopulationRowsRequest(
+                                    2,
+                                    continuation:
+                                        initialRows.Continuation))),
+                    correspondence,
+                    MetadataOperationPolicy.Unbounded,
+                    initialAuthority,
+                    TestContext.Current.CancellationToken);
+            Assert.Equal(
+                SubjectRelationPopulationRowsRejection
+                    .IncompatibleContinuation,
+                Assert.IsType<
+                    SubjectRelationPopulationRowsOutcome.Rejected>(
+                        rejected.Population.Rows).Reason);
+        }
+
+        while (true)
+        {
+            var rows =
+                Assert.IsType<
+                    SubjectRelationPopulationRowsOutcome.Read>(
+                        execution.Population.Rows);
+            Assert.InRange(rows.Items.Length, 0, 2);
+            allRows.AddRange(rows.Items);
+            Assert.All(
+                rows.Items,
+                row =>
+                {
+                    Assert.Equal(
+                        SubjectRelationForm.AssemblyReference,
+                        row.Form);
+                    Assert.Equal(
+                        SubjectRelationDirection.Outgoing,
+                        row.Direction);
+                    Assert.NotEmpty(row.Occurrences);
+                    Assert.All(
+                        row.Occurrences,
+                        occurrence => Assert.IsType<
+                            MetadataReferenceGraphEvidence>(
+                                occurrence.Occurrence.Evidence));
+                });
+
+            if (rows.Continuation is null)
+                break;
+
+            SubjectRelationPopulationContinuationAuthority authority =
+                execution.ContinuationAuthority
+                ?? throw new Xunit.Sdk.XunitException(
+                    "Expected continuation authority.");
+            execution =
+                MetadataAssemblyReferenceSubjectRelationsOperation.Execute(
+                    session,
+                    assembly,
+                    new(
+                        SubjectRelationsRouteKind.Library,
+                        focus,
+                        population,
+                        new(
+                            selection,
+                            rows:
+                                new SubjectRelationPopulationRowsRequest(
+                                    2,
+                                    continuation:
+                                        rows.Continuation))),
+                    correspondence,
+                    MetadataOperationPolicy.Unbounded,
+                    authority,
+                    TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(expected, allRows.Count);
+        Assert.Equal(
+            expected,
+            allRows.Select(static row => row.Target).Distinct().Count());
+        Assert.Null(execution.ContinuationAuthority);
+
+        MetadataAssemblyReferenceSubjectRelationsExecution countOnly =
+            MetadataAssemblyReferenceSubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Library,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest())),
+                correspondence,
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            expected,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    countOnly.Population.Count).Value);
+        Assert.Null(countOnly.Population.Rows);
+        Assert.Null(countOnly.ContinuationAuthority);
+
+        Assert.Throws<ArgumentException>(() =>
+            MetadataAssemblyReferenceSubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Library,
+                    focus,
+                    population,
+                    new(
+                        new SubjectRelationPopulationSelection(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(2))),
+                correspondence,
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        session.Dispose();
+        var unknownContinuation =
+            new SubjectRelationPopulationContinuation(
+                new InertString(
+                    TextPolicy.Field,
+                    "unknown"));
+        MetadataAssemblyReferenceSubjectRelationsExecution invalid =
+            MetadataAssemblyReferenceSubjectRelationsOperation.Execute(
+                session,
+                assembly,
+                new(
+                    SubjectRelationsRouteKind.Library,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                2,
+                                continuation:
+                                    unknownContinuation))),
+                correspondence,
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection.InvalidContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    invalid.Population.Rows).Reason);
+    }
+
     [Fact]
     public void ExtensionAndSignatureFamiliesBindTheSameMemberFocus()
     {
@@ -45,14 +295,14 @@ public sealed class MetadataRelationGraphAdapterTests
                         MetadataRelationGraphCatalog.Extension)
                     && occurrence.SourceSubject
                         is InspectionGraphSubject.MemberSubject
-                        {
-                            Identity:
+                    {
+                        Identity:
                                 InspectionGraphMemberIdentity.AcquiredApi
-                                {
-                                    Member.CanonicalSignature:
+                        {
+                            Member.CanonicalSignature:
                                         "M:ILInspector.Metadata.MetadataReaderExtensions.GetFullTypeName(System.Reflection.Metadata.MetadataReader,System.Reflection.Metadata.TypeDefinition)",
-                                },
-                        });
+                        },
+                    });
         InspectionGraphOccurrence signature =
             Assert.Single(
                 projection.Occurrences,
@@ -815,13 +1065,13 @@ public sealed class MetadataRelationGraphAdapterTests
                     MetadataRelationGraphCatalog.Extension)
                 && occurrence.SourceSubject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.AcquiredApi
-                            {
-                                Member.MemberName: var actualName,
-                            },
-                    }
+                    {
+                        Member.MemberName: var actualName,
+                    },
+                }
                 && actualName == memberName);
 
     private static ResolvedAssemblyReference Resolved(
