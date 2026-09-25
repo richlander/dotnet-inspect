@@ -151,10 +151,29 @@ never retain a participant after the scope is disposed.
      kind, so the scope's surface is extracted without it. Library API Diff
      resolves no constraints on either path and doesn't need this rule.
 
-   Every other request takes the legacy path unchanged. The selector rule is
-   decided after the ranged read, so a cold request that falls back has
-   also read its surface folders by range; the entry cache keeps them. Evidence for the
-   selector rule: with `--tfm`, `TfmSelector.SelectAssembliesByTfmFromPackage`
+   Every other request takes the legacy path unchanged. Both endpoints open
+   concurrently, and the first that falls back cancels the other.
+
+   The selector rule is decided from the archive directory before any
+   surface folder is read. The House reads a directory by range only for a
+   Realize or a document demand, so the check is a ranged Acquire whose
+   document demand names the nuspec. That demand also reads the archive's
+   root folder. This is a transitional admission cost, and it retires with the
+   legacy selector in step 4. Measured on nuget.org:
+   - A fallback pays, per endpoint and on top of main, the size probe, one
+     directory tail (65,557 bytes), and the root folder (about 17 KB for
+     `Avalonia`).
+   - An admitted request pays, per endpoint and on top of a Realize alone,
+     a second directory tail (65,557 bytes) and the root folder (about 2 KB
+     for `System.Text.Json`). That is one more request round before the
+     Realize, which rereads the cached directory's tail.
+
+   The reference rule needs surfaces, so its fallback pays the surface read
+   before the legacy download. For `MediatR` 12.2.0..12.4.1, which is below
+   the ranged size cut, that is 49 KB and 0.3 s more than main, cold.
+
+   Evidence for the selector rule: with `--tfm`,
+   `TfmSelector.SelectAssembliesByTfmFromPackage`
    merges the `ref/<tfm>`, `lib/<tfm>`, and `tools/<tfm>` DLLs. For `Avalonia`
    11.3.14..12.1.2 with `--tfm net8.0`, that doubles every change row and adds
    an "incomplete: metadata inspection failed" note. Fixing it is an
@@ -193,7 +212,7 @@ All gates run in Release.
 | 2. `SurfaceAndImplementation` | implementation participants with their surface correspondence | contract suite |
 | 3. A coordinate that doesn't exist, or no compatible framework | typed non-success, never an empty scope | contract suite |
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
-| 5. `diff --package ID@A..B` Library API Diff, API changes, and Finding Transitions | output byte-identical to the legacy path; both endpoints read only their surface folders by range; a request outside the step-2 admission rule stays on the legacy path | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 for the fallback |
+| 5. `diff --package ID@A..B` Library API Diff, API changes, and Finding Transitions | output byte-identical to the legacy path; both endpoints read only their surface folders by range; a request outside the step-2 admission rule stays on the legacy path | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 and `MediatR` 12.2.0..12.4.1 for the fallbacks |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |

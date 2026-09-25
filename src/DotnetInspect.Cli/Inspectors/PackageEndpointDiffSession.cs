@@ -98,6 +98,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         var stores = new SearchPackageStores("inspect-diff");
         PackageEndpointScope? from = null;
         PackageEndpointScope? to = null;
+        bool closed = false;
         try
         {
             PackageHouse house = composition.CreateRealizationHouse(
@@ -108,19 +109,51 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                     access: PackagePayloadAccess.Ranged),
                 sourceOptions,
                 logger.Log);
-            from = await OpenAsync(
-                    composition, house, packageId, fromVersion, targetFramework, logger, cancellationToken)
-                .ConfigureAwait(false);
-            if (from is not null)
+            // Both endpoints open at once. The first that falls back or fails
+            // cancels its sibling, whose work the legacy path would discard.
+            using var sibling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            Task<PackageEndpointScope?> fromTask = OpenOrCancelSiblingAsync(fromVersion);
+            Task<PackageEndpointScope?> toTask = OpenOrCancelSiblingAsync(toVersion);
+            try
             {
-                to = await OpenAsync(
-                        composition, house, packageId, toVersion, targetFramework, logger, cancellationToken)
-                    .ConfigureAwait(false);
+                await Task.WhenAll(fromTask, toTask).ConfigureAwait(false);
             }
+            catch
+            {
+                // Each task's outcome is inspected below.
+            }
+            from = fromTask.IsCompletedSuccessfully ? fromTask.Result : null;
+            to = toTask.IsCompletedSuccessfully ? toTask.Result : null;
             if (from is null || to is null)
             {
+                closed = true;
                 await CloseAsync(from, to, composition, stores).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                Exception? failure = new[] { fromTask, toTask }
+                    .Where(static task => task.IsFaulted)
+                    .Select(static task => task.Exception!.InnerException!)
+                    .FirstOrDefault(static exception => exception is not OperationCanceledException);
+                if (failure is not null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failure);
                 return null;
+            }
+
+            async Task<PackageEndpointScope?> OpenOrCancelSiblingAsync(string version)
+            {
+                try
+                {
+                    PackageEndpointScope? scope = await OpenAsync(
+                            composition, house, packageId, version, targetFramework, logger, sibling.Token)
+                        .ConfigureAwait(false);
+                    if (scope is null)
+                        await sibling.CancelAsync().ConfigureAwait(false);
+                    return scope;
+                }
+                catch
+                {
+                    await sibling.CancelAsync().ConfigureAwait(false);
+                    throw;
+                }
             }
 
             bool referencesClose =
@@ -131,7 +164,8 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         }
         catch
         {
-            await CloseAsync(from, to, composition, stores).ConfigureAwait(false);
+            if (!closed)
+                await CloseAsync(from, to, composition, stores).ConfigureAwait(false);
             throw;
         }
     }
@@ -161,6 +195,14 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             return null;
         }
 
+        if (!await LegacySelectionMatchesAsync(
+                composition, house, packageId, version, targetFramework, logger, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        long realizing = System.Diagnostics.Stopwatch.GetTimestamp();
         PackageEndpointScopeOutcome outcome =
             await PackageEndpointScope.OpenAsync(
                     house,
@@ -168,6 +210,18 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                     request,
                     cancellationToken)
                 .ConfigureAwait(false);
+        LogTransfer(
+            logger,
+            packageId,
+            version,
+            "surface realization",
+            outcome switch
+            {
+                PackageEndpointScopeOutcome.Opened opened => opened.Scope.Contribution.Result,
+                PackageEndpointScopeOutcome.Failed rejected => rejected.HouseResult,
+                _ => null,
+            },
+            realizing);
         if (outcome is PackageEndpointScopeOutcome.Failed failed)
         {
             // The legacy path owns the user-visible report of every endpoint
@@ -206,6 +260,128 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             $"Using package endpoint scope for {packageId}@{version} "
                 + $"({selected.Length} surface assemblies; payload {scope.Payload.Origin}).");
         return scope;
+    }
+
+    /// <summary>
+    /// Decides, from the archive directory alone, whether the legacy
+    /// selector picks exactly the compile surface the endpoint scope would
+    /// realize, before any surface-folder byte is read.
+    /// </summary>
+    /// <remarks>
+    /// Transitional (docs/design/package-endpoint-scope.md, adoption step 2):
+    /// the House reads a directory by range only for a Realize or a document
+    /// demand, so this reads the directory with a document demand for the
+    /// nuspec, which also reads the archive's root folder. It retires with
+    /// the legacy selector in step 4. The Realize that follows an admitted
+    /// check reads the cached directory's tail again.
+    /// </remarks>
+    static async Task<bool> LegacySelectionMatchesAsync(
+        DesktopPackageSourceComposition composition,
+        PackageHouse house,
+        string packageId,
+        string version,
+        string targetFramework,
+        VerboseLogger logger,
+        CancellationToken cancellationToken)
+    {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        PackageSourceOperationLease operation =
+            composition.IssueSettlementOperation(cancellationToken);
+        PackageHouseRequest request;
+        try
+        {
+            request = new PackageHouseRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(packageId, version)),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire,
+                    operation.RequestTimeout,
+                    operation.OperationTimeout),
+                documentDemand: PackageDocumentDemand.Create([$"{packageId}.nuspec"]));
+        }
+        catch
+        {
+            operation.Dispose();
+            throw;
+        }
+
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(request, operation).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        LogTransfer(logger, packageId, version, "directory check", settlement.Result, started);
+        if (settlement is not PackageHouseSettlement.Acquired
+            {
+                Result: PackageHouseResult.Settled,
+            } acquired)
+        {
+            logger.Log(
+                $"Package endpoint {packageId}@{version} takes the legacy path: its archive "
+                    + "directory was not read.");
+            return false;
+        }
+
+        IPackageContent content = acquired.Payload.Content;
+        string[] legacy =
+        [
+            .. TfmSelector.SelectAssembliesByTfmFromEntries(
+                content.EnumerateEntries(),
+                targetFramework),
+        ];
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                packageId,
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                targetFramework).Selection;
+        string[] surface =
+        [
+            .. selection.Assets
+                .Select(static asset => asset.Path)
+                .Order(StringComparer.Ordinal),
+        ];
+        if (legacy.SequenceEqual(surface, StringComparer.Ordinal))
+            return true;
+
+        logger.Log(
+            $"Package endpoint {packageId}@{version} takes the legacy path: the legacy "
+                + $"selector picks [{string.Join(", ", legacy)}], the endpoint scope's "
+                + $"surface is [{string.Join(", ", surface)}].");
+        return false;
+    }
+
+    /// <summary>
+    /// Logs one House read's transfer receipt and elapsed time in verbose
+    /// mode: the request count by purpose and the bytes received.
+    /// </summary>
+    static void LogTransfer(
+        VerboseLogger logger,
+        string packageId,
+        string version,
+        string phase,
+        PackageHouseResult? result,
+        long started)
+    {
+        if (!logger.Enabled)
+            return;
+        TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+        PackageTransferReceipt? transfer = result?.Evidence.Acquisition?.Transfer;
+        string requests = transfer is null
+            ? "no receipt"
+            : $"{transfer.Path}; {transfer.RequestCount} requests"
+                + (transfer.Requests.Count == 0
+                    ? ""
+                    : " ("
+                        + string.Join(
+                            ", ",
+                            transfer.Requests
+                                .GroupBy(static request => request.Purpose)
+                                .Select(static group =>
+                                    $"{group.Key} x{group.Count()} {group.Sum(static request => request.BytesReceived)} B"))
+                        + ")")
+                + $", {transfer.BytesReceived} bytes received";
+        logger.Log(
+            $"Package endpoint {packageId}@{version} {phase}: {requests}, "
+                + $"{elapsed.TotalMilliseconds:F0} ms.");
     }
 
     static async Task<bool> ReferencesCloseAsync(

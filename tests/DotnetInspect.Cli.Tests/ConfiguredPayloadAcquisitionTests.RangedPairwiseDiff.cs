@@ -65,7 +65,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 // One abandoned size probe per endpoint, then ranged reads of
                 // the surface folder only.
                 Assert.Equal(SystemTextJsonVersions.Length, feed.FullPackageResponses);
-                AssertEachCellReadsOnly(feed, packages, ["lib/net8.0"]);
+                AssertEachCellReadsOnly(feed, packages, ["lib/net8.0", ""]);
                 continue;
             }
 
@@ -117,8 +117,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// <c>tools</c> DLL whose folder names the requested framework, so for
     /// the real Avalonia archives (<c>ref/net8.0</c> beside
     /// <c>lib/net8.0</c>) it selects more than the endpoint scope's surface.
-    /// Those requests are excluded from the scope route and stay
-    /// byte-identical because the legacy path serves them.
+    /// Those requests are excluded from the scope route before any surface
+    /// folder is read, and stay byte-identical because the legacy path serves
+    /// them.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_LegacySelectionBeyondTheSurface_TakesTheLegacyPath()
@@ -136,13 +137,74 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         ];
         string[] legacy = await RunLegacyPairwiseDiffsAsync(AvaloniaId, packages, [request]);
 
-        UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, AvaloniaId, packages));
+        var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, AvaloniaId, packages);
+        UseFeed(feed);
+        var result = await RunCommandAsync([.. request, "--verbose"]);
+
+        Assert.True(legacy[0] == result.Output, result.Error);
+        // Admission is decided from the archive directory: the ranged reads
+        // before the legacy download touch the root folder only, never a
+        // surface folder. The first endpoint to fall back cancels its
+        // sibling, which may not have read at all.
+        Dictionary<string, byte[]> read = packages
+            .Where(package => feed.Reads.Any(entry => entry.Version == package.Key))
+            .ToDictionary(StringComparer.Ordinal);
+        Assert.NotEmpty(read);
+        AssertEachCellReadsOnly(feed, read, [""]);
+        Assert.Contains(
+            $"Package endpoint {AvaloniaId}@{AvaloniaHistoryVersions[0]} takes the legacy path: "
+                + "the legacy selector picks [lib/net8.0/Avalonia.Base.dll",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The reference-closure rule: the real MediatR 12.2.0 and 12.4.1
+    /// libraries reference <c>MediatR.Contracts</c>, which is neither in the
+    /// endpoint nor a trusted platform assembly, so a merged-surface view
+    /// (API Finding Transitions) takes the legacy path and its output equals
+    /// the legacy oracle's.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_ReferencesBeyondTheEndpointAndPlatform_TakeTheLegacyPath()
+    {
+        const string MediatRId = "MediatR";
+        var hashes = new Dictionary<string, string>
+        {
+            ["12.2.0"] = "675f2594d587a752f6a8c03994ec3d5818e5226e02d8dbf4aea23dc10a37479f",
+            ["12.4.1"] = "26d70fd8f5211a0c5ff145f475f8f71f79c18dc02212851bebe4cd8d5bd51c49",
+        };
+        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach ((string version, string hash) in hashes)
+        {
+            byte[] package = await File.ReadAllBytesAsync(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "PackageEndpointScope",
+                    $"mediatr.{version}.nupkg"),
+                TestContext.Current.CancellationToken);
+            Assert.Equal(hash, Convert.ToHexStringLower(SHA256.HashData(package)));
+            packages.Add(version, package);
+        }
+        string[] request =
+        [
+            "diff",
+            "--package", $"{MediatRId}@12.2.0..12.4.1",
+            "--type", "MediatR.IRequestHandler`2",
+            "--finding", "api.type",
+            "--tfm", "net6.0",
+            "--source", FirstFeed,
+            "--tips", "q",
+        ];
+        string[] legacy = await RunLegacyPairwiseDiffsAsync(MediatRId, packages, [request]);
+
+        UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, MediatRId, packages));
         var result = await RunCommandAsync([.. request, "--verbose"]);
 
         Assert.True(legacy[0] == result.Output, result.Error);
         Assert.Contains(
-            $"Package endpoint {AvaloniaId}@{AvaloniaHistoryVersions[0]} takes the legacy path: "
-                + "the legacy selector picks [lib/net8.0/Avalonia.Base.dll",
+            "references reach past their Libraries and the platform",
             result.Error,
             StringComparison.Ordinal);
     }

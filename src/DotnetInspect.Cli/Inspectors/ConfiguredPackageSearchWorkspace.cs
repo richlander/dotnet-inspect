@@ -643,20 +643,34 @@ internal sealed class SearchPackageStores(string temporaryPrefix = "inspect-sear
         new(ReferenceEqualityComparer.Instance);
     string? _temporaryRoot;
 
+    readonly Lock _sync = new();
+
+    /// <summary>Safe to call from concurrent acquisitions, as a pairwise diff's endpoints are.</summary>
     internal IPackageStore GetStore(
         ConfiguredPackageAuthority authority,
         PackageProducerIdentity producer)
     {
-        if (!_stores.TryGetValue(authority, out IPackageStore? store))
+        lock (_sync)
         {
-            store = new AuthorityScopedFileSystemPackageStore(
-                authority,
-                producer,
-                () => _temporaryRoot ??=
-                    Directory.CreateTempSubdirectory(temporaryPrefix).FullName);
-            _stores.Add(authority, store);
+            if (!_stores.TryGetValue(authority, out IPackageStore? store))
+            {
+                store = new AuthorityScopedFileSystemPackageStore(
+                    authority,
+                    producer,
+                    TemporaryRoot);
+                _stores.Add(authority, store);
+            }
+            return store;
         }
-        return store;
+    }
+
+    string TemporaryRoot()
+    {
+        lock (_sync)
+        {
+            return _temporaryRoot ??=
+                Directory.CreateTempSubdirectory(temporaryPrefix).FullName;
+        }
     }
 
     public void Dispose()
