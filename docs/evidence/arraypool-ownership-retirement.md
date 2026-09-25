@@ -6,7 +6,7 @@
 
 - Fully legacy product: `0.25.0+473d56a` (`473d56a68e26338fc27aca9808c1e98dbf30b259`).
 - Shipped continuity product: `0.26.0+d236a7a` (`d236a7ad79bf4d76c63f0530cedfab0ede3cf3dd`).
-- Generic comparison head: `38162daf4c5154d9d3e2c8ee0b1245ab518d0af5`.
+- Generic comparison head: `34e8c064302cc7f188f291056603d71ea2f83281`.
 - The in-tree `LeakTriage`, `ArrayPoolOwnershipFlow`, and `ArrayPoolOwnershipPathFindings` oracle files are byte-for-byte unchanged from the v0.26.0 source tag; the producer refuses to run if that condition is false.
 
 ## Method
