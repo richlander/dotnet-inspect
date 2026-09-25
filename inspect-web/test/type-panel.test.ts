@@ -8,6 +8,7 @@ import {
   renderMemberNav,
   renderSourcePageActions,
   renderSourceResult,
+  sharedLeadingIndentationRanges,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -1466,7 +1467,7 @@ test("member source selection lowers every original fragment for display and cop
   assert.doesNotMatch(html, /public void M/);
 });
 
-test("member source restores Markout WriteHeading indentation for display and copy", () => {
+test("member source retains Markout WriteHeading indentation for exact text and copy", () => {
   const text =
     "/// <summary>\n"
     + "    /// Writes a heading at the specified level.\n"
@@ -1547,6 +1548,59 @@ test("member source restores Markout WriteHeading indentation for display and co
     memberSourceText(source, "Signature"),
     `    ${signature}`);
   assert.equal(memberSourceText(source, "Body"), `    ${body}`);
+});
+
+test("member source visual alignment collapses only indentation shared by every line", () => {
+  const text =
+    "        /// <inheritdoc />\n"
+    + "        public void Dispose()\n"
+    + "        {\n"
+    + "            return;\n"
+    + "        }";
+  const ranges = sharedLeadingIndentationRanges(text);
+
+  assert.deepEqual(
+    ranges,
+    [
+      { start: 0, length: 8 },
+      { start: 27, length: 8 },
+      { start: 57, length: 8 },
+      { start: 67, length: 8 },
+      { start: 87, length: 8 },
+    ]);
+
+  let receivedRanges: readonly { start: number; length: number }[] | undefined;
+  const html = renderSourceResult({
+    source: {
+      provider: "pdb",
+      provenance: inertStringFixture("SourceLink"),
+      url: "https://example.test/JsonDocument.cs",
+      pdbSourceLimitation: null,
+      text,
+    },
+    leftJustify: true,
+    escapeHtml,
+    highlightCSharp: (value, collapsedRanges) => {
+      receivedRanges = collapsedRanges;
+      return escapeHtml(value);
+    },
+  });
+
+  assert.deepEqual(receivedRanges, ranges);
+  assert.match(html, /<code class="language-csharp"> {8}\/\/\/ &lt;inheritdoc/);
+});
+
+test("member source visual alignment retains less-indented multiline literal text", () => {
+  const text =
+    "    public string Text() => @\"first\n"
+    + "  second\";";
+
+  assert.deepEqual(
+    sharedLeadingIndentationRanges(text),
+    [
+      { start: 0, length: 2 },
+      { start: 36, length: 2 },
+    ]);
 });
 
 test("member source indentation preserves multiline literal characters", () => {

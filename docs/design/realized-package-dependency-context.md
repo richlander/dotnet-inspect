@@ -7,6 +7,12 @@ physical package participant and the package dependency evidence projected
 from that participant's exact retained content. Design and adoption are tracked
 by [#7401](https://github.com/richlander/dotnet-inspect/issues/7401).
 
+This is a legacy-path contract. New package consumers use
+[PackageHouse](package-house.md), and the PackageHouse adoption and retirement
+tracker [#6426](https://github.com/richlander/dotnet-inspect/issues/6426)
+moves existing CLI, Browser/Wasm, Workspace, and dependency consumers to that
+facade. Do not add new evidence or consumers here.
+
 The owner defines one host-neutral query, its detached result, and the
 construction invariant that binds physical package selection to outgoing
 dependency declarations. `RealizedPackageDependencyContextQuery` implements
@@ -270,35 +276,20 @@ silently move to another package occurrence.
 | Reissuing the query produces a new selection and context; same retained content preserves generation identity while replacement content changes it. | `ExecuteAsync_ReissuesContextForSameAndReplacementGenerations`; independent-Workspace reacquisition remains unverified. |
 | Traversal preserves the complete context for shared nodes, revisits, cycles, and selected-empty sources. | `Traversal_EqualCoordinateRealizedContextsRemainDistinct`; `Traversal_RootRelativeDepthDoesNotUseGlobalVisitedSet`; `Traversal_CycleRetainsClosingEdgeAndTerminates`; `Traversal_RealizedPollyContextsPreservePackageSelectionUnderDefaultTarget`. |
 
-## Production adoption
+## Legacy adoption and retirement
 
-Issue #7401 is the end-to-end tracker. There are eight capability steps:
+Issue #7401 delivered this context for the legacy Root and traversal path.
+PackageHouse tracker #6426 now owns migration of package Root construction,
+dependency realization, shared Workspace orchestration, CLI, and Browser/Wasm
+to House requests, results, and receipts. The component-placement inventory
+and final `DotnetInspector.Queries`/`DotnetInspector.PackageQueries`
+disposition remain tracked by
+[#6432](https://github.com/richlander/dotnet-inspect/issues/6432).
 
-1. Artifact Acquisition preserves compatible target-selection authorization
-   independently from observed compatible implementation fallback under #7230.
-2. `RealizedPackageDependencyContextQuery` implements the host-neutral context
-   query and result algebra in `DotnetInspector.Queries`.
-3. The query accepts the exact live `PackageRootBinding` and projects through
-   `PackageDependencyGroupsQuery` over that binding's retained package content.
-4. Package Dependency Traversal consumes and retains the context for realized
-   source expansion without reselecting its dependency group.
-5. Package Dependency Traversal retains one
-   `TraversalTargetFrameworkPolicy` and uses its target for compatible
-   candidate-manifest selection without replacing the root selection.
-6. [Package dependency edge
-   realization](package-dependency-edge-realization.md) combines each admitted
-   resolved edge with exact destination PackageHouse realization and optional
-   #6228 Platform subsumption.
-7. Workspace composition batches those edge results, retains destination
-   Package Root lifetimes, and emits package or Platform call-graph routes.
-8. Retain the shared result through CLI and Browser/Wasm call-graph
-   experiences. Inspect Web keeps its package TFM as the root/member selection
-   contract and adds an independent call-graph traversal-TFM selector defaulted
-   to `net12.0`.
-
-The shared query is not complete product behavior until both production hosts
-consume the same association. Each adjacent owner adopts it in a focused
-follow-up effort; this document does not redefine their internals.
+During migration, existing consumers may continue to read this context, but
+they receive no new framework-reference, platform-route, or House evidence.
+Each consumer retires this dependency when its PackageHouse replacement lands;
+no adapter reconstructs the context from equal House display data.
 
 ## Non-goals
 

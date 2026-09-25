@@ -2282,8 +2282,19 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveAttribute("aria-selected", "false");
     await expect(panel.locator(".compare-target-value"))
       .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
-    await expect(panel.locator(".compare-status"))
+    await expect(panel.locator(".compare-head .compare-status"))
       .toContainText("Comparison complete", { timeout: 60_000 });
+    await expect(frame.locator(":scope > .compare-status")).toHaveCount(0);
+    const headerBox = await frame.locator(".compare-head").boundingBox();
+    const targetBox = await frame.locator(".compare-target").boundingBox();
+    const resultBox = await frame.locator(".compare-panel").boundingBox();
+    expect(headerBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    expect(resultBox).not.toBeNull();
+    expect(Math.abs(targetBox!.y - headerBox!.y - headerBox!.height))
+      .toBeLessThanOrEqual(1);
+    expect(Math.abs(resultBox!.y - targetBox!.y - targetBox!.height))
+      .toBeLessThanOrEqual(1);
     await expect(panel.locator(".library-api-diff-type")).toHaveCount(8);
     await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
     await expect(panel).toContainText("LibraryApiDiffFixture.AddedType");
