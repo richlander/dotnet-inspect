@@ -157,6 +157,18 @@ This Microsoft Testing Platform executable owns semantic row shaping and the
 cross-host completed-inspection envelope, portable-share, contained-diagnostic,
 and JSON round-trip contracts.
 
+### QueryOverflow tests
+
+Run the resumable QuerySpace execution suite from the repository root:
+
+```bash
+dotnet run --project tests/QueryOverflow.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns QueryOverflow plan admission,
+bounded candidate demand, cross-batch Rows and Count equivalence, terminal
+state, detached output, and the independent-consumer boundary.
+
 ### Persistent-cache tests
 
 Run the cache-owner suite from the repository root:

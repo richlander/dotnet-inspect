@@ -1183,6 +1183,10 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
+      - name: Run QueryOverflow tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/QueryOverflow.Tests -c Release
+
       - name: Run source-selection public contract tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release

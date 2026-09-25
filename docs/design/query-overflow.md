@@ -5,8 +5,14 @@
 Focused design for
 [#8591](https://github.com/richlander/dotnet-inspect/issues/8591).
 This document establishes **QueryOverflow** as one architectural owner. The
-contract is not implemented; every implementation and production claim in
-this document is **unverified** until its named Release gate or adoption lands.
+initial library implementation is tracked by
+[#8600](https://github.com/richlander/dotnet-inspect/issues/8600). It admits
+source-order Rows with no selection or Head, exact Count with source-order
+predicates, and callback-free Head before source completion. It declines
+unsupported plans before source work. Completion-only plans, detached
+cross-process receipts, the source/checkpoint state model, and production
+adoption remain **unverified** until their named Release gate or adoption
+lands.
 
 [Query Space Composition](query-space-composition.md) remains authoritative
 for structural query composition, semantic selection, work bounds, Rows,
@@ -119,10 +125,15 @@ QuerySpace or its per-row kernel asynchronous.
 
 ## Physical boundary
 
-The target physical boundary is a `QueryOverflow` library and root namespace
+The physical boundary is a `QueryOverflow` library and root namespace
 with a one-way dependency on `QuerySpace`. `QuerySpace` does not reference
 QueryOverflow. Source, House, Sections, CLI, and Browser types do not enter the
 reusable library.
+
+The initial project and compiled assembly graph has only the intended
+`QueryOverflow` to `QuerySpace` repository edge. No dedicated dependency-policy
+gate is added in the first implementation slice, so the absence of future
+reverse or additional repository dependencies remains **unverified**.
 
 The library contains the synchronous execution, checkpoint, demand, step, and
 terminal contracts. Source adapters, asynchronous loops, retained-operation
@@ -669,7 +680,8 @@ needs input, but QueryOverflow owns no process or async enumeration.
 The planned sequence is:
 
 1. Implement QueryOverflow's synchronous checkpoint, batch-demand, step, and
-   equivalence-test substrate with an independent application-owned row type.
+   equivalence-test substrate with an independent application-owned row type
+   under #8600.
 2. Adopt decoded document lines under #8319, keeping physical byte reads,
    decoding, fragments, and document binding with their owners.
 3. Compose Source Rows and Count under #8281.
@@ -703,7 +715,11 @@ QueryOverflow when it asks no row question.
 | `IndependentConsumerRunsQueryOverflow` | A non-dotnet-inspect consumer uses application-owned batch and row types to execute Rows and Count without async, House, source, CLI, Browser, or reflection dependencies. |
 
 The state model and implementation gates are required before the first
-production adoption. Until then, the contract remains unverified.
+production adoption. `QueryOverflowContractTests` exercises the admitted
+initial subset, including batch ceilings, delivery credit, Head termination,
+exact Count, callback failure, detached row storage, request generations, and
+the independent consumer. The source/checkpoint composition model and
+production-adoption claims remain unverified.
 
 ## Non-claims
 

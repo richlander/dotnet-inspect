@@ -130,19 +130,7 @@ public static class RowQueryExecutor
         for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
             TRow row = rows[rowIndex];
-            bool matches = true;
-            for (int predicateIndex = 0;
-                 predicateIndex < plan.Predicates.Count;
-                 predicateIndex++)
-            {
-                if (plan.Predicates[predicateIndex](row))
-                    continue;
-
-                matches = false;
-                break;
-            }
-
-            if (matches)
+            if (plan.MatchesPredicates(row))
                 selected.Add(row);
         }
 
