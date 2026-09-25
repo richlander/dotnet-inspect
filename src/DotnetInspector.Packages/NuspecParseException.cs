@@ -1,6 +1,6 @@
 using System.Xml;
 
-namespace DotnetInspector.Services;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Rejects a package manifest that is not well-formed XML.

@@ -271,6 +271,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         InspectionEnvelope<PackageNamespaceDiscoveryOutcome>?>
         InspectNamespaceAsync(
             string @namespace,
+            MetadataNamespaceMatch namespaceMatch,
             CancellationToken cancellationToken = default)
     {
         ArtifactRootResult<
@@ -284,7 +285,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                             new(
                                 @namespace,
                                 NamespaceInspectionBounds,
-                                NamespaceMaterializationLimits),
+                                NamespaceMaterializationLimits,
+                                namespaceMatch),
                             token),
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
