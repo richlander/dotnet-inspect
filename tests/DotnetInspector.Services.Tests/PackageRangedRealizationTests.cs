@@ -736,6 +736,36 @@ public sealed partial class PackageRangedRealizationTests
                     request.Operation.OperationTimeout));
         }
 
+        /// <summary>
+        /// Acquires PCLStorage with a document demand; the real asset is
+        /// small, so a zero size cut reads it by range.
+        /// </summary>
+        public Task<PackageHouseSettlement> AcquireDocumentsAsync(
+            IPackageStore store,
+            PackageDocumentDemand documents,
+            PackagePayloadAccess access = PackagePayloadAccess.Ranged,
+            long sizeCut = 0)
+        {
+            var house = new PackageHouse(
+                Authorization,
+                new PackagePayloadAcquisitionPlan(
+                    (_, _) => store,
+                    access: access,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut));
+            var request = new PackageHouseRequest(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
+                PackageHouseOperation.Create(PackageHouseOperationProfile.Acquire),
+                documentDemand: documents);
+            return house.ExecuteAsync(
+                request,
+                Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    request.Operation.RequestTimeout,
+                    request.Operation.OperationTimeout));
+        }
+
         public async ValueTask DisposeAsync()
         {
             await Root.DisposeAsync();

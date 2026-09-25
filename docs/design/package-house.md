@@ -774,14 +774,17 @@ no adapter and retain their current behavior. Host adoption must begin from a
 live House settlement rather than wrapping an already materialized `byte[]` or
 legacy file read in a stream. Package content that does not implement the
 internal House pull capability fails visibly; the House does not fall back to
-the legacy eager entry-opening contract. Filesystem content additionally
+the legacy eager entry-opening contract. Ranged content implements it for its
+materialized entries, as [package read demand](package-read-demand.md#document-demand)
+owns. Filesystem content additionally
 requires a retained package archive: its declared entry size and CRC validate
 the extracted-file stream, while archive-less content is visibly unsupported.
 
 The first production consumer is exact-version online CLI export of one
 literal root `README.md` or `skills/**/SKILL.md` path to a file. The command
-acquires directly through the House filesystem store without invoking the
-legacy `PackageExtractor` route. A README copies progressively to the
+acquires directly through the House, with ranged access and a
+[document demand](package-read-demand.md#document-demand) in the
+authority-scoped store, without invoking the legacy `PackageExtractor` route. A README copies progressively to the
 destination with the bounded exact-byte sink. A Skill decodes progressively
 into the existing containment-selected representation before that
 representation is written; it does not bypass Skill containment to preserve
@@ -900,7 +903,9 @@ The current execution floor binds stable host capabilities to the
 `PackageHouse` instance. `PackagePayloadAcquisitionPlan` groups the
 authority-and-producer-scoped store provider, payload limits, transfer policy,
 payload diagnostics, and payload access: complete, or ranged, which only a
-`Realize` operation may use because its selection bounds the read
+`Realize` operation, whose selection bounds the read, or an `Acquire` carrying
+a [document demand](package-read-demand.md#document-demand), which names the
+entries it reads, may use
 ([Ranged payload realization](package-source-model.md#ranged-payload-realization)). It carries no source lease, operation context,
 payload, or release obligation and does not take ownership of stores returned
 by its provider. The resource-owner-issued operation lease remains an explicit
