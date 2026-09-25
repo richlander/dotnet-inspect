@@ -560,7 +560,7 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
   assert.match(
     appSource,
-    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageModel\.assemblyId\)/);
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\)\)/);
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
@@ -1102,7 +1102,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 6);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 7);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -1960,7 +1960,9 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
   assert.match(
     appSource,
-    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!documentViewerIsOpen\(state\.docViewer\)[\s\S]*!state\.spotlightOpen/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!documentViewerIsOpen\(state\.docViewer\)[\s\S]*!memberDiffExplorer\.isOpen[\s\S]*!state\.spotlightOpen/);
+  assert.match(appSource,
+    /member-diff-explorer\.contain-browser-shortcut[\s\S]*\(\) => memberDiffExplorer\.isOpen/);
   assert.equal(
     keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
     1);

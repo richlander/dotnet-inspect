@@ -2,7 +2,7 @@
 
 ## Status and owner
 
-This document owns namesake-Library discovery for one exact namespace. Issue
+This document owns namesake-Library discovery for one namespace selection. Issue
 [#8474](https://github.com/richlander/dotnet-inspect/issues/8474) tracks its
 focused production adoption in Router, Find, and Spotlight.
 
@@ -11,9 +11,9 @@ The owner supplies three host-neutral decisions:
 - proper dotted Library-name candidates are tried longest first; and
 - a package-space candidate is a hit only when the existing Library Type
   population returns at least one public definition or forwarder from the
-  exact ordinal namespace; and
+  requested ordinal namespace selection; and
 - a Platform candidate is a hit only when the PlatformHouse-derived complete
-  Type catalog contains the same public exact-namespace evidence.
+  Type catalog contains the same public namespace evidence.
 
 [Library inspection documents and
 populations](library-inspection-document.md#population-identity) remains the
@@ -42,15 +42,16 @@ Candidate spelling is source selection, not Library identity. A host must
 resolve each candidate through an authorized source owner before requesting
 namespace evidence.
 
-## Exact namespace probe
+## Namespace probe
 
-The package-space probe requests one bounded Type row with:
+The package-space probe requests bounded Type rows with:
 
 - public accessibility;
 - definitions and forwarders;
 - every definition kind;
 - metadata ordering; and
-- ordinal exact namespace matching.
+- ordinal exact namespace matching, or exact-or-descendant matching for Find's
+  terminal `.*` namespace form.
 
 One returned row confirms the candidate. An empty complete row segment is a
 miss. Unavailable, rejected, incomplete, or failed Library outcomes remain
@@ -64,10 +65,10 @@ asset, Library identity, and namespace evidence without reopening or loading
 the inspected assembly.
 
 The Platform probe reuses the already completed Platform Type catalog. It
-matches public definitions and forwarders by ordinal exact namespace and exact
-namesake assembly identity, retaining the catalog's family, target framework,
-version, population role, and complete matching declaration sequence. It
-performs no second platform-pack acquisition.
+matches public definitions and forwarders by the requested ordinal namespace
+mode and exact namesake assembly identity, retaining the catalog's family,
+target framework, version, population role, and complete matching declaration
+sequence. It performs no second platform-pack acquisition.
 
 ## Envelope and evidence
 
@@ -94,7 +95,8 @@ The shared contract does not select sources or multiplicity:
   candidates from the same target-bound catalog, and accepts the first
   confirmed namesake hit.
 - Find preserves direct Type matches, classifies exact namespace rows as
-  `Namespace`, and retains every confirmed source observation.
+  `Namespace`, treats a terminal `.*` as exact-or-descendant namespace
+  selection, and retains every confirmed source observation.
 - Spotlight accepts the first namesake tier while preserving distinct eligible
   source observations at that tier.
 
@@ -113,9 +115,7 @@ rows. Missing prune data does not imply package absence.
 ## Non-goals
 
 - Namespace suffix discovery.
-- Descendant matching during namesake discovery. An already selected Library
-  may explicitly request its named namespace and descendants through the
-  Library population contract.
+- Namespace-aware interpretation of globs other than one terminal `.*`.
 - Package availability inference from missing prune data.
 - Rendering or tree-versus-table defaults.
 - Progressive result publication.

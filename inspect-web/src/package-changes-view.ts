@@ -494,7 +494,7 @@ function packageUrl(packageId: string, version: string): string {
   return `https://www.nuget.org/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}`;
 }
 
-function safeExternalHref(value: string): string | null {
+export function safeExternalHref(value: string): string | null {
   try {
     const url = new URL(value);
     return url.protocol === "https:" ? url.href : null;
