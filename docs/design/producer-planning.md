@@ -2,18 +2,27 @@
 
 ## Status
 
-Focused pattern design for
-[#8568](https://github.com/richlander/dotnet-inspect/issues/8568). It defines
-one contract: how evidence producers declare what they need and publish, how a
-plan is computed from those declarations before any body is read, and what one
-execution of that plan means.
+Focused design for
+[#8568](https://github.com/richlander/dotnet-inspect/issues/8568). It owns
+level 3 of a three-level analysis architecture, the **coherent work
+description**: which producers a command's request needs, what each of them
+needs from its subject, and what they publish.
 
-No owner has adopted the pattern yet. Library Body Analysis Execution
+| Level | Concern | Owner |
+| --- | --- | --- |
+| 1. Resource sharing and lifetime | One opened subject, borrowed by every analyzer and source; reuse without leaks or double release | [Assembly image lifetime](assembly-image-lifetime.md) (`AssemblyInspectionSession`), [resource ownership and borrowing](resource-ownership-and-borrowing.md); gap tracked in [#8576](https://github.com/richlander/dotnet-inspect/issues/8576) |
+| 2. Work ordering and collapsing | Breadth and depth of reads on the subject, merged across all requests; traversal, batching, parallelism, pushdown | [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md); request collapse in [#8574](https://github.com/richlander/dotnet-inspect/issues/8574); method bodies as a source in [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
+| 3. Work description | The closed, validated set of producers, their requests, dependencies, and published results | This document |
+
+Performance comes mostly from levels 1 and 2. This level makes that possible by
+describing work completely and declaratively, so the lower levels can share,
+reorder, collapse, and parallelize it without changing its meaning.
+
+No owner has adopted this design yet. Library Body Analysis Execution
 ([Library body Analysis service](library-body-analysis-service.md)) is the
-intended first adopter; Research is the intended second. Each adoption is its
-own focused effort and states its own decisions. The adoption sequence, the
-`LibraryBodyIndex` drain evidence, and the census of current producers live
-in [#8568](https://github.com/richlander/dotnet-inspect/issues/8568), not here.
+intended first adopter; Research is the intended second. The adoption
+sequence, the `LibraryBodyIndex` drain evidence, and the producer census are
+kept in #8568, not here.
 
 Every property below is **unverified** until its gate lands with the first
 adoption; see [Verification](#verification).
@@ -24,94 +33,74 @@ The examples use System.Text.Json 10.0.0, the package the
 [operation-participation](analysis-surfaces-and-universes.md#operation-participation)
 Diff demo uses.
 
-**A narrow question stays narrow.** A caller asks whether the library contains
-any unsafe evidence. It requests one producer, safety evidence. The plan, which
-exists before the first byte of the library is read, contains that producer and
-the one substrate it requires, decoded instructions. No call classification,
-allocation analysis, signal derivation, or call graph appears in the plan, so
-none runs. No separate fast path is needed to answer a narrow question cheaply.
+**A narrow question describes narrow work.** A caller asks whether the library
+contains any unsafe evidence. The work description names one producer, safety
+evidence, and its one request: every method body, decoded to instructions. No
+call classification, allocation, signal, or call-graph producer appears, so
+the lower levels are never asked for their data. No separate fast path is
+needed for narrow questions to be cheap.
 
-**Two analyses share one pass.** `diff` selects `--analysis
+**Two analyses, one description.** `diff` selects `--analysis
 call-site,allocation` for `JsonSerializer.Serialize:1`. The analysis catalog
-maps each analysis to producer declarations. For each endpoint the planner
-computes one plan. Both producers require decoded instructions, and call-site
-additionally requires call classification. Execution decodes the one selected
-body once and visits both producers. The receipt records that each producer
-participated for one body and that each substrate was built once.
+binds each analysis to producer declarations. The work description names both
+producers and their requests on the one selected body. Both need decoded
+instructions, and call-site also needs call classification. Whether that body
+is decoded once and visited by both producers is decided by level 2; this
+level states only what each producer needs.
+
+**A query travels with the work.** The `library -S @Performance` triage over
+System.Text.Json 10.0.0 is filtered to one namespace, ranked, and cut to the
+top ten. The work description carries the row query with the optimization
+producer's request. Level 2 can evaluate the namespace predicate from metadata
+before reading any body, so it narrows breadth. The ranking and the top-ten cut
+need every candidate, so they run over the published rows. The answer equals
+running the whole query over every row.
 
 **A consumer owns its interpretation.** The JS export surface's JSON
-wire-contract rules need field-store, field-load, and return-flow facts. Analysis publishes
-those facts through a flow producer. The wire-contract meaning is declared by
-the JS export surface as its own producer at a higher tier, requiring the flow
-producer. Analysis never learns that JSON exists.
+wire-contract rules need field-store, field-load, and return-flow facts.
+Analysis publishes those facts through a flow producer. The wire-contract
+meaning is declared by the JS export surface as its own producer at a higher
+tier, requiring the flow producer. Analysis never learns that JSON exists.
 
 **Research composes across tiers.** A Research fact producer for one member
 requires Analysis allocation evidence and the decompiler's imported IR for that
-member. Research's plan lowers its Analysis requirements into an Analysis
-request scoped to exactly that body. A composed execution decodes the body once
-and visits the Analysis producers and then the Research producer, which joins
-their facts by IL offset.
-
-**A query narrows the plan.** The `library -S @Performance` triage over
-System.Text.Json 10.0.0 is filtered to one namespace, ranked, and cut to the top ten. The
-namespace predicate can be evaluated from metadata, so the plan's effective
-scope excludes every body outside that namespace, and those bodies are never
-read. The ranking and the top-ten cut need every candidate, so they run
-afterwards over the published rows. The answer equals running the whole query
-over every row.
-
-**Several consumers share one read, and QuerySpace plans it.** In one pass,
-one producer needs the number of types, one needs the generic types'
-signatures, and one needs every interface-implementation row. Type and
-interface metadata is a library-scope input owned by Metadata, so each
-producer's need is a QuerySpace request against Metadata's source. QuerySpace
-collapses the requests for each resource into one source plan with a residual
-for each consumer. The producer planner receives the collapsed result and
-does no request merging of its own.
-
-**A single-threaded host gets the same answer.** Inspect Web runs the same plan
-on Browser/Wasm with an executor that yields between bodies. It publishes the
-same results and receipt facts as the desktop parallel executor, because both
-are substitutions for one reference execution.
+member. Research's work description includes the Analysis producers it
+requires, scoped to exactly that body, and its own producer after them.
 
 ## Owner and exact claim
 
 **Producer Planning** owns this exact claim:
 
-> Given the producer declarations a consumer requests and an explicit body
-> scope, the planner computes, without reading any body, the closed set of
-> producers, shared substrates, and effective scope the request requires, or
-> rejects the request as a whole. The reference execution of that plan visits
-> each body in effective scope once, gives each planned producer read-only
-> access to that body's shared substrates, and publishes each producer's
-> detached typed result with one receipt of actual participation. Any other
-> executor is admissible only when it publishes the same results and receipt
-> facts as the reference execution.
+> Given a command's request, expressed as producer declarations with
+> parameters and a subject scope, the planner produces one work description
+> without reading any subject content, or rejects the request as a whole. The
+> description names the closed set of producers the request needs, each
+> producer's resource requests and dependencies, and the typed results,
+> outcomes, and receipt it publishes. Every execution that honors the
+> description publishes the results that a serial execution of it would.
 
 This owner defines:
 
 - what a producer declaration states;
-- the tier rule and how a higher-tier plan lowers into lower-tier requests;
-- plan construction, validation, scope expansion, and whole-request rejection;
-- reference execution semantics: units, phases, ordering, substrate lifetime,
-  isolation, and failure containment;
-- the substitution rule for every other executor; and
-- the participation receipt.
+- dependency closure, validation, and whole-request rejection;
+- the tier rule and how a higher-tier request includes lower-tier producers;
+- the producer contract: what a producer may read, retain, and publish;
+- the shape of per-producer outcomes and of the participation receipt; and
+- the requirements this level places on levels 1 and 2.
 
 This owner does not define:
 
+- opening, sharing, retaining, or releasing subjects (level 1);
+- read ordering, request collapse, batching, traversal, parallelism,
+  scheduling, pushdown, or per-unit data lifetime (level 2);
 - any producer's algorithm, evidence semantics, or result type;
-- analysis identity, operation participation, default sets, cost, or discovery,
-  which the [analysis catalog](analysis-surfaces-and-universes.md#operation-participation)
+- analysis identity, operation participation, default sets, cost, or
+  discovery, which the
+  [analysis catalog](analysis-surfaces-and-universes.md#operation-participation)
   and [capability composition](inspection-capability-composition.md) own;
-- query meaning, or collapsing several requests for one resource into one
-  source plan, which QuerySpace owns;
-- acquisition or [package read demand](package-read-demand.md), which consumes
-  declared requirements but keeps its own decision;
-- cache keys, retention, or persistence, which
-  [stateless core services](stateless-core-services.md) and each cache owner
-  keep;
-- Workspace admission, snapshots, or lifetime;
+- [package read demand](package-read-demand.md), which consumes declared
+  requests but keeps its own decision;
+- cache keys, retention, or persistence;
 - Research target resolution, admission, or correspondence;
 - decompiler IR transforms or their ordering; or
 - presentation, Findings, or envelopes.
@@ -120,211 +109,154 @@ This owner does not define:
 
 A **producer** computes one owner's evidence. It is described by a
 **declaration**: a statically constructed value that states the producer's
-identity and version, its tier, the unit it visits, the substrates and other
-producers it requires, the parameters that distinguish one request from another,
-and the type of the result it publishes. A consumer names the declaration to
-request the producer and names it again to read the typed result. There is no
-lookup by runtime type, string, or position.
+identity and version, its tier, the unit it visits, its resource requests, the
+producers it depends on, the parameters that distinguish one request from
+another, its input footprint, and the type of the result it publishes. A
+consumer names the declaration to request the producer and names it again to
+read the typed result. There is no lookup by runtime type, string, or
+position.
 
-A **substrate** is shared, derived per-unit data that more than one producer may
-need, such as decoded instructions, a control-flow graph, call classification,
-or declared-source attribution. A substrate is itself declared and owned by the
-component that owns its facts; the
-[instruction substrate](instruction-substrate.md) owns decoding and block
-construction. Producers do not own substrates and do not build them for each
-other.
+A **resource request** is a QuerySpace request against the subject that owns
+the data: its breadth (which units, including any declared expansion) and its
+depth (which layers of each unit, such as decoded instructions or a
+control-flow graph), with a terminal. Requests use level 2's vocabulary. This
+level never merges them.
 
-A **unit** is what one visit covers. The first unit kind is one physical method
-body. A producer may also declare a **completion**, which runs once after every
-unit in effective scope has been visited and combines the per-unit facts into
-the published library result. Whole-library facts such as leverage or a local
-call graph are completions, and completions may require other producers'
-completed results.
+A **unit** is what one visit covers; the first unit kind is one physical method
+body. A producer may also declare a **completion**, which runs after every unit
+in its scope has been visited and combines the per-unit facts into the
+published result. Whole-library facts such as leverage or a local call graph
+are completions, and a completion may depend on other producers' completed
+results.
 
-A **library-scope input** is data that belongs to the module rather than to
-one body, such as type, member, and interface metadata. Its owner, Metadata,
-supplies it before any unit is visited. Body producers read it; they do not
-build it.
-
-A **plan** is the planner's output: the closed producer set, the substrates
-each unit needs, the effective scope with the reason for every expansion, and
-the order in which producers are visited. A plan is data. It can be inspected,
-explained, compared, and handed to acquisition before execution begins.
-
-A **receipt** records what actually happened, as opposed to what the plan
-permitted. It is written by the executor, not by producers.
+A **work description** is this level's output: the closed producer set, each
+producer's requests, the dependency edges among producers and completions, and
+the result, outcome, and receipt shapes. It is data. It can be inspected,
+explained, compared, and handed to level 2 before any work begins.
 
 ## Planning
 
-The planner closes the requested declarations over their requirements, then
-validates the whole closure before any body is read. A request is rejected as a
-whole, with one typed reason for each offending declaration, when a requirement
-names nothing, when requirements form a cycle, when a declaration requires a
-higher tier, or when two requested declarations with the same identity have
-different parameters. Validation does not drop, substitute, or narrow entries.
+The planner closes the requested declarations over their dependencies, then
+validates the whole closure without reading subject content. A request is
+rejected as a whole, with one typed reason for each offending declaration,
+when a dependency names nothing, when dependencies form a cycle, when a
+declaration depends on a higher tier, or when two requested declarations with
+the same identity have different parameters. Validation does not drop,
+substitute, or narrow entries.
 
-Visit order within a unit follows requirements only. Ties are broken by
-declaration identity, never by the order in which a consumer listed producers or
-a module registered them.
+Dependency edges are the only order this level imposes. Ties are broken by
+declaration identity, never by the order in which a consumer listed producers
+or a module registered them. Any other order is level 2's choice.
 
-Scope has three states: requested, expanded, and effective. A producer that
-needs bodies outside the requested scope, such as the lifted state-machine body
-of a selected async method, declares that expansion. The plan records every
-expansion with its owner-issued reason. Execution never widens scope on its
-own.
+A producer that needs units outside its requested breadth, such as the lifted
+state-machine body of a selected async method, declares that expansion with an
+owner-issued reason. The request carries it; level 2 carries it out.
 
-## Reference execution and substitution
+## The producer contract
 
-The reference execution is serial. It visits units in metadata order, builds
-each substrate at most once per unit when a planned producer first needs it,
-visits producers in plan order, and discards the unit's substrates after the
-last visit. Completions then run in plan order. Published results are the
-producers' outputs from that sequence.
+These rules bind every producer. Each one is cheap to hold from the start and
+expensive or impossible to add later, because it is what lets levels 1 and 2
+deliver their gains without changing results. QuerySpace is the local
+precedent: its plans are structural data, not opaque delegates, which is what
+lets work collapse into a source. A LINQ-shaped design cannot be tuned into
+that later, because the information the optimizer needs was never captured.
 
-Every other executor, including one that runs units in parallel, yields to a
-host between units, reuses cached results, or answers from a precomputed index,
-is a substitution. It is admissible only when its published results and receipt
-facts equal the reference execution's for the same plan and input. This
-follows the reference-interpreter and substitution model of the
-[QuerySpace library](query-space-library.md) and
-[source delegation](source-delegation.md): executors change cost, never meaning.
+### Demand is declared before work begins
 
-## Properties fixed at conception
+**Rule.** A producer declares every request and dependency statically. No
+producer discovers a new need while it runs; a conditional need is an optional
+request stated in the declaration.
 
-These properties are part of the contract because each one is cheap to hold
-from the start and expensive or impossible to add later. QuerySpace is the
-local precedent: its plans are structural data, not opaque delegates, which is
-what lets work collapse into a source or a specialized kernel. A LINQ-shaped
-design cannot be tuned into that later, because the information the optimizer
-needs was never captured.
-
-### Demand is declared before execution
-
-**Rule.** A producer declares every requirement statically. No producer
-discovers a new requirement while it runs; a conditional need is an optional
-requirement stated in the declaration.
-
-*Keeps possible:* computing the plan, cost, read demand, and explanation before
-the first byte is read, skipping every substrate no one requires, and scope
-pushdown into acquisition.
+*Lets the lower levels:* compute collapse, cost, read demand, and pushdown
+before the first byte is read.
 
 *Lesson:* LLVM's legacy pass manager and Roslyn's runtime callback
-registration show how much a scheduler loses when dependencies surface only
-during execution. `LibraryBodyIndex`'s lazy members are the local instance:
-the index cannot know what its consumers will ask for.
+registration show how much a scheduler loses when needs surface only during
+execution. `LibraryBodyIndex`'s lazy members are the local instance.
 
-### Demand is a QuerySpace request, and a plan is a source
+### Requests are QuerySpace requests, never merged here
 
-**Rule.** A requirement on shared data is a [QuerySpace](query-space-library.md)
-request against the resource that owns that data. It states a population, a
-terminal (Exists, Count, or Rows), and a projection. Collapsing several
-consumers' requests for one resource into one source plan belongs to
-QuerySpace ([#8574](https://github.com/richlander/dotnet-inspect/issues/8574)),
-for every consumer, not only producers. Producer planning never merges,
-deduplicates, or reduces requests itself.
-
-The body-analysis plan is itself a source. It declares which row-vocabulary
-keys it can evaluate before any body is read, from metadata, and which only
-after, from evidence, and which terminals it can answer exactly. It accepts
-the part of a collapsed request it can prove under
-[source delegation](source-delegation.md) and reports completion evidence.
-Everything else runs over its published rows with unchanged meaning. Source
-delegation is linear and excludes concurrent execution, so a parallel
-executor that answers a delegated query needs its own scheduling and
-publication model.
+**Rule.** A producer's need for shared data is a QuerySpace request with
+QuerySpace meaning, including any row query a consumer supplies. Exists and
+Count are observations of the Rows of the same population. This level does not
+merge, deduplicate, or reduce requests, and it does not decide what is pushed
+down; QuerySpace and the source do that for every consumer.
 
 A producer's row vocabulary is owned with its result type, is host-neutral,
 and is bound through QuerySpace composition. A host binds and presents it; a
 host never defines it.
 
-*Keeps possible:* questions that cost what they ask for, several consumers
-sharing one read through one planner, and the same pushdown in every host.
+*Lets the lower levels:* share one read among producers and other consumers,
+and push work toward the source in every host.
 
 *Lesson:* a query applied after everything is built can never make work
 cheaper. That is LINQ in QuerySpace clothing: the query is declared
-structurally, but the source still builds the complete row list before any
-predicate, Count, or limit runs.
-Databases keep this split: the query optimizer, not the storage engine,
-shares one scan among queries that need the same table. A second planner
-beside QuerySpace would duplicate the optimizer for one consumer family. The
-repository's one vocabulary over Analysis output today is hosted in the CLI
-and filters complete results; #8571 records that drift.
+structurally, but the source still builds every row before any predicate,
+Count, or limit runs. A second planner beside QuerySpace would repeat the
+optimizer for one consumer family. #8571 records today's drift.
 
 ### Producers are read-only and communicate only through declared results
 
-**Rule.** A producer does not mutate substrates, does not keep state that spans
-units, and observes another producer only through that producer's declared
-result. Producers own no shared lazily initialized state; anything shared is a
-substrate or a library-scope input computed before units are visited.
+**Rule.** A producer does not mutate what it reads, does not keep state that
+spans units, and observes another producer only through that producer's
+declared result. Anything shared is a level 1 or level 2 input, never a
+producer's lazily initialized field.
 
-*Keeps possible:* running units in parallel, running independent producers
-concurrently, fusing producers into one pass, and caching per-unit results.
+*Lets the lower levels:* run units in parallel, visit independent producers
+concurrently, and fuse producers into one traversal.
 
 *Lesson:* GCC's global compiler state is the classic barrier to parallel
-compilation. Roslyn had to add concurrent execution as an opt-in because
-existing analyzers were not safe. The decompiler already states the local form
-of this rule for its passes: they "communicate through the tree, never
-side-channel state".
+compilation, and Roslyn had to add concurrent execution as an opt-in because
+existing analyzers were not safe. The decompiler states the local form for its
+passes: they "communicate through the tree, never side-channel state".
 
-### The executor owns the loop
+### Producers visit; they do not iterate
 
-**Rule.** Producers visit units the executor gives them. No producer iterates
-over the library itself.
+**Rule.** A producer is given units. No producer loops over the subject
+itself.
 
-*Keeps possible:* cancellation and work bounds at unit boundaries, cooperative
-yielding on single-threaded Browser/Wasm, progress reporting, per-producer time
-attribution, and parallel scheduling, all without producer changes.
+*Lets the lower levels:* cancel and bound work at unit boundaries, yield on
+single-threaded Browser/Wasm, report progress, attribute time per producer,
+and schedule in parallel, all without producer changes.
 
-*Lesson:* Roslyn's syntax and operation callbacks, and Go's shared `inspect`
-traversal, give N analyzers one walk. Analyses that walk the program
-themselves cannot be interrupted, parallelized, or fused.
+*Lesson:* Roslyn's operation callbacks and Go's shared `inspect` traversal give
+N analyzers one walk. Analyses that walk the program themselves cannot be
+interrupted, parallelized, or fused.
+
+### Nothing outlives its visit except the published result
+
+**Rule.** A producer copies whatever it publishes out of the unit's data during
+its visit. No result or completion refers to a unit's data after the visit.
+
+*Lets the lower levels:* discard each unit's data after the last visit, so
+memory is bounded by the largest body.
+
+*Lesson:* whole-program analyzers that retain every method's IR run out of
+memory before they run out of time.
 
 ### Results are detached, comparable, and keyed by their inputs
 
-**Rule.** A published result retains no reader, resolver, stream, or live
-authority. It has defined equality. Each declaration states its input
-footprint: the unit's bytes alone, the unit plus its declaring module's
-metadata, or resolved references beyond the module. A result is a function of
-that footprint, the declaration identity and version, the effective scope, and
-the parameters.
+**Rule.** A published result retains no reader, lease, resolver, or stream. It
+has defined equality. Its declared input footprint is one of: the unit alone,
+the unit plus its declaring module's metadata, or resolved references beyond
+the module. A result is a function of that footprint, the declaration identity
+and version, the scope, and the parameters.
 
-*Keeps possible:* reuse within one Workspace realization, a persistent cache
-through the existing cache port, and early cutoff, where a body whose footprint
-did not change between two package versions reuses its results. It also keeps
-possible transferring results between a worker and the Browser UI thread.
+*Lets the lower levels:* reuse results within one Workspace realization,
+persist them through the cache port, and reuse per-body results across package
+versions wherever a body's footprint is unchanged.
 
-*Lesson:* Roslyn replaced `ISourceGenerator` with `IIncrementalGenerator`, an
-entirely new API, because the original's values could not be compared or
-cached. Go's analysis facts are serializable by contract, which is what allows
-separate-process and build-system drivers. Salsa and Bazel both depend on stable
-input keys fixed in advance.
-
-### Substrate lifetime ends with the unit
-
-**Rule.** A producer copies whatever it publishes out of the substrates during
-its visit. No result or completion refers to a unit's substrates after the
-visit ends.
-
-*Keeps possible:* memory bounded by the largest body rather than the library,
-and streaming large assemblies, which Browser hosts need.
-
-*Lesson:* whole-program analyzers that retain every method's IR run out of
-memory before they run out of time. Resource lifecycle analysis already has to
-compose its evidence "before those operation-local facts are discarded"; this
-makes that the general rule.
+*Lesson:* Roslyn replaced `ISourceGenerator` with `IIncrementalGenerator`
+because the original's values could not be compared or cached. Go's analysis
+facts are serializable by contract, which allows separate-process drivers.
 
 ### Outcomes are per producer and typed
 
 **Rule.** Each producer's result carries its own outcome: not requested,
-complete, incomplete with an owner-issued limitation, or failed. A producer
-failure is contained to that producer. Every dependent producer receives a
-typed prerequisite failure rather than a missing value. Independent producers
-are unaffected.
-
-*Keeps possible:* partial answers that stay honest, which the repository's
-[failure visibility](../../AGENTS.md#repository-wide-engineering-constraints)
-and complete-census rules require, and adding producers without widening every
-consumer's failure surface.
+complete, incomplete with an owner-issued limitation, or failed. A failure is
+contained to that producer. Each dependent receives a typed prerequisite
+failure rather than a missing value, and independent producers are
+unaffected.
 
 *Lesson:* Roslyn contains a crashing analyzer as a diagnostic instead of
 failing the compilation. Retrofitting an outcome shape onto result types that
@@ -332,48 +264,72 @@ never had one touches every consumer.
 
 ### Participation is observed, not declared
 
-**Rule.** The receipt records, for each producer and substrate, the units it
-was attempted on and how each attempt ended. The executor writes it at the
-point work starts and ends.
+**Rule.** This level defines the receipt's shape: for each producer and each
+requested depth layer, the units attempted and how each attempt ended. Level 2
+records it where work actually starts and ends; producers never report it.
 
-*Keeps possible:* proving minimum work in tests, `explain`-style cost
-reporting, and per-producer timing, without instrumenting each producer.
-
-*Lesson:* LLVM's `-time-passes` and `-print-after-all` come from the pass
-manager, not the passes. The
+*Lesson:* LLVM's `-time-passes` comes from the pass manager, not the passes.
+The
 [selective implementation metric](library-body-analysis-service.md#selective-implementation-metric-analysis)
-receipt is a hand-built instance of this rule for one producer family.
+receipt is a hand-built instance for one producer family.
 
-### Analysis and rewriting are separate tiers of machinery
+### Analysis and rewriting are separate
 
-**Rule.** This pattern covers read-only producers only. A component that
+**Rule.** This design covers read-only producers only. A component that
 rewrites a representation, such as the decompiler's IR passes, keeps its own
-ordered pipeline. If it adopts shared analyses, it does so through a separate
-invalidation contract.
-
-*Keeps possible:* an invalidation-free analysis tier, which is what makes
-fusion, caching, and parallelism simple.
+ordered pipeline and, if it shares analyses, its own invalidation contract.
 
 *Lesson:* analysis invalidation is one of the largest bug classes in LLVM's
-pass managers. It exists only because rewriting and analysis share one cache.
+pass managers, and it exists only because rewriting and analysis share one
+cache.
 
 ### Composition is static and identities stay separate
 
-**Rule.** Declarations are values in code. A plan contains only declarations
-reachable from its request. Nothing is discovered by reflection, scanning, or
-registration side effects. A producer's identity is an internal code identity
-with a version. It is never an [analysis catalog](analysis-surfaces-and-universes.md#analysis-identity)
-identity; the catalog binds its manifest-grade analysis identities to
-declarations.
-
-*Keeps possible:* NativeAOT and Browser/Wasm, deterministic plans, refactoring
-producers without breaking manifests, and one catalog analysis that maps to
-several producers.
+**Rule.** Declarations are values in code. A work description contains only
+declarations reachable from its request. Nothing is discovered by reflection,
+scanning, or registration side effects. A producer's identity is an internal
+code identity with a version. It is never an
+[analysis catalog](analysis-surfaces-and-universes.md#analysis-identity)
+identity; the catalog binds its manifest-grade identities to declarations.
 
 *Lesson:* order-by-registration and name-keyed discovery make behavior depend
-on link order and spelling. Research's current string-keyed producers show the
-axis that [Assembly Inspection Query](assembly-inspection-query.md#prior-art-the-research-producer-registry)
+on link order and spelling. Research's string-keyed producers show the axis
+that [Assembly Inspection Query](assembly-inspection-query.md#prior-art-the-research-producer-registry)
 already flagged.
+
+## Requirements on the lower levels
+
+This level relies on the following. Each requirement names what the work
+description needs; the owning level decides how to meet it.
+
+### Level 1: resource sharing and lifetime
+
+1. One immutable image per subject for the whole life of the work. Analysis
+   never opens or reopens a subject by path.
+2. Every producer and source borrows the subject. The lease outlives all work
+   that reads it, and detached results outlive the lease without retaining it.
+3. Reuse and joins use session or content identity, never the reference
+   identity of a derived result object.
+4. Release happens once and deterministically, however many producers
+   borrowed.
+
+Today analysis owns its own reader lifetime for each execution, and Research
+shares state by `LibraryBodyIndex` instance identity. #8576 tracks closing that
+gap.
+
+### Level 2: work ordering and collapsing
+
+1. Accept each producer's resource requests and the work description's
+   dependency edges, and collapse requests across producers and other
+   consumers.
+2. Visit each unit's producers in an order consistent with those edges, and
+   run each completion only after its inputs complete.
+3. Contain a failing visit to that producer and its dependents.
+4. Publish results equal to a serial execution of the work description,
+   whatever ordering, batching, collapse, or parallelism it uses.
+5. Record actual participation in the receipt shape defined here.
+
+#8574 owns request collapse and #8577 owns method bodies as a source.
 
 ## Tiers
 
@@ -381,65 +337,38 @@ A **tier** is a layer of producers with the same dependency position. Analysis
 producers form the lowest tier. Research and consumer-owned interpretations,
 such as the JSON wire contract, form higher tiers.
 
-- A declaration may require declarations from its own tier or a lower tier,
-  never a higher one. Analysis therefore never depends on Research or on any
-  consumer.
-- A higher-tier plan **lowers**: its lower-tier requirements become a
-  lower-tier request with the scope and parameters the higher tier needs. The
-  lower tier plans that request with no knowledge of the requester.
-- Fusion across tiers belongs to the composing tier. A composed execution may
-  visit lower-tier and higher-tier producers over one unit, because the
-  composing tier can see both declaration sets. The lower tier's reference
-  semantics are unchanged by being composed.
-- A higher tier may introduce its own substrates. For example, Research's
-  imported decompiler IR is a Research-tier substrate built from the
-  decompiler, not an Analysis concern.
+- A declaration may depend on its own tier or a lower tier, never a higher
+  one. Analysis therefore never depends on Research or on any consumer.
+- A higher-tier request includes the lower-tier producers it depends on, with
+  the scope and parameters it needs. The lower tier's declarations are used
+  unchanged and know nothing of the requester.
+- A higher tier may declare its own resource requests. Research's imported
+  decompiler IR is a Research-tier request, not an Analysis concern.
 
-Research is therefore not only a consumer. It consumes Analysis results as
-lowered requirements and adopts the same planning engine for its own producers.
-That replaces the parallel machinery it has today: string-keyed producer
-dependencies, requirement unions expressed as Analysis feature bits, and a
-memoized context over one `LibraryBodyIndex` instance. How Research adopts, and
-what happens to its session and admission contracts, is Research's own focused
+Research is therefore not only a consumer. It consumes Analysis results and
+describes its own producers with the same declarations. That replaces the
+parallel machinery it has today: string-keyed producer dependencies,
+requirement unions expressed as Analysis feature bits, and a memoized context
+keyed by one `LibraryBodyIndex` instance. How Research adopts this, and what
+happens to its session and admission contracts, is Research's own focused
 effort.
 
-The engine's contract names no Analysis, Research, or decompiler type, so it
-can move below all of its adopters without redesign. Where it lives physically
-is decided when the second tier adopts it.
+This contract names no Analysis, Research, or decompiler type, so it can move
+below all of its adopters without redesign. Where it lives physically is
+decided when the second tier adopts it.
 
 ## Relationship to adjacent owners
 
 | Owner | Relationship |
 | --- | --- |
-| [Library body Analysis service](library-body-analysis-service.md) | First adopter. Its producer coordination, features, and fixed result slots become declarations and a plan at adoption; its focused result types are unchanged. |
-| [Analysis catalog and operation participation](analysis-surfaces-and-universes.md#operation-participation) | Selects manifest-grade analyses and binds each to producer declarations. It owns cost, defaults, and discovery. |
-| [Package read demand](package-read-demand.md) | Consumes the declared requirements that a plan exposes before execution. |
-| [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Own query meaning, request collapse across consumers (#8574), and completion evidence. A body-analysis plan is one source that QuerySpace plans against. |
-| [Stateless core services](stateless-core-services.md) and [analysis index cache](analysis-index-cache.md) | Own retention and caching of the detached results this pattern publishes. |
-| [Instruction substrate](instruction-substrate.md) | Owns the lowest substrates: decoding and blocks. |
+| [Library body Analysis service](library-body-analysis-service.md) | First adopter. Its producer coordination, features, and fixed result slots become declarations and a work description; its focused result types are unchanged. |
+| [Analysis catalog and operation participation](analysis-surfaces-and-universes.md#operation-participation) | Selects manifest-grade analyses and binds each to declarations. It owns cost, defaults, and discovery. |
+| [Assembly image lifetime](assembly-image-lifetime.md) and [resource ownership](resource-ownership-and-borrowing.md) | Level 1. Supplies and tracks the borrowed subject. |
+| [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Level 2. Owns request meaning, collapse, and completion evidence, and plans reads against sources. |
+| [Package read demand](package-read-demand.md) | Consumes the declared requests in a work description. |
+| [Stateless core services](stateless-core-services.md) and [analysis index cache](analysis-index-cache.md) | Own retention and caching of the detached results. |
 | Research ([ownership paths](generic-research-ownership-paths.md), [assembly context](research-assembly-context-ownership.md)) | Intended second adopter as a higher tier. |
-| Decompiler IR passes | Separate rewriting tier. Not an adopter of this pattern. |
-
-## Future opportunities
-
-These are not part of the claim. They are listed because the properties above
-exist to keep them possible.
-
-- **Parallel and cooperative executors** for desktop and Browser/Wasm, gated by
-  equivalence to the reference execution. The desktop builder already runs
-  per-method work in parallel; this makes that parallelism a substitution with
-  a named equivalence gate.
-- **Early cutoff across versions.** Diff between two package versions reuses
-  per-body results wherever a body's declared footprint is unchanged.
-- **Deeper pushdown.** Beyond scope narrowing, a producer may skip emitting
-  rows that fail an evidence predicate, or a bounded Top may stop early, each
-  with its own proof.
-- **Persistent results** through the stateless-services cache port, keyed by
-  footprint, declaration version, scope, and parameters.
-- **Workspace-level units** for assembly-group producers such as call census,
-  with cross-unit facts flowing only through declared completions.
-- **A decompiler analysis cache** under its own invalidation contract,
-  borrowing the declaration shape but not the read-only tier.
+| Decompiler IR passes | Separate rewriting pipeline. Not an adopter. |
 
 ## Prior art
 
@@ -447,40 +376,39 @@ Surveyed as evidence, not authority. No code or schema is transferred.
 
 - Go `golang.org/x/tools/go/analysis`: analyzers as values with declared
   requirements and typed results, a shared traversal, serializable facts, and
-  multiple drivers over one contract. This is the closest match.
+  several drivers over one contract. This is the closest match.
 - Roslyn analyzers and incremental generators: callback registration over one
   walk, per-analyzer failure containment, concurrency added late as an opt-in,
-  and an API replacement forced by non-comparable values.
-- LLVM new pass manager and MLIR: lazily built, cached analyses and
-  manager-owned instrumentation, with the cost of invalidation.
-- Salsa and Bazel: stable input keys and early cutoff.
+  and an API replacement forced by values that could not be compared.
+- LLVM's new pass manager and MLIR: declared analyses and manager-owned
+  instrumentation, and the cost of invalidation.
 - Research's `ResearchFactRegistry` and this repository's decompiler pipeline:
-  local precedents for declared dependencies and for an ordered list of passes
-  that serves as the architecture document.
+  local precedents for declared dependencies and for an ordered pass list that
+  serves as the architecture document.
+
+The sharing and collapse precedents (multiple-query optimization, shared scans,
+Haxl, DataLoader) belong to level 2 and are surveyed on #8574.
 
 ## Verification
 
 These gates land with the first adoption and run in Release. Until then, every
 property above is **unverified**.
 
-- **Plan without bytes:** a plan and its declared requirements are computed
-  for a real package without opening any body.
-- **Whole-request rejection:** cycles, missing requirements, upward-tier
-  requirements, and conflicting parameters are each rejected with typed reasons
-  and no execution.
-- **Undeclared access fails visibly:** a producer that reads a result or
-  substrate it did not declare fails instead of receiving a value.
-- **Executor equivalence:** parallel and serial executors publish equal results
-  and receipt facts over the same input. The existing parallel-build
-  determinism tests are the starting point.
-- **Minimum work:** the receipt for a single-producer request shows no
-  unplanned producer or substrate participated.
-- **Pushdown equivalence:** a query with a metadata predicate returns the
-  same rows as the unpushed query, and its receipt shows fewer bodies
-  visited.
+- **Description without bytes:** a work description and its requests are
+  computed for a real package without opening any subject content.
+- **Whole-request rejection:** cycles, missing dependencies, upward-tier
+  dependencies, and conflicting parameters are each rejected with typed
+  reasons, and nothing runs.
+- **Undeclared access fails visibly:** a producer that reads a result or data
+  layer it did not declare fails instead of receiving a value.
+- **Minimum description:** a single-producer request's description and receipt
+  contain no unrequested producer.
 - **Failure containment:** an injected producer failure leaves independent
   producers' results unchanged and gives dependents a typed prerequisite
   failure.
+
+Equivalence between executors and pushdown equivalence are level 2 gates,
+tracked in #8577 and #8574.
 
 Whether the static-composition rule gets full, partial, or no gate coverage is
 an open decision for the operator, under the
