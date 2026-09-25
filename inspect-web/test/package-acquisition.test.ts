@@ -835,6 +835,59 @@ test("NuGet projection selects the declared assembly and preserves package total
     /did not return its selected assembly descriptor/);
 });
 
+test("NuGet projection loads a surface truncated to no assembly with its notice", () => {
+  // OpenAI 2.14.0 selects one compile library whose surface the engine abandons at the
+  // browser transport bound, leaving the selected asset id and only the truncation notice.
+  const notice = "API surface transport truncated at the browser retained text bound "
+    + "(32000000): retained 0 text character(s) from 0 assembly(ies); "
+    + "1 assembly(ies) were not projected.";
+  const model = createNuGetPackageModel(packageSurface({
+    package: "OpenAI",
+    version: "2.14.0",
+    defaultAssemblyId: "lib/net10.0/OpenAI.dll",
+    assemblies: [],
+    types: [],
+    totalMembers: 0,
+    inspectionErrors: [notice],
+    inspectionError: notice,
+  }));
+
+  assert.equal(model.id, "OpenAI");
+  assert.equal(model.assembly, "");
+  assert.equal(model.assemblyId, "");
+  assert.equal(model.assemblyAsset, "");
+  assert.deepEqual(model.types, []);
+  assert.equal(model.totalTypes, 0);
+  assert.deepEqual(model.inspectionErrors, [notice]);
+  assert.equal(model.inspectionError, notice);
+});
+
+test("NuGet projection still rejects empty or unmatched selected surfaces", () => {
+  assert.throws(
+    () => createNuGetPackageModel(packageSurface({
+      defaultAssemblyId: "lib/net10.0/Example.Core.dll",
+      assemblies: [],
+      types: [],
+    })),
+    /did not return its selected assembly descriptor/);
+  assert.throws(
+    () => createNuGetPackageModel(packageSurface({
+      defaultAssemblyId: " ",
+      assemblies: [],
+      types: [],
+      inspectionErrors: ["truncated"],
+      inspectionError: "truncated",
+    })),
+    /did not return its selected assembly descriptor/);
+  assert.throws(
+    () => createNuGetPackageModel(packageSurface({
+      defaultAssemblyId: "missing",
+      inspectionErrors: ["one assembly could not be inspected"],
+      inspectionError: "one assembly could not be inspected",
+    })),
+    /did not return its selected assembly descriptor/);
+});
+
 test("runtime projection owns its compact platform producer label", () => {
   const model = createRuntimePackageModel(
     runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));

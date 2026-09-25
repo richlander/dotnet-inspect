@@ -385,10 +385,24 @@ export function createNuGetPackageModel(
       result.compileLibrary.message
       || `The package Root has no selected compile library (${result.compileLibrary.status}).`);
   }
-  const assembly = rootOnly ? null : defaultAssembly(
+  const inspectionErrors = surfaceInspectionErrors(result);
+  // A selected compile library can still project no assembly: the engine abandons a
+  // participant whose surface exceeds the browser extraction or transport bound and
+  // reports only the truncation notice (`BrowserPackageSurfaceProjection` throws for any
+  // other empty selected surface). Load that package without a default assembly so its
+  // notice stays visible, as a root-only package does. An unmatched identity beside
+  // projected assemblies, or an empty surface without a notice, remains a contract failure.
+  const truncatedToNoAssembly = !rootOnly
+    && (result.assemblies ?? []).length === 0
+    && inspectionErrors.length > 0;
+  if (truncatedToNoAssembly) {
+    requireAssemblyIdentity(
       result,
       "The package query did not return its selected assembly descriptor.");
-  const inspectionErrors = surfaceInspectionErrors(result);
+  }
+  const assembly = rootOnly || truncatedToNoAssembly ? null : defaultAssembly(
+      result,
+      "The package query did not return its selected assembly descriptor.");
   if (rootOnly) {
     inspectionErrors.push(result.compileLibrary.message
       || `No compile Library is available (${result.compileLibrary.status}).`);
