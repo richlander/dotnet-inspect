@@ -281,17 +281,21 @@ Load `skill compatibility`.
 
 ### 5a. Establish endpoint identity
 
-Pin both versions and the intended TFM. Then run separate views for distinct
-questions:
+Pin both versions and the intended TFM. Start with the complete API Changes
+view, then use classified subsets for distinct questions:
 
 ```bash
+dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 -S Changes
 dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 --breaking
 dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 --additive
 dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 --implementation
 ```
 
-Do not combine API, analysis, and implementation observations into one generic
-"changed" count.
+`-S Changes` preserves the complete API population, including **Other API
+Changes** (`unclassified` in structured rows). Breaking and additive views are
+assessed subsets; neither can establish that no other API changed. Keep API,
+analysis, and implementation observations separate rather than combining them
+into one generic "changed" count.
 
 ### 5b. Trace a consequential change
 

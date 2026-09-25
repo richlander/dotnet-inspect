@@ -233,22 +233,25 @@ turn every allocation instruction into an optimization task.
 **Question:** What user-relevant API, implementation, dependency, or Finding
 change accompanies an upgrade?
 
-**First result:** exact endpoint identities and categorized pairwise API
-changes.
+**First result:** exact endpoint identities and complete pairwise API changes,
+including changes without a compatibility classification.
 
 **Stages:**
 
-1. Separate breaking and additive API views.
-2. Implementation or Finding comparison when the question requires it.
-3. Exact Type/Member correspondence for consequential changes.
-4. Sparse, major-version, or explicitly dense history to locate when a change
+1. Complete API Changes view, retaining assessed and unclassified changes.
+2. Breaking and additive API views as classified subsets.
+3. Implementation or Finding comparison when the question requires it.
+4. Exact Type/Member correspondence for consequential changes.
+5. Sparse, major-version, or explicitly dense history to locate when a change
    appeared.
-5. Dependency Neighborhood or Performance Leverage only for a concrete changed
+6. Dependency Neighborhood or Performance Leverage only for a concrete changed
    boundary.
 
 **Boundary:** API, implementation, analysis, and dependency changes retain
 their distinct meanings and completion. One generic changed count cannot
-replace them.
+replace them. Breaking and additive filters omit API changes without a
+compatibility assessment, so neither filtered view can replace the complete
+API Changes population.
 
 **Report:** user-relevant compatibility changes, implementation shifts, exact
 correspondence, and migration implications supported by evidence.
