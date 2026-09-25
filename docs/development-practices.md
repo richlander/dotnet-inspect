@@ -187,7 +187,10 @@ on rather than copying it.
 - **Row selection goes through QuerySpace.** Filtering, ordering, limiting, and
   counting product rows uses the owning row vocabulary. Hand-parsed `--where`
   evaluation or a LINQ `Where` or `Take` over product rows is drift unless the
-  owning design names the exception.
+  owning design names the exception. QuerySpace is also the planner: when
+  several consumers need the same resource, collapsing their requests into one
+  source plan is QuerySpace's job. Do not build a bespoke multiplexer, reducer,
+  or planner beside it for one consumer family.
 - **Avoid LINQ in QuerySpace clothing.** Adopting QuerySpace means the question
   reaches the work. An implementation that materializes the complete row list
   and then applies predicates, Count, or limits has QuerySpace's structure but

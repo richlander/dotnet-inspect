@@ -112,7 +112,8 @@ Check the exact head for substrate drift and layering. A change that adds a
 private copy of logic an existing shared substrate owns, defines a reusable
 declaration such as a row vocabulary, producer declaration, or descriptor in a
 host or behind host-only helpers, or filters, orders, limits, or counts product
-rows outside the owning QuerySpace vocabulary violates the repository's
+rows outside the owning QuerySpace vocabulary, or merges several consumers'
+requests for one resource outside QuerySpace, violates the repository's
 host-neutral substrate rule. Report it with the existing substrate symbol and
 the new copy or placement as evidence. For a QuerySpace adoption, verify
 whether predicates, Count, Exists, and limits reach acquisition or scope, or
