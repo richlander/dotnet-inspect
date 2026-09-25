@@ -889,10 +889,13 @@ The member command's current authored ownership is:
 | `@Calls` | `Called Types`, `Calls`, `Callers`, `Call Graph` |
 | `@Decompiler` | `Decompiled Source`, `Annotated Source`, `Annotated Source Document`, `Fidelity Causes`, `Applied Taste`, `Cost Overlay`, `Semantics Overlay`, `Facts`, `Exception Regions`, `IL` |
 | `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Top Leverage`, `Performance Triage` |
-| `@Source` | `Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL` |
+| `@Source` | `Source`, `PDB Source`, `Decompiled Source`, `Source Diff` |
 | `@SourceLink` | `Source Files`, `Source Locations` |
 
 `@Member` is the base category; the remaining categories are domains.
+`@Source` groups the authored-first target view with its forced-provider and
+comparison lenses. Decompiler analysis views such as `Annotated Source` and
+`IL` remain under `@Decompiler`.
 `Member Index` and `Finding Census` remain exact-name sections: their focused
 selector and indivisible-document contracts are not coherent promises for a
 broader category. `Clone Candidates` also remains exact-name-only because its

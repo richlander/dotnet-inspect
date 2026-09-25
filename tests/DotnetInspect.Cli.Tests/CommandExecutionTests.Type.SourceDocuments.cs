@@ -202,9 +202,11 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
+        Assert.Contains("| Source | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| PDB Source | section |", output);
-        Assert.Contains("| IL | section |", output);
+        Assert.DoesNotContain("| Annotated Source | section |", output);
+        Assert.DoesNotContain("| IL | section |", output);
         Assert.DoesNotContain("| Properties | section |", output);
         Assert.DoesNotContain("| Method Groups | section |", output);
         Assert.DoesNotContain("| Facts | section", output);
