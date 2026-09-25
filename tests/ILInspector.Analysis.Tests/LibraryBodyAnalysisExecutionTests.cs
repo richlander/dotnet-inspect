@@ -953,6 +953,55 @@ public sealed class LibraryBodyAnalysisExecutionTests
 
     [Fact]
     public void
+        MetricWorkBounds_AttributionExhaustionPreservesDirectBodyMetric()
+    {
+        Type fixture = typeof(OptimizationOpportunityFixtures);
+        string path = fixture.Assembly.Location;
+        int bodyToken = fixture.GetMethods(
+                BindingFlags.NonPublic
+                | BindingFlags.Static)
+            .Single(method => method.Name.Contains(
+                "g__Earlier|",
+                StringComparison.Ordinal))
+            .MetadataToken;
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 10,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.BodySize,
+                        limits,
+                        new HashSet<int> { bodyToken }));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies);
+        Assert.Equal(bodyToken, body.Method.MetadataToken);
+        Assert.Equal(body.Method, body.EvidenceMethod);
+        Assert.Equal(4, body.ILBytes);
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(1, work.MetricBodies);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind
+                .AttributionProbeBodies,
+            work.AttributionExhaustedLimit);
+        Assert.Contains(
+            execution.ImplementationMetrics.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "attribution-probe body limit",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void
         MetricWorkBounds_DirectBodyUsesRetainedScopedMapping()
     {
         Type fixture = typeof(MixedGeneratedOverloadFixtures);

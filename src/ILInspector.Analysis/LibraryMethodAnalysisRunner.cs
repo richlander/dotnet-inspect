@@ -1447,49 +1447,68 @@ internal sealed class LibraryMethodAnalysisRunner(
                 || plan.RequestedMethodScope?.Contains(
                     caller.MetadataToken)
                     == true;
-            MethodIdentity? declaredMethod =
-                _infrastructure.ResolveDeclaredMethod(
-                    methodHandle,
-                    methodDefinition,
-                    caller,
-                    typeSourceGenerated,
-                    bodyScope,
-                    bodyTypeScope,
-                    plan.RequestedMethodScope,
-                    directlySelectedBody);
-            result.DeclaredMethod = declaredMethod;
-            DeclaredOwnerResolution ownerResolution =
-                declaredMethod is null
-                    ? DeclaredOwnerResolution.None
-                    : DeclaredOwnerResolution.Resolved;
-            if (declaredMethod is not null
-                && CompilerGeneratedNames
-                    .IsLocalFunctionOrLambda(
-                        declaredMethod.Name))
+            try
             {
-                ownerResolution =
-                    _infrastructure.ResolveUltimateDeclaredMethod(
+                MethodIdentity? declaredMethod =
+                    _infrastructure.ResolveDeclaredMethod(
                         methodHandle,
                         methodDefinition,
                         caller,
                         typeSourceGenerated,
-                        out _,
-                        out AuthenticatedSourceOwner?
-                            ultimateOwner);
-                if (ownerResolution
-                    == DeclaredOwnerResolution.Resolved)
+                        bodyScope,
+                        bodyTypeScope,
+                        plan.RequestedMethodScope,
+                        directlySelectedBody);
+                result.DeclaredMethod = declaredMethod;
+                DeclaredOwnerResolution ownerResolution =
+                    declaredMethod is null
+                        ? DeclaredOwnerResolution.None
+                        : DeclaredOwnerResolution.Resolved;
+                if (declaredMethod is not null
+                    && CompilerGeneratedNames
+                        .IsLocalFunctionOrLambda(
+                            declaredMethod.Name))
                 {
-                    result.DeclaredMethod =
-                        ultimateOwner?.Method;
+                    ownerResolution =
+                        _infrastructure.ResolveUltimateDeclaredMethod(
+                            methodHandle,
+                            methodDefinition,
+                            caller,
+                            typeSourceGenerated,
+                            out _,
+                            out AuthenticatedSourceOwner?
+                                ultimateOwner);
+                    if (ownerResolution
+                        == DeclaredOwnerResolution.Resolved)
+                    {
+                        result.DeclaredMethod =
+                            ultimateOwner?.Method;
+                    }
                 }
+                if (ownerResolution is
+                    DeclaredOwnerResolution.Unresolved
+                    or DeclaredOwnerResolution.Rejected)
+                {
+                    result.DeclaredMethod = null;
+                }
+                result.DeclaredSource =
+                    result.DeclaredMethod;
             }
-            if (ownerResolution is
-                DeclaredOwnerResolution.Unresolved
-                or DeclaredOwnerResolution.Rejected)
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
             {
+                if (!directlySelectedBody)
+                    throw;
                 result.DeclaredMethod = null;
+                result.DeclaredSource = null;
+                result.Diagnostic = new AnalysisDiagnostic(
+                    MetadataTokens.GetToken(methodHandle),
+                    MethodLabel(
+                        typeHandle,
+                        methodHandle),
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    DeclaringType: caller.DeclaringType);
             }
-            result.DeclaredSource = result.DeclaredMethod;
 
             ImplementationMetricAnalysisPlan metricPlan =
                 plan.ImplementationMetrics
