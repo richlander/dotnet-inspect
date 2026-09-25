@@ -57,13 +57,13 @@ This owner composes existing contracts by their issued currencies:
 - `docs/design/progressive-disclosure.md` owns the requirement that unbounded
   implementation analysis remain explicit rather than default navigation work.
 
-This design transfers one claim to the family query: an available family
-result also issues the size of every non-public same-name method declared on
-the same Type, as reference measurements outside the public roster. It changes
-no other adjacent contract. The Analysis facade lowers
-the completed host-neutral envelope to an assembly-local generated wire
-contract. The Browser joins only owner-issued method tokens, module identities,
-Type definition IDs, stable Member selectors, and exact Library coordinates.
+This design transfers one claim to the family query: the analyzed family is
+every same-name method declared on the Type, regardless of accessibility,
+while the public roster stays the set of listed Members. It changes no other
+adjacent contract. The Analysis facade lowers the completed host-neutral
+envelope to an assembly-local generated wire contract. The Browser joins only
+owner-issued method tokens, module identities, Type definition IDs, stable
+Member selectors, and exact Library coordinates.
 
 ## Supported scope
 
@@ -73,12 +73,17 @@ implementation assets and platform implementation assemblies. Uploaded
 standalone Libraries are outside this slice because they do not yet
 participate in the same retained Browser workspace and Analysis facade path.
 
-Rows are the public overload roster. Non-public same-name methods are never
-rows and never receive heat or a hub strip, but their sizes set the family's
-**reference maximum**, so a public overload is not presented as large when a
-non-public implementation dwarfs it. Relationships from a public overload to a
-non-public same-name method count as that overload's outgoing calls, so a
-public forwarder is never marked as a hub.
+Two sets are distinct:
+
+- the **public roster** is the listed overloads; only these are rows; and
+- the **analyzed family** is every same-name method declared on the Type,
+  regardless of accessibility.
+
+Profiles, sizes, and relationships cover the analyzed family. Non-public
+methods are never rows and never show heat or a hub strip, but they set the
+family maximum and take part in call relationships. A public overload is
+therefore not presented as large when a non-public implementation dwarfs it,
+and a public forwarder into a non-public method is never a hub.
 
 Library- and Type-level ranked lists remain future consumers that require their
 own proportional query contracts. This slice does not add those surfaces and
@@ -86,33 +91,37 @@ does not make their acquisition, ordering, or filtering normative.
 
 ## Activation and acquisition
 
-Package acquisition, API loading, Type navigation, and first paint perform no
-implementation-profile work. Member-list expansion of an eligible overload
-family is the activation gesture: the Browser starts one exact family request
-when that family becomes the current expanded family.
+The member list is built in two passes:
 
-Family-scoped analysis is bounded by the family roster, so it is not the
-unbounded implementation analysis that
+1. The Browser loads and paints the Type's members from the API surface. This
+   pass performs no implementation-profile work, and package acquisition, API
+   loading, and Type navigation remain free of it.
+2. After the member list paints, the Browser requests implementation profiles
+   for each eligible overload family on the Type and annotates rows as each
+   family result publishes.
+
+Each request is family-scoped and bounded by the analyzed family, so it is not
+the unbounded implementation analysis that
 [progressive disclosure](progressive-disclosure.md) reserves for explicit
-requests. The Browser still bounds the work navigation can start:
+requests. The Browser bounds the second pass:
 
 - at most one family request is in flight;
-- when the user expands another family while one is in flight, the in-flight
-  request may settle its cache entry, and only the most recently expanded
-  family is queued behind it; intermediate families are dropped;
-- rows render immediately without heat, and heat appears when the current
-  family's result publishes; and
+- the currently expanded family is requested first, and the remaining eligible
+  families follow in member-list order;
+- leaving the Type stops queuing its remaining families; an in-flight request
+  may settle its cache entry but does not publish into another Type's list;
+- rows render immediately without heat, and heat appears when the family's
+  result publishes; and
 - a producer-failed family is not retried by navigation. Retry is explicit.
 
-One request names one exact implementation participant and public overload
-family:
+One request names one exact implementation participant and family:
 
 - a package request uses package ID, package version, target framework, and the
   exact selected implementation Library asset identity;
 - a platform request uses framework, platform version, platform pack, and
   assembly file name; and
-- both routes carry one metadata Type definition ID and the complete set of
-  stable Member selectors for the public method family.
+- both routes carry one metadata Type definition ID, the method name, and the
+  complete set of stable Member selectors for the public roster.
 
 The Analysis JSExport operation opens that participant and invokes
 `ImplementationProfileFamilyInspectionOperation`. Unknown, duplicate, partial,
@@ -121,9 +130,9 @@ whole-Library analysis. The wire result preserves the completed envelope:
 
 - Content outcome: available, participant rejected, or participant failed;
 - available Content: subject identity, the complete public overload roster,
-  profiles, public Member anchors, scoped coverage, contained overload
-  relationships, generated framework Types, Analysis diagnostics, and
-  API-surface failures;
+  profiles for the analyzed family, public Member anchors, scoped coverage,
+  contained overload relationships, generated framework Types, Analysis
+  diagnostics, and API-surface failures;
 - Share outcome; and
 - ordered inspection diagnostics.
 
@@ -201,17 +210,17 @@ its attributed physical profiles. Generated bodies contribute to their logical
 overload's evidence but do not replace the logical body's own measurement when
 that body is available.
 
-The **reference maximum** is the largest size among the public overloads and
-the issued non-public same-name reference measurements. When a non-public
-reference measurement is unavailable or incomplete, the family is ready but
-incomplete and shows no heat, because the maximum is unknown.
+The **family maximum** is the largest size in the analyzed family, including
+non-public methods. When any analyzed body's size is unavailable or incomplete,
+the family is ready but incomplete and shows no heat, because the maximum is
+unknown.
 
 An overload is a **hub** when all of the following hold:
 
-- at least one owner-issued relationship has a sibling public overload as its
-  caller and this overload as its callee;
+- at least one owner-issued relationship has another analyzed-family method as
+  its caller and this overload as its callee;
 - no owner-issued relationship has any of this overload's physical bodies as
-  its caller, including calls to non-public same-name methods; and
+  its caller and another analyzed-family method as its callee; and
 - every attributed physical profile is complete.
 
 The member list keeps public API roster order. Heat and hub state annotate
@@ -239,14 +248,14 @@ separate.
 
 ### Heat
 
-Heat applies only to overloads whose size is at least half the reference
+Heat applies only to overloads whose size is at least half the family
 maximum. Every other row is untinted.
 
 - The tint is anchored on the right edge of the row and fades toward the left,
   leaving the left edge for hover and selection.
-- Strength follows `t = sqrt(size / reference maximum)`. Lightness, chroma, and the
-  distance the tint reaches into the row all rise with `t`, so reach is a
-  non-color channel for the same fact.
+- Strength follows `t = sqrt(size / family maximum)`. Lightness, chroma,
+  and the distance the tint reaches into the row all rise with `t`, so reach
+  is a non-color channel for the same fact.
 - The tint is one hue from a theme-owned token ramp, distinct from the
   selection accent. Each theme defines its own ramp endpoints; the tint fades
   to the same hue at zero alpha rather than to a painted surface, so hover and
@@ -267,7 +276,7 @@ non-public method and is smaller than half of the non-public implementation.
 ### Accessible description
 
 Each heated or hub row carries an accessible description with its instruction
-count, its share of the reference maximum, whether that maximum belongs to a
+count, its share of the family maximum, whether that maximum belongs to a
 non-public method, and, for a hub, how many
 sibling overloads call it. Neither channel relies on color alone.
 
@@ -356,37 +365,39 @@ Member, and overload navigation does not start this operation.
 9, and 8 instructions. Every one calls a non-public same-name method, and the
 non-public `Parse(ReadOnlySpan<byte>, JsonReaderOptions, ref MetadataDb, ref
 StackRowStack)` measures 288 instructions. No public overload reaches half the
-reference maximum and none is a hub, so the family shows neither channel.
+family maximum and none is a hub, so the family shows neither channel.
 
 ## Gates
 
 The following gates enforce this design:
 
-1. Family-query tests prove the non-public same-name reference measurements
-   for `JsonDocument.Parse`, their completeness, and that they never enter the
-   public roster.
+1. Family-query tests prove that the analyzed family for `JsonDocument.Parse`
+   includes its non-public same-name methods with profiles and relationships,
+   and that they never enter the public roster.
 2. Analysis-facade projection tests compare package and platform wire results
    with the completed host-neutral envelope, including Content outcome, raw
    metrics, logical and physical tokens, public anchors, coverage,
    relationships, Share, and ordered diagnostics.
 3. Generated-facade ownership and ordinary Worker tests prove the complete
    typed result crosses the Analysis facade and Worker transport unchanged.
-4. Implementation-profile coordinator tests prove expansion activation,
-   exact-family-key single-flight caching, the one-in-flight and latest-queued
-   bound, same-family reuse, cross-family isolation, explicit retry,
-   workspace replacement, and stale-publication suppression through operation
-   authority.
-5. Family-projection tests prove size, the reference maximum, the
+4. Implementation-profile coordinator tests prove the second pass starts only
+   after the member list paints, the expanded family is requested first, at
+   most one request is in flight, leaving the Type stops queuing,
+   exact-family-key single-flight caching, same-family reuse, cross-family
+   isolation, explicit retry, workspace replacement, and stale-publication
+   suppression through operation authority.
+5. Family-projection tests prove size, the family maximum, the
    half-of-maximum heat threshold, noise suppression, and hub derivation
-   over `StringBuilder.AppendFormat` and `JsonDocument.Parse` evidence plus synthetic incomplete, bodyless,
-   generated-body, and non-public-callee boundaries.
+   over `StringBuilder.AppendFormat` and `JsonDocument.Parse` evidence plus
+   synthetic incomplete, bodyless, generated-body, and non-public-callee
+   boundaries.
 6. Member-list rendering and accessibility tests prove roster order, compact
    labels from the issued display, right-anchored heat, the hub strip,
    accessible descriptions, and every visible state.
 7. The Inspect Web authored typecheck, lint, build, and focused Browser tests
    gate the production composition.
-8. The PR Demo records first-acquisition latency and confirms through
-   instrumentation that package acquisition, API loading, and Type navigation
-   issue no profile request, and that rapid traversal across families keeps
-   at most one request in flight. Timing is observational evidence, not a
-   stable CI threshold.
+8. The PR Demo records the time from member-list paint to heat for both
+   real-evidence families and confirms through instrumentation that package
+   acquisition, API loading, and Type navigation issue no profile request and
+   that the second pass keeps at most one request in flight. Timing is
+   observational evidence, not a stable CI threshold.
