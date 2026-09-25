@@ -139,20 +139,24 @@ exact destination and the retained Package model. Requests use the
 destination's endpoint coordinates and anchors as submitted; none reads the
 current inspector state, the version control, or display text.
 
-**Text** mode uses the inline comparison's retained result when one exists
-for the same request identity, as the Compare Experience defines it, instead
-of running the comparison again. A **Text** result settled inside Explore is
-retained under that same identity, so the inline section shows it too.
+**Text** mode consumes the authored-Source comparison the Compare Experience
+owns for the same request identity: it shows a settled result, attaches to a
+pending one, and otherwise starts that comparison, so one identity never has
+two comparisons in flight. Retention and sharing with the inline section are
+the Compare Experience's rules.
 
-Only the current authorized operation may publish a mode. Changing the
-Package Diff baseline, navigating away from the Member, replacing or removing
-the Package model, or closing the viewer supersedes pending mode work;
-cancellation is best-effort and a late completion publishes nothing. Closing
-disposes the viewer's operations through the existing authority boundary.
+Only the current authorized operation may publish a mode. Closing the viewer
+supersedes the viewer's own pending mode work, and a late completion
+publishes nothing; cancellation is best-effort, and closing disposes those
+operations through the existing authority boundary. The **Text** comparison
+is not the viewer's own work: it belongs to the Compare Experience, and
+closing the viewer neither supersedes nor disposes it. While the viewer is
+open it is modal, so the Package Diff baseline, the Member, and the Package
+model cannot change underneath it.
 
 A failed or canceled mode result is not retained and runs again when the mode
-next becomes active. Retention is a snapshot of settled evidence, never a
-cache consulted across Package models or baselines.
+next becomes active. The decompiler diff owner states whether its mode's
+settled results outlive the open viewer.
 
 The viewer is transient. It creates no Navigation subject, lens, canonical
 location, history entry, or Workspace packet. Refresh and shared links restore
@@ -162,10 +166,7 @@ the Member Compare surface, not the open viewer.
 
 Closing follows the Compare Experience's Explore return rule: the same
 subject, Compare lens, and retained mode; the same Member row; the inventory
-scroll position; and focus on the invoking Explore action. If the settled Diff
-result was replaced while the viewer was open, the Compare surface renders the
-replacement and focuses its nearest surviving heading or persistent control,
-and the viewer's stale mode results are not shown again.
+scroll position; and focus on the invoking Explore action.
 
 ## Failure and empty states
 
@@ -197,8 +198,9 @@ This design does not claim:
 1. **Text-mode viewer.** Replace the three-pane viewer from #8491 with the
    full-bleed **Text** mode over the diff viewer's full-bleed host; remove the
    What changed and Declaration panes; narrow destination issuance to
-   relations with an available mode; and share retained **Text** results with
-   the inline section.
+   relations with an available mode, recorded in the Library API Diff wire
+   owner's retained-result inventory and bounds; and consume the Compare
+   Experience's shared **Text** comparison.
 2. **Decompiler mode.** Add the mode switch and **Decompiler** mode when the
    decompiler diff owner issues it.
 
@@ -226,10 +228,7 @@ The #8491 relation-order renderer and its placeholder pane retire in stage 1.
 5. Open Explore for an added Member and a removed Member and confirm the
    present side appears beside an explicit absent side.
 6. Close with Escape and with the close action and confirm the same Member
-   row, scroll position, mode, and focus on Explore are restored; change the
-   Package Diff baseline while the viewer is open and confirm the viewer
-   closes, its pending work publishes nothing, and Compare renders the
-   replacement.
+   row, scroll position, mode, and focus on Explore are restored.
 7. Open Explore at desktop and 390px widths and confirm one vertical scroll
    owner, no page-level horizontal overflow, and that a resize changes layout
    only.
