@@ -802,7 +802,7 @@ export function typeSourceSignature(
     item.assembly,
     item.definitionId ?? item.id,
     view,
-  ], view === "source" ? taste : []);
+  ], view === "source" || view === "decompiler-source" ? taste : []);
 }
 
 export type TypeSourceStateSlice = SourceResultState<BrowserTypeCodeView>;
@@ -892,6 +892,7 @@ export function renderSourcePageActions(
           <span>View</span>
           <select id="type-source-view" aria-label="Select type code view">
             <option value="source"${typeView === "source" ? " selected" : ""}>Source</option>
+            <option value="decompiler-source"${typeView === "decompiler-source" ? " selected" : ""}>Decompiler source</option>
             <option value="api-declarations"${typeView === "api-declarations" ? " selected" : ""}>API Declarations</option>
             <option value="all-declarations"${typeView === "all-declarations" ? " selected" : ""}>All Declarations</option>
           </select>
@@ -910,7 +911,9 @@ export function renderSourcePageActions(
     ${source?.url
       ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
       : ""}
-    ${copyButtonId !== "copy-type-source" || typeView === "source"
+    ${copyButtonId !== "copy-type-source"
+      || typeView === "source"
+      || typeView === "decompiler-source"
       ? `<button id="explore-source" class="primary-action" type="button"
           title="Explore source options">Explore</button>`
       : ""}`;
@@ -1068,7 +1071,9 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
   } = options;
   const loading = view === "source"
     ? `<h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p>`
-    : `<h2>Reading API declarations…</h2><p>Projecting bodyless declarations from the selected library metadata.</p>`;
+    : view === "decompiler-source"
+      ? `<h2>Decompiling type…</h2><p>Projecting implementation C# directly from the selected library.</p>`
+      : `<h2>Reading API declarations…</h2><p>Projecting bodyless declarations from the selected library metadata.</p>`;
   if (sourceState.status === "idle"
     || sourceState.signature !== currentSignature) {
     return `<section class="document-section source-progress"><span class="loader"></span>${loading}</section>`;
