@@ -484,9 +484,11 @@ JSONL, and projected JSON. Plain unprojected Content JSON and `--envelope`
 use the source-generated serializer for
 `CapabilityCatalogSearchDocument`, preserving numeric similarity, booleans,
 counts, arrays, identities, and relationship structure rather than
-re-encoding rendered table cells. The Browser renders the same typed Content
-through its own view layer. Neither host owns another search result or ranking
-model.
+re-encoding rendered table cells. The Browser invokes the same typed operation,
+then projects the completed envelope into assembly-local wire records at the
+JavaScript boundary. That transport projection preserves every Content, Share,
+and diagnostic value and order; it does not serialize product-owned types or
+introduce another search result or ranking model.
 
 The search branch supports shared presentation and destination controls plus
 the semantic result limit. Resource Explanation traversal, including
@@ -495,12 +497,14 @@ acquisition capabilities, source-content controls, and inspection verbosity
 are inapplicable and are rejected before dispatch rather than ignored.
 
 The Browser exposes a capability-search entry point using the same request and
-inspection envelope. It may present one search box and route selected exact
-paths directly rather than reproducing CLI operand parsing, but its typed
-branch selection is equivalent. Search results can navigate to exact
-explanation and to available Browser bindings. The CLI and Browser may arrange
-controls differently, but equivalent request values over the same catalog
-generation must receive equal Content, Share, and diagnostics.
+host-neutral inspection envelope. Its generated facade returns the
+assembly-local transport projection of that completed envelope. It may present
+one search box and route selected exact paths directly rather than reproducing
+CLI operand parsing, but its typed branch selection is equivalent. Search
+results can navigate to exact explanation and to available Browser bindings.
+The CLI and Browser may arrange controls differently, but equivalent request
+values over the same catalog generation must receive equal Content, Share, and
+diagnostics before lossless host transport projection.
 
 The root shipped skill eventually needs only the durable workflow:
 

@@ -1,11 +1,5 @@
 import { dotnet } from "./runtime-loader.js";
 
-declare const inertStringBrand: unique symbol;
-
-export type InertString = string & {
-  readonly [inertStringBrand]: "InertString";
-};
-
 declare const dateTimeOffsetStringBrand: unique symbol;
 
 export type DateTimeOffsetString = string & {
@@ -22,6 +16,12 @@ export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" |
 
 export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "DeclarationNotFound" | number;
 
+export type BrowserCapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | number;
+
+export type BrowserCapabilityCatalogSearchShareKind = "available" | "nonProjectable" | number;
+
+export type BrowserCapabilityResourceKind = "Document" | "Route" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
@@ -35,6 +35,8 @@ export type BrowserExactLibraryApiInspectionFailureKind = number;
 export type BrowserExactLibraryApiInspectionOutcome = number;
 
 export type BrowserExactLibraryApiProjectionLimit = number;
+
+export type BrowserInspectionConsumerKind = "Cli" | "Browser" | "OperationBackedSection" | number;
 
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 
@@ -92,7 +94,7 @@ export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" 
 
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 
-export type CapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | number;
+export type BrowserResourceExplanationResourceKind = "Catalog" | "NavigationCollection" | "StructuralCategory" | "StructuralSection" | "StructuralItem" | "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
 
 export type CompiledDocumentationIncompleteReason = "Deadline" | "ContributionLimit" | "CompanionSelectionPartial" | "CompiledXmlByteLimit" | number;
 
@@ -111,14 +113,6 @@ export type DocumentationQueryFailureReason = "CompiledXmlMalformedOrUnreadableD
 export type DocumentationQueryFieldEvidenceKind = "Selected" | "Corroborated" | "Conflict" | "Absent" | number;
 
 export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | "AuthoredSourceBindingMismatch" | number;
-
-export type InspectionCapabilityResourceKind = "Document" | "Route" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
-
-export type InspectionConsumerKind = "Cli" | "Browser" | "OperationBackedSection" | number;
-
-export type InspectionDiagnosticSeverity = number;
-
-export type ResourceExplanationResourceKind = "Catalog" | "NavigationCollection" | "StructuralCategory" | "StructuralSection" | "StructuralItem" | "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
 
 export interface AuthoredDocumentationObservation {
   readonly code?: string;
@@ -155,6 +149,64 @@ export interface BrowserAssemblySurface {
   readonly publicTypes: number;
   readonly publicMembers: number;
   readonly platformPack: string | null;
+}
+
+export interface BrowserCapabilityCatalogSearchBinding {
+  readonly identity: string;
+  readonly name: string;
+  readonly consumerKind: BrowserInspectionConsumerKind;
+  readonly gesture: string;
+  readonly resourcePath: string;
+}
+
+export interface BrowserCapabilityCatalogSearchDocument {
+  readonly query: string;
+  readonly similarityThreshold: number;
+  readonly candidateResourceCount: number;
+  readonly matchCount: number;
+  readonly returnedCount: number;
+  readonly isTruncated: boolean;
+  readonly results: ReadonlyArray<BrowserCapabilityCatalogSearchResult>;
+}
+
+export interface BrowserCapabilityCatalogSearchInspection {
+  readonly content: BrowserCapabilityCatalogSearchDocument;
+  readonly share: BrowserCapabilityCatalogSearchShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserCapabilityCatalogSearchResult {
+  readonly similarity: number;
+  readonly matchedTerm: string;
+  readonly matchSource: BrowserCapabilityCatalogSearchMatchSource;
+  readonly isSegment: boolean;
+  readonly resourceIdentity: BrowserCapabilityResourceIdentity;
+  readonly resourceKind: BrowserResourceExplanationResourceKind;
+  readonly resourceName: string;
+  readonly canonicalKeys: ReadonlyArray<string>;
+  readonly resourcePath: string;
+  readonly owningRoutes: ReadonlyArray<BrowserCapabilityCatalogSearchRoute>;
+  readonly productionBindings: ReadonlyArray<BrowserCapabilityCatalogSearchBinding>;
+}
+
+export interface BrowserCapabilityCatalogSearchRoute {
+  readonly identity: string;
+  readonly name: string;
+  readonly resourcePath: string;
+}
+
+export interface BrowserCapabilityCatalogSearchShare {
+  readonly kind: BrowserCapabilityCatalogSearchShareKind;
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserCapabilityResourceIdentity {
+  readonly kind: BrowserCapabilityResourceKind;
+  readonly identity: string;
+  readonly parentIdentity: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {
@@ -1117,44 +1169,6 @@ export interface BrowserWorkspacePackageOccurrenceView {
   readonly superseded: boolean;
 }
 
-export interface CapabilityCatalogSearchBinding {
-  readonly identity: string;
-  readonly name: string;
-  readonly consumerKind: InspectionConsumerKind;
-  readonly gesture: string;
-  readonly resourcePath: string;
-}
-
-export interface CapabilityCatalogSearchDocument {
-  readonly query: string;
-  readonly similarityThreshold: number;
-  readonly candidateResourceCount: number;
-  readonly matchCount: number;
-  readonly returnedCount: number;
-  readonly isTruncated: boolean;
-  readonly results: ReadonlyArray<CapabilityCatalogSearchResult>;
-}
-
-export interface CapabilityCatalogSearchResult {
-  readonly similarity: number;
-  readonly matchedTerm: string;
-  readonly matchSource: CapabilityCatalogSearchMatchSource;
-  readonly isSegment: boolean;
-  readonly resourceIdentity: InspectionCapabilityResourceIdentity;
-  readonly resourceKind: ResourceExplanationResourceKind;
-  readonly resourceName: string;
-  readonly canonicalKeys: ReadonlyArray<string>;
-  readonly resourcePath: string;
-  readonly owningRoutes: ReadonlyArray<CapabilityCatalogSearchRoute>;
-  readonly productionBindings: ReadonlyArray<CapabilityCatalogSearchBinding>;
-}
-
-export interface CapabilityCatalogSearchRoute {
-  readonly identity: string;
-  readonly name: string;
-  readonly resourcePath: string;
-}
-
 export interface CompiledDocumentationAssemblyIdentity {
   readonly name?: string;
   readonly version?: string;
@@ -1253,25 +1267,6 @@ export interface DocumentationQueryTextFieldEvidence {
   readonly kind: DocumentationQueryFieldEvidenceKind;
   readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
   readonly contributions: ReadonlyArray<DocumentationQueryTextFieldContribution>;
-}
-
-export interface InspectionCapabilityResourceIdentity {
-  readonly kind: InspectionCapabilityResourceKind;
-  readonly identity: string;
-  readonly parentIdentity: string | null;
-}
-
-export interface InspectionDiagnostic {
-  readonly code: string;
-  readonly severity: InspectionDiagnosticSeverity;
-  readonly summary: InertString;
-  readonly correspondence: InertString | null;
-}
-
-export interface InspectionEnvelope<T0> {
-  readonly content: T0;
-  readonly share: InspectionShare;
-  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
 }
 
 export interface Absent {
@@ -1406,22 +1401,6 @@ export interface type_4486029c {
 }
 
 export type DocumentationQueryOutcome = Completed | type_4486029c | type_0808982e | type_29dfca00;
-
-export interface NonProjectable {
-  readonly kind: "nonProjectable";
-  readonly fullUrl: string | null;
-  readonly packet: string | null;
-  readonly path: string;
-  readonly reason: InertString;
-}
-
-export interface type_19b4bd5b {
-  readonly kind: "available";
-  readonly fullUrl: string;
-  readonly packet: string;
-}
-
-export type InspectionShare = type_19b4bd5b | NonProjectable;
 
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 
@@ -2098,10 +2077,10 @@ export async function runPackageQuery(operationId: string, prefix: string, terms
   return $parsed as BrowserPackageQueryResult;
 }
 
-export function searchCapabilities(text: string, maximumResults: number): InspectionEnvelope<CapabilityCatalogSearchDocument | null> {
+export function searchCapabilities(text: string, maximumResults: number): BrowserCapabilityCatalogSearchInspection {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchCapabilities.146925470"](text, maximumResults);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as InspectionEnvelope<CapabilityCatalogSearchDocument | null>;
+  return $parsed as BrowserCapabilityCatalogSearchInspection;
 }
 
 export function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit> {

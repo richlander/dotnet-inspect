@@ -702,6 +702,113 @@ public sealed record BrowserInspectionDiagnostic(
     string Summary,
     string? Correspondence);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityCatalogSearchMatchSource>))]
+public enum BrowserCapabilityCatalogSearchMatchSource
+{
+    CanonicalKey,
+    OwnerIdentity,
+    ResourcePath,
+    ResourceName,
+    Summary,
+    RelatedRoute,
+    ProductionBinding,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityResourceKind>))]
+public enum BrowserCapabilityResourceKind
+{
+    Document,
+    Route,
+    QuerySpace,
+    QueryFacet,
+    ConsumerBinding,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserResourceExplanationResourceKind>))]
+public enum BrowserResourceExplanationResourceKind
+{
+    Catalog,
+    NavigationCollection,
+    StructuralCategory,
+    StructuralSection,
+    StructuralItem,
+    InspectionDocument,
+    HostNeutralRoute,
+    QuerySpace,
+    QueryFacet,
+    ConsumerBinding,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionConsumerKind>))]
+public enum BrowserInspectionConsumerKind
+{
+    Cli,
+    Browser,
+    OperationBackedSection,
+}
+
+public sealed record BrowserCapabilityResourceIdentity(
+    BrowserCapabilityResourceKind Kind,
+    string Identity,
+    string? ParentIdentity);
+
+public sealed record BrowserCapabilityCatalogSearchRoute(
+    string Identity,
+    string Name,
+    string ResourcePath);
+
+public sealed record BrowserCapabilityCatalogSearchBinding(
+    string Identity,
+    string Name,
+    BrowserInspectionConsumerKind ConsumerKind,
+    string Gesture,
+    string ResourcePath);
+
+public sealed record BrowserCapabilityCatalogSearchResult(
+    double Similarity,
+    string MatchedTerm,
+    BrowserCapabilityCatalogSearchMatchSource MatchSource,
+    bool IsSegment,
+    BrowserCapabilityResourceIdentity ResourceIdentity,
+    BrowserResourceExplanationResourceKind ResourceKind,
+    string ResourceName,
+    string[] CanonicalKeys,
+    string ResourcePath,
+    BrowserCapabilityCatalogSearchRoute[] OwningRoutes,
+    BrowserCapabilityCatalogSearchBinding[] ProductionBindings);
+
+public sealed record BrowserCapabilityCatalogSearchDocument(
+    string Query,
+    double SimilarityThreshold,
+    int CandidateResourceCount,
+    int MatchCount,
+    int ReturnedCount,
+    bool IsTruncated,
+    BrowserCapabilityCatalogSearchResult[] Results);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserCapabilityCatalogSearchShareKind>))]
+public enum BrowserCapabilityCatalogSearchShareKind
+{
+    [JsonStringEnumMemberName("available")]
+    Available,
+
+    [JsonStringEnumMemberName("nonProjectable")]
+    NonProjectable,
+}
+
+public sealed record BrowserCapabilityCatalogSearchShare(
+    BrowserCapabilityCatalogSearchShareKind Kind,
+    string? FullUrl,
+    string? Packet,
+    string? Path,
+    string? Reason);
+
+public sealed record BrowserCapabilityCatalogSearchInspection(
+    BrowserCapabilityCatalogSearchDocument Content,
+    BrowserCapabilityCatalogSearchShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
 public sealed record BrowserExactLibraryApiInspection(
     BrowserExactLibraryApiInspectionResult Content,
     BrowserInspectionShare Share,
@@ -1221,7 +1328,6 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageGraphIdentityRole[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
-[JsonSerializable(
-    typeof(InspectionEnvelope<CapabilityCatalogSearchDocument>))]
+[JsonSerializable(typeof(BrowserCapabilityCatalogSearchInspection))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserPackageJsonContext : JsonSerializerContext;
