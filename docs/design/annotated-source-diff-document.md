@@ -61,18 +61,26 @@ cross-version key for a fact.
 The document's query takes the same two sides as
 `WorkspaceImplementationComparisonQuery`: each side's assembly context group,
 root, and bindings, the declaring type, and the Member selector. It runs that
-query's population sealing, target planning, and per-side composition, and
-keeps its type-forwarder provenance. It does not run the C# or IL producer
-session; the document's text comes from the annotated documents.
+query's population sealing, target planning, and composition for both sides,
+even when the Member resolves on only one, and then the plan's Research
+target correspondence. It keeps the type-forwarder provenance. It does not
+run the C# or IL producer session; the document's text comes from the
+annotated documents.
 
-For each side whose composition resolves the Member, the query produces that
-side's `AnnotatedSourceDocument` through
-`AssemblyContextMemberProjectionQuery` on the side's participant, with the
-receipt's method token and `SourceDocument` requested. The participant is
-the one whose assembly registration the receipt resolved; the query exposes
-that join as a typed result rather than leaving each host to rediscover it.
-The document's module version id must equal the receipt's; a mismatch is a
-failure, never a substituted document.
+The correspondence decides which sides are compared. Only a `Paired`
+correspondence compares two sides, so two different overloads selected by
+the same name are never compared as one Member; that remains the
+correspondence owner's unavailable outcome.
+
+For each side the correspondence admits, the query produces that side's
+`AnnotatedSourceDocument` through `AssemblyContextMemberProjectionQuery` on
+the side's participant, with the receipt's method token and `SourceDocument`
+requested. The participant is the one whose assembly registration the
+receipt resolved; the query exposes that join as a typed result rather than
+leaving each host to rediscover it. The document's module version id must
+equal the receipt's; a mismatch is a failure, never a substituted document.
+The Member subject keeps the receipt's relationship role, so an accessor
+remains the accessor the selector named.
 
 Both sides use the decompiler's byte-faithful default style. A style lens
 rewrites printed shape and suppresses the IL plane, so it would make the two
@@ -83,32 +91,43 @@ document.
 
 ## Sides
 
-Each side is a closed outcome, following `FindingInspection<T>`:
+Each side is a closed outcome, following `FindingInspection<T>`, and derives
+from the correspondence:
 
-| Side outcome | Meaning |
-| --- | --- |
-| Present | The side's `AnnotatedSourceDocument` and its fact census receipt |
-| Absent | The Member does not exist on this side: an added or removed Member |
-| NotApplicable | The side has no body to decompile, such as an abstract or extern Member, with the typed reason |
-| Failed | Resolution, composition, or projection failed on this side, with the typed failure |
+| Correspondence | Before side | After side |
+| --- | --- | --- |
+| `Paired` | Present | Present |
+| `BeforeOnly` | Present | Absent, with the correspondence's key-absence proof |
+| `AfterOnly` | Absent, with the proof | Present |
+| `CounterpartUnavailable` or `DomainUnavailable` | Unavailable, with the typed correspondence outcome | Unavailable, with the same outcome |
+| `Absent` | No document: the query returns the correspondence outcome, since neither version has the Member | |
 
-A side never borrows the other side's outcome. When both sides are Present,
-the document holds its text and fact comparisons; otherwise it holds the
-sides alone, and a host presents the present side as source.
+A Present side becomes NotApplicable when the projection reports that the
+Member has no body to decompile, such as an abstract or extern Member, with
+the producer's typed reason, and Failed when its projection fails. A side is
+Absent only with the correspondence's proof; failing to resolve is never
+treated as absence. A side never borrows the other side's outcome. When both
+sides are Present, the document holds its text and fact comparisons;
+otherwise it holds the sides alone, and a host presents a present side as
+source.
 
 ## Media and line maps
 
 A present side has two media:
 
-- **C#** is the side's C# plane from Annotated Source C# projection.
+- **C#** is the side's lines that Annotated Source C# projection keeps: the
+  lines not fully owned by IL instruction nodes.
 - **IL** is the ordered text lines that the side's IL instruction nodes
   cover, one line per non-empty IL instruction.
 
 For each side and medium, the document holds a **line map**: sequence line
-*i* ↔ the document text range it came from. It is the document's equivalent
-of a PDB sequence-point table. A fact reaches a compared line through exact
-typed coordinates: fact → target → node → span → line map → sequence line.
-No step reads displayed text.
+*i* ↔ the range of the side's original document text it came from. It is
+the document's equivalent of a PDB sequence-point table. Every id and range
+in the diff document refers to the side's original document: its fact ids,
+node ids, and text. The C# projection only selects which lines form the C#
+medium; its renumbered ids never appear. A fact reaches a compared line
+through exact typed coordinates: fact → target → node → span → line map →
+sequence line. No step reads displayed text.
 
 A medium with no lines on a present side is empty, not unavailable: the
 byte-faithful default style always emits both media for a member with a
@@ -122,8 +141,10 @@ sides' sequences, with its whitespace and move characterization. That is the
 same comparison and characterization the member source diff uses. The
 comparison of one medium never involves the other medium.
 
-Each medium is admitted on its own: a medium whose sequences exceed the
-document's line and byte limits records **Too complex** for that medium
+Each medium is admitted on its own, before its comparison runs: a medium
+whose sequence on either side exceeds 1,024 lines or 128 KiB of UTF-8, the
+source-diff transport's per-endpoint profile, records **Too complex** for
+that medium
 alone, and the other medium's comparison remains. Markout lowering, labels,
 and hunks are presentation and are not in the document.
 
@@ -137,33 +158,47 @@ the Finding coordinate axes:
 | Axis | Value |
 | --- | --- |
 | `IdentityKey` | Origin, descriptor, conditionality, and detail, with every IL offset, token, and instance key excluded |
-| `ScopeKey` | The fact's enclosing construct path, outermost first, such as `try>foreach`, derived from the C# construct regions that contain the fact's C# target nodes; null for a header fact or a fact with no C# target |
-| `SoftKeys` | One tier, `descriptor`, with the detail dropped, for a residual fact whose detail changed |
+| `ScopeKey` | The fact's enclosing construct path, defined below; null for a header fact or a fact with no C# target |
+| `SoftKeys` | One tier, `descriptor`, with the detail dropped, for a fact that has a detail; a fact without a detail matches exactly or not at all |
 | `Ordinal` | The fact's position in its side's census order |
 
 A body fact and a header fact never share an identity key, because the
 origin is part of it.
 
-`FindingComparison<T>` over the two sides' findings, with the matcher's
-default exact-only acceptance, produces one `PairFinding<T>` per fact:
+A C# node's **construct path** is the kinds of the C# nodes that contain its
+spans and whose kind is a construct statement in the Annotated Source node
+catalog, such as `TryStatement`, `CatchClause`, `ForeachStatement`,
+`ForStatement`, `WhileStatement`, `DoStatement`, `SwitchStatement`, and
+`IfStatement`, ordered outermost first, as in `TryStatement>ForeachStatement`.
+Nodes form a laminar family, so containment defines one path per node. A
+fact's scope key is the longest common prefix of its C# target nodes' paths,
+so a fact whose targets sit in different constructs keeps only the scope
+they share. Regions carry roles but not construct kinds and are not used.
 
-- **Present**: the fact exists on both sides with the same identity.
-- **Added**: the fact exists only on the After side, such as an allocation or
-  a throw the new version introduced.
-- **Removed**: the fact exists only on the Before side.
-- **Changed**: a residual pair joined by the `descriptor` soft tier, carrying
+`FindingComparison<T>` compares the two sides' findings in `Ordered` mode, in
+census order, and accepts the `descriptor` tier as a deliberate consumer
+acceptance: the tier's confidence and the comparison's acceptance threshold
+are both 50. Each pair covers one fact on one side or one fact on each side:
+
+- **Present**: a fact on each side with the same identity.
+- **Added**: a fact only on the After side, such as an allocation or a throw
+  the new version introduced.
+- **Removed**: a fact only on the Before side.
+- **Changed**: a fact on each side joined by the `descriptor` tier, carrying
   its match provenance, such as an allocation whose allocated type changed.
 
 When several facts share an identity, the matcher's ordered alignment pairs
 what it can prove and leaves the rest Added or Removed, with move candidates
-retained for a consumer to promote. Three allocations of `List<int>` before
-and four after produce three Present and one Added, never a guessed pairing
-of a particular one. The scope key corroborates ambiguous pairs; it never
-creates identity.
+retained and not promoted. Three allocations of `List<int>` before and four
+after, with no other facts between them, produce three Present and one
+Added, never a guessed pairing of a particular one; when other facts
+interleave, the alignment may pair fewer and report more Added and Removed,
+which is still no guess. The scope key corroborates ambiguous pairs; it
+never creates identity.
 
-Each pair names its facts by side and fact id, so a host reaches their text
-through the side's targets and line map. Instance keys stay scoped to their
-own census and are never compared across versions.
+Each pair names its facts by side and original fact id, so a host reaches
+their text through the side's targets and line map. Instance keys stay
+scoped to their own census and are never compared across versions.
 
 ## Document and serialization
 
@@ -245,8 +280,14 @@ or a throw.
 5. With a version that adds an allocation, confirm the fact comparison has
    one Added allocation fact whose After fact id reaches its line through
    the target and line map.
-6. With three equal allocations before and four after, confirm three
+6. With three equal allocations before and four after and no other facts
+   between them, confirm three
    Present and one Added, and no guessed pairing.
 7. Serialize and deserialize the document and confirm strict reading
    rejects an unknown field, a dangling fact id, and a line-map range
    outside the text.
+8. Select a method by name whose parameter type changed between versions and
+   confirm the correspondence's unavailable outcome on both sides and no
+   comparison of the two overloads.
+9. With a version that changes an allocated type, confirm one Changed pair
+   with the `descriptor` tier's match provenance.
