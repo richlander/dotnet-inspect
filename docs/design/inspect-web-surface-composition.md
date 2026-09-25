@@ -119,7 +119,7 @@ This document consumes, without redefining:
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
   and
-- the Home/Query/Workspace/Activity product-navigation inventory, selection,
+- the product-navigation inventory, selection,
   and interaction owned by
   [Inspect Web Shell
   Interaction](inspect-web-shell-interaction.md#product-navigation-menu).
@@ -193,7 +193,8 @@ and Search cluster. Search progresses from its full label to its compact label
 and then disappears. History then disappears before the subject and inspector
 groups adapt from complete tablists to their current-label choosers.
 
-The product-navigation popover contains Home, Query, Workspace, and Activity
+The product-navigation popover keeps the full inventory owned by
+[Shell Interaction](inspect-web-shell-interaction.md#product-navigation-menu)
 at every supported width. It opens from the brand without reserving a separate
 horizontal strip or changing the allocation available to Subject and Inspector
 navigation. The standalone `/query` and `/activity` surfaces retain their

@@ -210,6 +210,12 @@ import {
   type PreparedProductHomeDemoSource,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
+import {
+  installStaleDeploymentDetection,
+  retainSuccessfulImport,
+  STALE_DEPLOYMENT_NOTICE,
+  staleDeploymentDetected,
+} from "./stale-deployment.ts";
 import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.ts";
 import { bindSavedWorkspaces, restoreSavedWorkspaceFocus } from "./saved-workspaces-view.ts";
 import {
@@ -1151,7 +1157,7 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
-type LibraryOpenReturnTarget = "home" | "product-navigation" | "surface";
+type LibraryOpenReturnTarget = "product-navigation" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -4198,8 +4204,11 @@ let graphExplorerOriginKey: string | null = null;
 type MermaidModule = typeof import("mermaid");
 type MarkedModule = typeof import("marked");
 type DomPurifyModule = typeof import("dompurify");
-let mermaidModule: Promise<MermaidModule> | undefined;
-let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
+const loadMermaidModule = retainSuccessfulImport<MermaidModule>(
+  () => import("mermaid"));
+const loadMarkdownModules =
+  retainSuccessfulImport<[MarkedModule, DomPurifyModule]>(
+    () => Promise.all([import("marked"), import("dompurify")]));
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let mermaidRenderSequence = 0;
 let callGraphRenderSeq = 0;
@@ -11175,10 +11184,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   },
   onNavigateBack: navBack,
   onNavigateForward: navForward,
-  onRetryNotice: () => {
-    const retryAction = state.queryNoticeRetryAction;
-    if (retryAction) observeAction(retryAction, "Retrying the inspection");
-  },
+  onRetryNotice: retryQueryNotice,
   onSearch: () => openSpotlight(),
 };
 
@@ -13834,11 +13840,26 @@ function appendQueryNotice(message: string, retryAction: RetryAction = null) {
   state.queryNoticeRetryAction = retryAction;
 }
 
+// A retry after a redeploy re-requests chunk hashes that no longer exist, so it
+// reloads the page onto the current build instead.
+function retryQueryNotice(): void {
+  const retryAction = state.queryNoticeRetryAction;
+  if (!retryAction) return;
+  if (staleDeploymentDetected()) {
+    window.location.reload();
+    return;
+  }
+  observeAction(retryAction, "Retrying the inspection");
+}
+
 function visibleQueryNotice() {
   const routeNotice = failedWorkspaceUrlState?.kind === "route"
     ? failedWorkspaceUrlState.notice
     : null;
-  return [state.queryNotice, routeNotice]
+  const staleNotice = state.queryNoticeRetryAction && staleDeploymentDetected()
+    ? STALE_DEPLOYMENT_NOTICE
+    : null;
+  return [state.queryNotice, staleNotice, routeNotice]
     .filter(Boolean)
     .join(" ");
 }
@@ -13932,8 +13953,6 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
         ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
-          <button id="home-open-library" type="button"
-            ${enginePending ? "disabled" : ""}>Open Library…</button>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
@@ -14006,7 +14025,7 @@ function homeArtSvg() {
 const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
-  onOpenLibrary: () => openLibraryDialog("home"),
+  onRetryNotice: retryQueryNotice,
   onToggleTheme: toggleTheme,
 };
 
@@ -14118,7 +14137,6 @@ function renderProductDemosPage(): void {
         ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="/">Home</a>
-          <button id="home-open-library" type="button">Open Library…</button>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
@@ -14702,9 +14720,8 @@ function goHome(): boolean {
 }
 
 function currentProductDestination(): ProductDestination | null {
-  if (isDiagnosticsPath(location.pathname)
-    || isProductHomeDemosPath(location.pathname)
-    || state.credits) return null;
+  if (isDiagnosticsPath(location.pathname) || state.credits) return null;
+  if (isProductHomeDemosPath(location.pathname)) return "demos";
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
   if (state.workspaceSubjectOpen && !state.home) return "workspace";
@@ -14760,6 +14777,10 @@ function navigateProductDestination(destination: ProductDestination): void {
   }
   if (destination === "activity") {
     openPackageActivityRoute("application-activity");
+    return;
+  }
+  if (destination === "demos") {
+    openProductDemos();
     return;
   }
   observeAsync(
@@ -17108,8 +17129,7 @@ async function renderMermaidDefinition(
   idPrefix: string,
   definition: string,
 ): Promise<string> {
-  mermaidModule ??= import("mermaid");
-  const { default: mermaid } = await mermaidModule;
+  const { default: mermaid } = await loadMermaidModule();
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
@@ -17355,8 +17375,7 @@ async function renderDependencyGraph() {
       return;
     }
     phase = "Diagram rendering";
-    mermaidModule ??= import("mermaid");
-    const { default: mermaid } = await mermaidModule;
+    const { default: mermaid } = await loadMermaidModule();
     if (!depGraphRenderSequence.isCurrent(seq)) return;
     mermaid.initialize({
       startOnLoad: false,
@@ -17590,8 +17609,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
   const definition = active.mermaid;
   const promise = (async (): Promise<CallGraphRenderResult> => {
     try {
-      mermaidModule ??= import("mermaid");
-      const { default: mermaid } = await mermaidModule;
+      const { default: mermaid } = await loadMermaidModule();
       if (seq !== callGraphRenderSeq) {
         return { status: "superseded" };
       }
@@ -19014,11 +19032,7 @@ function closeGraphSource() {
 // rather than a merge gate: an advisory is reported after the fact instead of failing a build,
 // because `npm audit` reaching the registry is not something a merge can depend on.
 async function markdownLibs() {
-  markdownModule ??= Promise.all([
-    import("marked"),
-    import("dompurify")
-  ]);
-  const [{ marked }, { default: DOMPurify }] = await markdownModule;
+  const [{ marked }, { default: DOMPurify }] = await loadMarkdownModules();
   return { marked, DOMPurify };
 }
 
@@ -19199,10 +19213,7 @@ function closeLibraryDialog() {
   state.libraryOpenError = "";
   render({ synchronizeUrl: false });
   requestAnimationFrame(() => {
-    if (returnTarget === "home") {
-      document.querySelector<HTMLElement>("#home-open-library")
-        ?.focus({ preventScroll: true });
-    } else if (returnTarget === "product-navigation") {
+    if (returnTarget === "product-navigation") {
       restoreOrdinaryModalDismissFocus(() =>
         document.querySelector<HTMLElement>(
           "[data-product-navigation-button]")
@@ -21993,6 +22004,8 @@ function dismissModalsForRoutedNavigation() {
   documentInspection.clear();
   return dismissedAnnotatedSourceModal;
 }
+
+installStaleDeploymentDetection(window);
 
 window.addEventListener("popstate", () => {
   void (async () => {
