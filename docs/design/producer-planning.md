@@ -329,7 +329,7 @@ gap.
    whatever ordering, batching, collapse, or parallelism it uses.
 5. Record actual participation in the receipt shape defined here.
 
-#8574 owns request collapse and #8577 owns method bodies as a source.
+Request collapse is tracked in #8574, and method bodies as a source in #8577.
 
 ## Tiers
 
