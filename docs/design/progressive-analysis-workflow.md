@@ -1,361 +1,374 @@
-# Progressive analysis workflow
+# Progressive analysis workflows
 
 ## Status and authority
 
-This document defines the **Progressive Analysis Workflow**, tracked by
+This document defines **Progressive Analysis Workflows**, tracked by
 [#8516](https://github.com/richlander/dotnet-inspect/issues/8516). The first
 production consumer is the shipped `project-analysis` skill.
 
-This is a focused cross-cutting pattern. It composes owner-issued inspection
-results into an investigation narrative; it does not redefine package
-acquisition, Library Metrics, performance Findings, dependency traversal,
-SourceLink, API comparison, Inspection Envelope, Workspace, Share, or Browser
-contracts.
+This is a focused composition pattern. It defines how a named customer
+workflow selects and joins existing owner-issued inspections. It does not
+replace the command and evidence guidance in the `signals`, `relationships`,
+`performance`, `compatibility`, `sourcelink`, `decompiler`, or `query` skills.
+It does not redefine package acquisition, Research reports, Findings,
+dependency traversal, SourceLink, API comparison, Inspection Envelope,
+Workspace, Share, or Browser contracts.
 
 ## Owner and exact claim
 
-The Progressive Analysis Workflow owns this claim:
+Progressive Analysis Workflows owns this claim:
 
-> Given a selected .NET subject and a bounded investigation budget, publish
-> useful ordered checkpoints whose claims retain their evidence class, exact
-> subject identity, owner-issued support, qualifications, and continuation;
-> choose later probes by their expected ability to strengthen the user's
-> report rather than by a fixed inventory of available commands.
+> Given a selected .NET subject and a named customer question, execute the
+> smallest useful sequence of owner-issued inspections for that question,
+> publish an independently useful result before optional deeper stages, and
+> preserve the identities, coverage, qualifications, and continuations needed
+> to connect each stage.
 
 This owner defines:
 
-- independent depth and breadth intents;
-- the ordered investigation checkpoints;
-- the evidence classes used in narrative claims;
-- the claim ledger and explicit supersession rule;
-- adaptive storyline selection;
-- branch, budget, and stopping decisions;
-- the minimum transparent progress record; and
-- the report bundle expected from a workflow consumer.
+- the catalog of customer workflows;
+- the question and subject cues that select each workflow;
+- each workflow's ordered stages, report outcome, visual form, and stopping
+  rule;
+- when one workflow may hand off to another;
+- common narrative evidence classes; and
+- focused capability-gap reporting.
 
 It does not define:
 
-- facts, completeness, or methodology owned by an inspection producer;
+- the syntax or semantics of an inspection command;
+- facts, completion, or methodology owned by an inspection producer;
 - package or source acquisition policy;
 - identity, reference, resource-path, or Share codecs;
-- section names, Query Space facets, or CLI grammar;
 - visualization-specific metric semantics or layout;
 - a universal package quality, maintainability, security, or performance
   score; or
-- a new host-neutral inspection result spanning unrelated owners.
+- a new aggregate inspection document spanning unrelated owners.
 
-## User outcome
+## Why named workflows
 
-The workflow answers requests such as:
+A generic "inspect everything, then summarize" procedure duplicates the root
+and focused skills, spends work without a customer question, and tends toward
+the same report for every subject. A named workflow instead has:
 
-> Give me a report or analysis on this project, package, or dependency.
+- one recognizable customer decision;
+- a bounded first useful result;
+- evidence-specific follow-up stages;
+- a defined report and visualization;
+- a stop condition; and
+- explicit adjacent workflows.
 
-The user receives an early orientation and then increasingly useful
-explanations. The workflow does not withhold all value until every possible
-probe completes, nor does it force every subject through the same metric
-template. A small integration package, an algorithm library, a dependency-heavy
-application, and a versioned platform component should produce different
-primary stories.
+A facade package can therefore lead with ecosystem integration, an intake
+review with supply-chain evidence, an algorithm library with its
+implementation map, and an application with dependency neighborhoods.
 
-## Request
+## Workflow contract
 
-One request has:
+Every workflow declares:
 
-- a selected subject: project, package coordinate, dependency, Library,
-  assembly, or reusable inspection reference;
-- a question or an open-ended analysis intent;
-- a **depth** intent;
-- a **breadth** intent;
-- an optional time or work budget; and
-- optional user-selected storylines.
-
-Depth and breadth are independent:
-
-| Intent | Meaning |
+| Part | Requirement |
 | --- | --- |
-| Narrow and shallow | Fast orientation for one selected subject |
-| Narrow and deep | Detailed implementation or source analysis of one subject |
-| Wide and shallow | Survey Libraries, dependencies, versions, or integrations |
-| Wide and deep | Expensive evidence across a broad selected population |
+| Question | The customer decision or explanation it serves |
+| Entry subjects | Project, package, dependency, Library, Type, Member, or version pair |
+| First result | A bounded result useful without later stages |
+| Stages | Ordered owner-issued inspections and their joins |
+| Evidence boundary | Claims the workflow may and may not make |
+| Report | The workflow-specific narrative outcome |
+| Visual | A typed visual form, or an explicit absence |
+| Stop | The condition that prevents unbounded drilling |
+| Handoffs | Concrete evidence that can start another workflow |
 
-An omitted intent defaults to progressive analysis: begin narrow and shallow,
-then propose or perform the next highest-value bounded step.
+Command spelling and detailed interpretation remain in focused product skills.
+The workflow consumer loads those skills and uses installed `-D`, `-Q`, and
+exact Resource Explanation when capabilities differ from examples.
 
-## Checkpoints
+## Shared report discipline
 
-Each checkpoint is independently useful and can be rendered before later work
-finishes.
+These rules apply to every workflow without becoming another general command
+guide:
 
-### Orientation
+- **Fact:** directly present in owner-issued typed evidence.
+- **Derived observation:** a reproducible calculation or join over facts.
+- **Interpretation:** a labeled plausible explanation.
+- **Hypothesis:** a question plus the next supported probe.
 
-Establish:
+Material claims retain the strongest owner-issued identity: package/version,
+TFM/RID, selected asset, assembly/MVID, exact Type key, stable Member selector,
+method/IL coordinate, source commit/document/checksum, or version
+correspondence. Display labels are never join keys.
 
-- exact subject and version or local project identity;
-- selected TFM, RID, package asset, and Library where applicable;
-- provenance and immediately available documentation;
-- acquisition and evidence availability;
-- initial diagnostics and qualifications; and
-- a portable Workspace or explicit Share limitation.
+When a route supports `InspectionEnvelope<TContent>`, the workflow checks
+Content, Share, and diagnostics. A route without an envelope can still support
+the claims present in its output, but process success or empty rows do not
+manufacture completion or service health.
 
-Orientation answers "what did we inspect?" before interpreting the subject.
+The first stage should complete in seconds where current operations permit.
+Networked, exhaustive, source-integrity, dense-history, or runtime-confirmation
+stages follow an initial useful result and disclose their added question and
+cost.
 
-### Character
+## Workflow catalog
 
-Run low-cost probes across plausible storylines and identify:
+### Supply-chain dossier
 
-- the primary storyline;
-- supporting storylines;
-- de-emphasized storylines and the evidence for de-emphasis; and
-- questions that remain unestablished.
+**Question:** What artifact did we receive, how was it produced, what evidence
+supports its provenance, and what dependency supply chain accompanies it?
 
-Character is a routing result, not a quality judgment. It may identify
-architecture, implementation concentration, performance, ecosystem
-integration, dependencies, provenance, source, or evolution as promising.
+**First result:** exact package receipt, repository/commit, signature,
+build/symbol/SourceLink signals, vulnerabilities, and direct dependency
+declarations.
 
-### Investigation
+**Stages:**
 
-Follow the strongest evidence through exact Libraries, Types, Members,
-dependencies, source documents, or version pairs. Preserve the join currency
-at every transition. A probe belongs here only when its result can strengthen,
-qualify, or refute a stated question.
+1. Package identity, Signals, Signature, Vulnerabilities, and Dependencies.
+2. Artifact-text and identifier-confusion audits when their observations
+   matter.
+3. SourceLink availability and integrity as explicit networked work.
+4. Dependency Neighborhood when transitive supply-chain coverage is required.
 
-### Synthesis
+**Boundary:** observations are not a trust or safety verdict. Checked-empty and
+unavailable vulnerability or source evidence remain distinct. SourceLink
+integrity verifies compiler-mapped content, not repository trust.
 
-Publish:
+**Report:** artifact receipt, provenance chain, concerning or unavailable
+signals, and direct/transitive coverage.
 
-- the primary narrative and supporting observations;
-- the evidence ledger;
-- explicit qualifications and unresolved questions;
-- suitable visualization data already issued by product owners;
-- matching Inspect Web destinations where Share supports them; and
-- the next optional deep or wide investigation with expected value and cost.
+**Visual:** typed provenance chain from package coordinate through signature,
+repository commit, PDB/SourceLink evidence, and acquired dependencies.
 
-### Extended analysis
+**Stop:** when the root receipt is accounted for, or when the selected
+dependency closure is also accounted for if the user's decision depends on
+transitives.
 
-Deep or wide work is opt-in when it is materially more expensive than the
-preceding checkpoints. It continues to publish intermediate checkpoints and
-never converts a timeout, acquisition failure, or unsupported route into a
-complete result.
+### Dependency neighborhood
 
-## Evidence classes
+**Question:** What does this subject bring in, where are its important
+boundaries, and how does selected code reach external packages?
 
-Every narrative statement is one of four classes:
+**First result:** direct and transitive package graph with completion,
+framework selection, package acquisition, and unresolved-boundary evidence.
 
-| Class | Required support |
-| --- | --- |
-| Fact | Direct owner-issued typed evidence for the exact subject |
-| Derived observation | A reproducible calculation or join over retained facts |
-| Interpretation | A labeled plausible explanation consistent with the facts |
-| Hypothesis | A question plus the next supported probe that could test it |
+**Stages:**
 
-An interpretation is never presented as a producer fact. A hypothesis is not
-a weak fact. Unsupported quality labels such as "good", "safe", "simple", or
-"maintainable" are absent unless an owner explicitly defines and supplies that
-meaning.
+1. Package or restored-project dependency hierarchy and declarations.
+2. Completion review: requested/admitted/failed roots, traversal, depth
+   boundaries, package projections, sources, and selected dependency groups.
+3. Exact Type dependency envelope for a selected concern.
+4. External-focused Member call graph for a consequential package boundary.
 
-## Claim ledger
+**Boundary:** cache presence does not prove intended closure; unclassified
+assemblies do not establish package ownership; layout proximity does not
+establish a dependency community.
 
-Every material claim retains:
+**Report:** center, direct ring, important transitive branches, shared hubs,
+framework-provided/prunable candidates when evaluated, and incomplete
+boundaries.
 
-- stable claim identity within the investigation;
-- evidence class;
-- exact subject identities and selected context;
-- owner-issued content or row identities;
-- operation and methodology identity where available;
-- resource path or reusable reference where available;
-- Share outcome and website destination where available;
-- diagnostics, coverage, and completeness;
-- derivation inputs for a derived observation;
-- the next probe for a hypothesis; and
-- disposition: active, qualified, superseded, or unsupported.
+**Visual:** directed package graph, then an external-focused call graph for one
+selected Member. Research-owned clustered communities are tracked separately
+by [#8406](https://github.com/richlander/dotnet-inspect/issues/8406).
 
-Later checkpoints may add support, qualify a claim, or supersede it explicitly.
-They never silently rewrite an earlier claim after the inspected subject,
-selected asset, coverage, or evidence changes.
+**Stop:** once closure is accounted for and the few consequential boundaries
+are identified; do not drill every leaf.
 
-The ledger is a logical workflow contract, not a new serialized superset of all
-inspection documents. Consumers retain owner-issued documents and reference
-them rather than copying their schemas into one untyped result.
+### Architecture and implementation map
 
-## Join currency
+**Question:** Where is implementation concentrated, how is it organized, and
+which Types collaborate?
 
-Use the strongest typed identity issued by each owner. Depending on the route,
-that may include:
+**First result:** exact Library selection, compiled-IL population coverage,
+implementation volume, structural distributions, concentration, and maxima.
 
-- package ID and exact version;
-- project restore identity;
-- TFM, RID, selected dependency group, and selected compile/runtime asset;
-- assembly identity and module version ID;
-- exact metadata Type key;
-- Member stable selector, method token, evidence method, and IL offset;
-- source repository, commit, document path, and checksum;
-- old/new version correspondence;
-- producer key, operation receipt, and methodology version;
-- structural resource path or reusable inspection reference; and
-- Workspace packet and Share outcome.
+**Stages:**
 
-Display labels are never join keys. When no suitable reference or identity is
-available, the workflow records that as a capability gap rather than deriving
-one from rendered text.
+1. Exact Library asset selection.
+2. Research Library Metrics report.
+3. Complexity Explorer and Relationship Crossing in Inspect Web.
+4. Exact Type/Member drill-down and call graph for a surprising region.
+5. Authored or decompiled source only when the implementation question needs
+   code.
 
-Exact resource paths discovered through structural or query discovery should
-be passed to `explain`. Explanation describes capability and meaning; it does
-not substitute for subject-specific evidence. A reusable subject reference,
-when an owner supplies one, should reopen or narrow the evidence without
-guessing the coordinate.
+**Boundary:** normal-flow complexity is compiled-IL structural evidence, not
+authored intent or a maintainability score. Decompiled C# is reconstructed,
+not authored source.
 
-## Envelope and completion discipline
+**Report:** major implementation regions, concentration, collaboration
+crossings, coverage, and a small number of evidence-backed outliers.
 
-When a route supports `InspectionEnvelope<TContent>`, consumers inspect all
-three parts:
+**Visual:** implementation/complexity treemap, bounded cross-Type
+relationships, and a focused Member call tree.
 
-- **Content:** the owner-issued typed result;
-- **Share:** the exact portable continuation or its explicit unavailable or
-  non-projectable outcome; and
-- **diagnostics:** partial, degraded, or failed evidence that qualifies
-  Content.
+**Stop:** after the major regions and selected outliers are explained. Complete
+CLI envelope and Metrics Share support is tracked by
+[#8517](https://github.com/richlander/dotnet-inspect/issues/8517).
 
-An envelope is preferred when Share or service diagnostics matter. A route
-without an envelope may still provide useful evidence, but the report records
-the missing boundary and does not invent equivalent health from process exit
-or empty rows.
+### Performance leverage
 
-Before describing a dependency closure as complete, use the dependency
-owner's completion and acquisition evidence to account for requested roots,
-admitted roots, traversal, package projections, selected dependency groups,
-missing packages, source failures, and unresolved assemblies. The local cache
-alone never proves the intended closure.
+**Question:** Which code deserves profiling or benchmark attention first?
 
-## Adaptive branch selection
+**First result:** Members ranked by call-graph leverage.
 
-The workflow first gathers inexpensive evidence that discriminates among
-storylines. A branch is selected when it has:
+**Stages:**
 
-1. a concrete user-relevant question;
-2. owner-issued evidence suggesting the branch is material;
-3. a supported next operation;
-4. join currency connecting that operation to the current subject; and
-5. a cost proportionate to the expected improvement.
+1. Top Leverage over the selected Library.
+2. Effective performance section discovery.
+3. Intersection with high-priority static Findings and exact IL coordinates.
+4. Runtime confirmation with a representative benchmark or trace.
 
-A branch is de-emphasized when evidence says it is immaterial, the next route
-cannot preserve identity, the required producer is unavailable, or its cost
-exceeds the current intent. The reason remains visible.
+**Boundary:** static evidence identifies candidates; it does not prove runtime
+frequency, elapsed cost, allocated bytes, or rewrite benefit. Priority and
+Confidence remain separate.
 
-The workflow can depart from prepared examples when current evidence creates a
-question and installed capability discovery exposes a supported route. It does
-not improvise command syntax or infer unsupported semantics.
+**Report:** bounded candidate list, why each candidate has leverage, exact
+static evidence, and the runtime-confirmation plan or result.
 
-## Cost and progress
+**Visual:** typed leverage-versus-evidence view or focused call/allocation
+path.
 
-Run the production NativeAOT tool for ordinary investigation. Separate:
+**Stop:** when a small candidate set has an explicit confirmation plan; do not
+turn every allocation instruction into an optimization task.
 
-- process startup;
-- package or source acquisition;
-- analysis;
-- rendering; and
-- cold- versus warm-cache observations.
+### Upgrade impact
 
-Initial experience targets are orientation in seconds and a first narrative in
-tens of seconds. These are product goals, not guarantees. A consumer records
-observed timing and names its environment rather than generalizing from one
-run.
+**Question:** What user-relevant API, implementation, dependency, or Finding
+change accompanies an upgrade?
 
-Before a materially long operation, disclose its question, expected evidence,
-and stopping condition. While work continues, publish bounded progress through
-the owning operation when available. Every additional unit of work must
-improve the report or establish why the next evidence cannot be obtained.
+**First result:** exact endpoint identities and categorized pairwise API
+changes.
 
-## Visualization and website handoff
+**Stages:**
 
-Visualizations consume typed evidence already issued by an owner. Suitable
-views may include:
+1. Separate breaking and additive API views.
+2. Implementation or Finding comparison when the question requires it.
+3. Exact Type/Member correspondence for consequential changes.
+4. Sparse, major-version, or explicitly dense history to locate when a change
+   appeared.
+5. Dependency Neighborhood or Performance Leverage only for a concrete changed
+   boundary.
 
-- implementation and complexity treemaps;
-- architecture neighborhoods and relationship crossings;
-- dependency graphs or clustered matrices;
-- package and assembly composition;
-- version-change views;
-- integration maps;
-- supply-chain and provenance chains; and
-- focused call or allocation relationships.
+**Boundary:** API, implementation, analysis, and dependency changes retain
+their distinct meanings and completion. One generic changed count cannot
+replace them.
 
-The report records exact node and edge identities, grouping, direction,
-weights and units, qualifications, explanatory relationships, references, and
-accessible text when the producer supplies them. It never reconstructs these
-facts from prose or assigns visual meaning to an unlabeled number.
+**Report:** user-relevant compatibility changes, implementation shifts, exact
+correspondence, and migration implications supported by evidence.
 
-Inspect Web destinations derive from Share or the centralized Workspace
-portable-query mechanism. A nearby page is not presented as a replay of an
-unsupported analysis lens. Local or private evidence may be non-shareable and
-must say so.
+**Visual:** categorized old/new change view with explicit correspondence.
+
+**Stop:** when consequential changes are explained; do not enumerate unrelated
+history.
+
+### Ecosystem integration
+
+**Question:** Which frameworks, extension points, or package families does this
+subject connect?
+
+**First result:** exact Integration rows for the selected Library.
+
+**Stages:**
+
+1. Integration facet discovery.
+2. Exact Library Integration evidence.
+3. Explicit package-set integration graph when relationships among several
+   known packages matter.
+4. Dependency Neighborhood only when package closure affects the explanation.
+
+**Boundary:** an integration graph is an induced explicit set, not dependency
+traversal. Missing endpoints remain absent until their owning packages are
+included. Package naming is not ecosystem evidence.
+
+**Report:** the subject's framework role, exact supporting APIs, principal
+bindings, and unavailable or ambiguous endpoints.
+
+**Visual:** typed ecosystem integration graph.
+
+**Stop:** when the principal extension and binding relationships are clear.
+This may be the primary report for a facade with little implementation.
+
+## Workflow handoffs
+
+One workflow starts another only from concrete evidence:
+
+| From | Evidence | To |
+| --- | --- | --- |
+| Supply-chain dossier | Transitive coverage matters | Dependency neighborhood |
+| Dependency neighborhood | One external boundary dominates | Architecture map or performance leverage |
+| Architecture map | High-leverage or allocation-bearing outlier | Performance leverage |
+| Upgrade impact | Dependency edge changed | Dependency neighborhood |
+| Upgrade impact | Performance Finding changed | Performance leverage |
+| Ecosystem integration | Missing endpoint ownership matters | Dependency neighborhood |
+
+The report names the handoff question, expected evidence, and cost. It does not
+run every adjacent workflow automatically.
+
+## Website and visualization handoff
+
+Visuals consume typed evidence already issued by their owner. The workflow
+preserves exact node/edge identities, grouping, direction, weights and units,
+qualifications, references, and accessible text where available. It never
+reconstructs graph semantics from prose.
+
+Inspect Web destinations derive from an operation's Share or the centralized
+Workspace portable-query mechanism. A nearby package or API page is not
+presented as replaying an unsupported analysis lens. Local/private evidence
+may be explicitly non-projectable. General reusable subject-reference identity
+and projection remains owned by
+[#7916](https://github.com/richlander/dotnet-inspect/issues/7916); workflows do
+not derive references from display text while that path is unavailable.
 
 ## Capability-gap protocol
 
-When a supported investigation question reaches a missing product boundary:
+When a workflow reaches a missing product boundary:
 
-1. retain the exact subject and command;
-2. record expected and actual evidence;
-3. record timing and diagnostics;
-4. classify the gap as evidence, envelope, reference/explanation,
+1. retain the exact subject, command, expected evidence, actual result,
+   diagnostics, and timing;
+2. classify the gap as evidence, envelope, reference/explanation,
    acquisition, visualization data, or Share;
-5. identify one owning component and focused design;
-6. file a focused issue with a reproducible scenario; and
-7. continue through other supported evidence when useful.
+3. identify one owning component and focused design;
+4. file a focused issue with the workflow consequence; and
+5. continue only through other supported evidence.
 
-The workflow does not implement unrelated owner fixes, parse presentation as a
-workaround, or report partial evidence as complete.
+The workflow never parses presentation as a substitute for typed evidence or
+reports partial data as complete.
 
-## First production consumer
+## First production consumer and adoption
 
-The shipped `project-analysis` skill is the first bounded adopter. It teaches
-an agent to:
+The shipped `project-analysis` skill is the first bounded adopter:
 
-- start with current installed capability and package/project identity;
-- publish Orientation and Character before deep analysis;
-- use discovery and explanation rather than remembered syntax;
-- inspect envelopes where adopted;
-- establish dependency completion before closure claims;
-- choose storylines from evidence;
-- preserve a claim ledger;
-- select visualization and website continuations; and
-- produce focused gap reports.
+1. register and embed the workflow catalog in the CLI;
+2. route report requests to one primary workflow;
+3. compose existing focused skills rather than duplicate their command
+   manuals;
+4. retain workflow-specific boundaries and stop conditions; and
+5. identify adjacent workflows only from concrete evidence.
 
-The skill is a workflow consumer. It does not add a new command, inspection
-producer, report schema, or quality score.
+The skill adds no command, inspection producer, report schema, renderer, or
+quality score. Focused owner issues add missing product evidence independently.
 
-## Initial evidence and gaps
+## Initial evidence
 
 Using production `dotnet-inspect 0.26.0+d236a7a` and the current machine's
-cache, the Markout 0.35.2 probe observed:
+cache, a Markout 0.35.2 architecture probe observed:
 
 | Step | Elapsed |
 | --- | ---: |
-| Package structural discovery | 1.63s |
 | Package identity, signals, frameworks, and dependencies | 1.17s |
 | Library Metrics | 0.63s |
 | Complete package dependency traversal | 0.96s |
 | Workspace Share URL | 0.42s |
-| Library Metrics resource explanation | 0.38s |
 
-The timings establish one feasible progressive path, not a portable
-performance guarantee. The dependency document reported complete traversal,
-two canonical package nodes, and acquisition of
-`MarkdownTable.Formatting@0.3.4`.
-
-The same probe found that CLI Library Metrics row output omits the Type
-summaries and cross-Type relationship evidence already used by Inspect Web.
-[#8517](https://github.com/richlander/dotnet-inspect/issues/8517) tracks the
-focused complete-envelope and Share adoption.
+The timings demonstrate a feasible early Architecture result followed by a
+Dependency Neighborhood handoff; they are not portable performance
+guarantees. The dependency document reported complete traversal and
+acquisition of `MarkdownTable.Formatting@0.3.4`.
 
 ## Validation
 
-The first adopter is gated by CLI tests that:
+CLI gates verify that the skill:
 
-- register and embed the `project-analysis` skill;
-- source its listing description from frontmatter;
-- retain current discovery, explanation, envelope, dependency-completion, and
-  Share guidance; and
-- distinguish facts, derived observations, interpretations, and hypotheses.
-
-Real-subject probes remain reproducible design evidence until a focused
-producer or host owner promotes a stable scenario into its Release suite.
+- is registered, embedded, and listed from frontmatter;
+- names the six workflows and their customer questions;
+- delegates command semantics to existing focused skills;
+- preserves dependency-completion and static/runtime boundaries;
+- describes typed visuals and exact Share limitations; and
+- identifies #7916, #8406, and #8517 rather than simulating missing evidence.

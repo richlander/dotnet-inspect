@@ -271,28 +271,30 @@ public class SkillCommandTests
     }
 
     [Fact]
-    public async Task ProjectAnalysisSkill_UsesProgressiveEvidenceWorkflow()
+    public async Task ProjectAnalysisSkill_ProvidesConcreteWorkflowCatalog()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(SkillCommand.ExecuteSkill("project-analysis")));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("## Report progressively", output);
-        Assert.Contains("**Orientation**", output);
-        Assert.Contains("**Character**", output);
-        Assert.Contains("**Investigation**", output);
-        Assert.Contains("**Synthesis**", output);
-        Assert.Contains("**Fact**", output);
-        Assert.Contains("**Derived observation**", output);
-        Assert.Contains("**Interpretation**", output);
-        Assert.Contains("**Hypothesis**", output);
+        Assert.Contains("## 1. Supply-chain dossier", output);
+        Assert.Contains("## 2. Dependency neighborhood", output);
+        Assert.Contains("## 3. Architecture and implementation map", output);
+        Assert.Contains("## 4. Performance leverage", output);
+        Assert.Contains("## 5. Upgrade impact", output);
+        Assert.Contains("## 6. Ecosystem integration", output);
+        Assert.Contains("skill signals", output);
+        Assert.Contains("skill relationships", output);
+        Assert.Contains("skill performance", output);
+        Assert.Contains("skill compatibility", output);
         Assert.Contains("-D --details", output);
         Assert.Contains("-Q", output);
-        Assert.Contains("explain library/sections/library-metrics", output);
         Assert.Contains("--envelope", output);
         Assert.Contains("--share url", output);
-        Assert.Contains("dependency graph is complete", output);
         Assert.Contains("The local package cache does not prove", output);
+        Assert.Contains("#7916", output);
+        Assert.Contains("#8406", output);
+        Assert.Contains("#8517", output);
     }
 
     [Fact]
