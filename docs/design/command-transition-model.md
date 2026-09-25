@@ -859,11 +859,17 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   Compare-participating identities from the same registration that Diff
   dispatches on.
 - For validation, a pairwise request's report-surface kind comes from its
-  filters, exactly as today's `--finding` admission derives it: no filter is
-  Library, `--type` is Type, and exactly one type-qualified `--member` is
-  Member. This is a surface kind, which mints no identity. It does not turn a
-  filter into exact subject identity, so [Equivalent
-  requests](#equivalent-requests) is unchanged.
+  filters, in this order of precedence:
+  - A request with one or more `--member` targets is Member. A member is
+    qualified either literally or through a single `--type` context.
+  - Otherwise, a request with `--type` is Type.
+  - Otherwise, it is Library.
+
+  An analysis's declared target cardinality applies through the owner's
+  existing target-role cardinality rejection. The body analyses accept exactly
+  one Member target, as `--finding` does today. This is a surface kind, which
+  mints no identity. It does not turn a filter into exact subject identity, so
+  [Equivalent requests](#equivalent-requests) is unchanged.
 
 #### Producers and views
 
@@ -904,8 +910,8 @@ Diff offers these views over the result:
 | `Finding Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
 
 A view is admitted only when the selected set contains an analysis it
-projects. `Changes` requires `api`, and `Finding Transitions` requires a
-selected analysis that supports the request's surface. Otherwise the request
+projects. `Changes` requires `api`. `Finding Transitions` requires the Type
+or Member surface and a selected analysis that supports it. Otherwise the request
 is rejected before execution, naming the view and the missing analysis. A view
 never adds an analysis and never renders an empty success.
 
@@ -913,7 +919,8 @@ never adds an analysis and never renders an empty success.
 route: it declares no query, runs its own per-type API comparison, and must be
 selected alone. As a view of the `api` result, its API rows follow the `api`
 producer's scope and member matching instead of that separate comparison,
-including under `-a`. That is an **intentionally breaking** change under
+including under `-a`, and at Type it shows `api.type` and `api.member` rows
+together. That is an **intentionally breaking** change under
 [CLI change classification](cli-change-classification.md). The view stays
 available at the Type and Member surfaces, as today. Offering it at the
 Library surface is a later decision.
@@ -934,7 +941,8 @@ The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
 Structural Context routes are not keyed Finding comparisons and are
 unchanged here. They keep their current selection and execution rules and
 are not views of the analysis-set result. A request that selects only these
-routes carries no analysis set and runs as it does today. Combining
+routes is outside analysis selection. Neither an analysis set nor the
+default set applies, and it runs as it does today. Combining
 `--analysis` with them is rejected until they migrate. Their
 migration stays under #7703 step 6 and #8545, and none of them is a Compare
 participation until its producer issues keyed Findings.
