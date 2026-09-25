@@ -64,8 +64,10 @@ downloads both archives whole.
 
 ### Opening
 
-`PackageEndpointScope.OpenAsync` is host-neutral, in `DotnetInspector.Queries`
-beside the package Root. It takes:
+`PackageEndpointScope.OpenAsync` is host-neutral, in
+`DotnetInspector.PackageQueries` beside the House Root contribution adapter it
+consumes; `DotnetInspector.Queries`, which owns the package Root, cannot
+reference that adapter. It takes:
 
 - a PackageHouse and a source operation lease;
 - one exact coordinate, meaning a package ID and a normalized version;
@@ -130,10 +132,33 @@ never retain a participant after the scope is disposed.
 
 1. This document.
 2. **The host-neutral scope and its first consumer.** `PackageEndpointScope`
-   is built in Queries. The API views of CLI pairwise `diff --package` move
-   onto it with `Surface` demand, ranged: Library API Diff, API changes, and
-   Finding Transitions. Each endpoint opens one scope, and the comparison
-   runs over participants.
+   is built in PackageQueries. The API views of CLI pairwise `diff --package`
+   move onto it with `Surface` demand, ranged: Library API Diff, API changes,
+   and API Finding Transitions. Each endpoint opens one scope, and the
+   comparison runs over participants. This slice keeps byte-identical parity
+   with the legacy path, so the CLI admits a request only when:
+   - both versions are exact, `--tfm` names one framework, and the host is
+     online; body views and body Finding descriptors stay legacy;
+   - for each endpoint, the legacy selector applied to the archive directory
+     picks exactly the scope's surface assets; and
+   - for the merged surface of API changes and API Finding Transitions,
+     every assembly reference of every participant names another participant
+     or a trusted platform assembly. The legacy surface resolves generic
+     constraints through a path-based resolver whose other tiers depend on
+     machine state, and reports a constraint it can't bind as an inspection
+     failure. Within the two deterministic tiers that binding succeeds and
+     adds no row, and the comparison never reads the resolved type-parameter
+     kind, so the scope's surface is extracted without it. Library API Diff
+     resolves no constraints on either path and doesn't need this rule.
+
+   Every other request takes the legacy path unchanged. Evidence for the
+   selector rule: with `--tfm`, `TfmSelector.SelectAssembliesByTfmFromPackage`
+   merges the `ref/<tfm>`, `lib/<tfm>`, and `tools/<tfm>` DLLs. For `Avalonia`
+   11.3.14..12.1.2 with `--tfm net8.0`, that doubles every change row and adds
+   an "incomplete: metadata inspection failed" note. Fixing it is an
+   intentional change to single-surface output. By operator decision (Rich,
+   2026-09-24), step 4 owns that fix, when the legacy endpoint path retires;
+   this slice doesn't change it.
 3. **CLI `find` moves onto it.** The exact-package search opens its Root
    through `PackageEndpointScope`, and `ConfiguredPackageSearchWorkspace`
    keeps only host policy. Output must not change.
@@ -166,7 +191,7 @@ All gates run in Release.
 | 2. `SurfaceAndImplementation` | implementation participants with their surface correspondence | contract suite |
 | 3. A coordinate that doesn't exist, or no compatible framework | typed non-success, never an empty scope | contract suite |
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
-| 5. `diff --package ID@A..B` Library API Diff, API changes, and Finding Transitions | output byte-identical to the legacy path; both endpoints read only their surface folders by range | CLI harness, real asset `Avalonia` |
+| 5. `diff --package ID@A..B` Library API Diff, API changes, and Finding Transitions | output byte-identical to the legacy path; both endpoints read only their surface folders by range; a request outside the step-2 admission rule stays on the legacy path | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 for the fallback |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
