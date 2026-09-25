@@ -226,9 +226,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
             readSurface = true;
         }
 
-        merged.Types = merged.Types
-            .OrderBy(static type => type.FullName)
-            .ToList();
+        ApiSurfacePopulation.Complete(merged);
         return !readSurface
             && merged.InspectionFailures.Count == 0
                 ? null
@@ -239,23 +237,8 @@ public sealed class AssemblySetResolutionSession : IDisposable
         ApiSurface merged,
         ApiSurface surface,
         string path,
-        Action<string>? log)
-    {
-        surface.SetInspectionSourceAssemblyPath(path);
-        log?.Invoke(
-            $"  + {Path.GetFileNameWithoutExtension(path)}: "
-                + $"{surface.PublicTypeCount} types");
-        merged.Types.AddRange(surface.Types);
-        merged.TypeForwarders.AddRange(surface.TypeForwarders);
-        merged.IsTypeForwardingAssembly |=
-            surface.IsTypeForwardingAssembly;
-        merged.MergeInspectionFailuresFrom(surface);
-        merged.PublicTypeCount += surface.PublicTypeCount;
-        merged.PublicMethodCount += surface.PublicMethodCount;
-        merged.PublicPropertyCount += surface.PublicPropertyCount;
-        merged.PublicEventCount += surface.PublicEventCount;
-        merged.PublicFieldCount += surface.PublicFieldCount;
-    }
+        Action<string>? log) =>
+        ApiSurfacePopulation.Merge(merged, surface, path, log);
 
     static ResolvedAssemblyReference? TryCreateManagedAssembly(
         string path,
