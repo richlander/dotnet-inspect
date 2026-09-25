@@ -5,7 +5,7 @@
 This document is the normative owner for the Inspect Web implementation-profile
 experience in [issue #7250](https://github.com/richlander/dotnet-inspect/issues/7250).
 It owns Browser acquisition, family-result caching, overload-family
-projection, interactive presentation, and visible state transitions.
+projection, member-list presentation, and visible state transitions.
 
 The host-neutral analysis and public-API correspondence are already owned by
 `ImplementationProfileFamilyInspectionOperation` and
@@ -14,13 +14,26 @@ completed `InspectionEnvelope<TContent>` without redefining exact family
 selection, implementation metrics, overload relationships, generated-body
 correspondence, API identity, participant selection, or diagnostics.
 
+This revision replaces the separate Implementation Profiles Member section.
+Implementation evidence is now part of the member list, where the reader
+already compares overloads.
+
 ## Claim
 
-An explicit Implementation Profiles gesture on an overloaded Member family
-loads one exact family inspection and presents family-relative implementation
-magnitude without claiming a universal complexity score or an inferred
-overload role. The Browser does not analyze or transport unrelated methods in
-the same Library.
+When the member list expands an overloaded method family, it shows which
+overloads carry the most code and which overload is the hub the others call.
+Two channels carry that claim:
+
+- **Heat**: a tint whose strength follows each overload's instruction count
+  relative to the largest same-name method body on the declaring Type,
+  including non-public methods.
+- **Hub strip**: a marker on an overload that sibling overloads call and that
+  calls no same-name method itself.
+
+Heat is a family-relative size cue, not a complexity score. The hub strip is
+derived only from owner-issued call relationships, never from names,
+signatures, or size. The Browser does not analyze or transport unrelated
+methods in the same Library.
 
 The experience preserves the owner-issued logical Member anchor, physical body
 identity, raw measurements, exact sibling-call relationships, coverage,
@@ -44,18 +57,28 @@ This owner composes existing contracts by their issued currencies:
 - `docs/design/progressive-disclosure.md` owns the requirement that unbounded
   implementation analysis remain explicit rather than default navigation work.
 
-This design does not change any adjacent contract. The Analysis facade lowers
+This design transfers one claim to the family query: an available family
+result also issues the size of every non-public same-name method declared on
+the same Type, as reference measurements outside the public roster. It changes
+no other adjacent contract. The Analysis facade lowers
 the completed host-neutral envelope to an assembly-local generated wire
 contract. The Browser joins only owner-issued method tokens, module identities,
 Type definition IDs, stable Member selectors, and exact Library coordinates.
 
 ## Supported scope
 
-The first production experience is a Member section for a public API group with
-multiple method overloads. It supports package implementation assets and
-platform implementation assemblies. Uploaded standalone Libraries are outside
-this slice because they do not yet participate in the same retained Browser
-workspace and Analysis facade path.
+The production experience is the member list's expanded overload rows for a
+public API group with multiple method overloads. It supports package
+implementation assets and platform implementation assemblies. Uploaded
+standalone Libraries are outside this slice because they do not yet
+participate in the same retained Browser workspace and Analysis facade path.
+
+Rows are the public overload roster. Non-public same-name methods are never
+rows and never receive heat or a hub strip, but their sizes set the family's
+**reference maximum**, so a public overload is not presented as large when a
+non-public implementation dwarfs it. Relationships from a public overload to a
+non-public same-name method count as that overload's outgoing calls, so a
+public forwarder is never marked as a hub.
 
 Library- and Type-level ranked lists remain future consumers that require their
 own proportional query contracts. This slice does not add those surfaces and
@@ -63,17 +86,23 @@ does not make their acquisition, ordering, or filtering normative.
 
 ## Activation and acquisition
 
-Ordinary package acquisition, API loading, Type navigation, Member navigation,
-overload selection, and first paint perform no implementation-profile work.
-The Browser starts acquisition only after the user selects the Implementation
-Profiles Member section or explicitly retries that section.
+Package acquisition, API loading, Type navigation, and first paint perform no
+implementation-profile work. Member-list expansion of an eligible overload
+family is the activation gesture: the Browser starts one exact family request
+when that family becomes the current expanded family.
 
-Retaining a Member section while navigating does not authorize acquisition for
-a new overload family. The Browser keeps Implementation Profiles selected only
-when the destination exact-family request already has an in-flight, settled, or
-producer-failed cache entry from an earlier explicit activation. Otherwise
-ordinary Member navigation falls back to Overview. Returning to a previously
-activated family may restore or reuse its exact cached state.
+Family-scoped analysis is bounded by the family roster, so it is not the
+unbounded implementation analysis that
+[progressive disclosure](progressive-disclosure.md) reserves for explicit
+requests. The Browser still bounds the work navigation can start:
+
+- at most one family request is in flight;
+- when the user expands another family while one is in flight, the in-flight
+  request may settle its cache entry, and only the most recently expanded
+  family is queued behind it; intermediate families are dropped;
+- rows render immediately without heat, and heat appears when the current
+  family's result publishes; and
+- a producer-failed family is not retried by navigation. Retry is explicit.
 
 One request names one exact implementation participant and public overload
 family:
@@ -167,10 +196,26 @@ async bodies are grouped under their logical overload but remain separate,
 named physical evidence rows. The family operation excludes unrelated and
 unattributed Library profiles before transport.
 
-The family is ordered by each overload's largest physical instruction count,
-descending. Ties preserve the public API roster order. Physical rows within an
-overload use the same descending order. Missing-body rows follow measured
-overloads in public API order.
+Each logical overload has one **size**: the largest instruction count among
+its attributed physical profiles. Generated bodies contribute to their logical
+overload's evidence but do not replace the logical body's own measurement when
+that body is available.
+
+The **reference maximum** is the largest size among the public overloads and
+the issued non-public same-name reference measurements. When a non-public
+reference measurement is unavailable or incomplete, the family is ready but
+incomplete and shows no heat, because the maximum is unknown.
+
+An overload is a **hub** when all of the following hold:
+
+- at least one owner-issued relationship has a sibling public overload as its
+  caller and this overload as its callee;
+- no owner-issued relationship has any of this overload's physical bodies as
+  its caller, including calls to non-public same-name methods; and
+- every attributed physical profile is complete.
+
+The member list keeps public API roster order. Heat and hub state annotate
+rows; they never reorder them.
 
 An overload with no attributed physical profile remains visible in the family
 roster as a no-body or unavailable row. A successful available Library
@@ -180,62 +225,84 @@ incomplete.
 
 ## Presentation
 
-Implementation Profiles is a family-level Member section. It is available for
-eligible package and platform overload groups before an individual overload is
-selected. Selecting a concrete overload may highlight that overload but does
-not narrow the family result.
+### Overload rows
 
-The primary visual cue is physical instruction count normalized only against
-the largest physical body in the selected family. It is labeled in text and
-does not rely on color. Distinct opcode count and structural facts are separate
-textual channels rather than ingredients in a hidden scalar score.
+An expanded overload row shows the member name and its parameter types in
+C# spelling without namespace qualification, for example
+`Parse(ReadOnlySequence<byte>, JsonDocumentOptions)`. It omits the return
+type and parameter names; the parent row and the Member detail carry those.
 
-Each physical row provides:
+The Browser does not derive the compact label by editing the rendered
+signature. The member surface producer issues it from the same metadata
+signature that produces the full signature, so identity and display stay
+separate.
 
-- a relative instruction-count bar and numeric instruction count;
-- logical versus physical identity when they differ;
-- compact badges for branches, loops, exception regions, async, unsafe, and
-  Reflection;
-- exact incoming and outgoing sibling-overload relationship counts; and
-- progressive disclosure of every raw metric, incomplete reason, and matching
-  exact relationship.
+### Heat
 
-Every owner-issued unavailable-body receipt remains visible in the incomplete
-coverage disclosure, including when no successful profile supplies enough
-membership evidence to associate it with one logical overload. When the
-owner-issued body tokens do support row association, the overload also shows
-the unavailable receipt even if another physical profile is available.
+Heat applies only to overloads whose size is at least half the reference
+maximum. Every other row is untinted.
 
-The Browser omits relative bars when comparison would add noise: fewer than two
-physical rows, or every row has at most eight instructions with no branches,
-loops, exception regions, unsafe evidence, or Reflection evidence. The raw
-measurements remain available.
+- The tint is anchored on the right edge of the row and fades toward the left,
+  leaving the left edge for hover and selection.
+- Strength follows `t = sqrt(size / reference maximum)`. Lightness, chroma, and the
+  distance the tint reaches into the row all rise with `t`, so reach is a
+  non-color channel for the same fact.
+- The tint is one hue from a theme-owned token ramp, distinct from the
+  selection accent. Each theme defines its own ramp endpoints; the tint fades
+  to the same hue at zero alpha rather than to a painted surface, so hover and
+  selection backgrounds remain visible under it.
+
+The Browser shows no heat when comparison would add noise: fewer than two
+measured bodies, or every body has at most eight instructions with no
+branches, loops, exception regions, unsafe evidence, or Reflection evidence.
+
+### Hub strip
+
+A hub overload shows a narrow strip in the row's left gutter, using a
+theme-owned hub token. Heat and the hub strip are independent: a hub may be
+untinted and a heated overload may not be a hub. A family may have neither;
+for example, every public `JsonDocument.Parse` overload forwards to a
+non-public method and is smaller than half of the non-public implementation.
+
+### Accessible description
+
+Each heated or hub row carries an accessible description with its instruction
+count, its share of the reference maximum, whether that maximum belongs to a
+non-public method, and, for a hub, how many
+sibling overloads call it. Neither channel relies on color alone.
+
+### Detail
+
+Selecting an overload shows its implementation evidence in the Member detail:
+instruction count, the exact sibling relationships it makes and receives,
+structural badges, and progressive disclosure of every raw metric, incomplete
+reason, and unavailable-body receipt. The separate Implementation Profiles
+Member section is retired.
 
 The presentation uses host-specific HTML and CSS rather than Markout. The
-section is an interactive, replaceable Browser view with loading, retry,
-selection highlighting, and disclosure controls; no current CLI or
-multi-format consumer needs this rendering. The structured wire contract,
-rather than rendered HTML, is the reusable boundary.
-
-The UI does not label an overload as primary, core, adapter, forwarding,
-complex, risky, or severe. It does not compare values across Libraries and does
-not treat the relative bar as an intrinsic score.
+member list is an interactive Browser view; no current CLI or multi-format
+consumer needs this rendering. The structured wire contract, rather than
+rendered HTML, is the reusable boundary.
 
 ## Visible states
 
-The section distinguishes:
+The expanded family distinguishes:
 
-- **loading**: an exact family request is in flight;
-- **ready**: all displayed rows are complete and no relevant coverage failure
-  is present;
-- **ready but incomplete**: available rows are displayed with profile,
-  coverage, Analysis, API-surface, or envelope diagnostics;
+- **loading**: an exact family request is in flight or queued; rows render
+  without heat and the parent row shows a quiet progress cue;
+- **ready**: heat and hub state are shown and no relevant coverage failure is
+  present;
+- **ready but incomplete**: heat and hub state are shown only for overloads
+  whose evidence is complete; the parent row marks the family as incomplete,
+  and the Member detail lists profile, coverage, Analysis, API-surface, or
+  envelope diagnostics;
 - **empty**: the completed available inspection has no applicable physical
   profiles and no evidence that the absence is incomplete;
-- **rejected or failed Content**: the owner-issued participant outcome and
-  diagnostics are shown;
-- **producer failed**: the Worker or facade call failed and an explicit Retry
-  action is shown; and
+- **rejected or failed Content**: the parent row marks heat as unavailable and
+  the Member detail shows the owner-issued participant outcome and
+  diagnostics;
+- **producer failed**: the parent row marks heat as unavailable and the Member
+  detail shows an explicit Retry action; and
 - **superseded**: no state is published because operation authority removed the
   view's publication right.
 
@@ -284,31 +351,42 @@ the previous 64,716,704-byte whole-Library payload. The latency remains behind
 explicit activation and a visible loading state; ordinary package, Type,
 Member, and overload navigation does not start this operation.
 
+`System.Text.Json.JsonDocument.Parse` in package `System.Text.Json` version
+`10.0.5` is the no-hub scenario. Its five public overloads measure 55, 44, 33,
+9, and 8 instructions. Every one calls a non-public same-name method, and the
+non-public `Parse(ReadOnlySpan<byte>, JsonReaderOptions, ref MetadataDb, ref
+StackRowStack)` measures 288 instructions. No public overload reaches half the
+reference maximum and none is a hub, so the family shows neither channel.
+
 ## Gates
 
 The following gates enforce this design:
 
-1. Analysis-facade projection tests compare package and platform wire results
+1. Family-query tests prove the non-public same-name reference measurements
+   for `JsonDocument.Parse`, their completeness, and that they never enter the
+   public roster.
+2. Analysis-facade projection tests compare package and platform wire results
    with the completed host-neutral envelope, including Content outcome, raw
    metrics, logical and physical tokens, public anchors, coverage,
    relationships, Share, and ordered diagnostics.
-2. Generated-facade ownership and ordinary Worker tests prove the complete
+3. Generated-facade ownership and ordinary Worker tests prove the complete
    typed result crosses the Analysis facade and Worker transport unchanged.
-3. Implementation-profile coordinator tests prove explicit activation,
-   exact-family-key single-flight caching, same-family reuse, cross-family
-   isolation, explicit retry, workspace replacement, and stale-publication
-   suppression through operation authority.
-4. Member composition, navigation, and vocabulary-exhaustiveness tests prove
-   the section is available for eligible package and platform overload groups,
-   works before overload selection, and restores through navigation state.
-5. Rendering and accessibility tests prove family-only normalization,
-   non-color labels, uniform-small-family suppression, raw metric disclosure,
-   generated-body separation, incomplete and empty distinctions, and retry
-   focus behavior.
-6. The Inspect Web authored typecheck, lint, build, and focused Browser tests
+4. Implementation-profile coordinator tests prove expansion activation,
+   exact-family-key single-flight caching, the one-in-flight and latest-queued
+   bound, same-family reuse, cross-family isolation, explicit retry,
+   workspace replacement, and stale-publication suppression through operation
+   authority.
+5. Family-projection tests prove size, the reference maximum, the
+   half-of-maximum heat threshold, noise suppression, and hub derivation
+   over `StringBuilder.AppendFormat` and `JsonDocument.Parse` evidence plus synthetic incomplete, bodyless,
+   generated-body, and non-public-callee boundaries.
+6. Member-list rendering and accessibility tests prove roster order, compact
+   labels from the issued display, right-anchored heat, the hub strip,
+   accessible descriptions, and every visible state.
+7. The Inspect Web authored typecheck, lint, build, and focused Browser tests
    gate the production composition.
-7. The PR Demo records first-acquisition latency and confirms through
-   instrumentation that package acquisition, Type navigation, Member
-   navigation, and overload selection issue no profile request before the
-   explicit section gesture. Timing is observational evidence, not a stable CI
-   threshold.
+8. The PR Demo records first-acquisition latency and confirms through
+   instrumentation that package acquisition, API loading, and Type navigation
+   issue no profile request, and that rapid traversal across families keeps
+   at most one request in flight. Timing is observational evidence, not a
+   stable CI threshold.
