@@ -183,6 +183,74 @@ public sealed class InspectionGraphFocusProjectionTests
     }
 
     [Fact]
+    public void InducedFrontier_RetainsDisconnectedExplicitInputsAndGroupParents()
+    {
+        InspectionGraphDocument source = Source(
+            ["Focus", "External", "Disconnected"],
+            [("Focus", "External")]);
+        InspectionGraphSubject parent = Subject("Parent");
+        InspectionGraphSubject disconnectedGroup =
+            Subject("DisconnectedGroup");
+        InspectionGraphGroup[] groups =
+        [
+            new(0, parent, null),
+            new(1, disconnectedGroup, 0),
+        ];
+        InspectionGraphSubject[] explicitSubjects =
+        [
+            .. source.Nodes.Select(static node => node.Subject),
+            disconnectedGroup,
+        ];
+        var request = new InspectionGraphInducedSetRequest(
+            explicitSubjects,
+            [CallGraphInspectionGraphCatalog.Call],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+        source = new InspectionGraphDocument(
+            source.Scope,
+            request,
+            source.Nodes,
+            groups,
+            source.Edges,
+            source.Occurrences,
+            source.Characteristics,
+            [],
+            [
+                new(
+                    InspectionGraphInducedSetCatalog.SubjectBound,
+                    Evidence:
+                        new InspectionGraphInducedSubjectBoundEvidence(
+                            explicitSubjects.Length)),
+            ],
+            source.Failures);
+
+        InspectionGraphDocument result = Project(
+            source,
+            InspectionGraphTraversalDirection.Outgoing,
+            ["Focus", "Disconnected"],
+            ["External"]);
+
+        Assert.Equal(["Focus->External"], Edges(result));
+        Assert.Equal(
+            ["Focus", "External", "Disconnected"],
+            result.Nodes.Select(Name));
+        Assert.Equal(
+            [parent, disconnectedGroup],
+            result.Groups.Select(static group => group.Subject));
+        Assert.Same(request, result.InducedSetRequest);
+        Assert.Contains(
+            result.Limits,
+            limit => ReferenceEquals(
+                    limit.Descriptor,
+                    InspectionGraphInducedSetCatalog.SubjectBound)
+                && limit.Evidence
+                    is InspectionGraphInducedSubjectBoundEvidence
+                    {
+                        SubjectCount: 4,
+                    });
+    }
+
+    [Fact]
     public void SeededFrontier_RetainsShortestOutgoingConnector()
     {
         InspectionGraphDocument source = Source(

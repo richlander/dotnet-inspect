@@ -296,6 +296,11 @@ directionally reachable exit and one deterministic shortest internal connector
 from an origin to that exit. A boundary incident directly on an origin has an
 empty connector.
 
+An explicit-subject induced input retains every typed input node or group even
+when it is disconnected from the retained frontier. Required group parents
+remain represented as hierarchy, while disconnected inputs acquire no
+fabricated focus or connector role.
+
 An edge incident on an unknown scope or affiliation subject remains an
 unclassified boundary candidate. It stays distinguishable from a positive exit
 and prevents a complete all-exits claim. Relationships entirely outside scope
@@ -550,8 +555,9 @@ The #8444 exit-frontier adoption names these Release gates:
 
 - `InspectionGraphFocusProjectionTests` covers induced and seeded frontiers,
   direction, deterministic connectors, cycles, unknown scope, request
-  validation, additive roles, physical receipts, and propagation of global
-  and retained-target limits and failures;
+  validation, disconnected explicit inputs and group parents, additive roles,
+  physical receipts, and propagation of global and retained-target limits and
+  failures;
 - `MemberCallGraphSessionTests` and
   `PackageRoleMemberCallGraphQueryTests` cover exact assembly/package
   classification joins plus source diagnostics; and

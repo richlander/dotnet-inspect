@@ -322,6 +322,10 @@ public static class InspectionGraphFocusProjection
         }
 
         var retainedGroupIds = new HashSet<int>();
+        RetainExplicitInputSubjects(
+            source,
+            retainedNodeIds,
+            retainedGroupIds);
         foreach (int nodeId in retainedNodeIds)
         {
             retainedGroupIds.UnionWith(
@@ -479,6 +483,26 @@ public static class InspectionGraphFocusProjection
             seeds,
             limits,
             failures);
+    }
+
+    static void RetainExplicitInputSubjects(
+        InspectionGraphDocument source,
+        HashSet<int> retainedNodeIds,
+        HashSet<int> retainedGroupIds)
+    {
+        if (source.InducedSetRequest is not { } request)
+            return;
+
+        HashSet<InspectionGraphSubject> subjects =
+            request.Subjects.ToHashSet();
+        retainedNodeIds.UnionWith(
+            source.Nodes
+                .Where(node => subjects.Contains(node.Subject))
+                .Select(static node => node.Id));
+        retainedGroupIds.UnionWith(
+            source.Groups
+                .Where(group => subjects.Contains(group.Subject))
+                .Select(static group => group.Id));
     }
 
     static ImmutableArray<int> OriginNodeIds(
