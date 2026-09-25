@@ -122,7 +122,7 @@ public static class RouterCommandDefinition
                 if (requestErrors.Count > 0)
                 {
                     foreach (ParseError error in requestErrors)
-                        CommandError.Write(error.Message);
+                        CommandError.Write(CommandLineBuilder.FormatParseError(error.Message));
                     return 1;
                 }
             }
