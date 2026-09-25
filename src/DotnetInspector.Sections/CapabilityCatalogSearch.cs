@@ -537,13 +537,21 @@ public static class CapabilityCatalogSearch
 
             void AddTerm(SearchTerm candidate)
             {
-                if (!terms.TryGetValue(candidate.Value, out SearchTerm? prior)
-                    || Strength(candidate.Source) < Strength(prior.Source)
-                    || (Strength(candidate.Source) == Strength(prior.Source)
-                        && candidate.Source < prior.Source)
-                    || (candidate.Source == prior.Source
+                if (!terms.TryGetValue(candidate.Value, out SearchTerm? prior))
+                {
+                    terms[candidate.Value] = candidate;
+                    return;
+                }
+
+                int candidateStrength = Strength(candidate.Source);
+                int priorStrength = Strength(prior.Source);
+                if (candidateStrength < priorStrength
+                    || (candidateStrength == priorStrength
                         && prior.IsSegment
-                        && !candidate.IsSegment))
+                        && !candidate.IsSegment)
+                    || (candidateStrength == priorStrength
+                        && candidate.IsSegment == prior.IsSegment
+                        && candidate.Source < prior.Source))
                 {
                     terms[candidate.Value] = candidate;
                 }

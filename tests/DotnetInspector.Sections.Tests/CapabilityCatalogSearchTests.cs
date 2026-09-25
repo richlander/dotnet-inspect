@@ -1,5 +1,9 @@
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using QuerySpace;
+using QuerySpace.Composition;
+using QuerySpace.Operations;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace DotnetInspector.Sections.Tests;
@@ -168,6 +172,32 @@ public sealed class CapabilityCatalogSearchTests
         Assert.False(documents[0].IsSegment);
         Assert.Equal("ranking/a-segment", documents[1].ResourcePath);
         Assert.True(documents[1].IsSegment);
+    }
+
+    [Fact]
+    public void EqualStrengthDuplicateTerms_PreferCompleteTerm()
+    {
+        (InspectionCapabilityCatalog catalog,
+            ResourceExplanationCatalog explanation) =
+                CreateTermCollisionCatalog();
+
+        CapabilityCatalogSearchResult result =
+            CapabilityCatalogSearch.Search(
+                    catalog,
+                    explanation,
+                    new("alpha", maximumResults: 1))
+                .Content
+                .Results
+                .Single();
+
+        Assert.Equal(
+            InspectionCapabilityResourceKind.QueryFacet,
+            result.ResourceIdentity.Kind);
+        Assert.Equal("alpha", result.ResourceIdentity.Identity);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.OwnerIdentity,
+            result.MatchSource);
+        Assert.False(result.IsSegment);
     }
 
     [Fact]
@@ -483,6 +513,153 @@ public sealed class CapabilityCatalogSearchTests
                 paths));
     }
 
+    private static (
+        InspectionCapabilityCatalog Catalog,
+        ResourceExplanationCatalog Explanation) CreateTermCollisionCatalog()
+    {
+        const string querySpaceIdentity = "collision/query";
+        const string routeIdentity = "collision/route";
+        const string bindingIdentity = "collision/binding";
+        QuerySpaceBinding querySpace =
+            CreateTermCollisionQuerySpace(querySpaceIdentity);
+        var document =
+            new InspectionDocumentRegistration<PackageQueryDocument>(
+                new(
+                    "other/alpha",
+                    "Collision document",
+                    "Synthetic term-precedence resource.",
+                    PackageQuery.ResultContractIdentity));
+        var route =
+            new InspectionRouteRegistration<
+                PackageQueryInspectionRequest,
+                PackageQueryDocument>(
+                    new(
+                        routeIdentity,
+                        "Collision route",
+                        "Synthetic term-precedence route."),
+                    document,
+                    querySpace,
+                    static (_, _) =>
+                        throw new InvalidOperationException(
+                            "Capability search must not execute routes."));
+        var binding =
+            new InspectionConsumerBinding<
+                PackageQueryInspectionRequest,
+                PackageQueryDocument>(
+                    new(
+                        bindingIdentity,
+                        InspectionConsumerKind.Cli,
+                        "Collision binding",
+                        "collision query"),
+                    route,
+                    ["alpha"]);
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    new(
+                        "collision",
+                        [document],
+                        [route],
+                        [binding]),
+                ]);
+        var paths = new InspectionCapabilityResourcePathRegistration[]
+        {
+            new(
+                new(
+                    InspectionCapabilityResourceKind.Document,
+                    document.Descriptor.Identity),
+                new("collision/a-segment")),
+            new(
+                new(
+                    InspectionCapabilityResourceKind.Route,
+                    routeIdentity),
+                new("collision/route")),
+            new(
+                new(
+                    InspectionCapabilityResourceKind.ConsumerBinding,
+                    bindingIdentity),
+                new("collision/binding")),
+            new(
+                new(
+                    InspectionCapabilityResourceKind.QuerySpace,
+                    querySpaceIdentity),
+                new("collision/query")),
+            new(
+                new(
+                    InspectionCapabilityResourceKind.QueryFacet,
+                    "alpha",
+                    querySpaceIdentity),
+                new("collision/query/facets/group-alpha")),
+        };
+
+        return (
+            catalog,
+            ResourceExplanationCatalog.CreateCapabilities(
+                catalog,
+                paths));
+    }
+
+    private static QuerySpaceBinding CreateTermCollisionQuerySpace(
+        string identity)
+    {
+        const string subjectRole = "collision-subject";
+        const string resultGrain = "collision-result";
+        const string profileIdentity = "collision-profile";
+        string rowSet =
+            PackageQuery.QuerySpace.Descriptor.Operation.RowSets.Single();
+        var term =
+            new QueryOperationTermBinding(
+                "alpha",
+                "group-alpha",
+                QueryOperationTermRole.OperationSelector,
+                new(
+                    [subjectRole],
+                    [resultGrain],
+                    []),
+                new(
+                    "alpha",
+                    "text",
+                    [],
+                    "Synthetic colliding query facet."),
+                []);
+        QueryOperationDefinition<
+            CollisionPredicate,
+            CollisionPlan> operation =
+                QueryOperationDefinition<
+                    CollisionPredicate,
+                    CollisionPlan>.Create(
+                        "collision-operation",
+                        new CollisionVocabulary(),
+                        [subjectRole],
+                        [resultGrain],
+                        [rowSet],
+                        [term],
+                        [],
+                        [new(profileIdentity, [term.Identity], [])]);
+        QueryOperationRoute<
+            CollisionPredicate,
+            CollisionPlan> route =
+                QueryOperationRoute<
+                    CollisionPredicate,
+                    CollisionPlan>.Create(
+                        "collision-operation-route",
+                        operation,
+                        subjectRole,
+                        resultGrain,
+                        [rowSet],
+                        profileIdentity,
+                        [],
+                        []);
+
+        return QuerySpaceBinding.Create(
+            identity,
+            route,
+            PackageQuery.QuerySpace.RowScopes,
+            PackageQuery.QuerySpace.Descriptor.Terminals,
+            PackageQuery.QuerySpace.Descriptor.AcceptsContinuation,
+            PackageQuery.QuerySpace.Descriptor.ResultContracts);
+    }
+
     private static InspectionConsumerBinding<
         PackageQueryInspectionRequest,
         PackageQueryDocument> CreateBinding(
@@ -493,4 +670,77 @@ public sealed class CapabilityCatalogSearchTests
             new(identity, kind, identity, gesture),
             PackageQueryCapability.Route,
             PackageQuery.InspectionTermBindingIdentities);
+
+    private sealed record CollisionPredicate(string Value);
+
+    private sealed record CollisionPlan(string Value);
+
+    private sealed class CollisionDeclaration
+        : PortableQueryKeyDeclaration<CollisionPredicate>
+    {
+        public override string Key => "group-alpha";
+
+        public override bool AdmitsOperator(
+            PortableQueryOperator @operator) =>
+            @operator == PortableQueryOperator.Equal;
+
+        public override PortableQueryBinding<CollisionPredicate> Bind(
+            PortableQueryOperator @operator,
+            string value) =>
+            @operator == PortableQueryOperator.Equal
+                ? PortableQueryBinding<CollisionPredicate>.Bound(
+                    value,
+                    new(value))
+                : PortableQueryBinding<CollisionPredicate>.Rejected;
+    }
+
+    private sealed class CollisionVocabulary
+        : PortableQueryVocabulary<CollisionPredicate, CollisionPlan>
+    {
+        private static readonly CollisionDeclaration Declaration = new();
+
+        public override string Identity => "collision-vocabulary";
+
+        public override bool TryGetKey(
+            string key,
+            [NotNullWhen(true)]
+            out PortableQueryKeyDeclaration<CollisionPredicate>?
+                declaration)
+        {
+            bool found = string.Equals(
+                key,
+                Declaration.Key,
+                StringComparison.Ordinal);
+            declaration = found ? Declaration : null;
+            return found;
+        }
+
+        public override bool TryGetDimension(
+            string dimension,
+            [NotNullWhen(true)]
+            out PortableQueryDimensionDeclaration<CollisionPredicate>?
+                declaration)
+        {
+            declaration = null;
+            return false;
+        }
+
+        public override bool AdmitsStageKind(
+            RowSelectionStageKind kind) =>
+            false;
+
+        public override bool TryGetNamedOrder(
+            string reference,
+            out PortableQueryOrderPurpose purpose)
+        {
+            purpose = default;
+            return false;
+        }
+
+        public override bool IsOrderable(string key) => false;
+
+        public override CollisionPlan CreatePlan(
+            PortableQueryResolvedIntent<CollisionPredicate> resolved) =>
+            new(resolved.Terms.Single().Predicate.Value);
+    }
 }
