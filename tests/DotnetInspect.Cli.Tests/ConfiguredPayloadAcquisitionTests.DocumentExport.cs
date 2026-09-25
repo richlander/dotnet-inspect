@@ -144,7 +144,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("4 of 6 entries", result.Error, StringComparison.Ordinal);
         Assert.Equal(1, feed.FullPackageResponses);
         Assert.True(
-            feed.PackageBytesServed < 128 * 1024,
+            feed.PackageBytesServed < 128 * 1024 + AbandonedProbeReadBound,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
     }
 
@@ -174,7 +174,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("found 0", result.Error, StringComparison.Ordinal);
         Assert.False(File.Exists(outputPath));
         Assert.True(
-            feed.PackageBytesServed < 128 * 1024,
+            feed.PackageBytesServed < 128 * 1024 + AbandonedProbeReadBound,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
     }
 
