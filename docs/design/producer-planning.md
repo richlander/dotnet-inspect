@@ -182,8 +182,11 @@ explained, compared, and handed to level 2 before any work begins.
 The meaning of a work description is a single-threaded sequence of passes.
 Each pass is a loop over units in metadata order. In each unit, each producer
 that requested the unit in that pass is visited once, in an order consistent
-with the dependency edges. At the end of a pass, the completions of the
-producers visited in it run, each after its inputs.
+with the dependency edges. At the end of a pass, each completion whose
+producer's visits and inputs are all finished, and that has not yet run, runs
+after its inputs. A completion therefore runs at the end of the earliest pass
+by which everything it depends on is finished, which may be later than the
+pass containing its own producer's visits.
 
 A producer's visits belong to the first pass that follows every completion
 they depend on. Visits that depend on no completion belong to the first pass.
@@ -410,8 +413,9 @@ gap.
    whatever ordering, batching, collapse, or parallelism it uses.
 5. Record actual participation in the receipt shape defined here.
 6. Stop work early only when each consumer the stopped work serves has a
-   settled terminal, such as Exists, or an explicit fail-fast request. Mark
-   each stopped producer with the stopped outcome.
+   settled terminal, such as Exists. Mark each stopped producer with the
+   stopped outcome. Failure never stops independent work; it reaches
+   dependents only as typed prerequisite failures.
 7. Keep named answers independent of scheduling. When an answer names a row,
    such as the first violation found, it is the row the reference passes would
    name, not whichever row a parallel executor reached first.
