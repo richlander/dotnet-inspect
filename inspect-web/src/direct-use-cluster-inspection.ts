@@ -15,7 +15,7 @@ export interface DirectUseClusterInspectionState {
   directUseClusterSeq: number;
 }
 
-export interface DirectUseClusterInspectionRequest {
+interface DirectUseClusterInspectionRequest {
   sourcePackageId: string;
   sourceVersion: string;
   sourceFramework: string;
