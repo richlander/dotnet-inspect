@@ -34,6 +34,33 @@ Integrations and extension reachability retain compatible participants for
 cross-assembly composition. The components below are the current hosts, shared
 substrates, and inspection producers that will extend that space.
 
+Three shared systems keep the command core small while inspection stays deep:
+
+- a **registry** of installed capability:
+  [Inspection Capability Composition](design/inspection-capability-composition.md)
+  and the analysis descriptors under
+  [operation participation](design/analysis-surfaces-and-universes.md#operation-participation);
+- a **subject** system:
+  [Inspection Subject Navigation](design/inspection-subject-navigation.md) and
+  [Workspace Definitions](design/workspace-definitions.md); and
+- a family of **shared structures and formats**, each kept by its own owner:
+
+| Structure | Role |
+| --- | --- |
+| [`InspectionEnvelope<TContent>`](design/inspection-envelope.md) | Delivery of Content, Share, and diagnostics |
+| `Finding<T>` with `FindingKey` and `PairFinding<T>` ([Finding nomenclature](design/finding-nomenclature.md)) | Observation, identity, and correspondence |
+| [`AnalysisDiff<T>`](design/analysis-diff.md) and [`ComparisonDocument<T>`](design/comparison-document.md) | Pairing |
+| [`InspectionGraphDocument`](design/inspection-graph-document.md) | Topology |
+| `AnnotatedSourceDocument` | Placement at source and IL coordinates |
+| Markout | Format lowering |
+
+New analyses and operations reach users through these structures. An analysis
+contributes typed values into the structure that an operation owns, and the
+operation delivers them as envelope Content. It does not add an
+operation-specific result shape or an adapter written for one analysis. A
+deliberate exception names its payload or host, its rationale, and its
+lowering boundary in its owning design.
+
 - `src/DotnetInspect.Cli/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
   [CLI Workspace Sharing](design/cli-workspace-sharing.md) owns the common
