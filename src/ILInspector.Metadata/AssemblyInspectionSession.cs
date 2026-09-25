@@ -254,7 +254,8 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll,
-        bool typesOnly) =>
+        bool typesOnly,
+        bool includeCompilerGenerated) =>
         ApiSurface(
             source,
             catalog,
@@ -262,7 +263,8 @@ public sealed class AssemblyInspectionSession :
             includeAll
                 ? ApiSurfaceExtractionScope.IncludeAll
                 : ApiSurfaceExtractionScope.Public,
-            typesOnly);
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>
     /// Projects one explicit API scope with resolution-aware generic
@@ -273,14 +275,16 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        bool typesOnly = false) =>
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,
             catalog,
             bindingPolicy,
             scope,
-            typesOnly);
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>
     /// Reads a TypeDef's instance-field primitive after the durable address
