@@ -3,7 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Area", "Pass")]
-public class VoidNullConditionalPassTests
+public class VoidNullConditionalRaisingTests
 {
     static readonly TypeRef s_holder =
         TypeRef.Definition("Synthetic", "", "Holder");
@@ -97,7 +97,9 @@ public class VoidNullConditionalPassTests
     {
         var function = Build();
 
-        new VoidNullConditionalPass().Run(function, PassContext.None);
+        new NullConditionalPass(voidCallsOnly: true).Run(
+            function,
+            PassContext.None);
         function.CheckInvariant();
 
         var conditional = Assert.Single(
@@ -117,7 +119,9 @@ public class VoidNullConditionalPassTests
     {
         var function = Build(externalCallArmEntry: true);
 
-        new VoidNullConditionalPass().Run(function, PassContext.None);
+        new NullConditionalPass(voidCallsOnly: true).Run(
+            function,
+            PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<NullConditional>());
         function.CheckInvariant();
@@ -128,7 +132,9 @@ public class VoidNullConditionalPassTests
     {
         var function = Build(receiverUsedAfter: true);
 
-        new VoidNullConditionalPass().Run(function, PassContext.None);
+        new NullConditionalPass(voidCallsOnly: true).Run(
+            function,
+            PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<NullConditional>());
         function.CheckInvariant();
@@ -139,7 +145,9 @@ public class VoidNullConditionalPassTests
     {
         var function = Build(mismatchedNullReturn: true);
 
-        new VoidNullConditionalPass().Run(function, PassContext.None);
+        new NullConditionalPass(voidCallsOnly: true).Run(
+            function,
+            PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<NullConditional>());
         function.CheckInvariant();

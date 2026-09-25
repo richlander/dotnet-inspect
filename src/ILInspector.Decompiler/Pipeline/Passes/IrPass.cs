@@ -158,7 +158,7 @@ public static class IrPasses
         new NullConditionalCoalescePass(),
         // Fold csc's dup/branch/pop shape for an effectful receiver used by a
         // void ?. call before structuring consumes the surrounding blocks.
-        new VoidNullConditionalPass(),
+        new NullConditionalPass(voidCallsOnly: true),
         // Fold an independently owned leading guard-return slice even when
         // later control flow keeps the rest of the container flat.
         new PrologueGuardReturnPass(),

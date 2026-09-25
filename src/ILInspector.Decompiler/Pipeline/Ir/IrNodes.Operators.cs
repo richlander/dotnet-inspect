@@ -250,7 +250,7 @@ public sealed class NullCoalescingPropertyAssignment : IrNode
     naming: Inverse.NameProvenance.Native,
     forwardName: "BoundConditionalAccess / ?.",
     precondition: "result is the member's unwrapped type (`Member.ResultType`); raised from a fully owned ?. null-check pattern (surrounding nodes carry any nullable wrapping / coalesce)",
-    witness: "corpus compile-back")]
+    witness: "NullConditionalPassTests, VoidNullConditionalRaisingTests, corpus compile-back")]
 public sealed class NullConditional : IrExpression
 {
     public NullConditional(IrExpression member) => AddChild(member);
