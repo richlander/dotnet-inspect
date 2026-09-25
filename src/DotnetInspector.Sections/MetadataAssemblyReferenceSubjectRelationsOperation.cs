@@ -6,11 +6,40 @@ using InertText;
 
 namespace DotnetInspector.Sections;
 
+public sealed class MetadataAssemblyReferenceSubjectRelationsContinuationAuthority
+{
+    private MetadataAssemblyReferenceSubjectRelationsContinuationAuthority(
+        SubjectRelationPopulationContinuationAuthority population,
+        Guid sourceModuleVersionId)
+    {
+        PopulationAuthority = population
+            ?? throw new ArgumentNullException(nameof(population));
+        SourceModuleVersionId = sourceModuleVersionId;
+    }
+
+    internal SubjectRelationPopulationContinuationAuthority PopulationAuthority
+    { get; }
+
+    internal SubjectRelationPopulationContinuation Continuation =>
+        PopulationAuthority.Continuation;
+
+    internal int NextOrdinal => PopulationAuthority.NextOrdinal;
+
+    internal Guid SourceModuleVersionId { get; }
+
+    internal static
+        MetadataAssemblyReferenceSubjectRelationsContinuationAuthority
+        Capture(
+            SubjectRelationPopulationContinuationAuthority population,
+            Guid sourceModuleVersionId) =>
+        new(population, sourceModuleVersionId);
+}
+
 public sealed record MetadataAssemblyReferenceSubjectRelationsExecution
 {
     public MetadataAssemblyReferenceSubjectRelationsExecution(
         SubjectRelationPopulationResult population,
-        SubjectRelationPopulationContinuationAuthority?
+        MetadataAssemblyReferenceSubjectRelationsContinuationAuthority?
             continuationAuthority)
     {
         Population = population
@@ -35,7 +64,7 @@ public sealed record MetadataAssemblyReferenceSubjectRelationsExecution
 
     public SubjectRelationPopulationResult Population { get; }
 
-    public SubjectRelationPopulationContinuationAuthority?
+    public MetadataAssemblyReferenceSubjectRelationsContinuationAuthority?
         ContinuationAuthority
     { get; }
 }
@@ -52,7 +81,7 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
         SubjectRelationsInspectionRequest request,
         SubjectRelationFocusCorrespondence correspondence,
         MetadataOperationPolicy policy,
-        SubjectRelationPopulationContinuationAuthority?
+        MetadataAssemblyReferenceSubjectRelationsContinuationAuthority?
             continuationAuthority = null,
         CancellationToken cancellationToken = default)
     {
@@ -63,8 +92,16 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
         ArgumentNullException.ThrowIfNull(policy);
         ValidateRequest(source, request, correspondence);
 
+        Guid sourceModuleVersionId =
+            source.Registration.ModuleVersionId
+            ?? throw new InvalidOperationException(
+                "Assembly-reference relation execution requires an "
+                    + "MVID-bound source acquisition.");
         SubjectRelationPopulationRowsRejection? continuationRejection =
-            ValidateContinuation(request, continuationAuthority);
+            ValidateContinuation(
+                request,
+                continuationAuthority,
+                sourceModuleVersionId);
         if (continuationRejection is { } rejection
             && request.Request.Count is null)
         {
@@ -77,11 +114,6 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
                 : new(
                     continuationAuthority?.NextOrdinal ?? 0,
                     rows.MaximumRows);
-        Guid sourceModuleVersionId =
-            source.Registration.ModuleVersionId
-            ?? throw new InvalidOperationException(
-                "Assembly-reference relation execution requires an "
-                    + "MVID-bound source acquisition.");
         var sourceRequest =
             new MetadataAssemblyReferenceRelationPopulationRequest(
                 policy,
@@ -122,7 +154,7 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
         SubjectRelationsInspectionRequest request,
         SubjectRelationFocusCorrespondence correspondence,
         MetadataAssemblyReferenceRelationPopulationResult sourceResult,
-        SubjectRelationPopulationContinuationAuthority?
+        MetadataAssemblyReferenceSubjectRelationsContinuationAuthority?
             inputContinuationAuthority,
         SubjectRelationPopulationRowsRejection? continuationRejection)
     {
@@ -139,8 +171,8 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
         SubjectRelationPopulationCountOutcome? count =
             MapCount(sourceResult.Count);
         SubjectRelationPopulationRowsOutcome? rows;
-        SubjectRelationPopulationContinuationAuthority? outputAuthority =
-            null;
+        MetadataAssemblyReferenceSubjectRelationsContinuationAuthority?
+            outputAuthority = null;
         if (continuationRejection is { } rejection)
         {
             rows =
@@ -166,7 +198,7 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
                 rows,
                 rows is SubjectRelationPopulationRowsOutcome.Read
                     && request.Request.Rows?.Continuation is not null
-                    ? inputContinuationAuthority
+                    ? inputContinuationAuthority?.PopulationAuthority
                     : null);
         return new(population, outputAuthority);
     }
@@ -199,7 +231,7 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
         SubjectRelationFocusCorrespondence correspondence,
         Guid? moduleVersionId,
         MetadataAssemblyReferenceRelationPopulationRowsOutcome? rows,
-        out SubjectRelationPopulationContinuationAuthority?
+        out MetadataAssemblyReferenceSubjectRelationsContinuationAuthority?
             continuationAuthority)
     {
         continuationAuthority = null;
@@ -229,7 +261,8 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
                                 TextPolicy.Field,
                                 $"metadata-reference-{sourceModuleVersionId:N}-"
                                     + $"{nextOrdinal}"));
-                    continuationAuthority =
+                    SubjectRelationPopulationContinuationAuthority
+                        populationAuthority =
                         SubjectRelationPopulationContinuationAuthority
                             .Capture(
                                 continuation,
@@ -239,6 +272,11 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
                                 SubjectRelationPopulationOrdering.Producer,
                                 SubjectRelationRowProjection.Canonical,
                                 nextOrdinal);
+                    continuationAuthority =
+                        MetadataAssemblyReferenceSubjectRelationsContinuationAuthority
+                            .Capture(
+                                populationAuthority,
+                                sourceModuleVersionId);
                 }
                 return new SubjectRelationPopulationRowsOutcome.Read(
                     SubjectRelationPopulationOrdering.Producer,
@@ -336,7 +374,9 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
     private static SubjectRelationPopulationRowsRejection?
         ValidateContinuation(
             SubjectRelationsInspectionRequest request,
-            SubjectRelationPopulationContinuationAuthority? authority)
+            MetadataAssemblyReferenceSubjectRelationsContinuationAuthority?
+                authority,
+            Guid sourceModuleVersionId)
     {
         SubjectRelationPopulationContinuation? continuation =
             request.Request.Rows?.Continuation;
@@ -355,8 +395,15 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
             return SubjectRelationPopulationRowsRejection
                 .InvalidContinuation;
         }
+        if (authority.SourceModuleVersionId != sourceModuleVersionId)
+        {
+            return SubjectRelationPopulationRowsRejection
+                .StaleContinuation;
+        }
         return SubjectRelationsPopulationOperation
-            .ContinuationRejection(request, authority);
+            .ContinuationRejection(
+                request,
+                authority.PopulationAuthority);
     }
 
     private static void ValidateRequest(
