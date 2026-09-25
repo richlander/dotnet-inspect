@@ -3,6 +3,7 @@
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
 
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -20,7 +21,7 @@ if (args.Length > 2)
 (string Id, string Version)[] packages =
 [
     ("QuanTAlib", "0.1.0"),
-    ("System.Text.Json", "5.0.2"),
+    ("System.Text.Json", "10.0.12"),
     ("MessagePack", "2.5.192"),
     ("MimeKit", "4.8.0"),
     ("ZLinq", "1.4.9"),
@@ -40,8 +41,8 @@ string packageDestination = Path.Combine(destination, "packages");
 HttpClientFactory.Initialize(new HttpClientFactoryOptions());
 NuGetCache.Initialize("dotnet-inspect");
 
-var assemblies = new List<string>(packages.Length);
-var manifest = new List<string>(packages.Length);
+var assemblies = new List<string>(packages.Length + 1);
+var manifest = new List<string>(packages.Length + 1);
 foreach (var (id, version) in packages)
 {
     PackageExtractionResult? package = null;
@@ -88,8 +89,8 @@ foreach (var (id, version) in packages)
             File.Copy(nupkgPath, packageTarget);
             manifest.Add(
                 ManifestRow(
-                    id,
-                    version,
+                    $"nuget:{id}@{version}",
+                    "package",
                     Path.GetRelativePath(
                             package.ExtractPath,
                             source)
@@ -108,6 +109,39 @@ foreach (var (id, version) in packages)
         if (package?.TempDir is not null)
             Directory.Delete(package.TempDir, recursive: true);
     }
+}
+
+string runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
+string runtimeVersion = Path.GetFileName(
+    runtimeDirectory.TrimEnd(Path.DirectorySeparatorChar));
+const string platformAssemblyFile = "System.IO.Compression.dll";
+string platformSource = Path.Combine(
+    runtimeDirectory,
+    platformAssemblyFile);
+if (!File.Exists(platformSource))
+{
+    throw new FileNotFoundException(
+        "The selected runtime does not contain System.IO.Compression.",
+        platformSource);
+}
+string platformTarget = Path.Combine(
+    destination,
+    platformAssemblyFile);
+File.Copy(platformSource, platformTarget);
+assemblies.Add(platformTarget);
+if (args.Length == 2)
+{
+    manifest.Add(
+        ManifestRow(
+            $"platform:Microsoft.NETCore.App@{runtimeVersion}/"
+                + "System.IO.Compression",
+            "platform",
+            $"shared/Microsoft.NETCore.App/{runtimeVersion}/"
+                + platformAssemblyFile,
+            platformAssemblyFile,
+            Sha256(platformTarget),
+            packageSha256: null,
+            packageFile: null));
 }
 
 assemblies.Sort(StringComparer.Ordinal);
@@ -130,25 +164,27 @@ static string Sha256(string path)
 }
 
 static string ManifestRow(
-    string packageId,
-    string version,
+    string identity,
+    string kind,
     string selectedAsset,
     string assemblyFile,
     string assemblySha256,
-    string packageSha256,
-    string packageFile)
+    string? packageSha256,
+    string? packageFile)
 {
     using var stream = new MemoryStream();
     using (var writer = new Utf8JsonWriter(stream))
     {
         writer.WriteStartObject();
-        writer.WriteString("package_id", packageId);
-        writer.WriteString("version", version);
+        writer.WriteString("identity", identity);
+        writer.WriteString("kind", kind);
         writer.WriteString("selected_asset", selectedAsset);
         writer.WriteString("assembly_file", assemblyFile);
         writer.WriteString("assembly_sha256", assemblySha256);
-        writer.WriteString("package_sha256", packageSha256);
-        writer.WriteString("package_file", packageFile);
+        if (packageSha256 is not null)
+            writer.WriteString("package_sha256", packageSha256);
+        if (packageFile is not null)
+            writer.WriteString("package_file", packageFile);
         writer.WriteEndObject();
     }
     return Encoding.UTF8.GetString(stream.ToArray());

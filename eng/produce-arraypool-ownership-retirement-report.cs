@@ -20,21 +20,6 @@ static class RetirementReport
     const string FullyLegacyProductVersion = "0.25.0";
     const string ShippedContinuityVersion = "0.26.0";
 
-    static readonly IReadOnlyDictionary<string, string> CorpusIdentities =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["MessagePack.dll"] = "nuget:MessagePack@2.5.192",
-            ["MimeKit.dll"] = "nuget:MimeKit@4.8.0",
-            ["Npgsql.dll"] = "nuget:Npgsql@8.0.4",
-            ["Pipelines.Sockets.Unofficial.dll"] =
-                "nuget:Pipelines.Sockets.Unofficial@2.2.8",
-            ["Prometheus.NetStandard.dll"] = "nuget:prometheus-net@8.2.1",
-            ["QuanTAlib.dll"] = "nuget:QuanTAlib@0.1.0",
-            ["System.Text.Json.dll"] = "nuget:System.Text.Json@5.0.2",
-            ["TouchSocket.dll"] = "nuget:TouchSocket@3.1.5",
-            ["ZLinq.dll"] = "nuget:ZLinq@1.4.9",
-        };
-
     public static async Task<int> RunAsync(string[] args)
     {
         Options options = Options.Parse(args);
@@ -138,54 +123,46 @@ static class RetirementReport
 
     static List<Input> LoadInputs(Options options)
     {
-        IReadOnlyDictionary<string, PackageManifest> manifest =
+        IReadOnlyDictionary<string, CorpusManifest> manifest =
             File.ReadLines(options.CorpusManifest)
                 .Select(ParseManifest)
                 .ToDictionary(
                     static entry => entry.AssemblyFile,
                     StringComparer.OrdinalIgnoreCase);
+        if (manifest.Values
+                .Select(static entry => entry.Identity)
+                .Distinct(StringComparer.Ordinal)
+                .Count() != manifest.Count)
+        {
+            throw new InvalidOperationException(
+                "Corpus manifest identities must be unique.");
+        }
         var inputs = new List<Input>();
         foreach (string line in File.ReadLines(options.CorpusList))
         {
             string path = Path.GetFullPath(line.Trim());
             string fileName = Path.GetFileName(path);
-            if (!CorpusIdentities.TryGetValue(
-                    fileName,
-                    out string? identity))
-            {
-                throw new InvalidOperationException(
-                    $"No pinned package identity is registered for '{fileName}'.");
-            }
             if (!manifest.TryGetValue(
                     fileName,
-                    out PackageManifest? package))
+                    out CorpusManifest? entry))
             {
                 throw new InvalidOperationException(
                     $"No corpus manifest entry exists for '{fileName}'.");
             }
-            string manifestIdentity =
-                $"nuget:{package.PackageId}@{package.Version}";
-            if (!string.Equals(
-                    identity,
-                    manifestIdentity,
-                    StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"Corpus identity '{identity}' does not match manifest "
-                    + $"identity '{manifestIdentity}'.");
-            }
             inputs.Add(new(
-                identity,
+                entry.Identity,
                 path,
-                "package",
-                package.SelectedAsset,
-                package.AssemblySha256,
-                package.PackageSha256,
-                Path.GetFullPath(package.PackageFile)));
+                entry.Kind,
+                entry.SelectedAsset,
+                entry.AssemblySha256,
+                entry.PackageSha256,
+                entry.PackageFile is null
+                    ? null
+                    : Path.GetFullPath(entry.PackageFile)));
         }
         inputs.AddRange(options.Fixtures);
         if (manifest.Count != inputs.Count(
-                static input => input.Kind == "package"))
+                static input => input.Kind != "fixture"))
         {
             throw new InvalidOperationException(
                 "The corpus list and provenance manifest populations differ.");
@@ -306,7 +283,7 @@ static class RetirementReport
                 LibraryBodyAnalysisFeatures.MethodEvidence
                     | LibraryBodyAnalysisFeatures.OwnershipFlow);
 
-            int lifecycleCount = CompareLifecycle(
+            LifecycleComparison lifecycle = CompareLifecycle(
                 input,
                 genericExecution,
                 rows);
@@ -324,9 +301,10 @@ static class RetirementReport
                 input.AssetIdentity,
                 actualSha256,
                 input.PackageSha256,
-                lifecycleCount,
+                lifecycle.Count,
                 rootCount,
                 pathCount,
+                lifecycle.ActionableFindings,
                 inputRows.Count(row =>
                     row.Classification == "IntentionalImprovement"),
                 inputRows.Count(row =>
@@ -351,6 +329,7 @@ static class RetirementReport
                 0,
                 0,
                 0,
+                [],
                 0,
                 1);
         }
@@ -393,7 +372,7 @@ static class RetirementReport
                         + "status changed from v0.26.0."));
     }
 
-    static int CompareLifecycle(
+    static LifecycleComparison CompareLifecycle(
         Input input,
         LibraryBodyAnalysisExecution genericExecution,
         List<LedgerRow> rows)
@@ -439,7 +418,7 @@ static class RetirementReport
                         + "#resource-triage-migration)."
                     : "The engines publish incompatible inspection states."));
         if (legacy is null || generic is null)
-            return 0;
+            return new(0, []);
 
         ResourceTriageAssessment[] legacyAssessments =
         [
@@ -533,7 +512,34 @@ static class RetirementReport
                         + "positive outcomes."
                     : "The generic population does not preserve every legacy "
                         + "typed assessment."));
-        return genericAssessments.Length;
+        ImmutableArray<ActionableLifecycleFinding> actionableFindings =
+        [
+            .. genericAssessments
+                .Where(static assessment =>
+                    assessment.Actionability
+                        == ResourceTriageActionability.UntrustedActionable)
+                .Select(static assessment =>
+                {
+                    ResourceLifecycleOccurrence occurrence =
+                        assessment.Source.Payload;
+                    ResourceTriageBoundaryAssessment boundary =
+                        assessment.Boundaries.First(candidate =>
+                            candidate.Kind
+                                == ResourceTriageBoundaryKind.ExternalInput);
+                    return new ActionableLifecycleFinding(
+                        occurrence.Method.DeclaringType
+                            .ToQualifiedDisplayString()
+                            + "."
+                            + occurrence.Method.Name,
+                        occurrence.AcquireOffset,
+                        boundary.Evidence.Operation.DeclaringType
+                            .ToQualifiedDisplayString()
+                            + "::"
+                            + boundary.Evidence.Operation.Name,
+                        boundary.Evidence.ILOffset);
+                }),
+        ];
+        return new(genericAssessments.Length, actionableFindings);
     }
 
     static async Task<(int RootCount, int PathCount)> CompareResearchAsync(
@@ -1198,17 +1204,17 @@ static class RetirementReport
         return path;
     }
 
-    static PackageManifest ParseManifest(string line)
+    static CorpusManifest ParseManifest(string line)
     {
         using JsonDocument document = JsonDocument.Parse(line);
         JsonElement root = document.RootElement;
-        return new(
-            root.GetProperty("package_id").GetString()
+        var manifest = new CorpusManifest(
+            root.GetProperty("identity").GetString()
                 ?? throw new InvalidOperationException(
-                    "Manifest package_id is null."),
-            root.GetProperty("version").GetString()
+                    "Manifest identity is null."),
+            root.GetProperty("kind").GetString()
                 ?? throw new InvalidOperationException(
-                    "Manifest version is null."),
+                    "Manifest kind is null."),
             root.GetProperty("selected_asset").GetString()
                 ?? throw new InvalidOperationException(
                     "Manifest selected_asset is null."),
@@ -1218,12 +1224,38 @@ static class RetirementReport
             root.GetProperty("assembly_sha256").GetString()
                 ?? throw new InvalidOperationException(
                     "Manifest assembly_sha256 is null."),
-            root.GetProperty("package_sha256").GetString()
-                ?? throw new InvalidOperationException(
-                    "Manifest package_sha256 is null."),
-            root.GetProperty("package_file").GetString()
-                ?? throw new InvalidOperationException(
-                    "Manifest package_file is null."));
+            root.TryGetProperty(
+                    "package_sha256",
+                    out JsonElement packageSha256)
+                ? packageSha256.GetString()
+                : null,
+            root.TryGetProperty(
+                    "package_file",
+                    out JsonElement packageFile)
+                ? packageFile.GetString()
+                : null);
+        if (manifest.Kind is not ("package" or "platform"))
+        {
+            throw new InvalidOperationException(
+                $"Manifest kind '{manifest.Kind}' is not supported.");
+        }
+        if (manifest.Kind == "package"
+            && (manifest.PackageSha256 is null
+                || manifest.PackageFile is null))
+        {
+            throw new InvalidOperationException(
+                $"Package manifest '{manifest.Identity}' must retain its "
+                + "archive path and SHA-256 digest.");
+        }
+        if (manifest.Kind == "platform"
+            && (manifest.PackageSha256 is not null
+                || manifest.PackageFile is not null))
+        {
+            throw new InvalidOperationException(
+                $"Platform manifest '{manifest.Identity}' must not claim a "
+                + "package archive.");
+        }
+        return manifest;
     }
 
 
@@ -1409,6 +1441,39 @@ static class RetirementReport
             "- The JSONL ledger beside this report is the complete "
             + "machine-readable classification. No display text is used as a "
             + "typed comparison authority.");
+        text.AppendLine();
+        text.AppendLine("## Positive framework findings");
+        text.AppendLine();
+        ActionableLifecycleFinding[] platformFindings =
+        [
+            .. summaries
+                .Where(static summary =>
+                    summary.Input.StartsWith(
+                        "platform:",
+                        StringComparison.Ordinal))
+                .SelectMany(static summary =>
+                    summary.ActionableFindings),
+        ];
+        if (platformFindings.Length == 0)
+        {
+            text.AppendLine(
+                "No untrusted-input framework lifecycle finding was observed.");
+        }
+        else
+        {
+            text.AppendLine(
+                "The current generic lifecycle product reports these "
+                + "untrusted-input ArrayPool exception-path leaks:");
+            text.AppendLine();
+            foreach (ActionableLifecycleFinding finding in platformFindings)
+            {
+                text.AppendLine(
+                    $"- `{finding.Method}` acquires at "
+                    + $"`IL_{finding.AcquireOffset:X4}` before "
+                    + $"`{finding.Boundary}` at "
+                    + $"`IL_{finding.BoundaryOffset:X4}`.");
+            }
+        }
         text.AppendLine();
         text.AppendLine("## Observed differences");
         text.AppendLine();
@@ -1620,14 +1685,14 @@ static class RetirementReport
         string? PackageSha256,
         string? PackagePath);
 
-    sealed record PackageManifest(
-        string PackageId,
-        string Version,
+    sealed record CorpusManifest(
+        string Identity,
+        string Kind,
         string SelectedAsset,
         string AssemblyFile,
         string AssemblySha256,
-        string PackageSha256,
-        string PackageFile);
+        string? PackageSha256,
+        string? PackageFile);
 
     sealed record LedgerRow(
         string Domain,
@@ -1647,8 +1712,19 @@ static class RetirementReport
         int LifecycleFindings,
         int ResearchRoots,
         int ResearchPaths,
+        ImmutableArray<ActionableLifecycleFinding> ActionableFindings,
         int IntentionalImprovements,
         int Defects);
+
+    sealed record LifecycleComparison(
+        int Count,
+        ImmutableArray<ActionableLifecycleFinding> ActionableFindings);
+
+    sealed record ActionableLifecycleFinding(
+        string Method,
+        int AcquireOffset,
+        string Boundary,
+        int BoundaryOffset);
 
     sealed record CommandResult(
         int ExitCode,
