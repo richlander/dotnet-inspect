@@ -76,6 +76,61 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task
+        TypeLocatorSection_NamespaceRequestAndModuleIdentitySerialize()
+    {
+        byte[] image =
+            LocatorImage(
+                "Namespace",
+                metadata =>
+                    LocatorDefinition(
+                        metadata,
+                        "N.Child",
+                        "Widget"));
+        await using var workspace = new InspectionWorkspace();
+        _ = await LocatorContext(workspace, image);
+
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            await TypeDeclarationLocatorInspection.ExecuteAsync(
+                workspace,
+                [
+                    new TypeDeclarationLocatorRequest.Namespace(
+                        "N",
+                        MetadataNamespaceMatch.ExactOrDescendant),
+                ],
+                TypeDeclarationLocatorSectionPlan.All,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var result =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                inspection.Content);
+        TypeDeclarationLocatorSectionCandidate candidate =
+            Assert.Single(Assert.Single(result.Answers).Candidates);
+        Assert.NotEqual(Guid.Empty, candidate.ModuleVersionId);
+
+        using JsonDocument document = JsonDocument.Parse(
+            TypeDeclarationLocatorSectionJson.Serialize(result));
+        JsonElement answer =
+            document.RootElement.GetProperty("answers")[0];
+        Assert.Equal(
+            "namespace",
+            answer.GetProperty("request")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Equal(
+            "ExactOrDescendant",
+            answer.GetProperty("request")
+                .GetProperty("match")
+                .GetString());
+        Assert.Equal(
+            candidate.ModuleVersionId,
+            answer.GetProperty("candidates")[0]
+                .GetProperty("module_version_id")
+                .GetGuid());
+    }
+
+    [Fact]
     public async Task TypeLocatorSection_VectorsRetainCoverageAndTypedIdentity()
     {
         byte[] image =

@@ -150,10 +150,18 @@ internal static class TypeFindIfMissResolver
         NuGetSourceOptions? sourceOptions,
         HttpClient httpClient,
         VerboseLogger logger,
-        string? frameworkSpec = null)
+        string? frameworkSpec = null,
+        IReadOnlyList<string>? platformFrameworks = null)
     {
         if (!LooksLikeSimpleTypeQuery(query))
             return TypeFindIfMissResult.None(query ?? "");
+        if (!string.IsNullOrWhiteSpace(frameworkSpec)
+            && platformFrameworks is not null)
+        {
+            throw new ArgumentException(
+                "An exact framework and a framework set cannot both be supplied.",
+                nameof(platformFrameworks));
+        }
 
         var normalizedQuery = FqnParser.NormalizeTypeName(query!);
         var findOptions = new FindOptions
@@ -161,7 +169,8 @@ internal static class TypeFindIfMissResolver
             Pattern = normalizedQuery,
             PlatformFrameworks =
                 string.IsNullOrWhiteSpace(frameworkSpec)
-                    ? CommandLineBuilder.PlatformFrameworkNames
+                    ? platformFrameworks?.ToArray()
+                        ?? CommandLineBuilder.PlatformFrameworkNames
                     : [frameworkSpec],
             IncludeAll = includeAll,
             SourceOptions = sourceOptions
@@ -326,7 +335,8 @@ internal static class TypeFindIfMissResolver
         NuGetSourceOptions? sourceOptions,
         HttpClient httpClient,
         VerboseLogger logger,
-        string? frameworkSpec = null)
+        string? frameworkSpec = null,
+        IReadOnlyList<string>? platformFrameworks = null)
     {
         if (!TrySplitMemberQuery(query, out var typeQuery, out var memberSelector))
             return TypeMemberFindIfMissResult.None(query ?? "");
@@ -338,7 +348,8 @@ internal static class TypeFindIfMissResolver
             sourceOptions,
             httpClient,
             logger,
-            frameworkSpec);
+            frameworkSpec,
+            platformFrameworks);
         return TypeMemberFindIfMissResult.FromTypeResolution(
             query!, typeQuery, memberSelector, selector, typeResolution);
     }

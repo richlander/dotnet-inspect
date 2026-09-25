@@ -17,6 +17,9 @@ The
 is implemented under
 [#7198](https://github.com/richlander/dotnet-inspect/issues/7198) for retained
 Browser/Wasm adoption.
+The [PlatformHouse population admission adapter](#implemented-platformhouse-population-admission)
+is implemented for CLI Router adoption under
+[#6850](https://github.com/richlander/dotnet-inspect/issues/6850).
 Other population producers and host adoption remain pending. The interaction
 model supplements, rather than certifies, the implementation.
 
@@ -295,8 +298,9 @@ population projection is covered separately below. The dedicated
 [package-backed Platform source](package-backed-platform-realization.md)
 owns reference-pack realization; adopting its correspondence is not permission
 to label reference-pack files as the legacy loader's implementation view.
-Other producer adapters and the complete CLI/Browser handoff remain successor
-work; this implementation does not close all of #6845.
+Other producer adapters and the complete Browser handoff remain successor
+work; the CLI Router's transferred reference-population adapter is documented
+below.
 
 ## Implemented reference-population admission
 
@@ -366,10 +370,50 @@ The real-package case pins `System.Text.Json@10.0.0` beside
 `Microsoft.NETCore.App.Ref@10.0.10` and is retained as `Speed=Slow` in the
 existing unfiltered daily Queries suite. Small-fixture cases are PR-fast.
 The shared [Sections projection](output-shapes.md#reverse-type-declaration-locator-projection)
-consumes the reference alternatives; CLI and TypeScript/Browser production
-adoption remain steps 7 and 8 of the
-[delivery map](reverse-type-locator-adoption.md). Installed-reference,
-local/project, and other producer adapters remain separate.
+consumes the reference alternatives; CLI Find and TypeScript/Browser production
+adoption are steps 7 and 8 of the
+[delivery map](reverse-type-locator-adoption.md). CLI Find is implemented;
+TypeScript/Browser, direct local/project, and other producer adapters remain
+separate.
+
+## Implemented PlatformHouse population admission
+
+The CLI Router consumes the source-neutral completed handoff from
+`PlatformHouseSelectedReferencePopulationExecutor`. It transfers the exact
+`ArtifactSetSession` and ordered `LibraryContentOwner` batch atomically through
+`InspectionWorkspace.AdmitLibraryBatchAsync`; after acceptance, the Workspace
+alone owns retirement.
+
+`WorkspacePlatformPopulationDeclarationAdmission` then joins the accepted
+Library admission receipt to the exact
+`PlatformPopulationRealizationValue` and
+`PlatformPopulationRealizationReceipt`. It validates Workspace identity,
+receipt availability, member/occurrence order, exact Library identity,
+Platform coordinate and target family, managed assembly identity, and
+source-contribution target correspondence before publishing one declaration
+context. It neither reacquires nor copies image bytes.
+
+The context reads declarations through
+`InspectionWorkspace.IssueLibraryOperation`. Each scoped operation invokes the
+existing `LibraryTypeDeclarationInventoryInspection` and returns detached
+inventory plus exact MVID. Inventory bounds and failures remain explicit;
+unsupported Windows Metadata remains unsupported. The declaration receipt
+retains Platform family, target framework, version, source capability,
+population role, and assembly identity as separate evidence.
+
+CLI Router evaluates all full-Type, Type-prefix, and exact-namespace requests
+through one `TypeDeclarationLocatorInspection` envelope, then closes the
+Workspace before using the detached answer. Workspace close preserves
+Library-before-session retirement and reports cleanup failures. The adapter is
+not a new Platform source, target selector, or general admission of every
+Library batch.
+
+Release gates in `PlatformTypeLocatorRoutingTests` use the installed reference
+population to prove exact Type/member identity and MVID after Workspace
+closure, exact namespace routing, stable Platform evidence, and no package
+source activation on an installed success. Production Router tests retain
+ambiguity, generic arity, namesake namespace, explicit-source bypass, and
+complete-miss behavior.
 
 ## Implemented Package Scope declaration admission
 

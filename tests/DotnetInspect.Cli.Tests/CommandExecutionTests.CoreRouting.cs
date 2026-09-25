@@ -524,7 +524,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareSimpleType_UsesTargetBoundPlatformCatalog()
+    public async Task Router_BareSimpleType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
             "Regex", "--markdown", "--tips", "q");
@@ -567,7 +567,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_AmbiguousTargetBoundPlatformCatalog_ReportsAmbiguity()
+    public async Task Router_AmbiguousTargetBoundPlatformLocator_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
             "Timer", "--markdown", "--tips", "q");
@@ -595,7 +595,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareGenericType_UsesTargetBoundPlatformCatalog()
+    public async Task Router_BareGenericType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
             "List<T>", "--markdown", "--tips", "q");

@@ -23,6 +23,13 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class RouterCommandDefinition
 {
+    private const string LegacyNonRuntimePlatformFramework =
+        "aspnetcore";
+    private static readonly string[] LegacyNonRuntimePlatformFrameworks =
+    [
+        LegacyNonRuntimePlatformFramework,
+    ];
+
     internal const string DeferredTypeOrMemberOptionName =
         "--router-deferred-type-or-member";
 
@@ -613,24 +620,25 @@ public static class RouterCommandDefinition
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
+            bool completeLocatorMiss = false;
             if (!hasExplicitApiSource
                 && frameworkSpec is null
                 && !hasTypeOption
                 && !hasMemberOption)
             {
-                CliPlatformTypeCatalogOutcome catalogOutcome =
-                    await PlatformTypeCatalogRouting.LoadAsync(
+                CliPlatformTypeLocatorOutcome locatorOutcome =
+                    await PlatformTypeLocatorRouting.LocateAsync(
                         context,
                         sourceOptions,
+                        target,
                         cancellationToken);
-                switch (catalogOutcome)
+                switch (locatorOutcome)
                 {
-                    case CliPlatformTypeCatalogOutcome.Completed completed:
+                    case CliPlatformTypeLocatorOutcome.Completed completed:
                         InspectionEnvelope<PlatformTypeCatalogRouteOutcome>
                             route =
-                            PlatformTypeCatalogRouting.Resolve(
-                                completed.Catalog,
-                                target,
+                            PlatformTypeLocatorRouting.ResolveType(
+                                completed,
                                 cancellationToken);
                         switch (route.Content)
                         {
@@ -653,10 +661,10 @@ public static class RouterCommandDefinition
                                 InspectionEnvelope<
                                     PlatformNamespaceDiscoveryOutcome>
                                     namespaceInspection =
-                                    PlatformNamespaceDiscoveryInspection
-                                        .Execute(
-                                            completed.Catalog,
-                                            new(target),
+                                    PlatformTypeLocatorRouting
+                                        .ResolveNamespace(
+                                            completed,
+                                            target,
                                             cancellationToken);
                                 switch (namespaceInspection.Content)
                                 {
@@ -681,6 +689,7 @@ public static class RouterCommandDefinition
                                         ];
                                     case PlatformNamespaceDiscoveryOutcome
                                         .Missing:
+                                        completeLocatorMiss = true;
                                         break;
                                     default:
                                         throw new InvalidOperationException(
@@ -689,17 +698,22 @@ public static class RouterCommandDefinition
                                 break;
                         }
                         break;
-                    case CliPlatformTypeCatalogOutcome.NotCompleted failure:
+                    case CliPlatformTypeLocatorOutcome.NotCompleted failure:
                         CommandError.Write(
-                            $"Platform type catalog routing failed ({failure.Kind}).");
+                            $"Platform type locator routing failed ({failure.Kind}).");
                         return tokens;
                 }
             }
 
-            var exactTypeLookup = LookupExactGenericPlatformType(
-                target,
-                allowSimpleName: hasTypeOption || hasMemberOption,
-                frameworkSpec: frameworkSpec);
+            string? compatibilityFrameworkSpec =
+                completeLocatorMiss
+                    ? LegacyNonRuntimePlatformFramework
+                    : frameworkSpec;
+            PlatformTypeLookupOutcome? exactTypeLookup =
+                LookupExactGenericPlatformType(
+                    target,
+                    allowSimpleName: hasTypeOption || hasMemberOption,
+                    frameworkSpec: compatibilityFrameworkSpec);
             if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
             {
                 return hasMemberOption
@@ -715,7 +729,9 @@ public static class RouterCommandDefinition
                         tail);
             }
 
-            if (LookupExactGenericPlatformMember(target, frameworkSpec)
+            if (LookupExactGenericPlatformMember(
+                    target,
+                    compatibilityFrameworkSpec)
                 is { } exactMember)
             {
                 if (exactMember.Lookup
@@ -740,6 +756,10 @@ public static class RouterCommandDefinition
             if (WritePlatformTypeLookupFailure(exactTypeLookup))
                 return tokens;
 
+            string[]? compatibilityPlatformFrameworks =
+                completeLocatorMiss
+                    ? LegacyNonRuntimePlatformFrameworks
+                    : null;
             string? platformLookupFailure = null;
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
                 target,
@@ -766,15 +786,18 @@ public static class RouterCommandDefinition
                 return ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
             }
 
-            // Runtime-catalog fallback can be ambiguous for types owned by another
-            // shared framework, so let the all-framework resolvers establish identity first.
-            var memberFind = await TypeFindIfMissResolver.ResolvePlatformMemberAsync(
-                target,
-                includeAll: false,
-                sourceOptions,
-                context.HttpClient,
-                context.Logger,
-                frameworkSpec);
+            // Preserve shared-framework routing while avoiding another scan of
+            // the runtime population already covered by the locator.
+            var memberFind =
+                await TypeFindIfMissResolver
+                    .ResolvePlatformMemberAsync(
+                        target,
+                        includeAll: false,
+                        sourceOptions,
+                        context.HttpClient,
+                        context.Logger,
+                        frameworkSpec,
+                        compatibilityPlatformFrameworks);
             if (memberFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = memberFind.TypeResolution.Match!;
@@ -819,13 +842,15 @@ public static class RouterCommandDefinition
                 }
             }
 
-            var typeFind = await TypeFindIfMissResolver.ResolvePlatformAsync(
-                target,
-                includeAll: false,
-                sourceOptions,
-                context.HttpClient,
-                context.Logger,
-                frameworkSpec);
+            var typeFind =
+                await TypeFindIfMissResolver.ResolvePlatformAsync(
+                    target,
+                    includeAll: false,
+                    sourceOptions,
+                    context.HttpClient,
+                    context.Logger,
+                    frameworkSpec,
+                    compatibilityPlatformFrameworks);
             if (typeFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = typeFind.Match!;
