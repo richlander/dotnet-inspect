@@ -288,15 +288,17 @@ followed by nested overload rows. Selecting an overloaded method is the
 expansion. Heat and the hub strip annotate the nested rows; the parent row
 carries family-level status text.
 
-The target nested-row label is the member name and its parameter types in C#
-spelling without namespace qualification, for example
-`Parse(ReadOnlySequence<byte>, JsonDocumentOptions)`. That compact label is
-owned by a separate member-surface-producer design. Until the producer issues
-it, a nested row drops the return type from the existing signature text: the
-row starts at the first occurrence of the family's member name followed by `(`
-or `<` at a word boundary. A signature that does not spell the member name,
-such as a constructor or operator, is shown whole. This is presentation only;
-no identity is read from the label.
+A nested row carries only enough to tell its siblings apart. The return type
+rarely differs between overloads, and parameter names never do, so both stay in
+the overload's detail. The label is the member name, its type parameters, and
+its parameter types in C# spelling without namespace or enclosing-type
+qualification, with pass-by modifiers (`ref`, `out`, `in`) but not `params`,
+for example `Parse(ReadOnlySequence<byte>, JsonDocumentOptions)`. A
+constructor or operator uses the display name its signature spells, such as
+`Utf8JsonWriter(Stream, JsonWriterOptions)`. The Browser builds the label from
+the member surface's structured parameter types; it reads no identity from the
+label, and a row without structured parameters shows its signature from the
+member name.
 
 ### Heat
 

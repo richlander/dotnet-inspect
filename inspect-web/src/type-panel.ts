@@ -49,12 +49,46 @@ export interface TypeSummary {
 export interface MemberOverloadSummary {
   signature: string;
   graphOnly?: boolean;
+  parameters?: readonly OverloadLabelParameter[];
 }
 
-// Overload rows share their family's name, so the row starts at the member
-// name and drops the return type. A signature that does not spell the member
-// name, such as a constructor or operator, is shown whole.
-export function overloadNavLabel(name: string, signature: string): string {
+export interface OverloadLabelParameter {
+  type: string;
+  modifier?: string | null;
+}
+
+// A nested overload row needs only enough to tell its siblings apart: the
+// member name, type parameters, and parameter types without namespaces. The
+// return type rarely differs between overloads and parameter names never
+// distinguish them, so both are left to the overload's detail. Pass-by
+// modifiers stay because they distinguish overloads; `params` does not.
+export function overloadNavLabel(
+  name: string,
+  overload: MemberOverloadSummary,
+): string {
+  const displayName = signatureFromName(name, overload.signature) === null
+    ? declaredDisplayName(overload.signature)
+    : name;
+  const named = displayName === null
+    ? null
+    : signatureFromName(displayName, overload.signature);
+  if (!overload.parameters || named === null || displayName === null)
+    return named ?? overload.signature;
+  const typeParameters = named.startsWith(`${displayName}<`)
+    ? balancedTypeParameters(named.slice(displayName.length))
+    : "";
+  const parameters = overload.parameters.map(parameter => {
+    const modifier = parameter.modifier && parameter.modifier !== "params"
+      ? `${parameter.modifier} `
+      : "";
+    return `${modifier}${unqualifiedType(parameter.type)}`;
+  });
+  return `${displayName}${typeParameters}(${parameters.join(", ")})`;
+}
+
+// Starts the signature at the member name, or null when the signature does
+// not spell it (a constructor or operator).
+function signatureFromName(name: string, signature: string): string | null {
   for (const suffix of ["(", "<"]) {
     const needle = `${name}${suffix}`;
     let index = signature.indexOf(needle);
@@ -62,7 +96,32 @@ export function overloadNavLabel(name: string, signature: string): string {
       index = signature.indexOf(needle, index + 1);
     if (index >= 0) return signature.slice(index);
   }
-  return signature;
+  return null;
+}
+
+// A constructor or operator spells its own display name before the parameter
+// list: the Type name, or `operator` and its symbol.
+function declaredDisplayName(signature: string): string | null {
+  const head = signature.slice(0, signature.indexOf("(")).trim();
+  const operator = /\boperator\s*\S+$/.exec(head);
+  if (operator) return operator[0];
+  const identifier = /[A-Za-z_]\w*$/.exec(head);
+  return identifier ? identifier[0] : null;
+}
+
+function balancedTypeParameters(text: string): string {
+  let depth = 0;
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === "<") depth++;
+    else if (text[index] === ">" && --depth === 0) return text.slice(0, index + 1);
+  }
+  return "";
+}
+
+// Drops namespace and enclosing-type qualifiers from each type name in a C#
+// type spelling, keeping generic arguments, arrays, tuples, and nullability.
+export function unqualifiedType(type: string): string {
+  return type.replace(/(?:global::)?(?:[A-Za-z_][\w]*\.)+(?=[A-Za-z_])/g, "");
 }
 
 export interface MemberGroup {
@@ -559,7 +618,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
           return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             <span class="overload-branch">↳</span>
-            <code>${highlight(overloadNavLabel(entry.group.name, overload.signature))}</code>
+            <code>${highlight(overloadNavLabel(entry.group.name, overload))}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>
