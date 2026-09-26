@@ -422,12 +422,14 @@ classify Workspace coverage or reconstruct activation from the selected row.
 Each rendered Spotlight result is bound to the exact
 `spotlightResultIdentity` that produced it. Array position remains a transient
 presentation coordinate for selection and `aria-activedescendant`; it is never
-activation identity. When asynchronous search or shell maintenance renders the
-same result identity again, the Browser preserves that result control's DOM
-identity and updates its position, selected state, content, and exact current
-descriptor in place. Activation resolves only that identity's current rendered
-descriptor. If the identity is absent, activation has no effect; another result
-that occupies the former index cannot receive it.
+activation identity. Spotlight admits at most one interactive control for each
+exact result identity; alternate discovery paths coalesce at their first
+occurrence. When asynchronous search or shell maintenance renders the same
+result identity again, the Browser preserves that result control's DOM identity
+and updates its position, selected state, content, and exact current descriptor
+in place. Activation resolves only that identity's current rendered descriptor.
+If the identity is absent, activation has no effect; another result that
+occupies the former index cannot receive it.
 
 This preserves native pointer, keyboard, focus, and assistive-technology
 behavior rather than replaying a gesture through application code. It applies
@@ -740,7 +742,12 @@ outcomes.
 17. In Add package, retain the active result and modal backdrop while a shell
     replacement installs a new input and Cancel control. Confirm that Tab and
     Shift+Tab cycle through the current controls rather than a detached input.
-18. Repeat while removing the pressed result identity and confirm that release
+18. With the resident runtime surface loaded, search in All scope for a Type
+    discovered through both general Type matching and framework-Library
+    matching. Confirm that production composition renders one exact result,
+    then hold Space across an asynchronous result refresh and confirm that the
+    same focused control activates once.
+19. Repeat while removing the pressed result identity and confirm that release
     does not activate the result that inherited its former array position.
 
 ### Local Open

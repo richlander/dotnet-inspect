@@ -257,6 +257,18 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
   }
 }
 
+export function distinctSpotlightResults(
+  results: readonly SpotlightResult[],
+): SpotlightResult[] {
+  const identities = new Set<string>();
+  return results.filter(result => {
+    const identity = spotlightResultIdentity(result);
+    if (identities.has(identity)) return false;
+    identities.add(identity);
+    return true;
+  });
+}
+
 function isTextInputTarget(value: EventTarget | null): value is HTMLInputElement {
   return value !== null
     && "selectionStart" in value
@@ -296,18 +308,22 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function results(): SpotlightResult[] {
-    if (packageAddition) return options.searchResults().filter(isPackageAdditionResult);
+    if (packageAddition) {
+      return distinctSpotlightResults(options.searchResults())
+        .filter(isPackageAdditionResult);
+    }
     if (state.spotlightScope === "commands") {
       const context = options.commandContext();
       return context
-        ? commandPaletteResults(context, options.lenses())
+        ? distinctSpotlightResults(commandPaletteResults(context, options.lenses()))
         : [];
     }
+    const searchResults = distinctSpotlightResults(options.searchResults());
     if (dismissalQuery !== state.spotlightQuery) {
       dismissedPackageIds.clear();
       dismissalQuery = state.spotlightQuery;
     }
-    return options.searchResults().filter(result =>
+    return searchResults.filter(result =>
       result.kind !== "pkg-nuget"
       || !dismissedPackageIds.has(result.hit.id.toLowerCase()));
   }

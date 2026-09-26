@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createSpotlight,
+  distinctSpotlightResults,
   nextSpotlightScope,
   nextSpotlightSelection,
   spotlightResultIdentity,
@@ -277,6 +278,25 @@ const packageRows: SpotlightPackageResult[] = [
   { kind: "pkg-nuget", hit: { id: "Beta", version: "2.0.0" }, ranges: [] },
   { kind: "pkg-recent", entry: { id: "Gamma", version: "3.0.0" }, ranges: [] },
 ];
+
+test("Spotlight result composition keeps the first exact identity", () => {
+  const first = packageRows[0]!;
+  const duplicate = {
+    ...first,
+    ranges: [[1, 3]] as [number, number][],
+  };
+  const second = packageRows[1]!;
+
+  const distinct = distinctSpotlightResults([
+    first,
+    duplicate,
+    second,
+    first,
+  ]);
+
+  assert.deepEqual(distinct, [first, second]);
+  assert.equal(distinct[0], first);
+});
 
 test("Add package is a named package-only picker without commands or removal", () => {
   const pkg = { id: "Platform", version: "10.0.0", isRuntimePack: true };
