@@ -159,6 +159,25 @@ public static class RouterCommandDefinition
                     structuralSchema: true,
                     out string[] structuralRewrite))
             {
+                if (structuralRewrite.Contains(
+                        DeferredTypeOrMemberOptionName,
+                        StringComparer.Ordinal))
+                {
+                    // Member uses repeatable --project for caller scope; preserve the
+                    // Type source option's scalar diagnostic before the deferred rewrite.
+                    ParseResult typeInterpretation =
+                        rootCommand.Parse([TypeCommand.Name, .. tokens]);
+                    if (GetOptionParseError(
+                            typeInterpretation,
+                            typeArgs.ProjectOption) is { } projectError)
+                    {
+                        CommandError.Write(
+                            CommandLineBuilder.FormatParseError(
+                                projectError.Message));
+                        return 1;
+                    }
+                }
+
                 structuralRewrite =
                     CommandLineBuilder.PreprocessArgs(
                         structuralRewrite,
@@ -481,6 +500,15 @@ public static class RouterCommandDefinition
                         error.SymbolResult,
                         parseResult.GetResult(option)))),
         ];
+    }
+
+    private static ParseError? GetOptionParseError(
+        ParseResult parseResult,
+        Option option)
+    {
+        OptionResult? optionResult = parseResult.GetResult(option);
+        return parseResult.Errors.FirstOrDefault(error =>
+            IsWithin(error.SymbolResult, optionResult));
     }
 
     private static bool IsWithin(SymbolResult? result, SymbolResult? ancestor)
