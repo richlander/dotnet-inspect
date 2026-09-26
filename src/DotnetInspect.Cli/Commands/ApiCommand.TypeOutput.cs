@@ -458,13 +458,11 @@ public partial class ApiCommand
             }
 
             // Type-scope analysis sections share one execution per type (opened lazily, only
-            // when such a section is requested). Compatibility consumers materialize the index.
+            // when such a section is requested).
             Analysis.LibraryBodyAnalysisExecution? typeAnalysis = null;
             Analysis.LibraryBodyAnalysisExecution TypeAnalysis() =>
                 typeAnalysis ??= ApiAnalysisInspection.OpenTypeAnalysis(
                     options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
-            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                TypeAnalysis().CompatibilityIndex();
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -491,7 +489,7 @@ public partial class ApiCommand
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
                     || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), options.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysis().CallGraph, options.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, options);
@@ -514,7 +512,7 @@ public partial class ApiCommand
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), options.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysis().Optimization, options.IncludeSections,
                     options.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
@@ -523,7 +521,7 @@ public partial class ApiCommand
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysis().Leverage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
@@ -559,7 +557,7 @@ public partial class ApiCommand
                                 type,
                                 options)
                             : type,
-                        TypeAnalysisIndex(),
+                        TypeAnalysis().ImplementationProfiles,
                                 options is MemberOptions,
                                 restrictToModelMembers:
                             restrictImplementationProfiles,
