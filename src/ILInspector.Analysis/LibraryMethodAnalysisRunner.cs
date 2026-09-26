@@ -199,9 +199,36 @@ internal sealed class LibraryMethodAnalysisResult
     public MethodBodyAnalysisContext? ResourceOccurrenceContext;
 }
 
-internal readonly record struct UnsafeEvidencePresenceMethodResult(
-    bool HasEvidence,
-    AnalysisDiagnostic? Diagnostic);
+/// <summary>The outcome of the declaration phase of unsafe-evidence presence.</summary>
+internal enum UnsafePresenceDeclaration
+{
+    Evidence,
+    NoManagedBody,
+    BodyRequired,
+}
+
+/// <summary>
+/// Per-unit state shared by the declaration and body phases of
+/// unsafe-evidence presence; it lives only for one unit.
+/// </summary>
+internal sealed class UnsafePresenceUnit(
+    TypeDefinitionHandle typeHandle,
+    TypeDefinition typeDefinition,
+    MethodDefinitionHandle methodHandle,
+    MethodDefinition methodDefinition)
+{
+    public TypeDefinitionHandle TypeHandle => typeHandle;
+
+    public TypeDefinition TypeDefinition => typeDefinition;
+
+    public MethodDefinitionHandle MethodHandle => methodHandle;
+
+    public MethodDefinition MethodDefinition => methodDefinition;
+
+    public GenericScope? Scope { get; set; }
+
+    public MethodIdentity? Caller { get; set; }
+}
 
 internal enum UnsafeCallProbeResult
 {
@@ -237,189 +264,188 @@ internal sealed class LibraryMethodAnalysisRunner(
         _implementationMetricRecorder =
             implementationMetricRecorder;
 
-    internal UnsafeEvidencePresenceMethodResult ProbeUnsafeEvidence(
-        TypeDefinitionHandle typeHandle,
-        TypeDefinition typeDefinition,
-        MethodDefinitionHandle methodHandle)
+    /// <summary>
+    /// Unsafe-evidence presence, declaration phase: checks the definition's
+    /// unsafe API type and signature before any body is read.
+    /// </summary>
+    internal UnsafePresenceDeclaration ProbeUnsafeDeclaration(
+        UnsafePresenceUnit unit)
     {
         MetadataReader reader = _infrastructure.Reader;
-        MethodIdentity? caller = null;
-        try
+        MethodDefinition methodDefinition = unit.MethodDefinition;
+        TypeDefinitionHandle typeHandle = unit.TypeHandle;
+        MethodIdentity Caller() => PresenceCaller(unit);
+
+        bool hasUnsafeSignature =
+            SignatureMayContainUnsafeType(
+                methodDefinition.Signature);
+        if (hasUnsafeSignature
+            && !SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                methodDefinition.Signature,
+                SignatureBlobGuard.Kind.Method))
         {
-            var methodDefinition =
-                reader.GetMethodDefinition(methodHandle);
-            GenericScope? scope = null;
-            GenericScope Scope()
-                => scope ??= _infrastructure.CreatePresenceScope(
-                    typeDefinition,
-                    methodDefinition,
-                    _unsafePresenceWork);
-            MethodIdentity Caller()
-                => caller ??=
-                    _infrastructure.CreatePresenceMethodIdentity(
-                        typeHandle,
-                        methodHandle,
-                        methodDefinition,
-                        Scope(),
-                        _unsafePresenceWork);
+            throw new BadImageFormatException(
+                "An unsafe method signature exceeds the safe decoding limits.");
+        }
+        if ((MayBeUnsafeApiType(reader, typeHandle)
+                || hasUnsafeSignature)
+            && MethodSafetyAnalysis.HasUnsafeDeclaration(
+                Caller()))
+        {
+            return UnsafePresenceDeclaration.Evidence;
+        }
+        if (methodDefinition.RelativeVirtualAddress == 0
+            || !HasManagedIlBody(
+                methodDefinition.ImplAttributes))
+        {
+            return UnsafePresenceDeclaration.NoManagedBody;
+        }
 
-            bool hasUnsafeSignature =
-                SignatureMayContainUnsafeType(
-                    methodDefinition.Signature);
-            if (hasUnsafeSignature
-                && !SignatureBlobGuard.IsSafeToDecode(
-                    reader,
-                    methodDefinition.Signature,
-                    SignatureBlobGuard.Kind.Method))
-            {
-                throw new BadImageFormatException(
-                    "An unsafe method signature exceeds the safe decoding limits.");
-            }
-            if ((MayBeUnsafeApiType(reader, typeHandle)
-                    || hasUnsafeSignature)
-                && MethodSafetyAnalysis.HasUnsafeDeclaration(
-                    Caller()))
-            {
-                return new(true, null);
-            }
-            if (methodDefinition.RelativeVirtualAddress == 0
-                || !HasManagedIlBody(
-                    methodDefinition.ImplAttributes))
-            {
-                return new(false, null);
-            }
+        return UnsafePresenceDeclaration.BodyRequired;
+    }
 
-            var body = _infrastructure.PeReader.GetMethodBody(
-                methodDefinition.RelativeVirtualAddress);
-            if (!body.LocalSignature.IsNil)
+    /// <summary>
+    /// Unsafe-evidence presence, body phase: the unsafe local-signature check
+    /// and the instruction scan with its call probe, stopping at the first
+    /// evidence.
+    /// </summary>
+    internal bool ProbeUnsafeBody(
+        UnsafePresenceUnit unit,
+        MethodBodyBlock body)
+    {
+        MetadataReader reader = _infrastructure.Reader;
+        GenericScope Scope() => PresenceScope(unit);
+
+        if (!body.LocalSignature.IsNil)
+        {
+            var localSignature =
+                reader.GetStandaloneSignature(
+                    body.LocalSignature);
+            UnsafeSignatureMarkers markers =
+                _unsafeSignatureMarkers.GetMarkers(
+                    localSignature.Signature);
+            if (markers != UnsafeSignatureMarkers.None)
             {
-                var localSignature =
-                    reader.GetStandaloneSignature(
-                        body.LocalSignature);
-                UnsafeSignatureMarkers markers =
-                    _unsafeSignatureMarkers.GetMarkers(
-                        localSignature.Signature);
-                if (markers != UnsafeSignatureMarkers.None)
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        localSignature.Signature,
+                        SignatureBlobGuard.Kind
+                            .LocalVariables))
                 {
-                    if (!SignatureBlobGuard.IsSafeToDecode(
-                            reader,
-                            localSignature.Signature,
-                            SignatureBlobGuard.Kind
-                                .LocalVariables))
-                    {
-                        throw new BadImageFormatException(
-                            "An unsafe local signature exceeds the safe decoding limits.");
-                    }
-                    ImmutableArray<TypeRef> localTypes =
-                        DecodeLocalTypes(body, Scope());
-                    if (MethodSafetyAnalysis.HasUnsafeLocals(
-                            localTypes))
-                    {
-                        return new(true, null);
-                    }
+                    throw new BadImageFormatException(
+                        "An unsafe local signature exceeds the safe decoding limits.");
+                }
+                ImmutableArray<TypeRef> localTypes =
+                    DecodeLocalTypes(body, Scope());
+                if (MethodSafetyAnalysis.HasUnsafeLocals(
+                        localTypes))
+                {
+                    return true;
                 }
             }
+        }
 
-            bool hasEvidence = false;
-            InstructionDecoder.Visit(
-                body,
-                (operation, operandToken, instructionSize) =>
+        bool hasEvidence = false;
+        InstructionDecoder.Visit(
+            body,
+            (operation, operandToken, instructionSize) =>
+            {
+                _unsafePresenceWork.ReserveIlBytes(
+                    instructionSize);
+                switch (operation)
                 {
-                    _unsafePresenceWork.ReserveIlBytes(
-                        instructionSize);
-                    switch (operation)
-                    {
-                        case ILOpCode.Call:
-                        case ILOpCode.Callvirt:
-                        case ILOpCode.Newobj:
-                        case ILOpCode.Ldftn:
-                        case ILOpCode.Ldvirtftn:
-                            UnsafeCallProbeResult callProbe =
-                                ProbeUnsafeCall(
-                                    reader,
-                                    operandToken);
-                            if (callProbe
-                                == UnsafeCallProbeResult.Evidence)
-                            {
-                                hasEvidence = true;
-                                return false;
-                            }
-                            if (callProbe
-                                == UnsafeCallProbeResult.Incomplete)
-                            {
-                                throw new BadImageFormatException(
-                                    "An unsafe call signature exceeds the safe decoding limits.");
-                            }
-                            if (callProbe
-                                == UnsafeCallProbeResult
-                                    .RequiresResolution)
-                            {
-                                MemberRef member =
-                                    _infrastructure
-                                        .ResolvePresenceMethod(
-                                            operandToken,
-                                            Scope(),
-                                            _unsafePresenceWork);
-                                CallerUnsafeMode? targetCallerUnsafeMode =
-                                    operation is
-                                        ILOpCode.Call
-                                        or ILOpCode.Callvirt
-                                        or ILOpCode.Newobj
-                                            ? _infrastructure
-                                                .ResolveSameImageCallerUnsafeMode(
-                                                    operandToken,
-                                                    member,
-                                                    _unsafePresenceWork)
-                                            : null;
-                                if (MethodSafetyAnalysis.IsUnsafeCall(
-                                        member,
-                                        targetCallerUnsafeMode))
-                                {
-                                    hasEvidence = true;
-                                    return false;
-                                }
-                                if (member.Kind
-                                    == MemberKind.Unsupported)
-                                {
-                                    throw new BadImageFormatException(
-                                        "An unsafe call signature could not be decoded.");
-                                }
-                            }
-                            return true;
-
-                        case ILOpCode.Calli:
+                    case ILOpCode.Call:
+                    case ILOpCode.Callvirt:
+                    case ILOpCode.Newobj:
+                    case ILOpCode.Ldftn:
+                    case ILOpCode.Ldvirtftn:
+                        UnsafeCallProbeResult callProbe =
+                            ProbeUnsafeCall(
+                                reader,
+                                operandToken);
+                        if (callProbe
+                            == UnsafeCallProbeResult.Evidence)
+                        {
                             hasEvidence = true;
                             return false;
-
-                        default:
-                            if (MethodSafetyAnalysis.IsUnsafeOperation(
-                                operation,
-                                includeIndirectOperations: false))
+                        }
+                        if (callProbe
+                            == UnsafeCallProbeResult.Incomplete)
+                        {
+                            throw new BadImageFormatException(
+                                "An unsafe call signature exceeds the safe decoding limits.");
+                        }
+                        if (callProbe
+                            == UnsafeCallProbeResult
+                                .RequiresResolution)
+                        {
+                            MemberRef member =
+                                _infrastructure
+                                    .ResolvePresenceMethod(
+                                        operandToken,
+                                        Scope(),
+                                        _unsafePresenceWork);
+                            CallerUnsafeMode? targetCallerUnsafeMode =
+                                operation is
+                                    ILOpCode.Call
+                                    or ILOpCode.Callvirt
+                                    or ILOpCode.Newobj
+                                        ? _infrastructure
+                                            .ResolveSameImageCallerUnsafeMode(
+                                                operandToken,
+                                                member,
+                                                _unsafePresenceWork)
+                                        : null;
+                            if (MethodSafetyAnalysis.IsUnsafeCall(
+                                    member,
+                                    targetCallerUnsafeMode))
                             {
                                 hasEvidence = true;
                                 return false;
                             }
-                            return true;
-                    }
-                }
-            );
+                            if (member.Kind
+                                == MemberKind.Unsupported)
+                            {
+                                throw new BadImageFormatException(
+                                    "An unsafe call signature could not be decoded.");
+                            }
+                        }
+                        return true;
 
-            return new(hasEvidence, null);
-        }
-        catch (Exception ex)
-            when (IsRecoverableMethodFailure(ex))
-        {
-            return new(
-                false,
-                new AnalysisDiagnostic(
-                    MetadataTokens.GetToken(methodHandle),
-                    MethodLabel(
-                        typeHandle,
-                        methodHandle),
-                    $"{ex.GetType().Name}: {ex.Message}",
-                    DeclaringType: caller?.DeclaringType));
-        }
+                    case ILOpCode.Calli:
+                        hasEvidence = true;
+                        return false;
+
+                    default:
+                        if (MethodSafetyAnalysis.IsUnsafeOperation(
+                            operation,
+                            includeIndirectOperations: false))
+                        {
+                            hasEvidence = true;
+                            return false;
+                        }
+                        return true;
+                }
+            }
+        );
+
+        return hasEvidence;
     }
+
+    GenericScope PresenceScope(UnsafePresenceUnit unit) =>
+        unit.Scope ??= _infrastructure.CreatePresenceScope(
+            unit.TypeDefinition,
+            unit.MethodDefinition,
+            _unsafePresenceWork);
+
+    MethodIdentity PresenceCaller(UnsafePresenceUnit unit) =>
+        unit.Caller ??= _infrastructure.CreatePresenceMethodIdentity(
+            unit.TypeHandle,
+            unit.MethodHandle,
+            unit.MethodDefinition,
+            PresenceScope(unit),
+            _unsafePresenceWork);
 
     UnsafeCallProbeResult ProbeUnsafeCall(
         MetadataReader reader,
