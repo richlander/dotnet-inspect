@@ -24,7 +24,7 @@ fi
 
 if [[ ! -f "$site/inspect-web-package.js" ]]; then
   echo "Published engine artifact not found at $site." >&2
-  echo "Publish it first (dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj -c Release --output artifacts/inspect-web-publish)." >&2
+  echo "Publish it first (dotnet publish src/DotnetInspect.Web/DotnetInspect.Web.csproj -c Release --output artifacts/inspect-web-publish -p:InspectWebIncludeFrontend=true)." >&2
   exit 1
 fi
 

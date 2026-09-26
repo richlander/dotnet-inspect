@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
-    <AdditionalFiles Include="..\..\inspect-web\DotnetInspect.Web\BannedSymbols.txt" />
+    <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
     <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
