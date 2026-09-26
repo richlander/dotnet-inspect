@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -19,7 +20,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "LargeSameImageCorrespondence.dll",
                     image));
 
@@ -38,7 +39,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "LargeOperandResolution.dll",
                     image));
 
@@ -57,7 +58,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "LargeGenericDeclaration.dll",
                     image));
 
@@ -76,7 +77,7 @@ public class UnsafeEvidencePresenceTests
                 methodCount: 4);
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "LargeGenericCallerIdentity.dll",
                 image));
     }
@@ -91,7 +92,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "LargeGenericCallerIdentity.dll",
                     image));
 
@@ -110,7 +111,7 @@ public class UnsafeEvidencePresenceTests
                 attributeCount: 262_000);
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "LargeAttributeCallerIdentity.dll",
                 image));
     }
@@ -125,7 +126,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "LargeAttributeCallerIdentity.dll",
                     image));
 
@@ -146,7 +147,7 @@ public class UnsafeEvidencePresenceTests
                 attributeTypeNameLength: 1024);
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "LargeTypeSpecAttributeCallerIdentity.dll",
                 image));
     }
@@ -163,7 +164,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "LargeTypeSpecAttributeCallerIdentity.dll",
                     image));
 
@@ -182,7 +183,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MalformedTypeSpecCall.dll",
                     image));
 
@@ -205,7 +206,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MalformedConstructedCall.dll",
                     image));
 
@@ -225,7 +226,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MalformedOpenMemberSignature.dll",
                     image));
 
@@ -245,7 +246,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MalformedTargetSignature.dll",
                     image));
 
@@ -268,7 +269,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MismatchedTargetGenericDeclaration.dll",
                     image));
 
@@ -292,7 +293,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MismatchedDirectTargetGenericDeclaration.dll",
                     image));
 
@@ -422,7 +423,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MismatchedPhysicalCallerGenericDeclaration.dll",
                     image));
 
@@ -448,7 +449,7 @@ public class UnsafeEvidencePresenceTests
                     directDefinition: true);
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "ValidDirectGenericDeclaration.dll",
                 image));
     }
@@ -462,7 +463,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "MalformedLocalTypeReference.dll",
                     image));
 
@@ -481,7 +482,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "AmbiguousDeclaringTypeCall.dll",
                     image));
 
@@ -500,7 +501,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "AmbiguousMethodCall.dll",
                     image));
 
@@ -520,7 +521,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "GuardRejectedLocal.dll",
                     image));
 
@@ -544,7 +545,7 @@ public class UnsafeEvidencePresenceTests
                 appendUnsafeBody: true);
 
         Assert.Throws<InvalidDataException>(
-            () => LibraryBodyIndex.HasUnsafeEvidence(
+            () => UnsafeEvidencePresence.HasEvidence(
                 "IncompleteThenEvidence.dll",
                 image));
     }
@@ -557,7 +558,7 @@ public class UnsafeEvidencePresenceTests
             BuildCustomModifiedPointerLocalAssembly();
 
         Assert.True(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "CustomModifiedPointerLocal.dll",
                 image));
     }
@@ -587,7 +588,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "GuardRejectedMemberRef.dll",
                     image));
 
@@ -612,7 +613,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "GuardRejectedMethodSpec.dll",
                     image));
 
@@ -637,7 +638,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "GuardRejectedMethodDefCall.dll",
                     image));
 
@@ -658,7 +659,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "GuardRejectedMethodDefDeclaration.dll",
                     image));
 
@@ -679,7 +680,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "GuardRejectedUnsafeLookalikeMethodDef.dll",
                     image));
 
@@ -752,7 +753,7 @@ public class UnsafeEvidencePresenceTests
             BuildConstructedGenericCallAssembly();
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "ConstructedGenericCall.dll",
                 image));
     }
@@ -765,7 +766,7 @@ public class UnsafeEvidencePresenceTests
             BuildUnsafeLookalikeCallAssembly();
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "UnsafeLookalike.dll",
                 image));
         AssertNoUnsafeEvidenceInFullCensus(image);
@@ -779,7 +780,7 @@ public class UnsafeEvidencePresenceTests
             BuildExternalUnsafeLookalikeCallAssembly();
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "ExternalUnsafeLookalike.dll",
                 image));
         AssertNoUnsafeEvidenceInFullCensus(image);
@@ -796,7 +797,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "GuardRejectedUnsafeLookalike.dll",
                     image));
 
@@ -815,7 +816,7 @@ public class UnsafeEvidencePresenceTests
 
         InvalidDataException exception =
             Assert.Throws<InvalidDataException>(
-                () => LibraryBodyIndex.HasUnsafeEvidence(
+                () => UnsafeEvidencePresence.HasEvidence(
                     "LargeSafeBody.dll",
                     image));
 
@@ -836,7 +837,7 @@ public class UnsafeEvidencePresenceTests
             GC.GetAllocatedBytesForCurrentThread();
 
         Assert.True(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            UnsafeEvidencePresence.HasEvidence(
                 "LargeUnsafeBody.dll",
                 image));
 
@@ -859,7 +860,7 @@ public class UnsafeEvidencePresenceTests
         for (int attempt = 0; attempt < 20; attempt++)
         {
             Assert.True(
-                LibraryBodyIndex.HasUnsafeEvidence(
+                UnsafeEvidencePresence.HasEvidence(
                     "SchedulingSensitive.dll",
                     image));
         }

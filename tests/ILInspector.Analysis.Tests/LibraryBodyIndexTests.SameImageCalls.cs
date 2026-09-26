@@ -53,7 +53,7 @@ public partial class LibraryBodyIndexTests
                 && evidence.Reason == "Unsafe call"));
         Assert.Equal(
             expectedPresence,
-            LibraryBodyIndex.HasUnsafeEvidence(
+            Planning.UnsafeEvidencePresence.HasEvidence(
                 path,
                 ImmutableArray.Create(File.ReadAllBytes(path))));
     }
@@ -289,7 +289,7 @@ public partial class LibraryBodyIndexTests
 
         Assert.Equal(
             expected,
-            LibraryBodyIndex.HasUnsafeEvidence(
+            Planning.UnsafeEvidencePresence.HasEvidence(
                 "AnalysisMemorySafety.dll",
                 ImmutableArray.Create(image)));
     }
@@ -305,7 +305,7 @@ public partial class LibraryBodyIndexTests
                 MemorySafetyCallTarget.LocalTypeReferenceAttributeOnly);
 
         Assert.True(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            Planning.UnsafeEvidencePresence.HasEvidence(
                 "AnalysisMemorySafety.dll",
                 ImmutableArray.Create(image)));
     }
@@ -321,7 +321,7 @@ public partial class LibraryBodyIndexTests
                 MemorySafetyCallTarget.ExternalSameNameAttributeOnly);
 
         Assert.False(
-            LibraryBodyIndex.HasUnsafeEvidence(
+            Planning.UnsafeEvidencePresence.HasEvidence(
                 "AnalysisMemorySafety.dll",
                 ImmutableArray.Create(image)));
     }
@@ -364,7 +364,7 @@ public partial class LibraryBodyIndexTests
 
             Assert.Equal(
                 expected,
-                LibraryBodyIndex.HasUnsafeEvidence(
+                Planning.UnsafeEvidencePresence.HasEvidence(
                     path,
                     ImmutableArray.Create(image)));
             Assert.Equal(
@@ -497,7 +497,7 @@ public partial class LibraryBodyIndexTests
             Assert.Empty(index.Diagnostics);
             Assert.Equal(
                 expected,
-                LibraryBodyIndex.HasUnsafeEvidence(
+                Planning.UnsafeEvidencePresence.HasEvidence(
                     path,
                     ImmutableArray.Create(image)));
             Assert.Equal(
@@ -528,7 +528,7 @@ public partial class LibraryBodyIndexTests
                     .AmbiguousLocalTypeReferenceAttributeOnly);
 
         Assert.Throws<InvalidDataException>(
-            () => LibraryBodyIndex.HasUnsafeEvidence(
+            () => Planning.UnsafeEvidencePresence.HasEvidence(
                 "AnalysisMemorySafety.dll",
                 ImmutableArray.Create(image)));
     }
@@ -562,7 +562,7 @@ public partial class LibraryBodyIndexTests
                         == "CallsLiteralPlusConstructed");
 
             Assert.True(
-                LibraryBodyIndex.HasUnsafeEvidence(
+                Planning.UnsafeEvidencePresence.HasEvidence(
                     path,
                     ImmutableArray.Create(image)));
             Assert.Equal(
@@ -699,7 +699,7 @@ public partial class LibraryBodyIndexTests
                 2,
                 call.Callee.ParameterTypes.Length);
             Assert.True(
-                LibraryBodyIndex.HasUnsafeEvidence(
+                Planning.UnsafeEvidencePresence.HasEvidence(
                     path,
                     ImmutableArray.Create(image)));
         }
