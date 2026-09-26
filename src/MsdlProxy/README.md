@@ -102,7 +102,7 @@ unhandled host failures, are outside this gate.
 Run the executable xUnit project:
 
 ```bash
-dotnet run --project inspect-web/msdl-proxy.Tests -c Release
+dotnet run --project tests/MsdlProxy.Tests -c Release
 ```
 
 This is a Microsoft Testing Platform executable. Use `--filter-class` and
@@ -111,7 +111,7 @@ This is a Microsoft Testing Platform executable. Use `--filter-class` and
 Produce the prebuilt managed-API artifact used by deployment:
 
 ```bash
-dotnet publish inspect-web/msdl-proxy/MsdlProxy.csproj \
+dotnet publish src/MsdlProxy/MsdlProxy.csproj \
   -c Release \
   --output artifacts/inspect-web-publish/api
 ```

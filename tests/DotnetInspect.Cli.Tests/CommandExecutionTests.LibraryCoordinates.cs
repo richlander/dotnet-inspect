@@ -753,7 +753,10 @@ public partial class CommandExecutionTests
             "coordinates.txt");
         await File.WriteAllTextAsync(
             coordinatePath,
-            $"sample 0x{token:X8}+0x{callOffset:X}",
+            $"""
+            first-coordinate 0x{token:X8}+0x{callOffset:X}
+            second-coordinate 0x{token:X8}+0x{callOffset:X}
+            """,
             TestContext.Current.CancellationToken);
         try
         {
@@ -766,6 +769,9 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--library",
                 relativeLibraryPath,
+                "-n",
+                "1",
+                "--tail",
                 "--tips",
                 "q");
 
@@ -774,6 +780,8 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 nameof(SemanticFactsFixture.AllSignals),
                 output);
+            Assert.DoesNotContain("first-coordinate", output);
+            Assert.Contains("second-coordinate", output);
         }
         finally
         {

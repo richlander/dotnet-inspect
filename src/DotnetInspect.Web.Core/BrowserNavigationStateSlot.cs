@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
@@ -35,6 +36,46 @@ internal sealed class BrowserNavigationStateSlot
     internal NavigationConsumerResult Initialization { get; }
     internal string Id => _state.Id;
     internal InspectionWorkspaceIdentity Workspace => _state.Workspace;
+
+    internal NavigationActionPublicationResult PublishRetainedTypeAction(
+        StructuralSubjectIdentity.TypeSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        lock (_gate)
+        {
+            if (_retired)
+            {
+                return new(
+                    NavigationActionPublicationKind.Stale,
+                    Message: "The Browser Navigation state is retired.");
+            }
+
+            NavigationTransition transition = Commit(
+                NavigationTransitions.PublishRetainedTypeAction(
+                    _state,
+                    _state.Publication,
+                    subject));
+            return transition.ActionPublication
+                ?? throw new InvalidOperationException(
+                    "Retained Type action publication returned no result.");
+        }
+    }
+
+    internal void RetireRetainedTypeActions(
+        ImmutableArray<NavigationAction> actions)
+    {
+        if (actions.IsDefaultOrEmpty)
+            return;
+        lock (_gate)
+        {
+            if (_retired)
+                return;
+            Commit(
+                NavigationTransitions.RetireRetainedTypeActions(
+                    _state,
+                    actions));
+        }
+    }
 
     internal async ValueTask<NavigationConsumerResult?> ExecuteAsync(
         NavigationAction action,
