@@ -1,0 +1,1059 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
+using ILInspector.Metadata;
+
+namespace DotnetInspector.Sections.Tests;
+
+public sealed class MemberOverloadPopulationInspectionOperationTests
+{
+    private static readonly ApiSurfaceExtractionBounds s_bounds =
+        new(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
+    [Fact]
+    public async Task
+        RealSerialize_CountAndBoundedRowsShareOneExactPopulation()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent first =
+            Available(
+                Execute(
+                    library,
+                    "Serialize",
+                    count: true,
+                    new(maximumRows: 4)));
+        var count =
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                first.Overloads.Count);
+        var segment =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                first.Overloads.Rows);
+        var rows = segment.Items.ToList();
+        MemberOverloadContinuation? continuation =
+            segment.Continuation;
+        MemberOverloadContinuation firstContinuation =
+            Assert.IsType<MemberOverloadContinuation>(
+                continuation);
+        while (continuation is not null)
+        {
+            MemberOverloadPopulationContent next =
+                Available(
+                    Execute(
+                        library,
+                        "Serialize",
+                        count: false,
+                        new(
+                            maximumRows: 3,
+                            continuation:
+                                continuation)));
+            Assert.Equal(
+                first.Overloads.Binding,
+                next.Overloads.Binding);
+            Assert.Null(next.Overloads.Count);
+            segment =
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    next.Overloads.Rows);
+            rows.AddRange(segment.Items);
+            continuation = segment.Continuation;
+        }
+
+        Assert.Equal(15, count.Value);
+        Assert.Equal(count.Value, rows.Count);
+        Assert.Equal(
+            Enumerable.Range(1, count.Value),
+            rows.Select(static row => row.BaselineOrdinal));
+        Assert.Equal(
+            count.Value,
+            rows.Select(static row => row.MetadataToken)
+                .Distinct()
+                .Count());
+        Assert.All(
+            rows,
+            row =>
+            {
+                Assert.Equal(
+                    first.Overloads.Binding,
+                    row.Binding);
+                Assert.Equal(
+                    MemberReceiver.Static,
+                    row.Receiver);
+                Assert.Equal(
+                    MemberGroupRole.Declared,
+                    row.Role);
+                Assert.Contains(
+                    "Serialize",
+                    row.DisplaySignature.ToString());
+            });
+
+        MemberOverloadPopulationBinding binding =
+            firstContinuation.Binding;
+        MemberOverloadPopulationContent incompatible =
+            Available(
+                Execute(
+                    library,
+                    "Serialize",
+                    count: false,
+                    new(
+                        maximumRows: 3,
+                        continuation:
+                            new(
+                                new(
+                                    binding.ModuleVersionId,
+                                    binding.DeclaringType,
+                                    checked(
+                                        binding.TypeDefinitionToken
+                                            + 1),
+                                    binding.Name,
+                                    binding.Category,
+                                    binding.Role,
+                                    binding.Ordering),
+                                firstContinuation
+                                    .NextOrdinal))));
+        Assert.Equal(
+            MemberOverloadRowsRejection.IncompatibleContinuation,
+            Assert.IsType<MemberOverloadRowsOutcome.Rejected>(
+                    incompatible.Overloads.Rows)
+                .Reason);
+
+        MemberOverloadPopulationContent changedFilter =
+            Available(
+                Execute(
+                    library,
+                    "Serialize",
+                    count: false,
+                    new(
+                        maximumRows: 3,
+                        continuation:
+                            firstContinuation),
+                    accessibility:
+                        MemberOverloadAccessibilityFilter.All));
+        Assert.Equal(
+            MemberOverloadRowsRejection.IncompatibleContinuation,
+            Assert.IsType<MemberOverloadRowsOutcome.Rejected>(
+                    changedFilter.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealDeserialize_ReceiverClassificationIsExhaustive()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent contentResult =
+            Available(
+                Execute(
+                    library,
+                    "Deserialize",
+                    count: true,
+                    new(maximumRows: 100)));
+        var count =
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                contentResult.Overloads.Count);
+        var rows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                contentResult.Overloads.Rows);
+
+        Assert.Equal(40, count.Value);
+        Assert.True(rows.IsComplete);
+        Assert.Equal(40, rows.Items.Length);
+        Assert.Equal(
+            25,
+            rows.Items.Count(
+                static row =>
+                    row.Receiver
+                        is MemberReceiver.Static));
+        Assert.Equal(
+            15,
+            rows.Items.Count(
+                static row =>
+                    row.Receiver
+                        is MemberReceiver.Extension));
+        Assert.DoesNotContain(
+            rows.Items,
+            static row =>
+                row.Receiver
+                    is MemberReceiver.This);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealDeserialize_ReceiverFiltersApplyToCountAndRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        foreach ((
+            MemberOverloadReceiverFilter filter,
+            int expectedCount) in new[]
+            {
+                (MemberOverloadReceiverFilter.All, 40),
+                (MemberOverloadReceiverFilter.Static, 25),
+                (MemberOverloadReceiverFilter.Extension, 15),
+                (MemberOverloadReceiverFilter.This, 0),
+            })
+        {
+            MemberOverloadPopulationContent counted =
+                Available(
+                    Execute(
+                        library,
+                        "Deserialize",
+                        count: true,
+                        rows: null,
+                        receiver: filter));
+            Assert.Equal(
+                expectedCount,
+                Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                        counted.Overloads.Count)
+                    .Value);
+            Assert.Null(counted.Overloads.Rows);
+            Assert.Equal(
+                filter,
+                counted.Overloads.Binding.Receiver);
+
+            MemberOverloadPopulationContent read =
+                Available(
+                    Execute(
+                        library,
+                        "Deserialize",
+                        count: false,
+                        new(maximumRows: 100),
+                        receiver: filter));
+            Assert.Null(read.Overloads.Count);
+            MemberOverloadRowsOutcome.Read rows =
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    read.Overloads.Rows);
+            Assert.True(rows.IsComplete);
+            Assert.Equal(expectedCount, rows.Items.Length);
+            Assert.Equal(
+                filter,
+                read.Overloads.Binding.Receiver);
+            if (filter is not MemberOverloadReceiverFilter.All)
+            {
+                MemberReceiver expectedReceiver = filter switch
+                {
+                    MemberOverloadReceiverFilter.Static =>
+                        MemberReceiver.Static,
+                    MemberOverloadReceiverFilter.This =>
+                        MemberReceiver.This,
+                    MemberOverloadReceiverFilter.Extension =>
+                        MemberReceiver.Extension,
+                    _ => throw new InvalidOperationException(),
+                };
+                Assert.All(
+                    rows.Items,
+                    row => Assert.Equal(
+                        expectedReceiver,
+                        row.Receiver));
+            }
+        }
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSystemTextJson_AccessibilityFiltersApplyToCountAndRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        (
+            MetadataTypeDefinitionName DeclaringType,
+            string MethodName,
+            MemberOverloadAccessibilityFilter Accessibility,
+            int ExpectedCount)[] cases =
+        {
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "Parse",
+                MemberOverloadAccessibilityFilter.Public,
+                5),
+            (
+                Name(
+                    "System.Text.Json.Serialization.Metadata",
+                    "JsonTypeInfo"),
+                "CreateJsonPropertyInfo",
+                MemberOverloadAccessibilityFilter.Protected,
+                1),
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "ParseValue",
+                MemberOverloadAccessibilityFilter.Internal,
+                5),
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "Parse",
+                MemberOverloadAccessibilityFilter.Private,
+                2),
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "Parse",
+                MemberOverloadAccessibilityFilter.All,
+                7),
+        };
+        foreach (var @case in cases)
+        {
+            MemberOverloadPopulationContent counted =
+                Available(
+                    Execute(
+                        library,
+                        @case.MethodName,
+                        count: true,
+                        rows: null,
+                        accessibility: @case.Accessibility,
+                        declaringType: @case.DeclaringType));
+            Assert.Equal(
+                @case.ExpectedCount,
+                Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                        counted.Overloads.Count)
+                    .Value);
+            Assert.Null(counted.Overloads.Rows);
+            Assert.Equal(
+                @case.Accessibility,
+                counted.Overloads.Binding.Accessibility);
+
+            MemberOverloadPopulationContent read =
+                Available(
+                    Execute(
+                        library,
+                        @case.MethodName,
+                        count: false,
+                        new(maximumRows: 100),
+                        accessibility: @case.Accessibility,
+                        declaringType: @case.DeclaringType));
+            Assert.Null(read.Overloads.Count);
+            MemberOverloadRowsOutcome.Read rows =
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    read.Overloads.Rows);
+            Assert.True(rows.IsComplete);
+            Assert.Equal(@case.ExpectedCount, rows.Items.Length);
+            Assert.Equal(
+                @case.Accessibility,
+                read.Overloads.Binding.Accessibility);
+        }
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        CountDoesNotRequireExactMemberRowMaterialization()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var zeroTextBounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 0);
+
+        MemberOverloadPopulationContent result =
+            Available(
+                Execute(
+                    library,
+                    "Deserialize",
+                    count: true,
+                    rows: null,
+                    zeroTextBounds));
+
+        Assert.Equal(
+            40,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    result.Overloads.Count)
+                .Value);
+        Assert.Null(result.Overloads.Rows);
+
+        MemberOverloadPopulationContent mixed =
+            Available(
+                Execute(
+                    library,
+                    "Deserialize",
+                    count: true,
+                    new(maximumRows: 1),
+                    zeroTextBounds));
+        Assert.Equal(
+            40,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    mixed.Overloads.Count)
+                .Value);
+        MemberOverloadRowsOutcome.Incomplete rows =
+            Assert.IsType<MemberOverloadRowsOutcome.Incomplete>(
+                mixed.Overloads.Rows);
+        Assert.Equal(
+            MemberOverloadPopulationBound
+                .RetainedTextCharacters,
+            rows.Bound);
+        Assert.Equal(0, rows.Limit);
+        Assert.True(rows.Measured > 0);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        BoundedRowsRetainOnlyTheRequestedSegment()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadShape probe =
+            Assert.Single(
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                        Available(
+                                Execute(
+                                    library,
+                                    "Serialize",
+                                    count: false,
+                                    new(maximumRows: 1)))
+                            .Overloads.Rows)
+                    .Items);
+        int oneRowCharacters =
+            probe.DisplaySignature.Length
+            + probe.CanonicalSignature.Length
+            + probe.Fingerprint.Length
+            + probe.Accessibility.Length;
+        ApiSurfaceExtractionBounds oneRowBounds =
+            Bounds(oneRowCharacters);
+
+        MemberOverloadRowsOutcome.Read bounded =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                Available(
+                        Execute(
+                            library,
+                            "Serialize",
+                            count: false,
+                            new(maximumRows: 1),
+                            oneRowBounds))
+                    .Overloads.Rows);
+        Assert.Single(bounded.Items);
+        Assert.NotNull(bounded.Continuation);
+
+        MemberOverloadRowsOutcome.Incomplete exhaustive =
+            Assert.IsType<MemberOverloadRowsOutcome.Incomplete>(
+                Available(
+                        Execute(
+                            library,
+                            "Serialize",
+                            count: false,
+                            new(maximumRows: 15),
+                            oneRowBounds))
+                    .Overloads.Rows);
+        Assert.Equal(
+            MemberOverloadPopulationBound
+                .RetainedTextCharacters,
+            exhaustive.Bound);
+        Assert.Equal(oneRowCharacters, exhaustive.Limit);
+        Assert.True(exhaustive.Measured > exhaustive.Limit);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MissingTypeAndMemberGroupAreTypedNonSuccess()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionRejection
+                .MemberGroupNotFound,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Rejected>(
+                    Execute(
+                        library,
+                        "NotAMember",
+                        count: true,
+                        rows: null)
+                        .Content)
+                .Reason);
+        Assert.Equal(
+            MemberOverloadPopulationInspectionRejection.TypeNotFound,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Rejected>(
+                    Execute(
+                        library,
+                        "Serialize",
+                        count: true,
+                        rows: null,
+                        declaringType:
+                            Name(
+                                "System.Text.Json",
+                                "NotAType"))
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MalformedSelectedRowPreservesIndependentCount()
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                "M",
+                DeepMethodSignature());
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent result =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: true,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C")));
+
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    result.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            MemberOverloadRowsFailure.MalformedMetadata,
+            Assert.IsType<MemberOverloadRowsOutcome.Failed>(
+                    result.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MalformedSelectedMethodAttributePreservesIndependentCount()
+    {
+        byte[] content =
+            BuildMalformedExtensionAttributeImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent result =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: true,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C")));
+
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    result.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            MemberOverloadRowsFailure.MalformedMetadata,
+            Assert.IsType<MemberOverloadRowsOutcome.Failed>(
+                    result.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        MalformedExtensionContainerAttributePreservesIndependentCount()
+    {
+        byte[] content =
+            BuildMalformedExtensionAttributeImage(
+                malformedContainer: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent result =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: true,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C")));
+
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    result.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            MemberOverloadRowsFailure.MalformedMetadata,
+            Assert.IsType<MemberOverloadRowsOutcome.Failed>(
+                    result.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        ReceiverFilteredCountRequiresValidExtensionEvidence()
+    {
+        byte[] content =
+            BuildMalformedExtensionAttributeImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionFailure.MalformedMetadata,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Failed>(
+                    Execute(
+                        library,
+                        "M",
+                        count: true,
+                        rows: null,
+                        declaringType: Name("N", "C"),
+                        receiver:
+                            MemberOverloadReceiverFilter.Extension)
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        DuplicateStandardAccessorRolesFailThePopulation()
+    {
+        byte[] content = BuildDuplicateGetterImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionFailure.MalformedMetadata,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Failed>(
+                    Execute(
+                        library,
+                        "M",
+                        count: true,
+                        new(maximumRows: 2),
+                        declaringType: Name("N", "C"))
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        CrossTypeAccessorAssociationFailsThePopulation()
+    {
+        byte[] content = BuildCrossTypeGetterImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionFailure.MalformedMetadata,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Failed>(
+                    Execute(
+                        library,
+                        "M",
+                        count: true,
+                        new(maximumRows: 1),
+                        declaringType: Name("N", "C"))
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Theory]
+    [InlineData(".ctor")]
+    [InlineData(".cctor")]
+    [InlineData("op_Addition")]
+    [InlineData("IFoo.M")]
+    public async Task
+        OrdinaryMethodCategoryRejectsOtherMetadataCategories(
+            string metadataName)
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                metadataName,
+                VoidMethodSignature());
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionRejection
+                .MemberGroupNotFound,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Rejected>(
+                    Execute(
+                        library,
+                        metadataName,
+                        count: true,
+                        rows: null,
+                        declaringType: Name("N", "C"))
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    private static InspectionEnvelope<
+        MemberOverloadPopulationInspectionOutcome> Execute(
+            LibraryInspectionTestLibrary library,
+            string methodName,
+            bool count,
+            MemberOverloadRowsRequest? rows,
+            ApiSurfaceExtractionBounds? bounds = null,
+            MetadataTypeDefinitionName? declaringType = null,
+            MemberOverloadAccessibilityFilter accessibility =
+                MemberOverloadAccessibilityFilter.Public,
+            MemberOverloadReceiverFilter receiver =
+                MemberOverloadReceiverFilter.All) =>
+        MemberOverloadPopulationInspectionOperation.Execute(
+            new(
+                library.Reference,
+                new(
+                    new(
+                        declaringType
+                            ?? Name(
+                                "System.Text.Json",
+                                "JsonSerializer"),
+                        methodName),
+                    new(
+                        count
+                            ? new MemberOverloadCountRequest()
+                            : null,
+                        rows,
+                        accessibility,
+                        receiver),
+                    bounds ?? s_bounds)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
+    private static MemberOverloadPopulationContent Available(
+        InspectionEnvelope<
+            MemberOverloadPopulationInspectionOutcome> envelope) =>
+        Assert.IsType<
+                MemberOverloadPopulationInspectionOutcome.Available>(
+                envelope.Content)
+            .Content;
+
+    private static MetadataTypeDefinitionName Name(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [.. segments]))
+            .Name;
+
+    private static ApiSurfaceExtractionBounds Bounds(
+        int maximumRetainedTextCharacters) =>
+        new(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters:
+                maximumRetainedTextCharacters);
+
+    private static byte[] BuildMethodGroupImage(
+        string methodName,
+        BlobBuilder signature)
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(methodName),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildMalformedExtensionAttributeImage(
+        bool malformedContainer = false)
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle extensionAttribute =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("ExtensionAttribute"));
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                extensionAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+        BlobHandle attributeValue =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        AddModuleType(metadata);
+        TypeDefinitionHandle type =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        metadata.AddCustomAttribute(
+            type,
+            malformedContainer
+                ? MetadataTokens.MemberReferenceHandle(2)
+                : constructor,
+            attributeValue);
+        metadata.AddCustomAttribute(
+            method,
+            malformedContainer
+                ? constructor
+                : MetadataTokens.MemberReferenceHandle(2),
+            attributeValue);
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildDuplicateGetterImage()
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AddModuleType(metadata);
+        TypeDefinitionHandle type =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle first =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle second =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("P"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x28, 0x00, 0x01 }));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            first);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            second);
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildCrossTypeGetterImage()
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle propertyOwner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("D"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    VoidMethodSignature()),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("P"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x28, 0x00, 0x01 }));
+        metadata.AddPropertyMap(propertyOwner, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            method);
+        return Serialize(metadata);
+    }
+
+    private static void AddAssembly(MetadataBuilder metadata)
+    {
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+    }
+
+    private static void AddModuleType(MetadataBuilder metadata) =>
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+    private static byte[] Serialize(MetadataBuilder metadata)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static BlobBuilder VoidMethodSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        return signature;
+    }
+
+    private static BlobBuilder DeepMethodSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x00);
+        for (int index = 0; index < 100_000; index++)
+            signature.WriteByte(0x1d);
+        signature.WriteByte(0x08);
+        return signature;
+    }
+}

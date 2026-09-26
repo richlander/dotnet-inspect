@@ -662,6 +662,14 @@ Receiver classification is exhaustive:
 
 Extension takes precedence because extension methods are Metadata-static.
 
+One exact-overload row intent filters accessibility and receiver before either
+terminal runs. Accessibility uses the product buckets `public`, `protected`,
+`internal`, `private`, or `all`; composite protected forms belong to the
+`protected` bucket. Receiver uses `this`, `static`, `extension`, or `all`.
+The default intent is `public` accessibility with all receiver forms.
+Count and Rows over one request share that intent, and continuation binding
+includes it so a later segment cannot silently change membership.
+
 Exact overload Rows are the join currency for optional documentation
 attachments and overload-scoped metrics. Those producers may not add, remove,
 reorder, or replace rows.
