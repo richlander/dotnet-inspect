@@ -94,7 +94,8 @@ One nonempty Type search text creates one locator
 `TypeDeclarationLocatorRequest.Pattern`. Empty Spotlight text does not activate
 the locator. A later text change supersedes the earlier Browser operation
 through the existing operation-authority lifecycle; it does not mutate or
-reuse the earlier result as current.
+reuse the earlier result as current. Empty text still advances that lifecycle
+and retires the previous result without activating the locator.
 
 The host-neutral operation:
 
@@ -194,6 +195,11 @@ Distinct observations remain distinct rows and distinct selection targets even
 when their coordinates and display labels are equal. Grouping may reduce visual
 repetition only when every selectable observation remains individually
 reachable.
+
+Each opaque action token includes an operation-unique issuer in addition to its
+result generation and local ordinal. Result replacement retires the superseded
+result's unselected backing Navigation actions. A selection already admitted
+by Navigation remains Navigation-owned and may settle normally.
 
 Before a package row is published as selectable, managed composition joins:
 

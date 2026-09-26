@@ -4,6 +4,10 @@ using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
 
+public sealed record TypeDeclarationLocatorInspectionExecution(
+    TypeDeclarationLocatorResult LocatorResult,
+    InspectionEnvelope<TypeDeclarationLocatorSectionResult> Inspection);
+
 /// <summary>
 /// Executes one resident Workspace declaration-locator query and projects its
 /// complete host-neutral Section result.
@@ -15,7 +19,20 @@ public static class TypeDeclarationLocatorInspection
         InspectionWorkspace workspace,
         ImmutableArray<TypeDeclarationLocatorRequest> requests,
         TypeDeclarationLocatorSectionPlan plan,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        (await ExecuteWithResultAsync(
+                workspace,
+                requests,
+                plan,
+                cancellationToken)
+            .ConfigureAwait(false)).Inspection;
+
+    public static async ValueTask<TypeDeclarationLocatorInspectionExecution>
+        ExecuteWithResultAsync(
+            InspectionWorkspace workspace,
+            ImmutableArray<TypeDeclarationLocatorRequest> requests,
+            TypeDeclarationLocatorSectionPlan plan,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(plan);
@@ -29,12 +46,14 @@ public static class TypeDeclarationLocatorInspection
         TypeDeclarationLocatorSectionResult content =
             TypeDeclarationLocatorSection.Project(result, plan);
         return new(
-            content,
-            new InspectionShare.NonProjectable(
-                "type-declaration-locator/share",
-                "Type declaration locator requests do not yet have a "
-                    + "canonical Workspace Share projection."),
-            Diagnostics(content));
+            result,
+            new(
+                content,
+                new InspectionShare.NonProjectable(
+                    "type-declaration-locator/share",
+                    "Type declaration locator requests do not yet have a "
+                        + "canonical Workspace Share projection."),
+                Diagnostics(content)));
     }
 
     private static IEnumerable<InspectionDiagnostic> Diagnostics(

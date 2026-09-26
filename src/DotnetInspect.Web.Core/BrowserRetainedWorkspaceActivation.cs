@@ -627,7 +627,7 @@ internal sealed class BrowserRetainedWorkspaceActivationSession
 }
 
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserRetainedWorkspaceActivationOwner :
+internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
     IAsyncDisposable
 {
     readonly object _gate = new();
@@ -659,6 +659,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         _hostFactory = hostFactory
             ?? (static () => new BrowserWorkspaceRealizationHost());
         _host = _hostFactory();
+        InitializeTypeFind();
     }
 
     internal BrowserRetainedWorkspacePosting? Active
@@ -1306,6 +1307,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             else if (!_closing)
             {
                 _host = _hostFactory();
+                ReplaceTypeFindOperation();
             }
             _deactivationSettlementFailed = false;
         }
@@ -1564,6 +1566,8 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                 publicationOrdinal,
                 predecessor,
                 navigationCleanup);
+            if (_active is not null)
+                ReplaceTypeFindOperation();
             _active = posting;
             return new BrowserRetainedWorkspaceCommitResult.Committed(
                 activated,
@@ -1685,6 +1689,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             _deactivating = false;
             BrowserRetainedWorkspacePosting? active = _active;
             _active = null;
+            DisposeTypeFind();
             _disposeCompletion = DisposeHostAsync(_host, active);
             disposal = _disposeCompletion;
         }
