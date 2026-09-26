@@ -764,7 +764,11 @@ that definition's diagnostic, and the answer is not reported as absent.
    (the managed IL body and its local signature, when one exists). The body
    layer is the borrowed raw body, not decoded instructions, so a producer
    that stops at its first finding does not pay to decode the rest of the
-   body. Decoded instructions and control-flow graphs become layers when a
+   body. Early exit applies the same way at each level: within a body, the
+   producer stops at its first finding; within a unit, a declaration finding
+   means the body is never acquired (decision 3); and across units, the
+   executor visits no further definition once the Exists terminal is
+   settled (decision 6). Decoded instructions and control-flow graphs become layers when a
    producer slice first requests them.
 3. **Layer order within a unit.** The body layer is an optional request.
    Within a unit, the declaration layer is visited first. The body is
