@@ -1,4 +1,7 @@
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
+using DotnetInspector.Platforms;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
@@ -157,6 +160,124 @@ public sealed partial class AssemblyContextLibraryAdapterTests
         Assert.NotSame(
             receipt.LibraryRelations[0].Identity,
             receipt.LibraryRelations[1].Identity);
+    }
+
+    [Fact]
+    public async Task
+        LibraryDeclarationInventoriesRemainResidentAcrossBoundedAttempts()
+    {
+        AssemblySource source =
+            AssemblySource.FromPathlessRuntimeImage();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        source.Assembly,
+                        new TestBindingPolicy()),
+                ]);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        var completed = Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Completed>(
+                await AssemblyContextLibraryAdapter.MaterializeAsync(
+                    group,
+                    participant,
+                    AssemblyContextLibraryRole.ApiOnly,
+                    Limits(source.Bytes.Length),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        LibraryReference firstLibrary = completed.Owner.Reference;
+        ManagedMetadataIdentity.Assembly identity =
+            Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                firstLibrary.ApiAssembly.AssemblyIdentity);
+        ArtifactContentReference content =
+            firstLibrary.ApiAssembly.ArtifactReference;
+        LibraryReference secondLibrary =
+            LibraryReference.CreateDirect(
+                new LibraryAssemblyCorrespondence(
+                    content,
+                    identity,
+                    content,
+                    identity));
+        ArtifactQueryAuthorization authorization =
+            completed.Artifacts.CreateQueryAuthorization();
+        using ArtifactQueryLease queryLease =
+            completed.Artifacts.IssueLease(authorization);
+        var secondOwner =
+            new LibraryContentOwner(
+                secondLibrary,
+                [
+                    completed.Artifacts.IssueContentLease(
+                        content,
+                        queryLease),
+                ]);
+        WorkspaceLibraryAdmissionReceipt receipt =
+            Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                    await workspace.AdmitLibraryBatchAsync(
+                        CurrentRegistrations(workspace),
+                        completed.Artifacts,
+                        [completed.Owner, secondOwner]))
+                .Receipt;
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0"));
+        WorkspaceLibraryDeclarationContextAdmissionOutcome admission =
+            WorkspaceLibraryDeclarationContextAdmission.Admit(
+                workspace,
+                receipt,
+                new WorkspaceDeclarationRequest.PlatformPopulation(
+                    target),
+                receipt.Occurrences.Select(
+                    occurrence =>
+                        new WorkspaceLibraryDeclarationContextMember(
+                            new ExactLibrarySourceCoordinate.Local(
+                                identity),
+                            identity.Identity,
+                            new WorkspaceDeclarationOrigin
+                                .PlatformPopulation(
+                                    target,
+                                    WorkspacePlatformPopulationMemberRole
+                                        .Focus,
+                                    "resident test",
+                                    identity.Identity.Name),
+                            AssemblyResolutionProvenance.Local(
+                                "resident test")))
+                    .ToArray(),
+                new LibraryTypeDeclarationInventoryInspectionBounds(
+                    source.Bytes.Length,
+                    maximumRetainedDeclarations: 100_000,
+                    maximumMetadataRows: 1_000_000,
+                    maximumRetainedTextCharacters: 10_000_000));
+        Assert.IsType<
+            WorkspaceLibraryDeclarationContextAdmissionOutcome.Admitted>(
+                admission);
+        WorkspaceDeclarationLocator locator =
+            workspace.GetDeclarationLocator(
+                new()
+                {
+                    MaxInventoryReadsPerAttempt = 1,
+                    MaxRetainedInventories = 2,
+                });
+
+        var first = Assert.IsType<TypeDeclarationLocatorResult.Evaluated>(
+            await locator.ExecuteAsync(
+                [new TypeDeclarationLocatorRequest.Pattern("*")],
+                includeAll: true,
+                TestContext.Current.CancellationToken));
+        Assert.False(first.Answers[0].IsComplete);
+        Assert.Equal(1, locator.InventoryReadCount);
+        Assert.Equal(1, locator.RetainedInventoryCount);
+
+        var second = Assert.IsType<TypeDeclarationLocatorResult.Evaluated>(
+            await locator.ExecuteAsync(
+                [new TypeDeclarationLocatorRequest.Pattern("*")],
+                includeAll: true,
+                TestContext.Current.CancellationToken));
+        Assert.True(second.Answers[0].IsComplete);
+        Assert.Equal(2, locator.InventoryReadCount);
+        Assert.Equal(2, locator.RetainedInventoryCount);
     }
 
     [Fact]

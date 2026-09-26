@@ -168,7 +168,7 @@ by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
 remaining Diff command-family adoption.
 
-Target-bound Platform catalog routing separately materializes its query and
+Target-bound Platform locator routing separately materializes its query and
 route correspondence as primary Content in an internal host-neutral
 inspection envelope. The CLI consumes that envelope silently before entering
 the existing rich Type or member compatibility path. This does not adopt
@@ -873,7 +873,7 @@ An evaluated query produces one `TypeDeclarationLocatorSectionAnswer` per
 original request in request order. Every answer retains:
 
 - an owner-issued row-set identity, separate from request text;
-- the typed exact or pattern request;
+- the typed exact, pattern, or namespace request;
 - the number of known candidates before output row selection;
 - an always-present selected candidate array;
 - realization and evaluation completeness independently; and
@@ -881,7 +881,8 @@ original request in request order. Every answer retains:
 
 The row unit is one `TypeDeclarationLocatorSectionCandidate`: a typed
 four-arm Package/Platform/Project/Local coordinate, structured Metadata name,
-declaration kind, and one detached observation. The observation retains
+declaration kind, exact module version ID, and one detached observation. The
+observation retains
 population-issued context/member order, assembly identity, source realization,
 and image-selection provenance as separate typed values. Equal logical
 coordinates observed through different feeds, targets, views, or occurrences
@@ -926,10 +927,11 @@ so the failure cannot become a scoped miss or a uniqueness claim.
 
 Typed JSON is source-generated from the same section result. It preserves the
 request and coordinate unions, structured Metadata name, declaration kind,
-realization, selection context, per-context and per-member coverage, selected
-candidate arrays, pre-selection candidate counts, and any row-selection
-failure. Zero, one, and many candidates use the same array shape. It does not
-serialize live Workspace handles or configured package-source authorities.
+module version ID, realization, selection context, per-context and per-member
+coverage, selected candidate arrays, pre-selection candidate counts, and any
+row-selection failure. Zero, one, and many candidates use the same array shape.
+It does not serialize live Workspace handles or configured package-source
+authorities.
 
 Reference observations use the `platform-reference` realization alternative,
 not the legacy implementation-pack `platform` realization. It retains the
@@ -940,6 +942,12 @@ result-local integer ordinals: equal owner tokens receive equal ordinals
 within that one result, and distinct tokens remain distinct. Those ordinals
 are neither portable versions nor keys for reopening a source. A null
 or omitted `requested_assembly` denotes a complete source-population demand.
+
+Transferred PlatformHouse population observations use the `platform`
+realization alternative with family, target framework, version, source
+capability, assembly, and Focus/BindingSupport role. These are detached
+source-owner facts; the projection does not retain a Library owner, operation
+lease, or Artifact session.
 
 Context gaps use a closed `context-load` / `reference-source` /
 `reference-image` union. Source outcomes and diagnostic codes stay separate,
