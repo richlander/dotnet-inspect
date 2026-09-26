@@ -94,7 +94,8 @@ publish the result for this use.
 Analysis owns that resolution and its typed failures (unmatched, ambiguous,
 unsupported signature, work limit). Publishing it as a public per-call fact
 keyed by the physical occurrence is adoption step 0, an Analysis-owned focused
-effort. Research consumes the result. It never re-implements signature
+effort. The existing catalog-scoped `DirectCallDefinitionResolution` already
+has a comparable shape; whether step 0 reuses it is Analysis's decision. Research consumes the result. It never re-implements signature
 matching, and it never treats a missing resolution as an external call.
 
 ## Admitted graph
@@ -110,10 +111,10 @@ types is therefore not a node either. This is a deliberate narrowing to
 evidence the imported execution issues. Enumerating every type definition
 would need a second, Metadata-owned input.
 
-A **namespace node** is one exact metadata namespace string declared by at
-least one type node. The global namespace is an explicit node, never an empty
-display label. A nested type belongs to its outermost enclosing type's
-namespace.
+A **namespace node** is one exact metadata namespace string of the outermost
+enclosing type of at least one type node. A nested type therefore belongs to
+its outermost enclosing type's namespace. The global namespace is an explicit
+node, never an empty display label.
 
 An **external node** is one exact pair of referenced assembly and namespace.
 The assembly is the `AssemblyReferenceIdentity` recorded in the callee
@@ -142,8 +143,10 @@ covers lifted lambdas, local functions, and async `MoveNext` bodies. Every
 other method keeps its physical declaring type, including sync iterator
 `MoveNext`, state-machine and display-class constructors, and `<>c` static
 constructors. The corresponding compiler containers are therefore ordinary
-nested type nodes with their physical identity, and creating them is a type
-edge from the owner to the container. Namespace results are unaffected,
+nested type nodes with their physical identity. Where the owner reaches a
+container through a call (for example `newobj` of a display class or iterator),
+that call is a type edge from the owner to the container. Namespace results
+are unaffected,
 because a nested container shares its outermost type's namespace. Widening
 the association is Analysis's decision. Research never derives ownership from
 compiler naming. Any Analysis diagnostic for a body qualifies the document
@@ -177,7 +180,10 @@ union. `calli` has no static target and is counted as unresolved.
 - **Unresolved:** each remaining call, with a typed reason. The reasons are:
   `calli` (no static target); a current-module declaring type for which
   Analysis resolution reports unmatched, ambiguous, unsupported, or
-  work-limited; a module-reference origin; and a reference decode failure.
+  work-limited; any other module-reference origin; and a reference decode
+  failure. "Current-module" is Analysis's own current-module test, which also
+  covers a self-referencing assembly reference and a same-module module
+  reference. Such a reference is never classified as external.
   Reasons carry Analysis's typed resolution failure unchanged. Unresolved
   calls are counted per reason and never guessed.
 
@@ -214,15 +220,18 @@ The Research result is a typed `LibraryDependencyStructureResult`. Its
 
 1. the Analysis receipt, the population receipt, and a methodology version;
 2. every type node with its namespace and its intra-type relationship count;
-3. every type-to-type edge with invocation and function-reference counts;
+3. every type-to-type edge and every type-to-external edge, each with
+   invocation and function-reference counts;
 4. every namespace node with type count, intra-namespace relationship count,
    and its derived cycle and level (below);
 5. every namespace-to-namespace edge with invocation and function-reference
    counts, contributing type-edge count, and up to five **explaining type
-   edges** selected by relationship count (invocation plus function
-   reference), then source identity, then target
-   identity, with the exact count of the remaining contributors;
-6. every namespace-to-external edge with the same counts and explanation; and
+   edges** drawn from item 3's type-to-type edges, selected by descending
+   relationship count (invocation plus function reference), then source
+   identity, then target identity, with the exact count of the remaining
+   contributors;
+6. every namespace-to-external edge with the same counts and explanation,
+   drawn from item 3's type-to-external edges; and
 7. the Analysis diagnostics.
 
 Research applies no display bound to nodes or edges. Hosts may page or limit
