@@ -78,6 +78,7 @@ public static class LeakActionabilitySensor
                 new AssemblyDependencyResolutionOptions(path)
                 {
                     PreferImplementationAssemblies = true,
+                    AllowPlatformAssemblyVersionRollForward = true,
                 });
             LibraryBodyAnalysisExecution execution =
                 LibraryBodyAnalysisService.ExecutePath(
