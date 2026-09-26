@@ -28,30 +28,41 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
 
     public LibraryContentOwnerState State => _owner.State;
 
-    public static async Task<LibraryInspectionTestLibrary> CreateAsync(
+    public static Task<LibraryInspectionTestLibrary> CreateAsync(
         byte[] content,
-        ManagedMetadataIdentity.Assembly identity)
+        ManagedMetadataIdentity.Assembly identity) =>
+        CreateAsync(content, identity, implementation: content);
+
+    /// <summary>
+    /// Creates a Library whose API and implementation roles are separate
+    /// contents, or whose API content has no implementation when
+    /// <paramref name="implementation"/> is null.
+    /// </summary>
+    public static async Task<LibraryInspectionTestLibrary> CreateAsync(
+        byte[] api,
+        ManagedMetadataIdentity.Assembly apiIdentity,
+        byte[]? implementation)
     {
         var session = new ArtifactSetSession();
         try
         {
-            ArtifactContribution? contribution = null;
+            bool shared = ReferenceEquals(api, implementation);
+            ArtifactContribution? apiContribution = null;
+            ArtifactContribution? implementationContribution = null;
             await session.AddRequiredAcquisitionAsync(
                 (scope, cancellationToken) =>
                 {
-                    contribution = scope.Register(
-                        new Provenance("library-inspection-test"),
-                        token =>
-                        {
-                            token.ThrowIfCancellationRequested();
-                            return new MemoryStream(
-                                content,
-                                writable: false);
-                        });
+                    apiContribution = Register(scope, api, "api");
+                    implementationContribution =
+                        implementation is null || shared
+                            ? null
+                            : Register(scope, implementation, "implementation");
                     return ValueTask.FromResult<
                         ArtifactAcquisitionOutcome>(
                             new ArtifactAcquisitionOutcome.Acquired(
-                                [contribution],
+                                implementationContribution is null
+                                    ? [apiContribution]
+                                    : [apiContribution, implementationContribution],
                                 ArtifactAcquisitionLeases.None));
                 },
                 cancellationToken:
@@ -62,31 +73,52 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
 
             ArtifactQueryLease queryLease = session.IssueLease(
                 session.CreateQueryAuthorization());
-            ArtifactContentLease? contentLease = null;
+            var contentLeases = new List<ArtifactContentLease>();
             try
             {
-                ArtifactContentReference reference =
+                ArtifactContentReference apiReference =
                     session.GetContentReference(
-                        contribution!.Descriptor.Identity,
+                        apiContribution!.Descriptor.Identity,
                         queryLease);
-                contentLease =
-                    session.IssueContentLease(reference, queryLease);
+                contentLeases.Add(
+                    session.IssueContentLease(apiReference, queryLease));
+                ArtifactContentReference? implementationReference = null;
+                ManagedMetadataIdentity.Assembly? implementationIdentity = null;
+                if (shared)
+                {
+                    implementationReference = apiReference;
+                    implementationIdentity = apiIdentity;
+                }
+                else if (implementationContribution is not null)
+                {
+                    implementationReference =
+                        session.GetContentReference(
+                            implementationContribution.Descriptor.Identity,
+                            queryLease);
+                    implementationIdentity = Identity(implementation!);
+                    contentLeases.Add(
+                        session.IssueContentLease(
+                            implementationReference,
+                            queryLease));
+                }
+
                 LibraryReference library =
                     LibraryReference.CreateDirect(
                         new LibraryAssemblyCorrespondence(
-                            reference,
-                            identity,
-                            reference,
-                            identity));
+                            apiReference,
+                            apiIdentity,
+                            implementationReference,
+                            implementationIdentity));
                 var owner = new LibraryContentOwner(
                     library,
-                    [contentLease]);
-                contentLease = null;
+                    [.. contentLeases]);
+                contentLeases.Clear();
                 return new LibraryInspectionTestLibrary(session, owner);
             }
             finally
             {
-                contentLease?.Dispose();
+                foreach (ArtifactContentLease lease in contentLeases)
+                    lease.Dispose();
                 queryLease.Dispose();
             }
         }
@@ -96,6 +128,20 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
             throw;
         }
     }
+
+    private static ArtifactContribution Register(
+        ArtifactContributionScope scope,
+        byte[] content,
+        string role) =>
+        scope.Register(
+            new Provenance($"library-inspection-test/{role}"),
+            token =>
+            {
+                token.ThrowIfCancellationRequested();
+                return new MemoryStream(
+                    content,
+                    writable: false);
+            });
 
     public LibraryOperationLease IssueOperation() =>
         Assert.IsType<LibraryOperationLeaseIssueOutcome.Issued>(
@@ -123,6 +169,18 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 "RealAssets",
                 "LibraryOverview",
                 "System.Text.Json.dll"),
+            TestContext.Current.CancellationToken);
+
+    public static async Task<byte[]> PinnedNet11Async(
+        string pack,
+        string fileName) =>
+        await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "Net11",
+                pack,
+                fileName),
             TestContext.Current.CancellationToken);
 
     public static async Task<byte[]> RealNetstandardAsync() =>

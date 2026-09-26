@@ -1,5 +1,8 @@
 using System.Text.Json.Serialization;
 
+using DotnetInspector.LibraryMetadata;
+using ILInspector.Metadata;
+
 namespace DotnetInspector.Sections;
 
 [JsonSourceGenerationOptions(
@@ -63,6 +66,24 @@ namespace DotnetInspector.Sections;
 [JsonSerializable(
     typeof(LibraryTypeMemberCountOutcome.NotApplicable),
     TypeInfoPropertyName = "LibraryTypeMemberCountNotApplicable")]
+[JsonSerializable(
+    typeof(LibraryEnablementsOutcome),
+    TypeInfoPropertyName = "LibraryEnablementsOutcome")]
+[JsonSerializable(
+    typeof(LibraryEnablementsOutcome.Available),
+    TypeInfoPropertyName = "LibraryEnablementsAvailable")]
+[JsonSerializable(
+    typeof(LibraryEnablementsOutcome.Failed),
+    TypeInfoPropertyName = "LibraryEnablementsFailed")]
+[JsonSerializable(
+    typeof(LibraryEnablement.Enabled),
+    TypeInfoPropertyName = "LibraryEnablementEnabled")]
+[JsonSerializable(
+    typeof(LibraryEnablement.NotEnabled),
+    TypeInfoPropertyName = "LibraryEnablementNotEnabled")]
+[JsonSerializable(
+    typeof(LibraryEnablement.Unavailable),
+    TypeInfoPropertyName = "LibraryEnablementUnavailable")]
 [JsonSerializable(
     typeof(InspectionShare.NonProjectable),
     TypeInfoPropertyName = "InspectionShareNonProjectable")]
