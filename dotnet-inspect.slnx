@@ -209,6 +209,7 @@
     <Project Path="src/ZipFetch/ZipFetch.csproj" />
     <Project Path="src/NetworkAccess/NetworkAccess.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
+    <Project Path="src/MsdlProxy/MsdlProxy.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/ts-jsexport/ts-jsexport.csproj" />
@@ -240,6 +241,11 @@
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
+    <Project Path="tests/InspectWeb.ManagedOperationBridgeCanary/Bridge/InspectWeb.ManagedOperationBridge.BrowserCanary.csproj" />
+    <Project Path="tests/InspectWeb.ManagedOperationBridgeCanary/Host/InspectWeb.ManagedOperationBridge.BrowserCanary.Host.csproj" />
+    <Project Path="tests/InspectWeb.MultiFacadeCanary/Alpha/TsJsExport.MultiFacade.Alpha.csproj" />
+    <Project Path="tests/InspectWeb.MultiFacadeCanary/Beta/TsJsExport.MultiFacade.Beta.csproj" />
+    <Project Path="tests/InspectWeb.MultiFacadeCanary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj" />
     <Project Path="tests/Inspector.Artifacts.Tests/Inspector.Artifacts.Tests.csproj" />
     <Project Path="tests/Inspector.Resources.Tests/Inspector.Resources.Tests.csproj" />
     <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
@@ -247,6 +253,7 @@
     <Project Path="tests/BinaryFetch.Tests/BinaryFetch.Tests.csproj" />
     <Project Path="tests/ZipFetch.Tests/ZipFetch.Tests.csproj" />
     <Project Path="tests/NetworkAccess.Tests/NetworkAccess.Tests.csproj" />
+    <Project Path="tests/MsdlProxy.Tests/MsdlProxy.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Networking.Tests/DotnetInspector.Networking.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Packages.Tests/DotnetInspector.Packages.Tests.csproj" />
