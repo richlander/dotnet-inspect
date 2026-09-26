@@ -1722,13 +1722,18 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(2, false)]
-    [InlineData(3, false)]
-    [InlineData(2, true)]
-    [InlineData(3, true)]
+    [InlineData(2, false, false)]
+    [InlineData(3, false, false)]
+    [InlineData(2, true, false)]
+    [InlineData(3, true, false)]
+    [InlineData(2, false, true)]
+    [InlineData(3, false, true)]
+    [InlineData(2, true, true)]
+    [InlineData(3, true, true)]
     public async Task Router_DeferredProjectSourcePreservesRepeatedOptionArity(
         int projectCount,
-        bool explicitPlatform)
+        bool explicitPlatform,
+        bool structuralDiscovery)
     {
         var repositoryRoot =
             CommandErrorOwnershipTests.RepositoryRoot();
@@ -1758,6 +1763,8 @@ public partial class CommandExecutionTests
             tail.Add("--project");
             tail.Add(projects[i]);
         }
+        if (structuralDiscovery)
+            tail.AddRange(["-D", "--schema", "--table"]);
         tail.AddRange(["--tips", "q"]);
 
         var target = explicitPlatform
