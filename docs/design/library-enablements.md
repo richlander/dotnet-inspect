@@ -54,11 +54,13 @@ Real scenarios:
   public) alongside a pooling-builder state machine; it is still runtime-async
   enabled. `System.Text.Json.dll` and `System.IO.Pipelines.dll` from the same
   pack have none.
-- No nuget.org Library observed on 2026-09-25 carries
-  `[module: MemorySafetyRulesAttribute(2)]`. Memory Safety v2 is grounded in
+- No nuget.org implementation assembly observed on 2026-09-25 carries
+  `[module: MemorySafetyRulesAttribute(2)]`. Nine reference assemblies in
+  `Microsoft.NETCore.App.Ref` 11.0.0-rc.1.26425.128 do, which is real grounding
+  for the reference-assembly rule below. Memory Safety v2 Enabled is grounded in
   repository fixtures built with `<MemorySafetyRules>updated</MemorySafetyRules>`
-  until a real package ships. That synthetic-only grounding requires operator
-  approval before the implementation slice lands.
+  until a real implementation ships. That synthetic-only grounding requires
+  operator approval before the implementation slice lands.
 
 ## Vocabulary
 
@@ -90,19 +92,27 @@ Every requested enablement has one state:
 
 ### Reference assemblies
 
-A reference assembly, identified by the assembly-level
-`ReferenceAssemblyAttribute`, keeps declarations and strips implementation
-details. The declarations enablements read survive: `IsAotCompatible` is
-present in `Microsoft.NETCore.App.Ref` 11.0.0-rc.1.26425.128, and the
-reference assembly the SDK produces for the memory-safety-updated fixture still
-carries `MemorySafetyRulesAttribute(2)`. AOT and Memory Safety v2 are therefore
-decided normally for reference assemblies.
+Enablements describe how a Library's implementation was built. A reference
+assembly, identified by the assembly-level `ReferenceAssemblyAttribute`,
+describes a compile-time surface and does not reliably carry that evidence, so
+every enablement reports Unavailable with the reason `ReferenceAssembly`.
+This rule applies before the per-enablement rules below; reference assemblies
+never report Enabled or Not enabled.
 
-Method implementation flags do not survive. `System.Net.Sockets.dll` and
-`System.Net.Http.dll` in that reference pack carry no `Async` MethodDef rows,
-while the same Libraries in the runtime pack carry 9 and 119. A reference
-assembly reports Runtime Async as Unavailable with the reason
-`ReferenceAssembly`, never Not enabled.
+The real `Microsoft.NETCore.App.Ref` and `Microsoft.NETCore.App.Runtime`
+11.0.0-rc.1.26425.128 packs show why one rule is needed:
+
+- Implementation flags are stripped. `System.Net.Sockets.dll` and
+  `System.Net.Http.dll` in the reference pack carry no `Async` MethodDef rows;
+  the runtime pack carries 9 and 119.
+- Surface markers can differ from the implementation. `System.Runtime`,
+  `System.Memory`, `System.Security.Cryptography`, and six other reference
+  assemblies carry `[module: MemorySafetyRulesAttribute(2)]` because their
+  surface is annotated for v2 callers. No runtime-pack implementation carries
+  it.
+
+Answering for the implementation behind a reference assembly requires pairing
+it with that implementation, which is a separate adoption.
 
 ### AOT
 
@@ -111,9 +121,10 @@ decide the state:
 
 - Enabled when at least one row exists and every row's value is `true`.
 - Not enabled when no row exists, or every row's value is `false`.
-- Unavailable when any value is neither, decoded values disagree, or any
-  assembly `AssemblyMetadataAttribute` blob cannot be decoded, because the
-  undecoded row might carry the key.
+- Unavailable with reason `UnrecognizedValue` when any value is neither,
+  `ConflictingValues` when decoded values disagree, or `UndecodableMetadata`
+  when any assembly `AssemblyMetadataAttribute` blob cannot be decoded,
+  because the undecoded row might carry the key.
 
 Values compare case-insensitively after trimming surrounding whitespace, the
 grammar MSBuild's `True` and `False` spellings satisfy. `AssemblyMetadata` on
@@ -127,8 +138,7 @@ not claim the Library was exercised under Native AOT.
 
 Enabled when at least one MethodDef row carries the `Async` implementation
 flag, regardless of accessibility, declaring Type, or whether the declaring
-Type is compiler-generated. Otherwise Not enabled, except for reference
-assemblies as described above.
+Type is compiler-generated. Otherwise Not enabled.
 
 Runtime-async compilation still emits state machines where the language
 requires them, such as async iterators and methods using a custom async method
@@ -185,14 +195,16 @@ Pathological fixtures:
 - an image whose only runtime-async method is internal and declared on a
   compiler-generated Type is Enabled;
 - a Library with no async methods is Not enabled;
-- `System.Net.Sockets.dll` from `Microsoft.NETCore.App.Ref`
-  11.0.0-rc.1.26425.128 is AOT Enabled and Runtime Async Unavailable with
-  reason `ReferenceAssembly`, and the memory-safety fixture's SDK-produced
-  reference assembly is Memory Safety v2 Enabled;
+- `System.Net.Sockets.dll` and `System.Security.Cryptography.dll` from
+  `Microsoft.NETCore.App.Ref` 11.0.0-rc.1.26425.128 report all three
+  enablements Unavailable with reason `ReferenceAssembly`, although they carry
+  `IsAotCompatible` and, for `System.Security.Cryptography`, a v2 module
+  marker; the runtime-pack `System.Security.Cryptography.dll` is Memory Safety
+  v2 Not enabled;
 - an undecodable assembly `AssemblyMetadataAttribute` blob makes AOT
-  Unavailable;
+  Unavailable with reason `UndecodableMetadata`;
 - `IsAotCompatible` values `True` and `False` together, and the value `yes`,
-  are each Unavailable with distinct reasons;
+  are Unavailable with reasons `ConflictingValues` and `UnrecognizedValue`;
 - conflicting and unsupported memory-safety markers are Unavailable with the
   memory-safety owner's state preserved.
 
