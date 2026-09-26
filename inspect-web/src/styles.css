@@ -36,6 +36,13 @@
   --code-text: #d8d2e3;
   --syntax-kw: #d98a70;
   --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  /* Overload heat: one amber hue whose lightness and chroma rise with body size. */
+  --heat-l0: 0.215;
+  --heat-c0: 0.015;
+  --heat-l1: 0.40;
+  --heat-c1: 0.085;
+  --heat-h: 68;
+  --hub-strip: oklch(0.80 0.13 72);
   --graph-target-fill: #311a7f;
   --graph-target-stroke: #b9aaee;
   --graph-target-text: #f0edf7;
@@ -106,6 +113,12 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
+  --heat-l0: 0.975;
+  --heat-c0: 0.008;
+  --heat-l1: 0.86;
+  --heat-c1: 0.085;
+  --heat-h: 72;
+  --hub-strip: oklch(0.62 0.14 62);
   --bg: #ffffff;
   --panel: #ffffff;
   --panel-raised: #f8f6fc;
@@ -1107,6 +1120,29 @@ kbd {
   padding: 0 12px 0 26px;
 }
 .member-list .overload-nav-row .overload-branch { color: var(--dim); font: 11px var(--mono); }
+/* Heat anchors on the right edge so hover and selection keep the left edge; the
+   fade ends in the same hue at zero alpha so hover color shows through. */
+.member-list .overload-nav-row.heated {
+  --heat-color: oklch(
+    calc(var(--heat-l0) + var(--heat-t) * (var(--heat-l1) - var(--heat-l0)))
+    calc(var(--heat-c0) + var(--heat-t) * (var(--heat-c1) - var(--heat-c0)))
+    var(--heat-h));
+  background-image: linear-gradient(
+    270deg,
+    var(--heat-color) 0%,
+    color-mix(in oklch, var(--heat-color) 0%, transparent) var(--heat-reach));
+}
+.member-list .overload-nav-row.hub { position: relative; }
+.member-list .overload-nav-row.hub::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--hub-strip);
+}
+.member-row .family-heat-cue { color: var(--dim); }
 .member-list .overload-nav-row code {
   overflow: hidden;
   text-overflow: ellipsis;

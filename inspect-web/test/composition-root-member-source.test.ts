@@ -657,7 +657,7 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
 // Arrowing between members keeps ordinary sections sticky. Implementation Profiles is
 // retained only for an exact family that was already activated, so navigation itself
 // cannot authorize expensive analysis for another family.
-test("moving between members keeps sections sticky without activating a new profile family", () => {
+test("moving between members keeps sections sticky without section-driven profile activation", () => {
   const openMemberGroupBody =
     appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
   assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
@@ -674,9 +674,7 @@ test("moving between members keeps sections sticky without activating a new prof
   assert.match(
     openMemberGroupBody,
     /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
-  assert.match(
-    openMemberGroupBody,
-    /retainMemberSectionIfSupported\(group\);[\s\S]*state\.memberSection === "implementation-profiles"[\s\S]*implementationProfileTarget\(\)[\s\S]*!implementationProfiles\.hasActivated\(target\.request\)[\s\S]*state\.memberSection = "overview"/);
+  assert.doesNotMatch(openMemberGroupBody, /implementationProfiles\./);
   assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
 
   const openOverloadBody =
@@ -703,7 +701,7 @@ test("moving between members keeps sections sticky without activating a new prof
     ?? "";
   assert.match(
     selectEntryBody,
-    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);[\s\S]*state\.memberSection === "implementation-profiles"[\s\S]*loadMemberSectionContent\(state\.memberSection\);[\s\S]*else\s*render\(\)/);
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
 });
 
 test("every overload-specific member loader leaves a multi-overload picker inert", () => {
@@ -734,9 +732,7 @@ test("the full member-section roster is derived from the catalog, not restated",
     memberSectionDefinitions.map(([id]) => id));
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}] }),
-    memberSectionDefinitions
-      .map(([id]) => id)
-      .filter(id => id !== "implementation-profiles"));
+    memberSectionDefinitions.map(([id]) => id));
 });
 
 test("source requests carry exact type and member identities", () => {

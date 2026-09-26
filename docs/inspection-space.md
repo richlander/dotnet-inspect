@@ -994,8 +994,8 @@ selected family's physical profiles, body-token attribution, sibling-overload
 relationships, scoped population coverage, generated framework Types,
 diagnostics, and API-surface failures. It also carries a separate
 analyzed-family record: profiles, sibling-overload relationships, coverage, and
-diagnostics for every same-name method declared on the Type regardless of
-accessibility, measured in its own Analysis scope so non-public callers never
+diagnostics for every same-name method declared on each roster member's
+declaring TypeDef regardless of accessibility, measured in its own Analysis scope so non-public callers never
 enter the roster profiles' counts.
 `ImplementationProfileFamilyInspectionOperation`
 hands that participant outcome to hosts as an `InspectionEnvelope` with an
