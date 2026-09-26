@@ -384,7 +384,7 @@ test("dependency icon requests use at most four concurrent operations", async ()
   let maximum = 0;
   const h = harness(
     async () => noMatch,
-    async (id, version) => {
+    async (_id, _version) => {
       active++;
       maximum = Math.max(maximum, active);
       const request = deferred<BrowserPackageIconInspection>();
