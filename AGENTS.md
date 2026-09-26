@@ -159,7 +159,7 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 
 ## User-directed workflow adjustments
 
-User adjustments cannot make failed validation green, make an unmergeable PR ready, or transfer fixed-head evidence; follow [the standing mechanics](docs/round-orchestration.md#user-directed-workflow-adjustments).
+Record each adjustment's scope and consequence. It cannot make failed validation green, make an unmergeable PR ready, or transfer fixed-head evidence; follow [the standing mechanics](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ## Before changing files
 
