@@ -237,7 +237,7 @@ public readonly ref struct MethodDefinitionCompletionView
 internal sealed class MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
-    LibraryMethodAnalysisRunner lookup)
+    LibraryMethodAnalysisRunner? lookup)
 {
     MethodBodyBlock? _body;
 
@@ -249,7 +249,10 @@ internal sealed class MethodDefinitionUnit(
 
     public MethodDefinition MethodDefinition { get; private set; }
 
-    public LibraryMethodAnalysisRunner Lookup => lookup;
+    /// <summary>The module lookup; present whenever a planned producer declared it.</summary>
+    public LibraryMethodAnalysisRunner Lookup =>
+        lookup ?? throw new InvalidOperationException(
+            "The module lookup was not built because no planned producer declared it.");
 
     public void MoveTo(
         TypeDefinitionHandle typeHandle,
