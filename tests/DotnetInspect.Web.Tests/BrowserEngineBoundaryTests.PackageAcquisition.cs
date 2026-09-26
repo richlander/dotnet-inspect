@@ -54,6 +54,9 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    static readonly byte[] PackageIconPng =
+        Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
     [Fact]
     public async Task PackageAcquisition_StallBecomesVisibleOperationTimeout()
@@ -124,6 +127,46 @@ public sealed partial class BrowserEngineBoundaryTests
             request => request.Contains(
                 "api.nuget.org",
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageIcon_ReadsOnlyTheManifestAndIconRanges()
+    {
+        string packageId = $"gallery.icon.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>{version}</version>
+                     <icon>images/icon.png</icon>
+                   </metadata>
+                 </package>
+                 """)),
+            ("images/icon.png", PackageIconPng),
+            ("content/padding.bin", new byte[512 * 1024]));
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        PackageIconRangeResult result =
+            await BrowserPackageWorkspace.ReadPackageIconAsync(
+                packageId,
+                version,
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        PackageIcon icon = Assert.IsType<PackageIconResult.Available>(
+            Assert.IsType<PackageIconRangeResult.Completed>(result).Icon).Value;
+        Assert.Equal(PackageIconPng, icon.Bytes.ToArray());
+        Assert.True(handler.RangeRequests >= 3);
+        Assert.Equal(0, handler.NonRangePackageRequests);
+        Assert.True(handler.PackageBytesServed < archive.Length);
     }
 
     [Fact]

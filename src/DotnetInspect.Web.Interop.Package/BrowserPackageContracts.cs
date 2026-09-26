@@ -151,6 +151,27 @@ public sealed record BrowserPackageIcon(
     string MediaType,
     string Base64);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageIconInspectionStatus>))]
+public enum BrowserPackageIconInspectionStatus
+{
+    Available,
+    Missing,
+    Unavailable,
+    Failed,
+    Refused,
+}
+
+/// <summary>
+/// One exact package's range-only icon outcome. A non-available result instructs the Browser to
+/// retain its ordinary default icon; it never represents a complete-package fallback.
+/// </summary>
+public sealed record BrowserPackageIconInspection(
+    string PackageId,
+    string PackageVersion,
+    BrowserPackageIconInspectionStatus Status,
+    BrowserPackageIcon? Icon,
+    string? Detail);
+
 /// <summary>
 /// One product-owned accessibility bucket, carried verbatim from
 /// <c>DotnetInspector.Queries.ApiAccessibilityBucket</c>.
@@ -1197,6 +1218,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
+[JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]

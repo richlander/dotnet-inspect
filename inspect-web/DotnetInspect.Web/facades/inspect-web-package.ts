@@ -54,6 +54,8 @@ export type BrowserPackageDependencyDeclarationFailureKind = "ConflictingPackage
 
 export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
 
+export type BrowserPackageIconInspectionStatus = "Available" | "Missing" | "Unavailable" | "Failed" | "Refused" | number;
+
 export type BrowserPackagePruningCompletion = "Complete" | "Partial" | "Failed" | "NotApplicable" | number;
 
 export type BrowserPackagePruningDisposition = "PlatformDelegation" | "PackageRetained" | "CandidateUnavailable" | "NotEvaluated" | number;
@@ -669,6 +671,14 @@ export interface BrowserPackageDocumentContent {
 export interface BrowserPackageIcon {
   readonly mediaType: string;
   readonly base64: string;
+}
+
+export interface BrowserPackageIconInspection {
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly status: BrowserPackageIconInspectionStatus;
+  readonly icon: BrowserPackageIcon | null;
+  readonly detail: string | null;
 }
 
 export interface BrowserPackageInfoMeasurementInspection {
@@ -1362,6 +1372,7 @@ type $ManagedExports = {
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
+            readonly "QueryPackageIcon.451505237": (packageId: string, version: string) => Promise<string>;
             readonly "QueryPackagePruning.1579276339": (packageId: string, version: string, targetFramework: string, requestJson: string) => Promise<string>;
             readonly "QueryPackageRoot.976702342": (rootRequest: string) => Promise<string>;
             readonly "QueryPackageVersions.451505237": (packageId: string, currentVersion: string) => Promise<string>;
@@ -1668,6 +1679,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryPackageIcon.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageIcon.451505237\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "QueryPackagePruning.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackagePruning.1579276339\u0027 is not callable.");
@@ -1942,6 +1965,12 @@ export async function queryPackageDependencies(packageId: string, version: strin
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageDependencies.1579276339"](packageId, version, targetFramework, assemblyId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageDependencies;
+}
+
+export async function queryPackageIcon(packageId: string, version: string): Promise<BrowserPackageIconInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageIcon.451505237"](packageId, version);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageIconInspection;
 }
 
 export async function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: BrowserPackagePruningRequest): Promise<BrowserPackagePruningResult> {

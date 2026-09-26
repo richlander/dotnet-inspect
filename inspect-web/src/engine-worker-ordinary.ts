@@ -49,6 +49,7 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
+  | "queryPackageIcon"
   | "queryPackageRoot"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
@@ -1047,6 +1048,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
+    queryPackageIcon: valueOperation(
+      "ordinary-package-query-icon",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageIcon"]>
+      ) => facades.package.queryPackageIcon(...args),
+    ),
     queryPackagePruning: valueOperation(
       "ordinary-package-query-pruning",
       4,
@@ -1756,6 +1765,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryPackageIcon: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageIcon,
       ),
       queryPackagePruning: bind(
         engineWorkerOrdinaryOperations.package.queryPackagePruning,
