@@ -135,16 +135,20 @@ one declaring method may share an IL offset, and they remain distinct
 occurrences.
 
 The source type is the declaring type of the call's **logical caller**, the
-Analysis-issued declared-source association. An internal target that is itself
-a compiler-lifted body (a closure method, state-machine constructor, or local
-function) maps to its logical owner's declaring type through the same
-association. Where Analysis issues the association, a lambda, iterator, async
-state machine, or local function contributes to the type that declared it on
-both ends, and compiler containers never become type nodes. Where Analysis
-issues no association, the physical declaring type is used. Any Analysis
-diagnostic for that body qualifies the document (see the population
-receipt). The physical evidence body stays on the occurrence so the
-association remains auditable.
+Analysis-issued declared-source association. An internal target method that
+carries the same association maps to its logical owner's declaring type.
+Research uses that association only where Analysis issues it. Today that
+covers lifted lambdas, local functions, and async `MoveNext` bodies. Every
+other method keeps its physical declaring type, including sync iterator
+`MoveNext`, state-machine and display-class constructors, and `<>c` static
+constructors. The corresponding compiler containers are therefore ordinary
+nested type nodes with their physical identity, and creating them is a type
+edge from the owner to the container. Namespace results are unaffected,
+because a nested container shares its outermost type's namespace. Widening
+the association is Analysis's decision. Research never derives ownership from
+compiler naming. Any Analysis diagnostic for a body qualifies the document
+(see the population receipt). The physical evidence body stays on the
+occurrence so the association remains auditable.
 
 ### Relationship kinds
 
@@ -215,7 +219,8 @@ The Research result is a typed `LibraryDependencyStructureResult`. Its
    and its derived cycle and level (below);
 5. every namespace-to-namespace edge with invocation and function-reference
    counts, contributing type-edge count, and up to five **explaining type
-   edges** selected by relationship count, then source identity, then target
+   edges** selected by relationship count (invocation plus function
+   reference), then source identity, then target
    identity, with the exact count of the remaining contributors;
 6. every namespace-to-external edge with the same counts and explanation; and
 7. the Analysis diagnostics.
@@ -280,7 +285,12 @@ interpretations under the #8516 narrative levels.
   same stance as Library Metrics. Source-generated callers such as
   `JsonContext` dominated the #8634 probe. A typed generator-provenance
   classification belongs to the Metadata/PDB source owner
-  ([#8643](https://github.com/richlander/dotnet-inspect/issues/8643)). This document neither filters nor classifies generated code.
+  ([#8643](https://github.com/richlander/dotnet-inspect/issues/8643)). This
+  document neither filters nor classifies generated code. The same applies to
+  compiler-synthesized global-namespace types such as
+  `<PrivateImplementationDetails>` and `<Module>`. Their calls can form a
+  cycle through the global namespace, and a narrative consumer must not read
+  that cycle as authored structure.
 - **Signature, field-access, cast, `ldtoken`, attribute, and inheritance
   references** are not call evidence and are not admitted. `jmp` is not a
   direct call in Analysis and is likewise outside the methodology. The C#
@@ -323,10 +333,11 @@ executable over a compiled fixture library under `fixtures/research/`:
 - `LibraryDependencyStructure_RejectsScopedOrCallFreeExecution`: a scoped or
   call-free execution is unavailable and retains its receipt.
 - `LibraryDependencyStructure_AttributesLiftedBodiesToLogicalOwner`: a lambda,
-  async method, and iterator in namespace `A` calling into `B` produce an
-  `A → B` edge. The occurrence retains the physical evidence body. Creating
-  the closure or state machine (target side) is intra-type volume, and no
-  compiler container becomes a type node.
+  local function, and async method of `A.C` calling into `B` produce a
+  `A.C → B.*` type edge from `A.C` itself. The occurrence retains the physical
+  evidence body. A sync iterator of `A.C` produces its edge from the physical
+  container `A.C.<Iter>d__N`, and the namespace edge is `A → B` in both
+  cases.
 - `LibraryDependencyStructure_AcceptsDistinctLiftedBodiesAtEqualOffsets`: two
   lambdas in one method with calls at the same IL offset are two occurrences,
   not a duplicate.
