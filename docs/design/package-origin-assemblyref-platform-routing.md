@@ -30,10 +30,11 @@ The motivating production scenarios are:
 > Given one exact external `AssemblyRef` from an acquired package Library, a
 > completed referencing-context `NoNameOwner`, owner-issued Platform-family
 > eligibility, a package graph whose actual edges have terminal pruning
-> decisions, and an exact selected Platform family composition, authorize at
-> most one exact PlatformHouse assembly-reference operation without requiring
-> a same-named package edge, deriving an assembly identity from a package
-> identity, or acquiring a package edge already delegated to the Platform.
+> decisions, an exact selected Platform family composition, and owner-issued
+> membership for the requested Platform Library, authorize at most one exact
+> PlatformHouse assembly-reference operation without requiring a same-named
+> package edge, deriving an assembly identity from a package identity, or
+> acquiring a package edge already delegated to the Platform.
 
 It owns:
 
@@ -43,6 +44,8 @@ It owns:
   family eligibility, and PlatformHouse invocation compose;
 - the rule that a `Subsumed` package edge is conclusively delegated before
   AssemblyRef routing;
+- composition of owner-issued exact Platform Library membership with the
+  unchanged Metadata request;
 - authorization of one exact PlatformHouse assembly-reference request after
   the ordinary context misses;
 - preservation of every retained or delegated package-edge receipt beside the
@@ -81,6 +84,7 @@ package Library occurrence
   -> referencing context: NoNameOwner
   -> selected framework references establish eligible Platform families
   -> exact Platform family target and source plan
+  -> owner-issued exact Platform Library membership
   -> PlatformHouse ResolveAssemblyReference
   -> exact Platform Library or typed non-success
 ```
@@ -89,8 +93,10 @@ Owner-issued Platform-family evidence answers which families participate. An
 explicit package framework reference can admit ASP.NET Core. The selected
 Platform context can independently admit the baseline .NET Runtime family.
 Neither identifies a Platform assembly. The exact `AssemblyRef` answers which
-assembly identity to bind. PlatformHouse and its source adapters then establish
-whether the selected Platform population owns that identity.
+assembly identity to bind. Bounded Platform catalog or source discovery
+establishes whether the selected Platform population contains the requested
+Library before the route is issued. PlatformHouse then binds the exact
+authoritative realization under its own policy.
 
 This path does not search NuGet for a component package named like the
 assembly. For modern ASP.NET Core, many shared-framework assemblies have no
@@ -158,22 +164,24 @@ For `Microsoft.Azure.SignalR` 1.33.1 at `net8.0`:
 4. The already selected package Library context returns `NoNameOwner`.
 5. The framework reference makes the ASP.NET Core family eligible.
 6. Platform target policy supplies one exact ASP.NET Core 8 target.
-7. PlatformHouse asks the selected Reference source for the exact
+7. Owner-issued Platform evidence establishes exact membership for the
+   requested Library.
+8. PlatformHouse asks the selected Reference source for the exact
    `AssemblyRef`.
-8. The package-backed source derives `Microsoft.AspNetCore.App.Ref@8.0.x`,
+9. The package-backed source derives `Microsoft.AspNetCore.App.Ref@8.0.x`,
    selects
    `ref/net8.0/Microsoft.AspNetCore.SignalR.Core.dll`, and verifies its
    Metadata identity.
-9. API, type, member, and reference binding can use that Reference view.
-10. Decompilation, body analysis, or another implementation-demanding
+10. API, type, member, and reference binding can use that Reference view.
+11. Decompilation, body analysis, or another implementation-demanding
     operation separately selects the corresponding
     `Microsoft.AspNetCore.App.Runtime.<rid>` member.
 
 There is no `Microsoft.AspNetCore.SignalR.Core@8.0.0` package edge in the
 selected `net8.0` package group. No pruning or package-to-Library
 correspondence is needed for this AssemblyRef. The route is Platform-eligible
-because framework-reference evidence admits the family and PlatformHouse
-independently proves exact assembly membership.
+because framework-reference evidence admits the family and owner-issued
+Platform evidence independently proves exact assembly membership.
 
 ## Runtime Library walkthrough without a PackageRef
 
@@ -185,12 +193,14 @@ declares no `System.Text.Json` package dependency:
 3. Package reachability contains no `System.Text.Json` edge, so pruning neither
    creates nor classifies one.
 4. The selected Platform context admits the .NET Runtime family.
-5. PlatformHouse resolves the reference identity from
+5. Owner-issued Platform evidence establishes exact membership for
+   `System.Text.Json`.
+6. PlatformHouse resolves the reference identity from
    `Microsoft.NETCore.App.Ref@8.0.x`.
-6. If the operation requests implementation traversal, PlatformHouse follows
+7. If the operation requests implementation traversal, PlatformHouse follows
    exact view correspondence to
    `Microsoft.NETCore.App.Runtime.<rid>@8.0.x`.
-7. The package-backed source reads the exact `System.Text.Json.dll` member,
+8. The package-backed source reads the exact `System.Text.Json.dll` member,
    potentially with a Range request, and verifies its Metadata identity.
 
 The absence of a `System.Text.Json` PackageRef is ordinary. Package discovery
@@ -293,6 +303,8 @@ The route-preparation input retains:
 - every retained package route and any selected-role assembly evidence already
   available for it;
 - the exact selected Platform family composition and target; and
+- owner-issued exact Platform Library membership for the unchanged
+  `AssemblyRef`; and
 - the Workspace, source-plan, operation, and work-ledger identities.
 
 The composition validates:
@@ -305,14 +317,15 @@ The composition validates:
 4. each eligible Platform family was selected by owner-issued package-target,
    framework-reference, or Workspace evidence rather than an assembly-name
    prefix;
-5. the exact Platform target and source plan correspond to that family
-   composition; and
-6. the PlatformHouse request carries the unchanged Metadata binding request.
+5. the exact Platform target, source plan, and Library membership projection
+   correspond to that family composition; and
+6. the membership projection and PlatformHouse request carry the unchanged
+   Metadata binding request.
 
 Missing reachability, unresolved pruning, unavailable framework-reference
-evidence, unsettled target selection, or an incomplete retained-package
-name-ownership question produces typed incomplete route preparation. It does
-not become Platform preference.
+evidence, unsettled target selection, unavailable Platform membership, or an
+incomplete retained-package name-ownership question preserves the producing
+owner's typed non-success. It does not become Platform preference.
 
 ## Retained-package competition
 
@@ -336,8 +349,10 @@ routes. It does not reopen a package edge that pruning already delegated.
 Route preparation produces:
 
 - **Applicable** — the exact Platform family is eligible, the target and source
-  plan are settled, all package edges are terminally pruned or retained, and
-  no retained package route owns the requested assembly;
+  plan are settled, owner-issued evidence establishes exact Platform Library
+  membership for the unchanged request, all package edges are terminally
+  pruned or retained, and no retained package route owns the requested
+  assembly;
 - **PackageOwned** — one or more retained package routes own the requested
   assembly and remain available to the package rung;
 - **NoEligiblePlatform** — selected framework and Workspace evidence admit no
@@ -350,18 +365,19 @@ Route preparation produces:
   evidence cannot close; or
 - **Failed** — an owner failed while producing required evidence.
 
-`Applicable` authorizes one PlatformHouse operation. It does not predict that
-PlatformHouse will resolve the assembly. PlatformHouse may still return
-`NoNameOwner`, `NameOwnedNoMatch`, ambiguity, unavailable, rejected,
-incomplete, or failed evidence under its own contract.
+`Applicable` authorizes one PlatformHouse operation. It does not turn later
+source realization or binding-policy failure into success. PlatformHouse
+preserves `NameOwnedNoMatch`, ambiguity, unavailable, rejected, incomplete, or
+failed evidence under its own contract.
 
 ## Pathological cases
 
 ### Framework family without the Library
 
-A selected framework reference makes the family eligible, but PlatformHouse
-returns `NoNameOwner` when its exact population lacks the requested assembly.
-The route does not search NuGet by assembly name.
+A selected framework reference makes the family eligible, but exact Platform
+membership remains absent. Route preparation preserves the Platform catalog or
+source owner's typed absence and issues no applicable-platform rung. It does
+not search NuGet by assembly name.
 
 ### Subsumed package with no same-named assembly
 
@@ -394,8 +410,8 @@ Assembly-name prefixes and pack enumeration order do not choose a family.
 The end-to-end adoption has three remaining slices:
 
 1. Add orchestration that associates PackageHouse framework-reference evidence
-   and terminal package-pruning receipts with one exact external
-   `AssemblyBindingRequest`.
+   and terminal package-pruning receipts with owner-issued exact Platform
+   membership for one external `AssemblyBindingRequest`.
 2. Invoke the existing installed and package-backed PlatformHouse
    assembly-reference sources from the applicable-platform rung, preserving
    Reference and Implementation view demands and source evidence.
@@ -431,7 +447,7 @@ Future Release gates must prove:
 - `System.Text.Json@12.0.0` retains its package route despite identical
   Platform membership;
 - a framework reference to a family lacking the requested Library returns the
-  Platform owner's typed no-name result;
+  Platform owner's typed absence and issues no applicable-platform rung;
 - incomplete pruning never becomes Platform preference;
 - a delegated edge is not reopened for package acquisition;
 - a retained package route needs selected-role assembly evidence rather than
