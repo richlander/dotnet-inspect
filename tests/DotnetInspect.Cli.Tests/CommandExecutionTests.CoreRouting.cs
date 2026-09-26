@@ -2,8 +2,10 @@ using DotnetInspect.Cli.Sections;
 using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Services;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -553,7 +555,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareSimpleType_UsesTargetBoundPlatformCatalog()
+    public async Task Router_BareSimpleType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
             "Regex", "--markdown", "--tips", "q");
@@ -596,7 +598,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_AmbiguousTargetBoundPlatformCatalog_ReportsAmbiguity()
+    public async Task Router_AmbiguousTargetBoundPlatformLocator_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
             "Timer", "--markdown", "--tips", "q");
@@ -623,8 +625,24 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("No members matched", error);
     }
 
+    [Theory]
+    [InlineData("System.Numerics.String")]
+    [InlineData("System.Numerics.String.IsNullOrEmpty")]
+    public async Task
+        Router_QualifiedCompatibilityRoutePreservesAmbiguity(string query)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            query, "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Platform type lookup is ambiguous across 2 candidates.",
+            error);
+    }
+
     [Fact]
-    public async Task Router_BareGenericType_UsesTargetBoundPlatformCatalog()
+    public async Task Router_BareGenericType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
             "List<T>", "--markdown", "--tips", "q");
@@ -1801,6 +1819,93 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task
+        Router_SurroundingWhitespacePreservesPlatformType()
+    {
+        string[] tail =
+        [
+            "--markdown",
+            "--tips",
+            "q",
+        ];
+        var direct = await RunAppAsync(["Regex", .. tail]);
+        var routed = await RunAppAsync([" Regex ", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task
+        Router_CompleteLocatorMissSkipsLegacyRuntimeReverseFallback()
+    {
+        using RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin();
+
+        var (exit, _, _) = await RunAppAsync(
+            "System.Text.Json.DoesNotExist",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
+    }
+
+    [Fact]
+    public async Task
+        Router_UnclassifiedCompleteLocatorMissSearchesPlatformOnce()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "System.DoesNotExist",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in runtime@",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in aspnetcore@",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in netstandard@",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public async Task
+        Router_RuntimeOnlyAssemblyPrefixUsesLocatorCompatibility()
+    {
+        using RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin();
+
+        var (exit, output, error) = await RunAppAsync(
+            "System.Private.CoreLib.JsonSerializer.Serialize",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
     }
 
     [Fact]
@@ -3499,12 +3604,19 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task BareQualifiedPlatformMember_TrueAmbiguityStillFails()
     {
+        using RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync(
             "System.Numerics.Enumerator.X", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Platform type lookup is ambiguous", error);
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
     }
 
     [Theory]
