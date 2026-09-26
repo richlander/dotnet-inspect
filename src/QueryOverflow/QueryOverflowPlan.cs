@@ -6,33 +6,48 @@ namespace QueryOverflow;
 public sealed class QueryOverflowPlan<TRow>
 {
     private readonly ResolvedRowQueryPlan<TRow> _rowPlan;
+    private readonly Func<TRow, TRow>? _snapshotRow;
 
     private QueryOverflowPlan(
         ResolvedRowQueryPlan<TRow> rowPlan,
         QuerySpaceTerminalRequirement terminal,
-        int? headCount)
+        int? headCount,
+        Func<TRow, TRow>? snapshotRow)
     {
         _rowPlan = rowPlan;
         Terminal = terminal;
         HeadCount = headCount;
+        _snapshotRow = snapshotRow;
     }
 
     public QuerySpaceTerminalRequirement Terminal { get; }
 
     internal int? HeadCount { get; }
 
-    public static QueryOverflowAdmission<TRow> Admit(
+    public static QueryOverflowAdmission<TRow> AdmitRows(
         ResolvedRowQueryPlan<TRow> rowPlan,
-        QuerySpaceTerminalRequirement terminal)
+        Func<TRow, TRow> snapshotRow)
+    {
+        ArgumentNullException.ThrowIfNull(snapshotRow);
+        return Admit(
+            rowPlan,
+            QuerySpaceTerminalRequirement.Rows,
+            snapshotRow);
+    }
+
+    public static QueryOverflowAdmission<TRow> AdmitCount(
+        ResolvedRowQueryPlan<TRow> rowPlan) =>
+        Admit(
+            rowPlan,
+            QuerySpaceTerminalRequirement.Count,
+            snapshotRow: null);
+
+    private static QueryOverflowAdmission<TRow> Admit(
+        ResolvedRowQueryPlan<TRow> rowPlan,
+        QuerySpaceTerminalRequirement terminal,
+        Func<TRow, TRow>? snapshotRow)
     {
         ArgumentNullException.ThrowIfNull(rowPlan);
-        if (!Enum.IsDefined(terminal))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(terminal),
-                terminal,
-                "Unsupported QuerySpace terminal requirement.");
-        }
 
         if (rowPlan.BaselineOrder is not null)
         {
@@ -77,7 +92,7 @@ public sealed class QueryOverflowPlan<TRow>
         }
 
         return QueryOverflowAdmission<TRow>.Accepted(
-            new(rowPlan, terminal, headCount));
+            new(rowPlan, terminal, headCount, snapshotRow));
     }
 
     public QueryOverflowExecution<TRow> Start() =>
@@ -85,4 +100,10 @@ public sealed class QueryOverflowPlan<TRow>
 
     internal bool MatchesPredicates(TRow row) =>
         _rowPlan.MatchesPredicates(row);
+
+    internal TRow SnapshotRow(TRow row) =>
+        _snapshotRow is not null
+            ? _snapshotRow(row)
+            : throw new InvalidOperationException(
+                "A Count plan cannot snapshot a row.");
 }

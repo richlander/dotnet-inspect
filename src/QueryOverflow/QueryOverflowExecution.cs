@@ -146,7 +146,7 @@ public sealed class QueryOverflowExecution<TRow>
                 if (_plan.Terminal
                     is QuerySpaceTerminalRequirement.Rows)
                 {
-                    published.Add(row);
+                    published.Add(_plan.SnapshotRow(row));
                     _publishedRows =
                         checked(_publishedRows + 1);
                 }

@@ -198,9 +198,9 @@ public sealed class QueryOverflowContractTests
     public void UnsupportedPlansDeclineBeforeInput()
     {
         QueryOverflowAdmission<int> rowsWithPredicate =
-            QueryOverflowPlan<int>.Admit(
+            QueryOverflowPlan<int>.AdmitRows(
                 Resolve(predicates: [AtLeast(3)]),
-                QuerySpaceTerminalRequirement.Rows);
+                static row => row);
         Assert.False(rowsWithPredicate.IsAccepted);
         Assert.Equal(
             QueryOverflowDeclineReason
@@ -208,7 +208,7 @@ public sealed class QueryOverflowContractTests
             rowsWithPredicate.DeclineReason);
 
         QueryOverflowAdmission<int> ordered =
-            QueryOverflowPlan<int>.Admit(
+            QueryOverflowPlan<int>.AdmitCount(
                 Resolve(
                     baselineOrder:
                         RowQueryOrderIntent.Keys(
@@ -216,8 +216,7 @@ public sealed class QueryOverflowContractTests
                                 new(
                                     "value",
                                     RowQueryOrderDirection.Ascending),
-                            ])),
-                QuerySpaceTerminalRequirement.Count);
+                            ])));
         Assert.False(ordered.IsAccepted);
         Assert.Equal(
             QueryOverflowDeclineReason
@@ -225,11 +224,10 @@ public sealed class QueryOverflowContractTests
             ordered.DeclineReason);
 
         QueryOverflowAdmission<int> predicateHead =
-            QueryOverflowPlan<int>.Admit(
+            QueryOverflowPlan<int>.AdmitCount(
                 Resolve(
                     predicates: [AtLeast(3)],
-                    selection: [Head(2)]),
-                QuerySpaceTerminalRequirement.Count);
+                    selection: [Head(2)]));
         Assert.False(predicateHead.IsAccepted);
         Assert.Equal(
             QueryOverflowDeclineReason
@@ -255,9 +253,9 @@ public sealed class QueryOverflowContractTests
             })
         {
             QueryOverflowAdmission<int> admission =
-                QueryOverflowPlan<int>.Admit(
+                QueryOverflowPlan<int>.AdmitRows(
                     Resolve(selection: [unsupported]),
-                    QuerySpaceTerminalRequirement.Rows);
+                    static row => row);
             Assert.False(admission.IsAccepted);
             Assert.Equal(
                 QueryOverflowDeclineReason
@@ -289,6 +287,32 @@ public sealed class QueryOverflowContractTests
                 ownerBatchCeiling: 1,
                 finalRowCredit: 1,
                 out _));
+    }
+
+    [Fact]
+    public void PublishedRowsSnapshotReusableBuffers()
+    {
+        ResolvedRowQueryPlan<byte[]> rowPlan =
+            ResolveBytes(selection: [Head(1)]);
+        QueryOverflowAdmission<byte[]> admission =
+            QueryOverflowPlan<byte[]>.AdmitRows(
+                rowPlan,
+                static row => [.. row]);
+        QueryOverflowExecution<byte[]> execution =
+            Assert.IsType<QueryOverflowPlan<byte[]>>(
+                admission.Plan)
+            .Start();
+        byte[] row = [1, 2, 3];
+        QueryOverflowStep<byte[]> step =
+            Advance(
+                execution,
+                new[] { row },
+                sourceCompleted: false);
+
+        row[0] = 99;
+
+        Assert.Equal([1, 2, 3], step.Rows[0]);
+        Assert.NotSame(row, step.Rows[0]);
     }
 
     [Fact]
@@ -635,9 +659,12 @@ public sealed class QueryOverflowContractTests
         QuerySpaceTerminalRequirement terminal)
     {
         QueryOverflowAdmission<T> admission =
-            QueryOverflowPlan<T>.Admit(
-                rowPlan,
-                terminal);
+            terminal is QuerySpaceTerminalRequirement.Rows
+                ? QueryOverflowPlan<T>.AdmitRows(
+                    rowPlan,
+                    static row => row)
+                : QueryOverflowPlan<T>.AdmitCount(
+                    rowPlan);
         Assert.True(
             admission.IsAccepted,
             $"Plan declined: {admission.DeclineReason}.");
@@ -686,6 +713,23 @@ public sealed class QueryOverflowContractTests
     {
         RowQueryVocabulary<string> vocabulary =
             RowQueryVocabulary<string>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [],
+                []);
+        return Resolve(
+            vocabulary,
+            [],
+            baselineOrder: null,
+            selection);
+    }
+
+    private static ResolvedRowQueryPlan<byte[]> ResolveBytes(
+        IReadOnlyList<
+            RowSelectionIntentOperation<RowQueryOrderIntent>>
+            selection)
+    {
+        RowQueryVocabulary<byte[]> vocabulary =
+            RowQueryVocabulary<byte[]>.Create(
                 RowQueryVocabularyIdentity.Create(),
                 [],
                 []);

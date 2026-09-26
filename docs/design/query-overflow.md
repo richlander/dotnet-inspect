@@ -553,6 +553,13 @@ cannot duplicate published rows.
 The caller owns an admitted batch for the duration of one synchronous step.
 QueryOverflow may borrow its rows only during that call.
 
+Rows admission supplies one application-owned snapshot operation. QueryOverflow
+invokes it synchronously before publishing each final row. The operation may
+transfer or retain identity only when the value is already immutable or its
+ownership is transferred to the result; reusable buffers and other mutable
+borrowed values must produce detached values. Count admission supplies no
+snapshot operation because its checkpoint retains only scalar state.
+
 After the step:
 
 - the caller may release every consumed input value;

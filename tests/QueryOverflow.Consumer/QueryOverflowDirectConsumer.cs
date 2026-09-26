@@ -146,9 +146,12 @@ public static class QueryOverflowDirectConsumer
         QuerySpaceTerminalRequirement terminal)
     {
         QueryOverflowAdmission<ApplicationRow> admission =
-            QueryOverflowPlan<ApplicationRow>.Admit(
-                rowPlan,
-                terminal);
+            terminal is QuerySpaceTerminalRequirement.Rows
+                ? QueryOverflowPlan<ApplicationRow>.AdmitRows(
+                    rowPlan,
+                    static row => row)
+                : QueryOverflowPlan<ApplicationRow>.AdmitCount(
+                    rowPlan);
         return admission.Plan
             ?? throw new InvalidOperationException(
                 $"The consumer plan was declined: {admission.DeclineReason}.");
