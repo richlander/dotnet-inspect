@@ -1821,7 +1821,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
     public void ExecuteImage_ProfileCoverageReportsScopedDiagnosticsAsAnalysisFailed()
     {
         byte[] image = File.ReadAllBytes(
-            typeof(ArrayPoolLeakFixtures).Assembly.Location);
+            typeof(LibraryBodyAnalysisExecutionTests).Assembly.Location);
         int methodToken =
             ReplaceMethodCodeSizeWithInvalidValue(image);
 
@@ -1854,7 +1854,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
     public void ExecuteImage_ProfileCoverageRetainsTokenOnlyIdentityFailures()
     {
         byte[] image = File.ReadAllBytes(
-            typeof(ArrayPoolLeakFixtures).Assembly.Location);
+            typeof(LibraryBodyAnalysisExecutionTests).Assembly.Location);
         int methodToken =
             ReplaceMethodSignatureWithInvalidValue(image);
 
@@ -2013,8 +2013,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
             reader.MethodDefinitions.Single(handle =>
                 reader.StringComparer.Equals(
                     reader.GetMethodDefinition(handle).Name,
-                    nameof(ArrayPoolLeakFixtures
-                        .ExternalReadBeforeReturn)));
+                    nameof(ExecuteImage_ProfileCoverageReportsScopedDiagnosticsAsAnalysisFailed)));
         MethodDefinition method =
             reader.GetMethodDefinition(methodHandle);
         int methodOffset = RvaToFileOffset(
@@ -2037,8 +2036,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
             reader.MethodDefinitions.Single(handle =>
                 reader.StringComparer.Equals(
                     reader.GetMethodDefinition(handle).Name,
-                    nameof(ArrayPoolLeakFixtures
-                        .ExternalReadBeforeReturn)));
+                    nameof(ExecuteImage_ProfileCoverageReportsScopedDiagnosticsAsAnalysisFailed)));
         MethodDefinition method =
             reader.GetMethodDefinition(methodHandle);
         int methodToken = MetadataTokens.GetToken(methodHandle);

@@ -301,11 +301,11 @@ Existing `BlockGraphTests` gate that leave edges still traverse nested
 `finally` handlers in runtime order while the graph consumes the shared
 topology cleanup query.
 
-Analysis `LeakTriageAnalyzerTests` gate preservation of the Metadata body and
-clause identities, explicit refusal of uncorrelated body signals, nested
-protected-context ordering, handler-identity release membership, catch-all
-cleanup, and typed/nested catch near misses through the production
-`LibraryBodyIndex` path.
+Analysis `ResourceLifecycleAnalysisTests` gate preservation of the Metadata
+body and clause identities, explicit refusal of uncorrelated body signals,
+nested protected-context ordering, handler-identity release membership,
+catch-all cleanup, and typed/nested catch near misses through the production
+`LibraryBodyAnalysisService` path.
 
 Decompiler `DecompilerExceptionFactAdoptionTests` gate the correlated
 `MethodInstructions` handoff, exact clause and structured-node identity,

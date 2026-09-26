@@ -119,14 +119,14 @@ occurrence are compared.
 
 ## Design basis
 
-### Existing ArrayPool analysis
+### Certified ArrayPool predecessor
 
-The current ArrayPool analyzer first resolves concrete call operands and then
-classifies `Shared`, `Rent`, and `Return`. `ArrayPoolOwnershipFlow` and
-`LeakTriageAnalyzer` consume those resolved calls together with existing
+The former ArrayPool analyzers first resolved concrete call operands and then
+classified `Shared`, `Rent`, and `Return`. `ArrayPoolOwnershipFlow` and
+`LeakTriageAnalyzer` consumed those resolved calls together with existing
 instruction, CFG, reaching-definition, and exception-region evidence.
 
-That ordering is the implementation oracle:
+That ordering supplied the implementation basis retained by the generic path:
 
 - exact call and definition identity precede lifecycle interpretation;
 - unresolved calls remain incomplete;
@@ -135,8 +135,9 @@ That ordering is the implementation oracle:
   reparsing metadata names; and
 - Findings remain downstream of resolution and flow.
 
-The API-specific predicates are the part to replace. The metadata-first
-architecture is retained.
+The generic path retained the metadata-first architecture while replacing the
+API-specific semantic boundary. The former analyzers were retired only after
+the focused comparison recorded zero classified defects.
 
 ### Existing metadata and occurrence infrastructure
 
@@ -203,12 +204,12 @@ The production path remains the 26-step #6544 plan:
 
 1. #6728 locks this resolution contract.
 2. #6729 implements it and the shipped typed ArrayPool mapping.
-3. #6730 adds root-bound resource occurrence evidence without changing the
-   existing ArrayPool analyzers.
-4. #6731 consumes occurrence evidence in generic lifecycle and leak analysis.
-5. #6732 consumes a focused compact summary in Research; the lifecycle and
-   Research paths retire their legacy ArrayPool semantics only after final
-   focused fidelity gates pass.
+3. #6730 added root-bound resource occurrence evidence alongside the existing
+   ArrayPool analyzers.
+4. #6731 consumed occurrence evidence in generic lifecycle and leak analysis.
+5. #6732 consumed a focused compact summary in Research; the lifecycle and
+   Research paths were compared with the legacy ArrayPool semantics and those
+   legacy paths were retired after the focused fidelity gates passed.
 6. Later focused slices adopt repository ownership declarations, the CLI, and
    Inspect Web Browser/Wasm.
 7. #6778 later extends declaration support for non-terminal exclusive mutable
@@ -1017,13 +1018,13 @@ must not:
 - silently downgrade ambiguity, unsupported metadata, or incomplete
   definition resolution to unmatched.
 
-Issue #6730 consumes occurrence-bound effects to publish additive root-bound
-`ResourceOccurrenceAnalysisResult` evidence without modifying the existing
-ArrayPool analyzers. #6731 owns generic lifecycle evidence and Resource Triage
-migration. #6732 owns the compact generic Research summary and path migration.
-The unchanged ArrayPool lifecycle and Research paths remain final fidelity
-oracles and retire only in separately reviewed focused cutovers. Their
-algorithms and public evidence shapes are not specified here.
+Issue #6730 introduced occurrence-bound
+`ResourceOccurrenceAnalysisResult` evidence. #6731 owns generic lifecycle
+evidence and Resource Triage, and #6732 owns the compact generic Research
+summary and path composition. The former ArrayPool lifecycle and Research
+paths served as independent fidelity oracles through the focused retirement
+comparison and were then removed. Their algorithms and former public evidence
+shapes are not specified here.
 
 ## Non-claims
 

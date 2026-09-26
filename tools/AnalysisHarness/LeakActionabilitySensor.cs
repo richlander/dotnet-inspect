@@ -1,6 +1,7 @@
 using Markout;
 using Markout.Formatting;
 
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using Inspector.Findings;
 
@@ -73,8 +74,19 @@ public static class LeakActionabilitySensor
         string name = Path.GetFileName(path);
         try
         {
-            var inspection = ResourceLifecycleAnalysis.InspectAssembly(
-                path,
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)
+                {
+                    PreferImplementationAssemblies = true,
+                });
+            LibraryBodyAnalysisExecution execution =
+                LibraryBodyAnalysisService.ExecutePath(
+                    path,
+                    LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                        ArrayPoolResourceEffectModel.Create()),
+                    resolver);
+            var inspection = ResourceLifecycleAnalysis.Inspect(
+                execution.ResourceLifecycle,
                 new FindingSubject(Path.GetFullPath(path), name));
             if (inspection.Value
                 is not FindingInspection<ResourceLifecycleOccurrence>.Complete complete)
