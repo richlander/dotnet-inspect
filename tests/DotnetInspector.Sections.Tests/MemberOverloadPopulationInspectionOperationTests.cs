@@ -112,6 +112,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                         continuation:
                             new(
                                 new(
+                                    binding.Assembly,
                                     binding.ModuleVersionId,
                                     binding.DeclaringType,
                                     checked(
@@ -148,6 +149,74 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 .Reason);
 
         await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        ContinuationRejectsDifferentAssemblyWithSameModuleVersionId()
+    {
+        Guid moduleVersionId =
+            new("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        byte[] firstContent =
+            BuildMethodGroupImage(
+                "First",
+                moduleVersionId,
+                overloadCount: 2);
+        byte[] secondContent =
+            BuildMethodGroupImage(
+                "Second",
+                moduleVersionId,
+                overloadCount: 3);
+        await using LibraryInspectionTestLibrary first =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                firstContent,
+                LibraryInspectionTestLibrary.Identity(firstContent));
+        await using LibraryInspectionTestLibrary second =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                secondContent,
+                LibraryInspectionTestLibrary.Identity(secondContent));
+
+        MemberOverloadPopulationContent firstPage =
+            Available(
+                Execute(
+                    first,
+                    "M",
+                    count: false,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C")));
+        MemberOverloadContinuation continuation =
+            Assert.IsType<MemberOverloadContinuation>(
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                        firstPage.Overloads.Rows)
+                    .Continuation);
+
+        MemberOverloadPopulationContent secondPage =
+            Available(
+                Execute(
+                    second,
+                    "M",
+                    count: false,
+                    new(
+                        maximumRows: 1,
+                        continuation:
+                            continuation),
+                    declaringType: Name("N", "C")));
+
+        Assert.NotEqual(firstPage.Assembly, secondPage.Assembly);
+        Assert.Equal(
+            firstPage.Assembly,
+            continuation.Binding.Assembly);
+        Assert.Equal(
+            secondPage.Assembly,
+            secondPage.Overloads.Binding.Assembly);
+        Assert.Equal(
+            MemberOverloadRowsRejection.IncompatibleContinuation,
+            Assert.IsType<MemberOverloadRowsOutcome.Rejected>(
+                    secondPage.Overloads.Rows)
+                .Reason);
+
+        await first.RetireAsync();
+        await second.RetireAsync();
     }
 
     [Fact]
@@ -839,6 +908,51 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         return Serialize(metadata);
     }
 
+    private static byte[] BuildMethodGroupImage(
+        string assemblyName,
+        Guid moduleVersionId,
+        int overloadCount)
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(
+            metadata,
+            assemblyName,
+            moduleVersionId);
+        AddModuleType(metadata);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int parameterCount = 0;
+            parameterCount < overloadCount;
+            parameterCount++)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteByte((byte)parameterCount);
+            signature.WriteByte(0x01);
+            for (int parameter = 0;
+                parameter < parameterCount;
+                parameter++)
+            {
+                signature.WriteByte(0x08);
+            }
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: -1,
+                parameterList:
+                    MetadataTokens.ParameterHandle(1));
+        }
+
+        return Serialize(metadata);
+    }
+
     private static byte[] BuildMalformedExtensionAttributeImage(
         bool malformedContainer = false)
     {
@@ -997,16 +1111,20 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         return Serialize(metadata);
     }
 
-    private static void AddAssembly(MetadataBuilder metadata)
+    private static void AddAssembly(
+        MetadataBuilder metadata,
+        string assemblyName = "Synthetic",
+        Guid? moduleVersionId = null)
     {
         metadata.AddModule(
             0,
-            metadata.GetOrAddString("Synthetic.dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(
+                moduleVersionId ?? Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(
-            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString(assemblyName),
             new Version(1, 0, 0, 0),
             default,
             default,

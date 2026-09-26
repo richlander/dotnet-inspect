@@ -669,6 +669,8 @@ terminal runs. Accessibility uses the product buckets `public`, `protected`,
 The default intent is `public` accessibility with all receiver forms.
 Count and Rows over one request share that intent, and continuation binding
 includes it so a later segment cannot silently change membership.
+The binding also carries the exact declaring assembly identity and MVID so a
+later segment cannot continue against a different assembly or generation.
 
 Exact overload Rows are the join currency for optional documentation
 attachments and overload-scoped metrics. Those producers may not add, remove,

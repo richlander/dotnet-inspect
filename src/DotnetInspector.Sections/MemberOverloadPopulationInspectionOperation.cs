@@ -28,10 +28,17 @@ public static class MemberOverloadPopulationInspectionOperation
 
             MemberOverloadRowsRequest? rows =
                 request.Plan.Overloads.Rows;
+            ManagedMetadataIdentity.Assembly requestedAssembly =
+                request.Library.ApiAssembly.AssemblyIdentity
+                ?? throw new InvalidOperationException(
+                    "An exact-Member population requires a managed API assembly identity.");
+            LibraryAssemblyIdentity portableAssembly =
+                PortableIdentity(requestedAssembly.Identity);
             bool compatibleContinuation =
                 rows?.Continuation is not { } continuation
                 || IsCompatible(
                     continuation.Binding,
+                    portableAssembly,
                     request.Plan.Subject,
                     rows.Ordering,
                     request.Plan.Overloads.Accessibility,
@@ -200,7 +207,10 @@ public static class MemberOverloadPopulationInspectionOperation
         MemberOverloadOrdering ordering =
             request.Plan.Overloads.Rows?.Ordering
                 ?? MemberOverloadOrdering.Metadata;
+        LibraryAssemblyIdentity assembly =
+            PortableIdentity(correspondence.AssemblyIdentity);
         var binding = new MemberOverloadPopulationBinding(
+            assembly,
             correspondence.ModuleVersionId,
             read.DeclaringType,
             read.TypeDefinitionToken,
@@ -295,7 +305,7 @@ public static class MemberOverloadPopulationInspectionOperation
         return Envelope(
             new MemberOverloadPopulationInspectionOutcome.Available(
                 new(
-                    PortableIdentity(correspondence.AssemblyIdentity),
+                    assembly,
                     subject,
                     new(binding, count, rows),
                     correspondence.AssemblyBytes)));
@@ -303,11 +313,13 @@ public static class MemberOverloadPopulationInspectionOperation
 
     private static bool IsCompatible(
         MemberOverloadPopulationBinding binding,
+        LibraryAssemblyIdentity assembly,
         MemberGroupSubject subject,
         MemberOverloadOrdering ordering,
         MemberOverloadAccessibilityFilter accessibility,
         MemberOverloadReceiverFilter receiver) =>
-        binding.DeclaringType == subject.DeclaringType
+        binding.Assembly == assembly
+        && binding.DeclaringType == subject.DeclaringType
         && string.Equals(
             binding.Name,
             subject.Name,

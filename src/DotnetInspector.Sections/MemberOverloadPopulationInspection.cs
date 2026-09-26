@@ -88,6 +88,7 @@ public enum MemberOverloadOrdering
 public sealed record MemberOverloadPopulationBinding
 {
     public MemberOverloadPopulationBinding(
+        LibraryAssemblyIdentity assembly,
         Guid moduleVersionId,
         MetadataTypeDefinitionName declaringType,
         int typeDefinitionToken,
@@ -100,6 +101,8 @@ public sealed record MemberOverloadPopulationBinding
         MemberOverloadReceiverFilter receiver =
             MemberOverloadReceiverFilter.All)
     {
+        Assembly = assembly
+            ?? throw new ArgumentNullException(nameof(assembly));
         if (moduleVersionId == Guid.Empty)
         {
             throw new ArgumentException(
@@ -157,6 +160,7 @@ public sealed record MemberOverloadPopulationBinding
         Receiver = receiver;
     }
 
+    public LibraryAssemblyIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
     public int TypeDefinitionToken { get; }
