@@ -480,6 +480,8 @@ test.describe("published authored Source comparison transport", () => {
           await applicationPage.locator(".load-error").textContent()
             ?? "Published application failed to load the fixture package.");
       }
+      await expect(applicationPage.locator("#app"))
+        .not.toHaveAttribute("aria-busy", "true", { timeout: 180_000 });
       await selectFirstExactLibrary(applicationPage);
       await chooseSubject(applicationPage, "type");
       await applicationPage.locator("#type-list [data-type]")
