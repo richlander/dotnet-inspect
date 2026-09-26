@@ -495,32 +495,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Build browser frontend
-        working-directory: inspect-web
-        run: |
-          npm ci
-          npm run build
-
-      - name: Build platform-index generator
-        run: dotnet build inspect-web/tools/gen-platform-index/genindex.cs
-
       - name: Test browser engine
-        run: dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+        env:
+          MSBuildEnableWorkloadResolver: 'false'
+        run: dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 
   inspect-web-msdl-tests:
     name: inspect-web managed API tests
