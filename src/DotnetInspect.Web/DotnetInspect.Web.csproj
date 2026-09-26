@@ -1,6 +1,15 @@
-<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+<Project>
+  <PropertyGroup>
+    <InspectWebIncludeFrontend Condition="'$(InspectWebIncludeFrontend)' == ''">false</InspectWebIncludeFrontend>
+    <MSBuildProjectExtensionsPath Condition="'$(InspectWebIncludeFrontend)' == 'true'">$(MSBuildThisFileDirectory)..\..\artifacts\obj\DotnetInspect.Web\browser-wasm\</MSBuildProjectExtensionsPath>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk.WebAssembly" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" Condition="'$(InspectWebIncludeFrontend)' != 'true'" />
+
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
     <AssemblyName>DotnetInspect.Web</AssemblyName>
     <RootNamespace>DotnetInspect.Web</RootNamespace>
     <IsPublishable>true</IsPublishable>
@@ -11,7 +20,7 @@
     <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
     <RepositoryUrl>https://github.com/richlander/dotnet-inspect</RepositoryUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <InspectWebIncludeFrontend Condition="'$(InspectWebIncludeFrontend)' == ''">false</InspectWebIncludeFrontend>
+    <AppendRuntimeIdentifierToOutputPath Condition="'$(InspectWebIncludeFrontend)' == 'true'">true</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -133,4 +142,6 @@
     <Exec Command="node &quot;../../inspect-web/scripts/verify-site-artifact.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.WebAssembly" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" Condition="'$(InspectWebIncludeFrontend)' != 'true'" />
 </Project>

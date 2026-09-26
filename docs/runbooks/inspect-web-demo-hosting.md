@@ -107,7 +107,7 @@ dotnet publish src/DotnetInspect.Web/DotnetInspect.Web.csproj \
 Use the repository's centralized publish output:
 
 ```bash
-site_root="$repo_root/artifacts/publish/DotnetInspect.Web/release/wwwroot"
+site_root="$repo_root/artifacts/publish/DotnetInspect.Web/release_browser-wasm/wwwroot"
 dotnet_loader="$(
   grep -oE '_framework/dotnet\.[a-z0-9]+\.js' "$site_root/index.html" |
     head -n 1

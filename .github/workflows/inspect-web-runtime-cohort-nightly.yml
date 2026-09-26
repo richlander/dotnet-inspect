@@ -190,7 +190,7 @@ jobs:
             -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
           eng/verify-inspect-web-async-deployment.sh \
             compiler \
-            artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
+            artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
             "$output/wwwroot" \
             "$output/async-lowering.json" \
             "$receipt_dir"
@@ -529,13 +529,13 @@ jobs:
             node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
               --record \
               "$output/wwwroot" \
-              artifacts/obj/DotnetInspect.Web/release/R2R \
+              artifacts/obj/DotnetInspect.Web/release_browser-wasm/R2R \
               "$output/runtime-cohort"
           fi
           RestoreConfigFile="$nuget_config" \
             eng/verify-inspect-web-async-deployment.sh \
               runtime \
-              artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
+              artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
               "$output/wwwroot" \
               "$output/async-lowering.json" \
               "$receipt_dir"

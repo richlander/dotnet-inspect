@@ -16,6 +16,46 @@ public class BrowserStaticWebAppConfigTests
             "'$(InspectWebIncludeFrontend)' == ''",
             (string?)property.Attribute("Condition"));
 
+        XElement restoreIsolation = Assert.Single(
+            project.Descendants("MSBuildProjectExtensionsPath"));
+        Assert.Equal(
+            @"$(MSBuildThisFileDirectory)..\..\artifacts\obj\DotnetInspect.Web\browser-wasm\",
+            restoreIsolation.Value.Trim());
+        Assert.Equal(
+            "'$(InspectWebIncludeFrontend)' == 'true'",
+            (string?)restoreIsolation.Attribute("Condition"));
+
+        XElement outputPathIsolation = Assert.Single(
+            project.Descendants("AppendRuntimeIdentifierToOutputPath"));
+        Assert.Equal("true", outputPathIsolation.Value.Trim());
+        Assert.Equal(
+            "'$(InspectWebIncludeFrontend)' == 'true'",
+            (string?)outputPathIsolation.Attribute("Condition"));
+
+        XElement[] sdkImports = [.. project.Root!.Elements("Import")];
+        Assert.Collection(
+            sdkImports,
+            webAssemblyProps => AssertSdkImport(
+                webAssemblyProps,
+                "Sdk.props",
+                "Microsoft.NET.Sdk.WebAssembly",
+                "'$(InspectWebIncludeFrontend)' == 'true'"),
+            managedProps => AssertSdkImport(
+                managedProps,
+                "Sdk.props",
+                "Microsoft.NET.Sdk",
+                "'$(InspectWebIncludeFrontend)' != 'true'"),
+            webAssemblyTargets => AssertSdkImport(
+                webAssemblyTargets,
+                "Sdk.targets",
+                "Microsoft.NET.Sdk.WebAssembly",
+                "'$(InspectWebIncludeFrontend)' == 'true'"),
+            managedTargets => AssertSdkImport(
+                managedTargets,
+                "Sdk.targets",
+                "Microsoft.NET.Sdk",
+                "'$(InspectWebIncludeFrontend)' != 'true'"));
+
         XElement validation = Target(project, "ValidateInspectWebIncludeFrontend");
         Assert.Equal(
             "PrepareForBuild;PrepareForPublish",
@@ -150,6 +190,17 @@ public class BrowserStaticWebAppConfigTests
         Assert.Single(
             project.Descendants("Target"),
             element => (string?)element.Attribute("Name") == name);
+
+    private static void AssertSdkImport(
+        XElement import,
+        string project,
+        string sdk,
+        string condition)
+    {
+        Assert.Equal(project, (string?)import.Attribute("Project"));
+        Assert.Equal(sdk, (string?)import.Attribute("Sdk"));
+        Assert.Equal(condition, (string?)import.Attribute("Condition"));
+    }
 
     private static string EngineProjectPath() => Path.Combine(
         RepositoryRoot(),

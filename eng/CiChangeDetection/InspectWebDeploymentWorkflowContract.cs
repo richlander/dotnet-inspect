@@ -21,7 +21,7 @@ internal static class InspectWebDeploymentWorkflowContract
         """
         eng/verify-inspect-web-async-deployment.sh \
           compiler \
-          artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
+          artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
           artifacts/inspect-web-publish/wwwroot \
           artifacts/inspect-web-publish/async-lowering.json \
           artifacts/inspect-web-compiler-async-receipts
@@ -31,7 +31,7 @@ internal static class InspectWebDeploymentWorkflowContract
         RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
           eng/verify-inspect-web-async-deployment.sh \
             runtime \
-            artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
+            artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
             artifacts/inspect-web-coreclr-publish/wwwroot \
             artifacts/inspect-web-coreclr-publish/async-lowering.json \
             artifacts/inspect-web-runtime-async-receipts
@@ -210,8 +210,8 @@ internal static class InspectWebDeploymentWorkflowContract
             "Staging workflow contract accepted a non-rerun-safe artifact upload.");
         AssertMutationRejected(
             stagingWorkflow,
-            "artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll",
-            "artifacts/obj/DotnetInspect.Web/release/linked/DotnetInspect.Web.dll",
+            "artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll",
+            "artifacts/obj/DotnetInspect.Web/release_browser-wasm/linked/DotnetInspect.Web.dll",
             ValidateStaging,
             "Staging contract accepted async evidence from the wrong assembly.");
         AssertMutationRejected(

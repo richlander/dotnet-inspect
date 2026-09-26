@@ -72,7 +72,7 @@ jobs:
         run: |
           eng/verify-inspect-web-async-deployment.sh \
             compiler \
-            artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
+            artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
             artifacts/inspect-web-publish/wwwroot \
             artifacts/inspect-web-publish/async-lowering.json \
             artifacts/inspect-web-compiler-async-receipts

@@ -152,6 +152,7 @@ function resolveDotnetDeclaration(
     "msbuild",
     project,
     "-nologo",
+    "-property:InspectWebIncludeFrontend=true",
     "-target:ProcessFrameworkReferences",
     "-getProperty:NuGetPackageRoot",
     "-getItem:RuntimePack",
