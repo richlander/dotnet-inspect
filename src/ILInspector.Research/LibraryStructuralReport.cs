@@ -162,6 +162,8 @@ public static class LibraryStructuralReport
             profiles.Length - completeProfiles.Length,
             CountIncompleteReasons(profiles),
             CountUnavailableReasons(analysis.Coverage));
+        ImmutableArray<LibraryStructuralTypeRelationship> relationships =
+            EntangledRelationships(completeProfiles, callGraph);
         var document = new LibraryStructuralReportDocument(
             analysis.Receipt,
             CurrentMethodologyVersion,
@@ -197,16 +199,19 @@ public static class LibraryStructuralReport
                 completeProfiles.Length,
                 completeProfiles.Count(static profile => profile.Async),
                 completeProfiles.Count(static profile => !profile.Async)),
-            TypeSummaries(completeProfiles),
-            EntangledRelationships(completeProfiles, callGraph),
+            TypeSummaries(completeProfiles, relationships),
+            relationships,
             analysis.Receipt.Diagnostics);
         return new LibraryStructuralReportResult.Available(document);
     }
 
     static ImmutableArray<LibraryStructuralTypeSummary> TypeSummaries(
-        ImmutableArray<MethodImplementationProfile> profiles) =>
-    [
-        .. profiles
+        ImmutableArray<MethodImplementationProfile> profiles,
+        ImmutableArray<LibraryStructuralTypeRelationship> relationships)
+    {
+        List<LibraryStructuralTypeSummary> summaries =
+        [
+            .. profiles
             .GroupBy(static profile => profile.Method.DeclaringType)
             .Select(group => new LibraryStructuralTypeSummary(
                 group.Key,
@@ -217,11 +222,43 @@ public static class LibraryStructuralReport
                 group.Sum(static profile => profile.LoopCount),
                 group.Sum(static profile => profile.DirectCallCount),
                 group.Sum(static profile => profile.AllocationCount)))
+        ];
+        HashSet<TypeRef> represented =
+            summaries.Select(static summary => summary.Type).ToHashSet();
+        foreach (TypeRef endpoint in relationships.SelectMany(
+            static relationship =>
+            new[]
+            {
+                relationship.Source,
+                relationship.Target,
+            }))
+        {
+            if (represented.Add(endpoint))
+            {
+                summaries.Add(
+                    new LibraryStructuralTypeSummary(
+                        endpoint,
+                        BodyCount: 0,
+                        InstructionCount: 0,
+                        ComplexityTotal: 0,
+                        LoopCount: 0,
+                        DirectCallCount: 0,
+                        AllocationCount: 0));
+            }
+        }
+
+        return
+        [
+            .. summaries
             .OrderByDescending(static summary => summary.InstructionCount)
             .ThenBy(
                 static summary => summary.Type.ToQualifiedDisplayString(),
+                StringComparer.Ordinal)
+            .ThenBy(
+                static summary => TypeKey(summary.Type),
                 StringComparer.Ordinal),
-    ];
+        ];
+    }
 
     static ImmutableArray<LibraryStructuralTypeRelationship>
         EntangledRelationships(
@@ -278,7 +315,7 @@ public static class LibraryStructuralReport
             .ThenByDescending(
                 pair => callSiteVolumes[pair.Key])
             .ThenBy(
-                static pair => QualifiedTypeIdentity(pair.Key),
+                static pair => TypeKey(pair.Key),
                 StringComparer.Ordinal)
             .Take(MaximumEntangledTypeCount)
             .Select(static pair => pair.Key)
@@ -298,10 +335,10 @@ public static class LibraryStructuralReport
                     neighbors[edge.Target].Count))
                 .OrderByDescending(static edge => edge.CallSiteCount)
                 .ThenBy(
-                    static edge => QualifiedTypeIdentity(edge.Source),
+                    static edge => TypeKey(edge.Source),
                     StringComparer.Ordinal)
                 .ThenBy(
-                    static edge => QualifiedTypeIdentity(edge.Target),
+                    static edge => TypeKey(edge.Target),
                     StringComparer.Ordinal),
         ];
 
@@ -322,11 +359,14 @@ public static class LibraryStructuralReport
         }
     }
 
-    static string QualifiedTypeIdentity(TypeRef type) =>
-        type.Resolution?.Type.ToEscapedFullName()
+    public static string TypeKey(TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return type.Resolution?.Type.ToEscapedFullName()
             ?? (string.IsNullOrEmpty(type.Namespace)
                 ? type.Name
                 : $"{type.Namespace}.{type.Name}");
+    }
 
     static LibraryStructuralReportResult.Unavailable Unavailable(
         LibraryStructuralReportUnavailableReason reason,

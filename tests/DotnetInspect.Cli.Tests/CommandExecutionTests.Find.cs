@@ -405,6 +405,38 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("-S")]
+    [InlineData("--select")]
+    [InlineData("-s")]
+    [InlineData("--section")]
+    [InlineData("-x")]
+    public async Task Find_OptionLikePattern_FailsInsteadOfSearching(string token)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", token, "--library", TestAssemblyPath);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Unrecognized command or argument '{token}'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("No types found", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_OptionLikePatternAfterOptionTerminator_IsALiteralPattern()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "--library", TestAssemblyPath, "--", "-S");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("No types found matching the pattern.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unrecognized command or argument", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("--columns=")]
     [InlineData("--fields=")]
     public async Task Find_InlineEmptyProjectionUnderJson_FailsInsteadOfEmittingTypedJson(string option)

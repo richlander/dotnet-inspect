@@ -16,6 +16,33 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class SearchCommandDefinitions
 {
+    /// <summary>
+    /// System.CommandLine binds an unrecognized option-like token to an empty positional slot, so
+    /// <c>find -S</c> searched for a type named "-S" and exited 0 with no match. No type or member
+    /// name starts with '-', so such a pattern is reported the way a token after the pattern already
+    /// is -- unless it follows the <c>--</c> terminator, which makes any token a literal pattern.
+    /// </summary>
+    private static string? OptionLikePattern(
+        ParseResult parseResult,
+        Argument<string?> patternArg)
+    {
+        if (parseResult.GetResult(patternArg) is not { Tokens: [.., var pattern] }
+            || !pattern.Value.StartsWith('-'))
+        {
+            return null;
+        }
+
+        foreach (Token token in parseResult.Tokens)
+        {
+            if (token.Type == TokenType.DoubleDash)
+                return null;
+            if (ReferenceEquals(token, pattern))
+                return pattern.Value;
+        }
+
+        return pattern.Value;
+    }
+
     public static Command CreateFindCommand(SharedOptions opts)
     {
         var findCommand = new Command(
@@ -122,6 +149,12 @@ public static class SearchCommandDefinitions
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
+            if (OptionLikePattern(parseResult, patternArg) is { } optionLike)
+            {
+                CommandError.Write($"Unrecognized command or argument '{optionLike}'.");
+                return 1;
+            }
+
             if (parseResult.GetResult(literalOption)
                 is { Implicit: false })
             {

@@ -516,9 +516,9 @@ test("selector-only accessors use body-aware implementation queries", () => {
   // it, not just the host, now that call-graph and source operations have their own owners.
   for (const managedSource of [
     "../DotnetInspect.Web/InspectionEngine.cs",
-    "../DotnetInspect.Web.Interop.CallGraph/CallGraphExports.cs",
-    "../DotnetInspect.Web.Interop.Source/SourceExports.cs",
-    "../DotnetInspect.Web.Interop.Source/AnnotatedSourceExports.cs",
+    "../../src/DotnetInspect.Web.Interop.CallGraph/CallGraphExports.cs",
+    "../../src/DotnetInspect.Web.Interop.Source/SourceExports.cs",
+    "../../src/DotnetInspect.Web.Interop.Source/AnnotatedSourceExports.cs",
   ]) {
     assert.doesNotMatch(
       readFileSync(new URL(managedSource, import.meta.url), "utf8"),

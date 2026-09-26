@@ -2043,16 +2043,20 @@ public class DiffCommandTests
     [Fact]
     public void BuildAnalysisDiff_MemberFilter_RejectsNonMethodTargets()
     {
-        var surface = DiffSurface(DiffProperty("Value"));
-
+        // A field resolves on both sides but has no method address, so it
+        // selects no Analysis method: a typed failure, never an empty diff.
         var error = Assert.Throws<InvalidOperationException>(() =>
-            DiffCommand.BuildAnalysisDiff([], [], new DiffOptions
-            {
-                TypeFilter = ["Widget"],
-                MemberFilter = ["Value"]
-            }, surface, surface));
+            DiffCommand.BuildAnalysisDiff(
+                [FixtureCatalog.DiffPair.OldAssemblyPath()],
+                [FixtureCatalog.DiffPair.NewAssemblyPath()],
+                new DiffOptions
+                {
+                    TypeFilter = ["DiffFixtureSample.DiffSample.FieldTokenHolder"],
+                    MemberFilter = ["InstanceA"]
+                }));
 
         Assert.Contains("method-like target", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("InstanceA", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

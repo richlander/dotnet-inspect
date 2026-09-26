@@ -70,7 +70,9 @@ public static class ChangeDetectionApp
         WorkflowContract.AssertWorkingDirectoryMutations(
             repository,
             workflowText);
-        PromotionWorkflowContract.AssertMutations(repository);
+        InspectWebDeploymentWorkflowContract.AssertMutations(repository);
+        ReleaseCandidateWorkflowContract.AssertMutations(repository);
+        ReleasePublicationWorkflowContract.AssertMutations(repository);
         ProvenancePin.AssertMutations(
             workflowText,
             mutated => _ = LoadContract(

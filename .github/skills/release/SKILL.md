@@ -1,192 +1,108 @@
 ---
 name: release
-description: Use when shipping a new dotnet-inspect version; coordinate certification, NuGet and GitHub publication, and matching production and CoreCLR site deployments.
+description: Use when shipping a new dotnet-inspect version; independently validate one immutable candidate, present concerns, and publish only after the operator decides.
 ---
 
 # Release dotnet-inspect
 
-Use this maintainer skill when the user asks to ship, publish, or release a new
-dotnet-inspect version. Read
+Use this maintainer skill only when the user asks to ship, publish, or release a
+new dotnet-inspect version. Read
 [`docs/release-workflow.md`](../../../docs/release-workflow.md) first; it owns
-the release contract and failure handling. This skill is an operator playbook,
-not a substitute for that document or the workflows.
+the release contract and recovery behavior. This skill validates readiness and
+executes the operator's decision. Daily operations owns readiness repair.
 
-A release is one exact `(commit SHA, VersionPrefix)` pair shared by the NuGet
-packages, GitHub release, `https://dotnet-inspect.net`, and the CoreCLR
-comparison site. Never advance only the packages or only one site.
+## Select one candidate
 
-## Prepare release notes and hand off intake
+Start from the candidate named by the operator, or the newest candidate that
+daily operations reported ready. Record:
 
-Read the current release tracker from `AGENTS.md`. It is a candidate ledger, not
-a release manifest; the exact shipped SHA decides which changes shipped.
-The release agent owns reconciliation of every release-managed central file
-defined in `AGENTS.md`; tracker suggestions are its release-preparation input.
+- `release-candidate.yml` run ID and attempt;
+- full source SHA and `VersionPrefix`;
+- final artifact ID, digest, expiry, and URL;
+- exact-SHA `ci-required` conclusion;
+- every required asset and qualification job conclusion; and
+- daily operations' release-note, product-skill, and peer-publication
+  reconciliation result.
 
-Before selecting the outgoing release commit:
+Require one unexpired `dotnet-inspect-release-candidate` artifact. Do not
+substitute a version, branch, newer run, ancestry relationship, or another
+attempt for any identity member.
 
-1. Create the successor release tracker with the same intake instructions:
-   comments briefly describe user-observable changes and link their implementing
-   PR or stack before the implementation merges.
-2. Update `AGENTS.md` to name and link the successor's actual issue number.
-   Ordinary change PRs now report there instead of editing
-   `src/DotnetInspect.Cli/release-notes.md`.
-3. Reconcile every release-managed central file defined in `AGENTS.md` from
-   tracker suggestions whose implementing changes are ancestors of the proposed
-   release commit. Comment when current content already covers a suggestion or
-   it no longer applies.
-4. Write the outgoing release notes from the candidate comments and linked
-   implementations on both the outgoing and successor trackers. Include only
-   implementations after the previous release commit that are ancestors of the
-   proposed release commit. Issue placement never determines membership; the
-   pre-merge comment requirement makes that intake complete.
-5. Land the release-preparation change, including all central-file
-   reconciliation, and select that commit as the exact release SHA. Later
-   merges are outside its history. Immediately before dispatch, recheck both
-   trackers against that SHA. If a late comment exposes a qualifying
-   release-note candidate or central-file suggestion, or the history and
-   prepared artifacts otherwise disagree, correct the notes or central file as
-   applicable and select the replacement commit.
+## Independently validate readiness
 
-After packages, the GitHub release, production, and CoreCLR all succeed, comment
-on the successor tracker with the released version, release URL, and full
-shipped SHA. State that changes at or before that commit shipped in the
-completed release and later changes remain candidates for the successor.
-Before closing the outgoing tracker, copy or link every still-eligible entry
-whose implementation is not an ancestor of the shipped SHA to the successor;
-preserve the original entry. Listing successor entries that actually shipped
-in the completed release is optional. A retry retains the same trackers and
-must not claim success early.
+Confirm that:
 
-## Collect the release evidence
+1. Source validation, all five native package jobs, portable packages, the
+   production site, and immutable assembly succeeded in the selected attempt.
+2. Every required Deep Inspect candidate job completed in that same attempt.
+3. The exact candidate SHA still has successful `ci-required`.
+4. The receipt SHA, version, run, attempt, manifest digests, package census,
+   package reach, and production-site checks agree with the retained artifact.
+5. `VersionPrefix` is the intended unreleased version and the root shipped
+   skill reports that version.
+6. Release notes and every product skill changed by the candidate's history
+   are current.
+7. Any required `richlander/dotnet-skills` update is prepared for coordinated
+   publication.
 
-From `main`, collect:
+If preparation is stale, stop. Report the exact missing readiness work to daily
+operations; do not edit, rebuild, normalize, or repair the candidate during
+release.
 
-1. The successful `ci.yml` main-push run ID that selects the release commit.
-2. The most recent completed, non-cancelled Deep Inspect `test` run at or before
-   that commit, including every required job conclusion.
-3. The successful `deploy-inspect-web.yml` run ID for the exact release commit.
-   Use the main-push run by default. An operator-dispatched main staging run
-   requires explicit authorization during promotion.
+## Present the decision
 
-Compare the full CI and staging SHAs before dispatching:
+A green candidate has successful required qualification and needs no concern
+acceptance. For a ready candidate with concerns, list every exact completed
+non-success job and its conclusion. Cancelled, skipped, running, missing,
+mixed-attempt, expired, or structurally incomplete evidence is not an
+operator-acceptable concern.
+
+Present the operator with:
+
+- version and full SHA;
+- run ID, attempt, artifact ID, digest, and expiry;
+- green status or the complete concern list;
+- package/GitHub-release/production-site surfaces that will publish; and
+- any coordinated peer publication.
+
+Ask whether to publish this exact candidate. Publication authorization applies
+only to the presented identity. A prior release decision, green automation, or
+automatic comparison deployment is not authorization.
+
+## Publish the retained bytes
+
+After explicit authorization, dispatch **Publish** on `main`:
 
 ```bash
-set -euo pipefail
-: "${ci_run_id:?set ci_run_id to the successful main CI run ID}"
-: "${staging_run_id:?set staging_run_id to the matching staging run ID}"
-
-ci_sha=$(gh run view "$ci_run_id" --json headSha --jq .headSha)
-site_sha=$(gh run view "$staging_run_id" --json headSha --jq .headSha)
-
-[[ "$ci_sha" =~ ^[0-9a-f]{40}$ ]] || {
-  printf 'invalid CI SHA: %s\n' "$ci_sha" >&2
-  exit 1
-}
-[[ "$site_sha" =~ ^[0-9a-f]{40}$ ]] || {
-  printf 'invalid staging SHA: %s\n' "$site_sha" >&2
-  exit 1
-}
-if [ "$ci_sha" != "$site_sha" ]; then
-  printf 'release SHA mismatch: CI=%s staging=%s\n' \
-    "$ci_sha" "$site_sha" >&2
-  exit 1
-fi
-
-printf 'release SHA: %s\n' "$ci_sha"
+gh workflow run release.yml \
+  -f candidate_run_id=<run-id> \
+  -f candidate_attempt=<attempt> \
+  -f accept_certification_concerns=<false-or-authorized-true> \
+  -f confirm=publish
 ```
 
-Green evidence at the exact target leaves both evidence overrides disabled.
-When the selected Deep Inspect workflow or a required job is non-successful, a
-person may set `accept_failed_certification` only after reviewing every
-disclosed conclusion and accepting those known gaps. This preserves the red
-result as evidence rather than relabeling it successful.
+The workflow independently revalidates the candidate, publishes its retained
+packages and GitHub release, then makes its retained site available to the
+production environment. Approve that environment only for the same workflow
+run after package and GitHub publication succeeds.
 
-A person may independently set `allow_later_commit` after reviewing the changes
-between the observed commit and a later `main` target. Neither override relaxes
-site identity: select a staging run for that same exact target SHA. If that
-staging run was operator-dispatched, the person must also set
-`allow_manual_staging`. All overrides are release-specific, not standing
-authorization.
-
-The SHA comparison is the last dependable veto before dispatch. The `nuget`
-environment has no approval gate; package publication proceeds automatically
-after its builds.
-
-Confirm that the release commit contains the intended `VersionPrefix`, release
-notes, package `README.md`, and embedded product skills. Record the documentation
-checkpoint even when no edits were required.
-
-When reconciling the shipped skill corpus (`skills/*/SKILL.md`, embedded in the
-tool binary and registered in `SkillCommand.Skills`), check scope as well as
-accuracy: each shipped skill must describe a genuine end-user capability of the
-published tool, not a repository-internal process, CI/certification harness, or
-maintainer workflow (that content belongs under `.github/skills/` instead, and
-is never embedded or registered). Adding a new skill to the shipped corpus, or
-moving a skill into or out of it, is a product-surface change and needs the
-repository owner's explicit approval before landing — do not add or relocate a
-shipped skill unilaterally while doing routine release reconciliation.
-
-Reconcile the bootstrap skill in the peer `richlander/dotnet-skills` repository
-against the release's `VersionPrefix` and generated `dotnet-inspect skill list`.
-Keep it at or below 60 lines: explain the basic command UX and advertise every
-embedded focused skill, while deferring detailed guidance to the version-matched
-tool. When content or version changes, set every peer skill and plugin manifest
-version to the release version and publish that repository's update. If the
-peer repository is already current and no files change, do not make a no-op
-peer release.
-
-## Publish package and site together
-
-Open `release.yml` and `promote-inspect-web.yml` together:
-
-1. Dispatch `release.yml` with the CI run ID, certification run ID, the intended
-   `accept_failed_certification` and `allow_later_commit` values, and
-   `confirm=publish`.
-2. Dispatch `promote-inspect-web.yml` with the matching staging run ID and
-   `confirm=promote`. Leave `allow_manual_staging=false` for a push run; set it
-   only with explicit authorization for an operator-dispatched staging run.
-3. Confirm immediately that both resolve jobs report the same full release SHA.
-   If either is wrong, cancel both workflow runs before package publication
-   starts. Do not leave a stale promotion run waiting for approval.
-4. Monitor the package builds and automatic NuGet publication.
-5. Wait for the package workflow and GitHub release to succeed, then approve
-   the production-site environment. Never promote the site first.
-
-Do not substitute a newer run after the SHA comparison. Production promotion
-automatically invokes the CoreCLR deployment with the resolved SHA, staging run
-ID, and artifact ID. The release is complete only when both top-level workflows
-and the nested CoreCLR deployment succeed.
+Never dispatch from another branch, change inputs during recovery, rebuild
+assets, or publish one surface from another candidate.
 
 ## Verify and recover
 
-Verify the package version and commit in NuGet and the GitHub release. Then
-check the production and CoreCLR sites' data bars for the same version and
+Verify all seven package IDs and version on nuget.org, the GitHub release tag
+and target SHA, the attached package set, and the production site's version and
 linked commit.
 
-If the package workflow fails, leave site production unapproved and retry with
-the same CI and Deep Inspect run IDs and the same explicit acceptance values.
-Package retries tolerate
-already-published artifacts with `--skip-duplicate`. If site promotion fails
-after package publication, retry with the same staging run ID; site retries
-revalidate and promote the same staged artifact. A different SHA, ancestry-only
-relationship, or matching version string is not a valid substitute.
+If publication partially fails, rerun `release.yml` with the same run ID,
+attempt, concern decision, and confirmation. Package duplicate skipping is
+recovery for the same immutable candidate, not permission to select another
+one. If revalidation reports changed or expired identity, stop and obtain a new
+operator decision.
 
-If the CoreCLR deployment fails after production promotion, rerun the failed
-jobs in that promotion run. Do not dispatch a new promotion or substitute a
-newer staging run; the nested deployment retains the exact promoted identity.
-
-If a newer `main` push cancels the release commit's staging run, wait for active
-staging work to finish and rerun the original push-triggered run:
-
-```bash
-gh run rerun "$staging_run_id" --failed
-```
-
-Rerun only failed or cancelled jobs so a successful build keeps its artifact
-while deployment retries. If GitHub reruns a cancelled build after upload, the
-workflow replaces the retained same-name artifact;
-`PromotionWorkflowContract` gates that promotion still sees exactly one.
-Promote the successful failed-job rerun. Do not substitute a manual staging
-dispatch by default. If exceptional circumstances require one, obtain explicit
-authorization, confirm its SHA still equals the package target, and enable
-`allow_manual_staging` during promotion.
+After every coordinated surface succeeds, record the released version, release
+URL, full SHA, candidate run/attempt, and artifact identity on the successor
+tracker. Daily operations then advances the project version and prepares the
+next ready candidate; the release agent does not perform that repair as part of
+the completed publication.
