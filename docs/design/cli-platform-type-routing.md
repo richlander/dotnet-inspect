@@ -143,11 +143,20 @@ discovery remains shared; exact-name preference, explicit generic-arity
 behavior, top-level preference, definition preference, and ambiguity are
 Router-owned policy.
 
-The same envelope also carries compatibility suffix requests derived from the
-realized population's assembly names. The Router consults those answers only
-after direct assembly-prefix classification cannot prove an exact Type. This
-preserves resolved and ambiguous qualified-name behavior without reopening the
-runtime catalog or repeating a reverse declaration scan.
+The same envelope also carries compatibility suffix requests derived from
+directly recognized assembly prefixes that belong to the selected Platform
+target, including runtime-only assemblies such as `System.Private.CoreLib`.
+The Router consults those answers only after direct assembly-prefix
+classification cannot prove an exact Type. This preserves resolved and
+ambiguous qualified-name behavior without intercepting another framework
+family's fallback, reopening the runtime catalog, or repeating a reverse
+declaration scan.
+
+After a completed compatibility request misses, Router marks its internal
+Type-command handoff so source resolution cannot reopen the runtime-wide
+reverse lookup. Existing narrow-source failure and wide prefix-browse behavior
+remain available through the Type command; the handoff is not a user-facing
+option.
 
 The locator projects all declarations for Type/member parity with the replaced
 catalog. Namespace routing applies Metadata's `IsPublicSurface` fact before

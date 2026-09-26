@@ -347,7 +347,8 @@ public static class SourceResolver
         IReadOnlyList<string> sourceKeys,
         bool verbose,
         bool tryQualifiedTypeName = false,
-        string? platformFramework = null)
+        string? platformFramework = null,
+        bool allowRuntimeTypeFallback = true)
         => await ResolveAsync(
             args,
             explicitPackage,
@@ -357,7 +358,8 @@ public static class SourceResolver
             sourceOptions: null,
             verbose,
             tryQualifiedTypeName,
-            platformFramework).ConfigureAwait(false);
+            platformFramework,
+            allowRuntimeTypeFallback).ConfigureAwait(false);
 
     public static async Task<ResolvedSource> ResolveAsync(
         string[] args,
@@ -367,7 +369,8 @@ public static class SourceResolver
         NuGetSourceOptions? sourceOptions,
         bool verbose,
         bool tryQualifiedTypeName = false,
-        string? platformFramework = null)
+        string? platformFramework = null,
+        bool allowRuntimeTypeFallback = true)
         => await ResolveAsync(
             args,
             explicitPackage,
@@ -377,7 +380,8 @@ public static class SourceResolver
             sourceOptions,
             verbose,
             tryQualifiedTypeName,
-            platformFramework).ConfigureAwait(false);
+            platformFramework,
+            allowRuntimeTypeFallback).ConfigureAwait(false);
 
     internal static IReadOnlyList<string> ResolveSourceKeysForProbe(
         NuGetSourceOptions? sourceOptions,
@@ -407,7 +411,8 @@ public static class SourceResolver
         NuGetSourceOptions? sourceOptions,
         bool verbose,
         bool tryQualifiedTypeName,
-        string? platformFramework)
+        string? platformFramework,
+        bool allowRuntimeTypeFallback)
     {
         bool isLibrarySelector = IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
@@ -446,6 +451,7 @@ public static class SourceResolver
             if (args.Length == 1
                 && packagePath != null
                 && typeName == null
+                && allowRuntimeTypeFallback
                 && !string.IsNullOrWhiteSpace(platformFramework)
                 && !CommandLineHelpers.TryClassifyAsFilePath(
                     packagePath,
@@ -500,7 +506,8 @@ public static class SourceResolver
                 // Check if this might be Type.Member (has a dot after the type part)
                 bool mightBeTypeDotMember = packagePath.LastIndexOf('.') > packagePath.LastIndexOf('`');
                 
-                if (!mightBeTypeDotMember)
+                if (!mightBeTypeDotMember
+                    && allowRuntimeTypeFallback)
                 {
                     PlatformTypeLookupOutcome lookup =
                         PlatformResolver.LookupType(packagePath);
@@ -606,7 +613,8 @@ public static class SourceResolver
                         bareName,
                         sourceKeysForPackage,
                         allowPlatformPrefixFallback: true,
-                        message => platformLookupFailure = message);
+                        message => platformLookupFailure = message,
+                        allowRuntimeTypeFallback);
                     if (platformLookupFailure is not null)
                     {
                         return new ResolvedSource(

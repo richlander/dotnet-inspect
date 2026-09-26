@@ -1831,9 +1831,32 @@ public partial class CommandExecutionTests
 
         var (exit, _, _) = await RunAppAsync(
             "System.Text.Json.DoesNotExist",
-            "--offline");
+            "--tips",
+            "q");
 
         Assert.Equal(1, exit);
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
+    }
+
+    [Fact]
+    public async Task
+        Router_RuntimeOnlyAssemblyPrefixUsesLocatorCompatibility()
+    {
+        using RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin();
+
+        var (exit, output, error) = await RunAppAsync(
+            "System.Private.CoreLib.JsonSerializer.Serialize",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
         Assert.DoesNotContain(
             decisions.Decisions,
             static decision =>

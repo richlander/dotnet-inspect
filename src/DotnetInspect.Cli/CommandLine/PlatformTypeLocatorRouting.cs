@@ -7,6 +7,7 @@ using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -200,6 +201,12 @@ internal static class PlatformTypeLocatorRouting
                     closeReport: closeReport);
             }
 
+            PlatformFamilyTarget populationTarget =
+                completed.Population.Value.Members[0].Target;
+            var routeTarget = new PlatformTypeCatalogRouteTarget(
+                populationTarget.Family,
+                populationTarget.TargetFramework.ToString(),
+                populationTarget.Version.Value);
             (
                 ImmutableArray<PlatformTypeCatalogRouteRequest> typeRequests,
                 ImmutableArray<string> compatibilityTypePatterns,
@@ -220,6 +227,7 @@ internal static class PlatformTypeLocatorRouting
                                 .Distinct(
                                     StringComparer.OrdinalIgnoreCase),
                         ],
+                        routeTarget,
                         cancellationToken);
             InspectionEnvelope<TypeDeclarationLocatorSectionResult> envelope =
                 await TypeDeclarationLocatorInspection.ExecuteAsync(
@@ -273,13 +281,8 @@ internal static class PlatformTypeLocatorRouting
                     report);
             }
 
-            PlatformFamilyTarget populationTarget =
-                completed.Population.Value.Members[0].Target;
             return new CliPlatformTypeLocatorOutcome.Completed(
-                new(
-                    populationTarget.Family,
-                    populationTarget.TargetFramework.ToString(),
-                    populationTarget.Version.Value),
+                routeTarget,
                 typeRequests,
                 compatibilityTypePatterns,
                 envelope,
@@ -512,6 +515,7 @@ internal static class PlatformTypeLocatorRouting
         BuildRequests(
             string target,
             ImmutableArray<string> platformAssemblyNames,
+            PlatformTypeCatalogRouteTarget routeTarget,
             CancellationToken cancellationToken)
     {
         string discoveryTarget = target.Trim();
@@ -561,21 +565,17 @@ internal static class PlatformTypeLocatorRouting
             in typeRequests)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string? assemblyName = platformAssemblyNames
-                .Where(
-                    candidate =>
-                        request.TypePattern.Length > candidate.Length
-                        && request.TypePattern[candidate.Length] == '.'
-                        && request.TypePattern.StartsWith(
-                            candidate,
-                            StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(static candidate => candidate.Length)
-                .FirstOrDefault();
-            if (assemblyName is null)
+            if (!PlatformResolver.TryParseQualifiedTypeName(
+                    request.TypePattern,
+                    out string assemblyName,
+                    out string pattern)
+                || !IsAssemblyOwnedByTarget(
+                    assemblyName,
+                    platformAssemblyNames,
+                    routeTarget))
+            {
                 continue;
-
-            string pattern =
-                request.TypePattern[(assemblyName.Length + 1)..];
+            }
             if (seenCompatibilityPatterns.Add(pattern))
             {
                 compatibilityTypePatterns.Add(pattern);
@@ -601,6 +601,31 @@ internal static class PlatformTypeLocatorRouting
                 new TypeDeclarationLocatorRequest.Pattern(
                     typePattern));
         }
+    }
+
+    private static bool IsAssemblyOwnedByTarget(
+        string assemblyName,
+        ImmutableArray<string> platformAssemblyNames,
+        PlatformTypeCatalogRouteTarget target)
+    {
+        if (platformAssemblyNames.Contains(
+                assemblyName,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string framework = target.Family switch
+        {
+            PlatformFamily.DotNetRuntime => "runtime",
+            PlatformFamily.AspNetCore => "aspnetcore",
+            _ => throw new InvalidOperationException(
+                "Unknown Platform family."),
+        };
+        return PlatformResolver.ResolveAssembly(
+                assemblyName,
+                $"{framework}@{target.Version}")
+            .AssemblyPath is not null;
     }
 
     private static ImmutableArray<TypeDeclarationLocatorSectionCandidate>

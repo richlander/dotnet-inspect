@@ -32,12 +32,20 @@ public static class RouterCommandDefinition
 
     internal const string DeferredTypeOrMemberOptionName =
         "--router-deferred-type-or-member";
+    internal const string SuppressRuntimeTypeFallbackOptionName =
+        "--router-suppress-runtime-type-fallback";
 
     private static readonly string DeferredTypeOrMemberCapability =
+        Guid.NewGuid().ToString("N");
+    private static readonly string SuppressRuntimeTypeFallbackCapability =
         Guid.NewGuid().ToString("N");
 
     internal static bool IsDeferredTypeOrMemberCapability(string? value) =>
         value == DeferredTypeOrMemberCapability;
+
+    internal static bool IsSuppressRuntimeTypeFallbackCapability(
+        string? value) =>
+        value == SuppressRuntimeTypeFallbackCapability;
 
     internal static bool IsAcquisitionFreePackageRoute(string[] tokens, RootCommand rootCommand) =>
         RouterTokenRewriter.TryRewriteAcquisitionFree(
@@ -861,6 +869,7 @@ public static class RouterCommandDefinition
                 message => platformLookupFailure ??= message,
                 allowRuntimeTypeFallback: !completeLocatorMiss);
             bool hasNonExactPlatformProbe = false;
+            bool drainCompletedCompatibilityMiss = false;
             if (typeProbe != null)
             {
                 hasNonExactPlatformProbe =
@@ -895,6 +904,10 @@ public static class RouterCommandDefinition
                                 $"Platform type lookup failed ({rejected.Rejection}).");
                             return tokens;
                     }
+
+                    drainCompletedCompatibilityMiss =
+                        compatibility
+                            is PlatformTypeCatalogRouteOutcome.Missing;
                 }
                 if (!hasNonExactPlatformProbe)
                 {
@@ -933,6 +946,21 @@ public static class RouterCommandDefinition
             {
                 CommandError.Write(platformLookupFailure);
                 return tokens;
+            }
+
+            if (drainCompletedCompatibilityMiss)
+            {
+                RouterDecisionLog.Record(
+                    "qualified-type-prefix",
+                    $"{target} -> framework="
+                        + PlatformFrameworkSpec(completedLocator!.Target));
+                return [
+                    "type",
+                    target,
+                    SuppressRuntimeTypeFallbackOptionName,
+                    SuppressRuntimeTypeFallbackCapability,
+                    .. tail,
+                ];
             }
 
             if (hasNonExactPlatformProbe)

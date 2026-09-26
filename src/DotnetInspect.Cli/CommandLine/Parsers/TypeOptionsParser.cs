@@ -146,7 +146,8 @@ public static class TypeOptionsParser
         Option<string[]> KindOption,
         Option<string?> AtOption,
         Option<string?> WorkspaceOption,
-        Option<string?> ShareOption);
+        Option<string?> ShareOption,
+        Option<string?> SuppressRuntimeTypeFallbackOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -394,7 +395,12 @@ public static class TypeOptionsParser
                 sourceOptions,
                 parseResult.GetValue(opts.Verbose),
                 tryQualifiedTypeName: true,
-                parseResult.GetValue(args.FrameworkOption));
+                parseResult.GetValue(args.FrameworkOption),
+                allowRuntimeTypeFallback:
+                    !RouterCommandDefinition
+                        .IsSuppressRuntimeTypeFallbackCapability(
+                            parseResult.GetValue(
+                                args.SuppressRuntimeTypeFallbackOption)));
             source = sourceSelection.Source;
         }
 

@@ -162,11 +162,13 @@ public static class SharedParsers
         NuGetSourceOptions? sourceOptions,
         bool verbose,
         bool tryQualifiedTypeName,
-        string? platformFramework = null)
+        string? platformFramework = null,
+        bool allowRuntimeTypeFallback = true)
     {
         var source = await SourceResolver.ResolveAsync(
             inputs.Args, inputs.ExplicitPackage, inputs.ExplicitAssembly, inputs.ExplicitPlatform,
-            sourceOptions, verbose, tryQualifiedTypeName, platformFramework)
+            sourceOptions, verbose, tryQualifiedTypeName, platformFramework,
+            allowRuntimeTypeFallback)
             .ConfigureAwait(false);
 
         return new SourceSelection(
