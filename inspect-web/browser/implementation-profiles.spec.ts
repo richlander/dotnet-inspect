@@ -112,13 +112,13 @@ test("Type heat paints after the member list and family evidence stays behind it
   await expect(page.locator('[data-member-section="implementation-profiles"]'))
     .toHaveCount(0);
 
-  const run = page.locator("[data-nav-member]").filter({ hasText: "Run" });
-  await run.click();
-  await expect(run.locator(".family-heat-cue.progress"))
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+  await runFamily.click();
+  await expect(runFamily.locator(".family-heat-cue.progress"))
     .toHaveText("measuring");
 
   await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
-  await expect(run.locator(".family-heat-cue")).toHaveCount(0);
+  await expect(runFamily.locator(".family-heat-cue")).toHaveCount(0);
   const rows = page.locator(".overload-nav-row");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
