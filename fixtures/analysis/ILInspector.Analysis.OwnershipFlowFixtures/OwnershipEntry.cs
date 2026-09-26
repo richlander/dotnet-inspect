@@ -852,6 +852,39 @@ public static class Entry
         return read;
     }
 
+    public static int RentLookalikeReadBeforeReturn(
+        LookalikeTextReader reader)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = reader.Read(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int RentTextReaderReadBeforeReturn(
+        System.IO.TextReader reader)
+    {
+        char[] buffer = ArrayPool<char>.Shared.Rent(16);
+        int read = reader.Read(buffer, 0, 16);
+        ArrayPool<char>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int RentEncodeThenUnrelatedReadAfterReturn(
+        Stream stream)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int written = System.Text.Encoding.UTF8.GetBytes(
+            "value",
+            0,
+            5,
+            buffer,
+            0);
+        ArrayPool<byte>.Shared.Return(buffer);
+        _ = stream.ReadByte();
+        return written;
+    }
+
     public static byte[] RentAndReturnToCaller() =>
         ArrayPool<byte>.Shared.Rent(16);
 
@@ -909,6 +942,11 @@ public static class Entry
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
         ReplaceRentedArray(ref buffer);
         ObserveResource(buffer);
+    }
+
+    public sealed class LookalikeTextReader
+    {
+        public int Read(byte[] buffer) => buffer.Length;
     }
 
     static byte[] AcquireFirstResource() => [];

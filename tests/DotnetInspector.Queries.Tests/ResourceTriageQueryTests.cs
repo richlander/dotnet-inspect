@@ -80,6 +80,71 @@ public sealed class ResourceTriageQueryTests
     }
 
     [Fact]
+    public void Execute_PreservesBoundaryClassificationAndIsolation()
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                PreferImplementationAssemblies = true,
+            });
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        ResourceTriageResult result = ResourceTriageQuery.Execute(
+            execution.ResourceLifecycle,
+            new FindingSubject("query-tests", "query-tests"));
+        var available =
+            Assert.IsType<ResourceTriageResult.Available>(result);
+
+        ResourceTriageAssessment lookalike = Assessment(
+            available,
+            "RentLookalikeReadBeforeReturn");
+        Assert.Equal(
+            ResourceTriageActionability.Unknown,
+            lookalike.Actionability);
+        Assert.Equal(
+            ResourceTriageBoundaryKind.Unknown,
+            Assert.Single(lookalike.Boundaries).Kind);
+
+        ResourceTriageAssessment framework = Assessment(
+            available,
+            "RentTextReaderReadBeforeReturn");
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            framework.Actionability);
+        Assert.Equal(
+            ResourceTriageBoundaryKind.ExternalInput,
+            Assert.Single(framework.Boundaries).Kind);
+
+        ResourceTriageAssessment trusted = Assessment(
+            available,
+            "RentEncodeThenUnrelatedReadAfterReturn");
+        Assert.Equal(
+            ResourceTriageActionability.TrustedLowActionability,
+            trusted.Actionability);
+        Assert.Equal(
+            ResourceTriageReason.InMemoryBoundaryBeforeCleanup,
+            trusted.Reason);
+        ResourceTriageBoundaryAssessment trustedBoundary =
+            Assert.Single(trusted.Boundaries);
+        Assert.Equal(
+            "GetBytes",
+            trustedBoundary.Evidence.Operation.Name);
+        Assert.Equal(
+            ResourceTriageBoundaryKind.InMemoryTransform,
+            trustedBoundary.Kind);
+        Assert.DoesNotContain(
+            trusted.Boundaries,
+            boundary =>
+                boundary.Evidence.Operation.Name == "ReadByte");
+    }
+
+    [Fact]
     public void Definition_IsUnbounded()
         => Assert.Equal(
             InspectionCost.Unbounded,
@@ -121,4 +186,11 @@ public sealed class ResourceTriageQueryTests
                 new FindingSubject("query-tests", "query-tests")));
     }
 
+    static ResourceTriageAssessment Assessment(
+        ResourceTriageResult.Available result,
+        string methodName) =>
+        Assert.Single(
+            result.Assessments,
+            assessment =>
+                assessment.Source.Payload.Method.Name == methodName);
 }
