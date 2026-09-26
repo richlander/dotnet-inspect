@@ -279,7 +279,7 @@ public sealed class ExactPackageArchiveSourceTests
     }
 
     [Fact]
-    public async Task ExactArchiveSource_OperationsObserveSharedDeadline()
+    public async Task ExactArchiveSource_CallerCancellationRemainsCancellation()
     {
         ExactPackageArchiveSourceAdmission.Available available =
             await AdmitAsync(
@@ -299,6 +299,75 @@ public sealed class ExactPackageArchiveSourceTests
                     "1.0.0",
                     cancellation.Token,
                     operation));
+    }
+
+    [Fact]
+    public async Task ExactArchiveSource_ExpiredDeadlineIsTypedForExactOperations()
+    {
+        ExactPackageArchiveSourceAdmission.Available available =
+            await AdmitAsync(
+                CreatePackageBytes("Expired.Package", "1.0.0"));
+        using IPackageSourceClient client = available.Client;
+        using var operation = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(20),
+            TestContext.Current.CancellationToken);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+
+        PackageSourceFailure manifest = Failed(
+            await client.GetManifestAsync(
+                "Expired.Package",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                operation));
+        PackageSourceFailure package = Failed(
+            await client.GetPackageAsync(
+                "Expired.Package",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                operation));
+        PackageSourceFailure symbols = Failed(
+            await client.TryGetSymbolsAsync(
+                "Expired.Package",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                operation));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, manifest.Kind);
+        Assert.Equal(PackageSourceFailureKind.Timeout, package.Kind);
+        Assert.Equal(PackageSourceFailureKind.Timeout, symbols.Kind);
+    }
+
+    [Fact]
+    public async Task ExactArchiveSource_PayloadObservesCancellationAfterHandoff()
+    {
+        ExactPackageArchiveSourceAdmission.Available available =
+            await AdmitAsync(
+                CreatePackageBytes("Canceled.Payload", "1.0.0"));
+        using IPackageSourceClient client = available.Client;
+        using var cancellation = new CancellationTokenSource();
+        using var operation = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1),
+            cancellation.Token);
+        PackageSourcePayload payload = Succeeded(
+            await client.GetPackageAsync(
+                "Canceled.Payload",
+                "1.0.0",
+                cancellation.Token,
+                operation));
+        Stream content = payload.Content;
+
+        cancellation.Cancel();
+
+        OperationCanceledException readFailure =
+            Assert.ThrowsAny<OperationCanceledException>(
+                () => content.ReadByte());
+        Assert.Equal(cancellation.Token, readFailure.CancellationToken);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => content.DisposeAsync().AsTask());
     }
 
     private static async Task<ExactPackageArchiveSourceAdmission.Available>

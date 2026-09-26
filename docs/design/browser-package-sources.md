@@ -168,8 +168,10 @@ The published `PCLStorage` 1.0.2 fixture gates ordinary real-package admission;
 focused synthetic archives gate empty and malformed input, missing and
 duplicate root manifests, configured bounds, exact-coordinate mismatch,
 unsupported capabilities, snapshot identity, and fresh payload ownership.
-PackageHouse, Library Address, CLI, and Browser adoption are separately owned
-by #8672 and begin with the exact-source implementation tracked by #8673.
+They also gate typed deadline outcomes and cancellation through payload
+consumption. PackageHouse, Library Address, CLI, and Browser adoption are
+separately owned by #8672 and begin with the exact-source implementation
+tracked by #8673.
 
 ## NuGetFetch typed source-result identity
 

@@ -323,28 +323,28 @@ internal sealed class ExactPackageArchiveSourceClient(
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        using NuGetOperationDeadline operation =
-            CreateOperation(cancellationToken, operationContext);
-        operation.ThrowIfExpired();
-        if (coordinate != archive.Coordinate)
-        {
-            return Task.FromResult(
-                results.FailedManifest(
-                    coordinate,
-                    PackageSourceFailureKind.NotFound));
-        }
-
-        PackageSourceManifest manifest = results.Manifest(
+        return PackageSourceOperation.CaptureManifestAsync(
+            results,
             coordinate,
-            archive.Manifest);
-        operation.ThrowIfExpired();
-        return Task.FromResult(
-            results.SucceededManifest(
-                coordinate,
-                manifest));
+            () =>
+            {
+                using NuGetOperationDeadline operation =
+                    CreateOperation(cancellationToken, operationContext);
+                operation.ThrowIfExpired();
+                if (coordinate != archive.Coordinate)
+                    throw new LocalPackageSourceNotFoundException();
+
+                PackageSourceManifest manifest = results.Manifest(
+                    coordinate,
+                    archive.Manifest);
+                operation.ThrowIfExpired();
+                return Task.FromResult(manifest);
+            },
+            cancellationToken,
+            operationContext);
     }
 
-    public Task<PackageSourceOperationResult<PackageSourcePayload>>
+    public async Task<PackageSourceOperationResult<PackageSourcePayload>>
         GetPackageAsync(
         string packageId,
         string version,
@@ -353,36 +353,58 @@ internal sealed class ExactPackageArchiveSourceClient(
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        using NuGetOperationDeadline operation =
-            CreateOperation(cancellationToken, operationContext);
-        operation.ThrowIfExpired();
-        if (coordinate != archive.Coordinate)
-        {
-            return Task.FromResult(
-                results.FailedPackage(
-                    coordinate,
-                    PackageSourceFailureKind.NotFound));
-        }
+        return await PackageSourceOperation.CapturePackageAsync(
+            results,
+            coordinate,
+            () =>
+            {
+                NuGetOperationDeadline? operation =
+                    CreateOperation(cancellationToken, operationContext);
+                try
+                {
+                    operation.ThrowIfExpired();
+                    if (coordinate != archive.Coordinate)
+                        throw new LocalPackageSourceNotFoundException();
 
-        var stream = new MemoryStream(content, writable: false);
-        try
-        {
-            PackageSourcePayload payload = results.Payload(
-                coordinate,
-                PackageSourcePayloadKind.Package,
-                stream,
-                content.LongLength);
-            operation.ThrowIfExpired();
-            return Task.FromResult(
-                results.SucceededPackage(
-                    coordinate,
-                    payload));
-        }
-        catch
-        {
-            stream.Dispose();
-            throw;
-        }
+                    var archiveStream =
+                        new MemoryStream(content, writable: false);
+                    Stream payloadStream;
+                    try
+                    {
+                        payloadStream = new LocalPackagePayloadStream(
+                            archiveStream,
+                            operation,
+                            Source);
+                    }
+                    catch
+                    {
+                        archiveStream.Dispose();
+                        throw;
+                    }
+
+                    try
+                    {
+                        PackageSourcePayload payload = results.Payload(
+                            coordinate,
+                            PackageSourcePayloadKind.Package,
+                            payloadStream,
+                            content.LongLength);
+                        operation = null;
+                        return Task.FromResult(payload);
+                    }
+                    catch
+                    {
+                        payloadStream.Dispose();
+                        throw;
+                    }
+                }
+                finally
+                {
+                    operation?.Dispose();
+                }
+            },
+            cancellationToken,
+            operationContext).ConfigureAwait(false);
     }
 
     public Task<PackageSourceOperationResult<PackageSourcePayload>>
@@ -394,13 +416,19 @@ internal sealed class ExactPackageArchiveSourceClient(
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        using NuGetOperationDeadline operation =
-            CreateOperation(cancellationToken, operationContext);
-        operation.ThrowIfExpired();
-        return Task.FromResult(
-            results.FailedSymbols(
-                coordinate,
-                PackageSourceFailureKind.Unsupported));
+        return PackageSourceOperation.CaptureSymbolsAsync(
+            results,
+            coordinate,
+            () =>
+            {
+                using NuGetOperationDeadline operation =
+                    CreateOperation(cancellationToken, operationContext);
+                operation.ThrowIfExpired();
+                return Task.FromException<PackageSourcePayload>(
+                    new NuGetSourceCapabilityUnavailableException());
+            },
+            cancellationToken,
+            operationContext);
     }
 
     public void Dispose()
