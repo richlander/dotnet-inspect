@@ -271,6 +271,35 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task ProjectAnalysisSkill_ProvidesConcreteWorkflowCatalog()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("project-analysis")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("## 1. Supply-chain dossier", output);
+        Assert.Contains("## 2. Dependency neighborhood", output);
+        Assert.Contains("## 3. Architecture and implementation map", output);
+        Assert.Contains("## 4. Performance leverage", output);
+        Assert.Contains("## 5. Upgrade impact", output);
+        Assert.Contains("## 6. Ecosystem integration", output);
+        Assert.Contains("skill signals", output);
+        Assert.Contains("skill relationships", output);
+        Assert.Contains("skill performance", output);
+        Assert.Contains("skill compatibility", output);
+        Assert.Contains("-S Changes", output);
+        Assert.Contains("`unclassified`", output);
+        Assert.Contains("-D --details", output);
+        Assert.Contains("-Q", output);
+        Assert.Contains("--envelope", output);
+        Assert.Contains("--share url", output);
+        Assert.Contains("The local package cache does not prove", output);
+        Assert.Contains("#7916", output);
+        Assert.Contains("#8406", output);
+        Assert.Contains("#8517", output);
+    }
+
+    [Fact]
     public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(

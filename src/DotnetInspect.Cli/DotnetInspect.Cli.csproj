@@ -79,6 +79,7 @@
     <EmbeddedResource Include="../../skills/decompiler/SKILL.md" LogicalName="dotnet-inspect.skills.decompiler.md" />
     <EmbeddedResource Include="../../skills/performance/SKILL.md" LogicalName="dotnet-inspect.skills.performance.md" />
     <EmbeddedResource Include="../../skills/relationships/SKILL.md" LogicalName="dotnet-inspect.skills.relationships.md" />
+    <EmbeddedResource Include="../../skills/project-analysis/SKILL.md" LogicalName="dotnet-inspect.skills.project-analysis.md" />
   </ItemGroup>
 
   <ItemGroup>
