@@ -82,8 +82,22 @@ implementation led both Npgsql shapes on both runtimes; short CoreCLR remained
 Publishing the actual NativeAOT CLI with each implementation produced
 identically sized 127,086,680-byte executables and identical section sizes
 because existing product paths already root the platform implementation. These
-local results select the line-search strategy for the measured Source path
-without claiming a universal latency win or Browser/Wasm performance.
+local results select the line-search strategy for the measured desktop Source
+path without claiming a universal latency win.
+
+A separate production Mono/Wasm comparison on `fernie` used the same 31-sample
+fresh-process method under Node 24.11. For the first pull, the
+SearchValues/scalar ratios were 1.013 for the short document, 0.982 for one
+future-policy Npgsql segment, and 1.051 for the complete Npgsql document. At
+ten pulls they were 1.022, 0.997, and 0.922 respectively. This does not
+establish a first-pull Wasm speedup; it shows parity for the demand-driven
+segment and a benefit only after repeated complete-document work.
+
+The actual published Inspect Web variants had identical uncompressed
+`dotnet.native.wasm`, `System.Private.CoreLib.wasm`, `Inspector.Text.wasm`, and
+other managed Wasm file sizes. Their complete precompressed site directories
+differed by 2,110 bytes amid build-wide compressed-file variation, so no
+product payload increase was attributable to this use of `SearchValues<char>`.
 
 The deliberate difference from an enumerable is an explicit, document-bound
 restart position. No iterator, stream, callback, or borrowed input buffer
