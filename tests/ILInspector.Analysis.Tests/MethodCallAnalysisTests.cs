@@ -338,6 +338,29 @@ public sealed class MethodCallAnalysisTests
     }
 
     [Fact]
+    public void
+        DirectCallProjectionSkipsMalformedFunctionPointerBeforeInvocation()
+    {
+        byte[] il =
+        [
+            0xFE, 0x06, 0x02, 0x00, 0x00, 0x0A,
+            0x26,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+
+        MethodCallAnalysis.CollectDirectCalls(
+            Context(il),
+            new Resolver(throwOnSecondMember: true),
+            calls);
+
+        DirectCall call = Assert.Single(calls);
+        Assert.Equal(FirstToken, call.OperandToken);
+        Assert.Equal(CallKind.Call, call.Kind);
+    }
+
+    [Fact]
     public void CollectsFirstArgumentStringLiteral()
     {
         var userStrings = new Dictionary<int, string>

@@ -63,7 +63,8 @@ internal static partial class MethodCallAnalysis
             calls,
             unsafeEvidence: null,
             includeIndirectOpcodes: false,
-            includeCallValueFlow: false);
+            includeCallValueFlow: false,
+            includeNonInvocationSites: false);
 
     /// <summary>
     /// Appends results incrementally so calls and safety evidence emitted before
@@ -94,6 +95,7 @@ internal static partial class MethodCallAnalysis
             unsafeEvidence,
             includeIndirectOpcodes,
             includeCallValueFlow,
+            includeNonInvocationSites: true,
             privateReceiverSources,
             resultSinks,
             fieldStores,
@@ -111,6 +113,7 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<UnsafeEvidence>.Builder? unsafeEvidence,
         bool includeIndirectOpcodes,
         bool includeCallValueFlow,
+        bool includeNonInvocationSites,
         IDictionary<int, CallReceiverSource>? privateReceiverSources = null,
         ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
         ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
@@ -136,8 +139,10 @@ internal static partial class MethodCallAnalysis
                 case ILOpCode.Call:
                 case ILOpCode.Callvirt:
                 case ILOpCode.Newobj:
-                case ILOpCode.Ldftn:
-                case ILOpCode.Ldvirtftn:
+                case ILOpCode.Ldftn
+                    when includeNonInvocationSites:
+                case ILOpCode.Ldvirtftn
+                    when includeNonInvocationSites:
                 {
                     int token =
                         MethodInstructionFacts.OperandInt32(instruction);
@@ -187,6 +192,8 @@ internal static partial class MethodCallAnalysis
                 }
                 case ILOpCode.Calli:
                 {
+                    if (!includeNonInvocationSites)
+                        break;
                     int token =
                         MethodInstructionFacts.OperandInt32(instruction);
                     calls.Add(new DirectCall(
