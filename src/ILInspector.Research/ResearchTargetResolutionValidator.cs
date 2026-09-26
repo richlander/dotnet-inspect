@@ -1216,8 +1216,7 @@ static class ResearchTargetResolutionValidator
             "A resolved outcome retains the exact anchor of its target.");
 
         LibraryBodyModuleIdentity expectedModule =
-            ((ImplementationComparisonInputOccurrence)input.Occurrence)
-                .MethodPopulation.ModuleIdentity;
+            input.Occurrence.TargetEvidence.MethodPopulation.ModuleIdentity;
         Require(
             ReferenceEquals(resolved.Module, expectedModule)
                 && resolved.Module.AssemblyIdentity is not null,
@@ -1275,15 +1274,9 @@ static class ResearchTargetResolutionValidator
         out ResearchTargetBodyIdentity? identity)
     {
         identity = null;
-        if (input.Occurrence
-            is not ImplementationComparisonInputOccurrence occurrence)
-        {
-            return false;
-        }
-
         MethodIdentity? method = null;
         foreach (MethodIdentity candidate
-            in occurrence.MethodPopulation.DeclaredMethods)
+            in input.Occurrence.TargetEvidence.MethodPopulation.DeclaredMethods)
         {
             if (candidate.MetadataToken != metadataToken)
                 continue;
@@ -1457,8 +1450,7 @@ static class ResearchTargetResolutionValidator
         ResearchTargetInputValidationEvidence evidence,
         ResearchAdmittedInput input)
     {
-        var occurrence =
-            (ImplementationComparisonInputOccurrence)input.Occurrence;
+        ResearchTargetEvidence occurrence = input.Occurrence.TargetEvidence;
         LibraryBodyModuleIdentity analysis =
             occurrence.MethodPopulation.ModuleIdentity;
         if (!evidence.IsAssembly)

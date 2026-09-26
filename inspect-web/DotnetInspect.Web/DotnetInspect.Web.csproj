@@ -26,19 +26,19 @@
     -->
     <AdditionalFiles Include="BannedSymbols.txt" />
     <ProjectReference Include="..\..\src\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
     <!--
       The host references every capability export assembly. That is what lets the compiled
       InspectWebJsExportContext name all eight roots without any reverse or sibling dependency,
       and what puts every facade's WebCIL assembly in the published browser app.
     -->
-    <ProjectReference Include="..\DotnetInspect.Web.Interop.Package\DotnetInspect.Web.Interop.Package.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web.Interop.Library\DotnetInspect.Web.Interop.Library.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web.Interop.Metadata\DotnetInspect.Web.Interop.Metadata.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web.Interop.Analysis\DotnetInspect.Web.Interop.Analysis.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web.Interop.Source\DotnetInspect.Web.Interop.Source.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web.Interop.CallGraph\DotnetInspect.Web.Interop.CallGraph.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web.Interop.Catalog\DotnetInspect.Web.Interop.Catalog.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Interop.Package\DotnetInspect.Web.Interop.Package.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Interop.Library\DotnetInspect.Web.Interop.Library.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Interop.Metadata\DotnetInspect.Web.Interop.Metadata.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Interop.Analysis\DotnetInspect.Web.Interop.Analysis.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Interop.Source\DotnetInspect.Web.Interop.Source.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Interop.CallGraph\DotnetInspect.Web.Interop.CallGraph.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web.Interop.Catalog\DotnetInspect.Web.Interop.Catalog.csproj" />
     <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Package" />
     <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Library" />
     <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Metadata" />

@@ -5,7 +5,7 @@
 This document is the normative owner for the Inspect Web implementation-profile
 experience in [issue #7250](https://github.com/richlander/dotnet-inspect/issues/7250).
 It owns Browser acquisition, family-result caching, overload-family
-projection, interactive presentation, and visible state transitions.
+projection, member-list presentation, and visible state transitions.
 
 The host-neutral analysis and public-API correspondence are already owned by
 `ImplementationProfileFamilyInspectionOperation` and
@@ -14,13 +14,26 @@ completed `InspectionEnvelope<TContent>` without redefining exact family
 selection, implementation metrics, overload relationships, generated-body
 correspondence, API identity, participant selection, or diagnostics.
 
+This revision replaces the separate Implementation Profiles Member section.
+Implementation evidence is now part of the member list, where the reader
+already compares overloads.
+
 ## Claim
 
-An explicit Implementation Profiles gesture on an overloaded Member family
-loads one exact family inspection and presents family-relative implementation
-magnitude without claiming a universal complexity score or an inferred
-overload role. The Browser does not analyze or transport unrelated methods in
-the same Library.
+When the member list expands an overloaded method family, it shows which
+overloads carry the most code and which overloads are hubs the others call.
+Two channels carry that claim:
+
+- **Heat**: a tint whose strength follows each overload's instruction count
+  relative to the largest same-name method body on the declaring Type,
+  including non-public methods.
+- **Hub strip**: a marker on an overload that sibling overloads call and that
+  calls no same-name method itself.
+
+Heat is a family-relative size cue, not a complexity score. The hub strip is
+derived only from owner-issued call relationships, never from names,
+signatures, or size. The Browser does not analyze or transport unrelated
+methods in the same Library.
 
 The experience preserves the owner-issued logical Member anchor, physical body
 identity, raw measurements, exact sibling-call relationships, coverage,
@@ -43,19 +56,48 @@ This owner composes existing contracts by their issued currencies:
   identity, replacement, stale-publication suppression, and quiescence.
 - `docs/design/progressive-disclosure.md` owns the requirement that unbounded
   implementation analysis remain explicit rather than default navigation work.
+- `docs/design/cli-member-implementation-profiles.md` owns the CLI
+  `Member Metrics` consumer of the same family operation. Its contract does
+  not change.
 
-This design does not change any adjacent contract. The Analysis facade lowers
-the completed host-neutral envelope to an assembly-local generated wire
-contract. The Browser joins only owner-issued method tokens, module identities,
-Type definition IDs, stable Member selectors, and exact Library coordinates.
+This design transfers one claim to the family query: an available family
+result also carries a separate **analyzed-family record** covering every
+same-name method declared on the Type, regardless of accessibility. The record
+has its own profiles, relationships, coverage, and diagnostics, computed over
+the whole analyzed family.
+
+The existing result is unchanged. Its roster profiles, including their
+incoming and outgoing sibling counts, its relationships, its coverage, and its
+diagnostics are exactly what the roster-scoped analysis produces today; no
+analyzed-only body is decoded into them and no analyzed-only diagnostic enters
+them. A consumer that reads only the existing result, such as the CLI
+`Member Metrics` rows and diagnostic channel, is unaffected without
+refiltering. This design changes no other adjacent contract.
+
+The Analysis facade lowers the completed host-neutral envelope, including the
+analyzed-family record, to an assembly-local generated wire contract. The
+Browser joins only owner-issued method tokens, module identities, Type
+definition IDs, stable Member selectors, and exact Library coordinates.
 
 ## Supported scope
 
-The first production experience is a Member section for a public API group with
-multiple method overloads. It supports package implementation assets and
-platform implementation assemblies. Uploaded standalone Libraries are outside
-this slice because they do not yet participate in the same retained Browser
-workspace and Analysis facade path.
+The production experience is the member list's expanded overload rows for a
+public API group with multiple method overloads. It supports package
+implementation assets and platform implementation assemblies. Uploaded
+standalone Libraries are outside this slice because they do not yet
+participate in the same retained Browser workspace and Analysis facade path.
+
+Two sets are distinct:
+
+- the **public roster** is the listed overloads; only these are rows; and
+- the **analyzed family** is every same-name method declared on the Type,
+  regardless of accessibility.
+
+Heat and hub derivation read only the analyzed-family record. Non-public
+methods are never rows and never show heat or a hub strip, but they set the
+family maximum and take part in call relationships. A public overload is
+therefore not presented as large when a non-public implementation dwarfs it,
+and a public forwarder into a non-public method is never a hub.
 
 Library- and Type-level ranked lists remain future consumers that require their
 own proportional query contracts. This slice does not add those surfaces and
@@ -63,27 +105,43 @@ does not make their acquisition, ordering, or filtering normative.
 
 ## Activation and acquisition
 
-Ordinary package acquisition, API loading, Type navigation, Member navigation,
-overload selection, and first paint perform no implementation-profile work.
-The Browser starts acquisition only after the user selects the Implementation
-Profiles Member section or explicitly retries that section.
+The member list is built in two passes:
 
-Retaining a Member section while navigating does not authorize acquisition for
-a new overload family. The Browser keeps Implementation Profiles selected only
-when the destination exact-family request already has an in-flight, settled, or
-producer-failed cache entry from an earlier explicit activation. Otherwise
-ordinary Member navigation falls back to Overview. Returning to a previously
-activated family may restore or reuse its exact cached state.
+1. The Browser loads and paints the Type's members from the API surface.
+   Package acquisition, API loading, Type navigation, and this first paint
+   issue no implementation-profile request.
+2. When an eligible overload family is expanded in the member navigation
+   list, and not before the list's first paint, the Browser requests that one
+   family's profiles and annotates its nested overload rows when the result
+   publishes.
 
-One request names one exact implementation participant and public overload
-family:
+The family query declares `InspectionCost.Unbounded`, which requires an
+explicit request. Expanding a family is that request, made once per family by
+the user; the Browser never requests a family that has not been expanded.
+Heat appears only on expanded overload rows, so profiling unexpanded families
+would add work without anything to show.
+
+The Browser bounds the second pass:
+
+- at most one family request is in flight;
+- the member navigation list expands only the selected family, so at most
+  one family is expanded at a time; when another family is expanded while one
+  is in flight, the in-flight request may settle its cache entry, and only the
+  most recently expanded family is queued behind it; intermediate families,
+  which are no longer expanded, are dropped;
+- rows render immediately without heat, and heat appears when the family's
+  result publishes; and
+- a producer-failed family is not retried by navigation. Retry is explicit.
+
+One request names one exact implementation participant and family:
 
 - a package request uses package ID, package version, target framework, and the
   exact selected implementation Library asset identity;
 - a platform request uses framework, platform version, platform pack, and
   assembly file name; and
 - both routes carry one metadata Type definition ID and the complete set of
-  stable Member selectors for the public method family.
+  stable Member selectors for the public roster; the query derives the
+  analyzed family from them.
 
 The Analysis JSExport operation opens that participant and invokes
 `ImplementationProfileFamilyInspectionOperation`. Unknown, duplicate, partial,
@@ -92,9 +150,9 @@ whole-Library analysis. The wire result preserves the completed envelope:
 
 - Content outcome: available, participant rejected, or participant failed;
 - available Content: subject identity, the complete public overload roster,
-  profiles, public Member anchors, scoped coverage, contained overload
-  relationships, generated framework Types, Analysis diagnostics, and
-  API-surface failures;
+  profiles for the analyzed family, public Member anchors, scoped coverage,
+  contained overload relationships, generated framework Types, Analysis
+  diagnostics, and API-surface failures;
 - Share outcome; and
 - ordered inspection diagnostics.
 
@@ -167,10 +225,33 @@ async bodies are grouped under their logical overload but remain separate,
 named physical evidence rows. The family operation excludes unrelated and
 unattributed Library profiles before transport.
 
-The family is ordered by each overload's largest physical instruction count,
-descending. Ties preserve the public API roster order. Physical rows within an
-overload use the same descending order. Missing-body rows follow measured
-overloads in public API order.
+Each logical overload has one **size**: the largest instruction count among
+its attributed physical profiles. Generated bodies contribute to their logical
+overload's evidence but do not replace the logical body's own measurement when
+that body is available.
+
+The **family maximum** is the largest size in the analyzed-family record,
+including non-public methods. A method declared without a body, such as an
+abstract or extern method, has no size and does not affect the maximum; it is
+recorded as declared without a body, not as an unavailable body. When the
+record has an unavailable-body receipt or an incomplete profile for any
+analyzed method, the maximum is unknown and the family shows no heat.
+
+An overload is a **hub** when all of the following hold:
+
+- at least one owner-issued relationship has another analyzed-family method as
+  its caller and this overload as its callee;
+- no owner-issued relationship has any of this overload's physical bodies as
+  its caller and another analyzed-family method as its callee; and
+- every attributed physical profile is complete.
+
+These conditions use the analyzed-family record's relationships. Hub state is
+shown for an overload whose own profiles are complete even when another
+analyzed body is incomplete: a missing relationship from an incomplete body
+can only withhold a hub strip, never add one.
+
+The member list keeps public API roster order. Heat and hub state annotate
+rows; they never reorder them.
 
 An overload with no attributed physical profile remains visible in the family
 roster as a no-body or unavailable row. A successful available Library
@@ -180,62 +261,89 @@ incomplete.
 
 ## Presentation
 
-Implementation Profiles is a family-level Member section. It is available for
-eligible package and platform overload groups before an individual overload is
-selected. Selecting a concrete overload may highlight that overload but does
-not narrow the family result.
+### Overload rows
 
-The primary visual cue is physical instruction count normalized only against
-the largest physical body in the selected family. It is labeled in text and
-does not rely on color. Distinct opcode count and structural facts are separate
-textual channels rather than ingredients in a hidden scalar score.
+The member navigation list shows an expanded family as its parent member row
+followed by nested overload rows. Heat and the hub strip annotate those nested
+rows; the parent row carries family-level state.
 
-Each physical row provides:
+The target nested-row label is the member name and its parameter types in C#
+spelling without namespace qualification, for example
+`Parse(ReadOnlySequence<byte>, JsonDocumentOptions)`, omitting the return type
+and parameter names. That compact label is owned by a separate
+member-surface-producer design; the Browser does not derive it by editing the
+rendered signature. Until the producer issues it, nested rows keep the
+existing signature text, and heat and the hub strip do not depend on it.
 
-- a relative instruction-count bar and numeric instruction count;
-- logical versus physical identity when they differ;
-- compact badges for branches, loops, exception regions, async, unsafe, and
-  Reflection;
-- exact incoming and outgoing sibling-overload relationship counts; and
-- progressive disclosure of every raw metric, incomplete reason, and matching
-  exact relationship.
+### Heat
 
-Every owner-issued unavailable-body receipt remains visible in the incomplete
-coverage disclosure, including when no successful profile supplies enough
-membership evidence to associate it with one logical overload. When the
-owner-issued body tokens do support row association, the overload also shows
-the unavailable receipt even if another physical profile is available.
+Heat applies only to overloads whose size is at least half the family
+maximum. Every other row is untinted.
 
-The Browser omits relative bars when comparison would add noise: fewer than two
-physical rows, or every row has at most eight instructions with no branches,
-loops, exception regions, unsafe evidence, or Reflection evidence. The raw
-measurements remain available.
+- The tint is anchored on the right edge of the row and fades toward the left,
+  leaving the left edge for hover and selection.
+- Strength follows `t = sqrt(size / family maximum)`. Lightness, chroma,
+  and the distance the tint reaches into the row all rise with `t`, so reach
+  is a non-color channel for the same fact.
+- The tint is one hue from a theme-owned token ramp, distinct from the
+  selection accent. Each theme defines its own ramp endpoints; the tint fades
+  to the same hue at zero alpha rather than to a painted surface, so hover and
+  selection backgrounds remain visible under it.
+
+The Browser shows no heat when comparison would add noise: fewer than two
+measured bodies in the analyzed family, or every analyzed body has at most eight
+instructions with no branches, loops, exception regions, unsafe evidence, or
+Reflection evidence.
+
+### Hub strip
+
+A hub overload shows a narrow strip in the row's left gutter, using a
+theme-owned hub token. Heat and the hub strip are independent: a hub may be
+untinted and a heated overload may not be a hub. A family may have neither;
+for example, every public `JsonDocument.Parse` overload forwards to a
+non-public method and is smaller than half of the non-public implementation.
+
+### Accessible description
+
+Each heated or hub row carries an accessible description with its instruction
+count, its share of the family maximum, whether that maximum belongs to a
+non-public method, and, for a hub, how many
+sibling overloads call it. Neither channel relies on color alone.
+
+### Detail
+
+Selecting an overload shows its implementation evidence in the Member detail:
+instruction count, the exact sibling relationships it makes and receives,
+structural badges, and progressive disclosure of every raw metric, incomplete
+reason, and unavailable-body receipt. The separate Implementation Profiles
+Member section is retired.
 
 The presentation uses host-specific HTML and CSS rather than Markout. The
-section is an interactive, replaceable Browser view with loading, retry,
-selection highlighting, and disclosure controls; no current CLI or
-multi-format consumer needs this rendering. The structured wire contract,
-rather than rendered HTML, is the reusable boundary.
-
-The UI does not label an overload as primary, core, adapter, forwarding,
-complex, risky, or severe. It does not compare values across Libraries and does
-not treat the relative bar as an intrinsic score.
+member list is an interactive Browser view; no current CLI or multi-format
+consumer needs this rendering. The structured wire contract, rather than
+rendered HTML, is the reusable boundary.
 
 ## Visible states
 
-The section distinguishes:
+The expanded family distinguishes:
 
-- **loading**: an exact family request is in flight;
-- **ready**: all displayed rows are complete and no relevant coverage failure
-  is present;
-- **ready but incomplete**: available rows are displayed with profile,
-  coverage, Analysis, API-surface, or envelope diagnostics;
+- **loading**: an exact family request is in flight or queued; rows render
+  without heat and the parent row shows a quiet progress cue;
+- **ready**: heat and hub state are shown and no relevant coverage failure is
+  present;
+- **ready but incomplete**: the analyzed-family record has an unavailable body
+  or incomplete profile; no heat is shown, hub strips are shown only for
+  overloads whose own evidence is complete, the parent row marks the family as
+  incomplete,
+  and the Member detail lists profile, coverage, Analysis, API-surface, or
+  envelope diagnostics;
 - **empty**: the completed available inspection has no applicable physical
   profiles and no evidence that the absence is incomplete;
-- **rejected or failed Content**: the owner-issued participant outcome and
-  diagnostics are shown;
-- **producer failed**: the Worker or facade call failed and an explicit Retry
-  action is shown; and
+- **rejected or failed Content**: the parent row marks heat as unavailable and
+  the Member detail shows the owner-issued participant outcome and
+  diagnostics;
+- **producer failed**: the parent row marks heat as unavailable and the Member
+  detail shows an explicit Retry action; and
 - **superseded**: no state is published because operation authority removed the
   view's publication right.
 
@@ -269,8 +377,8 @@ generated/local-function body. Deterministic synthetic fixture coverage remains
 responsible for rejected, failed, incomplete, bodyless, generated-body, retry,
 and stale-publication boundaries.
 
-Production-boundary measurements on .NET 11 RC1 and System.Text.Json 10.0.5
-recorded:
+Production-boundary measurements on .NET 11 RC1 and System.Text.Json 10.0.5,
+taken under the earlier public-only family definition, recorded:
 
 - `StringBuilder.AppendFormat`: 15 logical overloads, 16 physical profiles,
   10 overload relationships, 7.35 seconds in a fresh platform-export process,
@@ -280,35 +388,59 @@ recorded:
   and 19,510 serialized bytes.
 
 The platform result is therefore bounded to the requested family rather than
-the previous 64,716,704-byte whole-Library payload. The latency remains behind
-explicit activation and a visible loading state; ordinary package, Type,
-Member, and overload navigation does not start this operation.
+the previous 64,716,704-byte whole-Library payload. These figures predate the
+analyzed family and are re-measured when the family query adopts it.
+
+`System.Text.Json.JsonDocument.Parse` in package `System.Text.Json` version
+`10.0.5` is the no-hub scenario, reproduced by
+`dotnet-inspect member JsonDocument Parse --package System.Text.Json@10.0.5
+-S "Member Metrics" --all`. Its five public overloads measure 55, 44, 33, 9,
+and 8 instructions. Four of them call the non-public
+`Parse(ReadOnlyMemory<byte>, JsonReaderOptions, byte[],
+PooledByteBufferWriter, bool)` (37 instructions), and
+`Parse(string, JsonDocumentOptions)` calls the public
+`Parse(ReadOnlyMemory<char>, JsonDocumentOptions)`. The largest analyzed body
+is the non-public `Parse(ReadOnlySpan<byte>, JsonReaderOptions, ref
+MetadataDb, ref StackRowStack)` at 288 instructions. No public overload
+reaches half the family maximum, and every public overload calls a same-name
+method, so the family shows neither channel.
 
 ## Gates
 
 The following gates enforce this design:
 
-1. Analysis-facade projection tests compare package and platform wire results
+1. Family-query tests prove that the analyzed-family record for
+   `JsonDocument.Parse` includes its non-public same-name methods with
+   profiles, relationships, and coverage, and that the existing result is
+   unchanged. Newtonsoft.Json 13.0.3 `JsonConvert.ToString` pins the counts:
+   `ToString(string, char)` keeps `Incoming Overloads = 1` in the existing
+   result while two internal overloads call it in the analyzed-family record.
+   The existing CLI `Member Metrics` gates continue to pass unchanged.
+2. Analysis-facade projection tests compare package and platform wire results
    with the completed host-neutral envelope, including Content outcome, raw
    metrics, logical and physical tokens, public anchors, coverage,
    relationships, Share, and ordered diagnostics.
-2. Generated-facade ownership and ordinary Worker tests prove the complete
+3. Generated-facade ownership and ordinary Worker tests prove the complete
    typed result crosses the Analysis facade and Worker transport unchanged.
-3. Implementation-profile coordinator tests prove explicit activation,
-   exact-family-key single-flight caching, same-family reuse, cross-family
-   isolation, explicit retry, workspace replacement, and stale-publication
-   suppression through operation authority.
-4. Member composition, navigation, and vocabulary-exhaustiveness tests prove
-   the section is available for eligible package and platform overload groups,
-   works before overload selection, and restores through navigation state.
-5. Rendering and accessibility tests prove family-only normalization,
-   non-color labels, uniform-small-family suppression, raw metric disclosure,
-   generated-body separation, incomplete and empty distinctions, and retry
-   focus behavior.
-6. The Inspect Web authored typecheck, lint, build, and focused Browser tests
+4. Implementation-profile coordinator tests prove no request before the member
+   list's first paint, one request per expanded family and none for unexpanded
+   families, at most one request in flight with only the latest expansion
+   queued, exact-family-key single-flight caching, same-family reuse,
+   cross-family isolation, explicit retry, workspace replacement, and
+   stale-publication suppression through operation authority.
+5. Family-projection tests prove size, the family maximum, the
+   half-of-maximum heat threshold, noise suppression, and hub derivation
+   over `StringBuilder.AppendFormat` and `JsonDocument.Parse` evidence plus
+   synthetic incomplete, bodyless, generated-body, and non-public-callee
+   boundaries.
+6. Member-list rendering and accessibility tests prove roster order,
+   right-anchored heat, the hub strip,
+   accessible descriptions, and every visible state.
+7. The Inspect Web authored typecheck, lint, build, and focused Browser tests
    gate the production composition.
-7. The PR Demo records first-acquisition latency and confirms through
-   instrumentation that package acquisition, Type navigation, Member
-   navigation, and overload selection issue no profile request before the
-   explicit section gesture. Timing is observational evidence, not a stable CI
-   threshold.
+8. The PR Demo records the time from family expansion to heat for both
+   real-evidence families and confirms through instrumentation that package
+   acquisition, API loading, Type navigation, and first paint issue no
+   profile request, that only expanded families are requested, and that at
+   most one request is in flight. Timing is
+   observational evidence, not a stable CI threshold.

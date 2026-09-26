@@ -608,10 +608,10 @@ internal sealed class LibraryMethodAnalysisRunner(
         bool includeLocalThrows = plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
         if (plan.ImplementationMetrics
-                is { UsesPreContextExecution: true }
+                is { UsesFocusedExecution: true }
             && !includeMethodEvidence)
         {
-            return AnalyzePreContextImplementationMetrics(
+            return AnalyzeFocusedImplementationMetrics(
                 typeHandle,
                 typeDefinition,
                 typeSourceGenerated,
@@ -1029,6 +1029,41 @@ internal sealed class LibraryMethodAnalysisRunner(
                 result.ResourceOccurrenceContext = context;
             MethodInstructions methodInstructions =
                 context.Instructions;
+            ImplementationMetricAnalysisPlan? implementationMetricPlan =
+                plan.ImplementationMetrics;
+            bool measureInstructionShape =
+                includeImplementationProfiles
+                || implementationMetricPlan
+                    ?.IncludesInstructionShapeEvidence == true;
+            bool measureControlFlow =
+                includeImplementationProfiles
+                || implementationMetricPlan
+                    ?.IncludesControlFlowEvidence == true;
+            MethodImplementationContextMeasurements?
+                contextMeasurements = null;
+            if (metricBodyAdmitted
+                && (measureInstructionShape
+                    || measureControlFlow))
+            {
+                contextMeasurements =
+                    MethodImplementationProfileAnalysis
+                        .MeasureContext(
+                            context,
+                            measureInstructionShape,
+                            measureControlFlow);
+            }
+            if (implementationMetricPlan
+                    is { IncludesFocusedContextEvidence: true }
+                && contextMeasurements is { } focusedMeasurements
+                && metricBodyAdmitted)
+            {
+                result.ImplementationMetrics =
+                    CreateContextMetrics(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        focusedMeasurements);
+            }
             if (includeImplementationProfiles
                 && metricBodyAdmitted)
             {
@@ -1037,7 +1072,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                         context,
                         result.DeclaredMethod ?? caller,
                         il.Length,
-                        asyncBody is not null);
+                        asyncBody is not null,
+                        contextMeasurements
+                        ?? throw new InvalidOperationException(
+                            "Implementation profiles require context measurements."));
             }
             // Build allocation's Layer-1 indexes before other topic producers,
             // then keep every result and query bound to this exact context.
@@ -1393,7 +1431,7 @@ internal sealed class LibraryMethodAnalysisRunner(
         }
     }
 
-    LibraryMethodAnalysisResult AnalyzePreContextImplementationMetrics(
+    LibraryMethodAnalysisResult AnalyzeFocusedImplementationMetrics(
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition,
         bool typeSourceGenerated,
@@ -1524,7 +1562,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             ImplementationMetricAnalysisPlan metricPlan =
                 plan.ImplementationMetrics
                 ?? throw new InvalidOperationException(
-                    "Pre-context metric execution requires a metric plan.");
+                    "Focused metric execution requires a metric plan.");
             _implementationMetricWork
                 ?.ThrowIfMetricWorkExhausted(
                     caller.MetadataToken);
@@ -1537,7 +1575,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 _infrastructure.PeReader,
                 caller.MetadataToken);
             MethodBodyBlock? body =
-                metricPlan.IncludesLocalEvidence
+                metricPlan.RequiresLocalSignatureDecode
                     ? _infrastructure.PeReader.GetMethodBody(
                         methodDefinition.RelativeVirtualAddress)
                     : null;
@@ -1554,26 +1592,81 @@ internal sealed class LibraryMethodAnalysisRunner(
                         caller,
                         metadataBody);
             }
-            if (body is not null)
+            if (body is null)
+                return result;
+
+            LocalTypeDecodeResult localTypes;
+            try
+            {
+                using ImplementationMetricExecutionRecorder.StageAttempt?
+                    localDecode = StartMetricStage(
+                        plan,
+                        ImplementationMetricWorkStage
+                            .LocalSignatureDecode);
+                localTypes =
+                    DecodeLocalTypesWithStatus(
+                        body,
+                        scope);
+                localDecode?.Complete();
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                result.ImplementationMetricDiagnostic =
+                    new AnalysisDiagnostic(
+                        caller.MetadataToken,
+                        MethodLabel(
+                            typeHandle,
+                            methodHandle),
+                        $"{ex.GetType().Name}: {ex.Message}",
+                        SourceMethodToken:
+                            result.DeclaredSource?.MetadataToken,
+                        DeclaringType:
+                            caller.DeclaringType,
+                        SourceDeclaringType:
+                            result.DeclaredSource?.DeclaringType);
+                return result;
+            }
+            if (metricPlan.IncludesLocalEvidence)
+            {
+                result.ImplementationMetrics =
+                    CreateLocalMetrics(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        localTypes);
+            }
+            if (metricPlan.IncludesFocusedContextEvidence)
             {
                 try
                 {
                     using ImplementationMetricExecutionRecorder.StageAttempt?
-                        localDecode = StartMetricStage(
+                        contextConstruction = StartMetricStage(
                             plan,
                             ImplementationMetricWorkStage
-                                .LocalSignatureDecode);
-                    LocalTypeDecodeResult localTypes =
-                        DecodeLocalTypesWithStatus(
-                            body,
-                            scope);
-                    localDecode?.Complete();
+                                .CanonicalMethodContext);
+                    MethodBodyAnalysisContext context =
+                        MethodBodyAnalysisContext.Create(
+                            caller,
+                            metadataBody,
+                            localTypes.Types,
+                            localTypes.DeclaredCount,
+                            localTypes.IncompleteReason);
+                    contextConstruction?.Complete();
+                    MethodImplementationContextMeasurements measurements =
+                        MethodImplementationProfileAnalysis
+                            .MeasureContext(
+                                context,
+                                metricPlan
+                                    .IncludesInstructionShapeEvidence,
+                                metricPlan
+                                    .IncludesControlFlowEvidence);
                     result.ImplementationMetrics =
-                        CreateLocalMetrics(
+                        CreateContextMetrics(
                             result.ImplementationMetrics,
                             result.DeclaredMethod ?? caller,
                             caller,
-                            localTypes);
+                            measurements);
                 }
                 catch (Exception ex)
                     when (IsRecoverableMethodFailure(ex))
@@ -1670,6 +1763,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 ? body.IL.Length
                 : null,
             exceptionRegions,
+            null,
+            null,
             null);
     }
 
@@ -1689,8 +1784,32 @@ internal sealed class LibraryMethodAnalysisRunner(
                 evidenceMethod,
                 null,
                 null,
-                evidence)
+                evidence,
+                null,
+                null)
             : existing with { Locals = evidence };
+    }
+
+    static MethodImplementationMetricEvidence CreateContextMetrics(
+        MethodImplementationMetricEvidence? existing,
+        MethodIdentity method,
+        MethodIdentity evidenceMethod,
+        MethodImplementationContextMeasurements measurements)
+    {
+        return existing is null
+            ? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                null,
+                measurements.InstructionShape,
+                measurements.ControlFlow)
+            : existing with
+            {
+                InstructionShape = measurements.InstructionShape,
+                ControlFlow = measurements.ControlFlow,
+            };
     }
 
     LibraryMethodAnalysisResult AnalyzeLeakTriageMethod(

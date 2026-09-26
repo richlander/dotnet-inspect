@@ -155,9 +155,76 @@ public interface IPackageContentEntryManifest
     /// <summary>Gets one entry's declared expanded length.</summary>
     bool TryGetEntryLength(string relativePath, out long length);
 
-    /// <summary>Returns package entry paths and their declared expanded lengths.</summary>
-    IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths();
+    /// <summary>Creates a pull scanner over paths and declared expanded lengths.</summary>
+    PackageContentEntryScanner CreateEntryScanner();
 }
 
 /// <summary>One package entry's path and declared expanded length.</summary>
 public readonly record struct PackageContentEntry(string Path, long Length);
+
+/// <summary>
+/// Pulls package entries without requiring a complete detached snapshot.
+/// </summary>
+public abstract class PackageContentEntryScanner : IDisposable
+{
+    /// <summary>Advances to the next entry.</summary>
+    public abstract bool MoveNext(out PackageContentEntry entry);
+
+    /// <summary>Reads the remaining entries into a detached snapshot.</summary>
+    public IReadOnlyList<PackageContentEntry> ReadToEnd()
+    {
+        var entries = new List<PackageContentEntry>();
+        while (MoveNext(out PackageContentEntry entry))
+            entries.Add(entry);
+        return entries.AsReadOnly();
+    }
+
+    /// <summary>Creates a scanner over an existing snapshot.</summary>
+    public static PackageContentEntryScanner From(
+        IReadOnlyList<PackageContentEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        return new SnapshotScanner(entries);
+    }
+
+    /// <inheritdoc />
+    public virtual void Dispose()
+    {
+    }
+
+    private sealed class SnapshotScanner(
+        IReadOnlyList<PackageContentEntry> entries)
+        : PackageContentEntryScanner
+    {
+        private int _index;
+
+        public override bool MoveNext(out PackageContentEntry entry)
+        {
+            if (_index >= entries.Count)
+            {
+                entry = default;
+                return false;
+            }
+
+            entry = entries[_index++];
+            return true;
+        }
+    }
+}
+
+/// <summary>Snapshot adapters for pull-based package entry manifests.</summary>
+public static class PackageContentEntryManifestExtensions
+{
+    /// <summary>
+    /// Materializes package entry paths and their declared expanded lengths.
+    /// </summary>
+    public static IReadOnlyList<PackageContentEntry>
+        EnumerateEntriesWithLengths(
+        this IPackageContentEntryManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        using PackageContentEntryScanner scanner =
+            manifest.CreateEntryScanner();
+        return scanner.ReadToEnd();
+    }
+}

@@ -172,9 +172,16 @@ public record LibraryOptions : IProjectionOptions
     public bool TabularExplicitlySet { get; init; }
 
     /// <summary>
-    /// True when the user explicitly chose an output format via CLI flags.
+    /// True when the user chose an output format via CLI flags or an
+    /// environment default.
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// Environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
 
     /// <summary>
     /// Resolved output format.
@@ -402,5 +409,5 @@ public record LibraryOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
+    public bool IsRawOutput => EnvelopeOutput || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
 }

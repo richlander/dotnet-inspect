@@ -576,17 +576,20 @@ test.describe("published authored Source comparison transport", () => {
         .first();
       await buildValueOutline.click();
       await expect(selectedBody).toBeDisabled();
-      const selectedSourceOffset = async () =>
-        await applicationPage.evaluate(() => {
-          const source = document.querySelector<HTMLElement>(
-            ".type-explorer-source pre");
-          const selected = document.querySelector<HTMLElement>(
-            ".type-explorer-source [aria-current=\"true\"]");
-          if (source === null || selected === null)
-            throw new Error("Selected Type Explorer source declaration was not rendered.");
+      const selectedSource = applicationPage.locator(
+        ".type-explorer-source [aria-current=\"true\"]");
+      const selectedSourceOffset = async () => {
+        await expect(selectedSource).toBeVisible();
+        return await selectedSource.evaluate(selected => {
+          const source = selected
+            .closest(".type-explorer-source")
+            ?.querySelector<HTMLElement>("pre");
+          if (source === null || source === undefined)
+            throw new Error("Type Explorer source was not rendered.");
           return selected.getBoundingClientRect().top
             - source.getBoundingClientRect().top;
         });
+      };
       const buildValueOffset = await selectedSourceOffset();
       const staticMembers = applicationPage.getByRole("radio", {
         name: "Static",

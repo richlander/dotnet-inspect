@@ -402,9 +402,9 @@ public static partial class ImplementationDiff
 
     static void ValidateMethodPopulation(
         MetadataSource source,
-        LibraryCallGraphAnalysisResult callGraph)
+        LibraryCallGraphAnalysisResult methodPopulation)
     {
-        LibraryBodyModuleIdentity indexedModule = callGraph.ModuleIdentity;
+        LibraryBodyModuleIdentity indexedModule = methodPopulation.ModuleIdentity;
         AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
             ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
             : null;
@@ -421,7 +421,7 @@ public static partial class ImplementationDiff
         throw new ArgumentException(
             $"The call-graph Analysis result for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
             + $"assembly content '{source.AssemblyName}'.",
-            nameof(callGraph));
+            nameof(methodPopulation));
     }
 
     static void ValidateProfileAnalysis(

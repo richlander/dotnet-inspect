@@ -145,6 +145,9 @@ public partial class LibraryCommand
         WorkspaceContextLoadOptions? workspaceLoadOptions,
         CancellationToken cancellationToken = default)
     {
+        if (!ValidateLibraryMetricsTransport(options))
+            return 1;
+
         if (!LibrarySourceAdapter.TryBind(
                 options,
                 out LibrarySourceBinding? source,
@@ -516,6 +519,8 @@ public partial class LibraryCommand
             IncludeSections =
                 libraryMetricsSelection.Sections,
         };
+        if (!ValidateLibraryMetricsTransport(options))
+            return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -643,6 +648,7 @@ public partial class LibraryCommand
         if (options.JsonOutput
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
+            && !RequestsLibraryMetricsTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
                 options.IncludeSections))
@@ -1190,6 +1196,8 @@ public partial class LibraryCommand
                 {
                     return 1;
                 }
+                if (RequestsLibraryMetricsTransport(options))
+                    return WriteLibraryMetricsTransport(inspection, options);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1482,6 +1490,19 @@ public partial class LibraryCommand
                 {
                     return 1;
                 }
+                if (RequestsLibraryMetricsTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Complete Library Metrics JSON requires one "
+                                + "exact Library.");
+                        return 1;
+                    }
+                    return WriteLibraryMetricsTransport(
+                        inspections[0],
+                        options);
+                }
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -1692,6 +1713,8 @@ public partial class LibraryCommand
                 {
                     return 1;
                 }
+                if (RequestsLibraryMetricsTransport(options))
+                    return WriteLibraryMetricsTransport(inspection, options);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)

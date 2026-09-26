@@ -484,7 +484,7 @@ public static class LibrarySections
             InspectionQueryContext context)
         => ExecuteLibraryMetricsQuery(
             context.MetadataContext?.HasMetadata != false,
-            () => context.BodyAnalysis().ImplementationProfiles);
+            context.BodyAnalysis);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)
@@ -640,7 +640,7 @@ public static class LibrarySections
     internal static LibraryMetricsResult
         ExecuteLibraryMetricsQuery(
             bool hasMetadata,
-            Func<ILInspector.Analysis.LibraryImplementationProfileAnalysisResult>
+            Func<ILInspector.Analysis.LibraryBodyAnalysisExecution>
                 acquireAnalysis)
     {
         ArgumentNullException.ThrowIfNull(acquireAnalysis);
