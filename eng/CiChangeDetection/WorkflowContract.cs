@@ -103,6 +103,7 @@ internal static partial class WorkflowContract
 
         ValidateInspectWebTopology(jobs);
         ValidateInspectWebBrowser(jobs);
+        ValidateInspectWebManagedTests(jobs);
         ValidateInspectWebPublishedApplication(jobs);
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
@@ -338,6 +339,48 @@ internal static partial class WorkflowContract
             "run",
             "npm run test:browser -- --shard=${{ matrix.shard }}/2",
             "jobs.inspect-web-browser test step");
+    }
+
+    private static void ValidateInspectWebManagedTests(YamlMappingNode jobs)
+    {
+        YamlMappingNode managedTests =
+            GetRequiredMapping(jobs, "inspect-web-managed-tests", "jobs");
+        YamlSequenceNode steps = GetRequiredSequence(
+            managedTests,
+            "steps",
+            "jobs.inspect-web-managed-tests");
+        if (steps.Children.Count != 3)
+        {
+            throw new InvalidOperationException(
+                "jobs.inspect-web-managed-tests must contain only checkout, " +
+                "setup-dotnet, and the managed test step.");
+        }
+
+        YamlMappingNode testStep = RequireMapping(
+            steps.Children[2],
+            "jobs.inspect-web-managed-tests test step");
+        RequireExactKeys(
+            testStep,
+            ["name", "env", "run"],
+            "jobs.inspect-web-managed-tests test step");
+        RequireScalarValue(
+            testStep,
+            "name",
+            "Test browser engine",
+            "jobs.inspect-web-managed-tests test step");
+        RequireScalarValue(
+            GetRequiredMapping(
+                testStep,
+                "env",
+                "jobs.inspect-web-managed-tests test step"),
+            "MSBuildEnableWorkloadResolver",
+            "false",
+            "jobs.inspect-web-managed-tests test step.env");
+        RequireScalarValue(
+            testStep,
+            "run",
+            "dotnet run --project tests/DotnetInspect.Web.Tests -c Release",
+            "jobs.inspect-web-managed-tests test step");
     }
 
     private static void ValidateInspectWebPublishedApplication(

@@ -284,7 +284,7 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 | --- | --- |
 | Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version results, exact Type-local changed-Member identities and moved-member roles, exact asset mismatch, typed non-success, member-heavy bounds, cancellation, and generated JSON shape. |
 | Release `BrowserLibraryApiDiffEnvelopeParityTests` (Slow) | Authentic System.Text.Json 9.0.0-to-10.0.0 Library comparison: Browser Content, Share, and diagnostics agree with the shared terminal. |
-| Release `ProductionFacadeContextTests` and `generate-inspect-web-engine-facade.sh --check` | Existing Metadata facade exports and compiler-derived TypeScript transport. |
+| Release `ProductionFacadeContextTests`, `generated-facade-contract.test.ts`, and `generate-inspect-web-engine-facade.sh --check` | Existing Metadata facade exports and compiler-derived TypeScript transport. |
 | Node Library API Diff tests | Target resolution, request association, complete row rendering, exact identities, non-success, and stale completion suppression. |
 | Node ordinary Worker tests | Closed operation catalog, argument forwarding, cancellation forwarding, and bounded result transport. |
 | Published Firefox package-adoption gate | Real Gallery fixture acquisition through the generated facade and WebAssembly engine. |
