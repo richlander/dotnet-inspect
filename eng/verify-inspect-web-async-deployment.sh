@@ -189,6 +189,7 @@ runtime_pack_directory=$(
   "$dotnet" msbuild \
     "$repo_root/src/DotnetInspect.Web/DotnetInspect.Web.csproj" \
     -nologo \
+    -property:InspectWebIncludeFrontend=true \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
   | "$node" -e '
@@ -334,6 +335,7 @@ fi
   -t:GenerateRestoreGraphFile \
   -p:RestoreGraphOutputPath="$graph" \
   -p:Configuration=Release \
+  -p:InspectWebIncludeFrontend=true \
   -p:MSBuildEnableWorkloadResolver=false \
   "${graph_properties[@]}" \
   -nologo \
