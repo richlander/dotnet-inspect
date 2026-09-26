@@ -77,28 +77,31 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     }
 
     /// <summary>
-    /// Methods declared directly on one TypeDef with an exact name, in
-    /// metadata order and regardless of accessibility.
+    /// Methods declared on the same TypeDef as one MethodDef and sharing its
+    /// exact name, including that method, in metadata order and regardless
+    /// of accessibility.
     /// </summary>
-    public IReadOnlyList<MethodBodyMember> EnumerateMethodsNamed(
-        int typeDefinitionToken,
-        string name)
+    public IReadOnlyList<MethodBodyMember> EnumerateSameNameMethods(
+        int methodDefinitionToken)
     {
-        ArgumentException.ThrowIfNullOrEmpty(name);
         _ensureAlive();
-        EntityHandle handle = MetadataTokens.EntityHandle(typeDefinitionToken);
-        if (handle.Kind != HandleKind.TypeDefinition
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(methodDefinitionToken);
+        if (handle.Kind != HandleKind.MethodDefinition
             || MetadataTokens.GetRowNumber(handle) is var row
-                && (row < 1 || row > _reader.TypeDefinitions.Count))
+                && (row < 1 || row > _reader.MethodDefinitions.Count))
         {
             throw new ArgumentOutOfRangeException(
-                nameof(typeDefinitionToken),
-                $"Token 0x{typeDefinitionToken:X8} is not a TypeDef in "
+                nameof(methodDefinitionToken),
+                $"Token 0x{methodDefinitionToken:X8} is not a MethodDef in "
                     + "this image.");
         }
 
-        var type = _reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+        var selected =
+            _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+        var type = _reader.GetTypeDefinition(selected.GetDeclaringType());
         string typeName = _reader.GetFullTypeName(type);
+        string name = _reader.GetString(selected.Name);
         List<MethodBodyMember> methods = [];
         foreach (var methodHandle in type.GetMethods())
         {

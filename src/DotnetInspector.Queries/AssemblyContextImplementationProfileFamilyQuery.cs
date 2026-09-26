@@ -412,7 +412,7 @@ public static class AssemblyContextImplementationProfileFamilyQuery
         }
 
         ImmutableArray<ImplementationProfileAnalyzedMethod> analyzedMethods =
-            AnalyzedMethods(session, type, names[0], family);
+            AnalyzedMethods(session, family);
 
         return new SelectedFamily(
             [.. family.Select(candidate => candidate.PublicMember)],
@@ -438,36 +438,43 @@ public static class AssemblyContextImplementationProfileFamilyQuery
             ]);
     }
 
+    // Each roster member's own MethodDef names its declaring TypeDef, so an
+    // extension family attached to its extended Type is analyzed on the
+    // static classes that declare it rather than on the extended Type.
     static ImmutableArray<ImplementationProfileAnalyzedMethod>
         AnalyzedMethods(
             AssemblyInspectionSession session,
-            ApiType type,
-            string name,
             ImmutableArray<FamilyCandidate> family)
     {
-        if (type.MetadataToken is not { } typeToken)
-        {
-            throw new InspectionQueryException(
-                $"Public API Type '{AssemblyContextApiSurfaceQuery
-                    .MetadataTypeIdentity(type)}' has no metadata token for "
-                    + "implementation-profile family analysis.");
-        }
-
         Dictionary<int, ImplementationProfilePublicMember> roster = [];
         foreach (FamilyCandidate candidate in family)
         {
-            if (candidate.MemberToken is { } memberToken)
-                roster[memberToken] = candidate.PublicMember;
+            if (candidate.MemberToken is not { } memberToken)
+            {
+                throw new InspectionQueryException(
+                    $"Public API Member '{candidate.PublicMember
+                        .StableSelector}' has no metadata token for "
+                        + "implementation-profile family analysis.");
+            }
+            roster[memberToken] = candidate.PublicMember;
         }
-        return
-        [
-            .. session.MethodBodies
-                .EnumerateMethodsNamed(typeToken, name)
-                .Select(method => new ImplementationProfileAnalyzedMethod(
+
+        var methods =
+            new SortedDictionary<int, ImplementationProfileAnalyzedMethod>();
+        foreach (int memberToken in roster.Keys)
+        {
+            foreach (MethodBodyMember method
+                in session.MethodBodies.EnumerateSameNameMethods(memberToken))
+            {
+                methods.TryAdd(
                     method.MetadataToken,
-                    method.HasBody,
-                    roster.GetValueOrDefault(method.MetadataToken))),
-        ];
+                    new ImplementationProfileAnalyzedMethod(
+                        method.MetadataToken,
+                        method.HasBody,
+                        roster.GetValueOrDefault(method.MetadataToken)));
+            }
+        }
+        return [.. methods.Values];
     }
 
     static FamilyCandidate Candidate(

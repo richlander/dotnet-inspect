@@ -357,6 +357,53 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
             analyzedIncoming: 3);
     }
 
+    [Fact]
+    public async Task ExecuteParticipant_AnalyzesAttachedExtensionFamilyOnDeclaringType()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            RealAsset(
+                Path.Combine("PackageQueryReferences", "net10.0"),
+                "Microsoft.Extensions.Http.dll"));
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "IHttpClientBuilder",
+                "AddHttpMessageHandler");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        ImplementationProfileAnalyzedFamily analyzed = result.AnalyzedFamily;
+        Assert.Equal(
+            selection.StableSelectors.Order(StringComparer.Ordinal),
+            analyzed.Methods
+                .Where(method => method.PublicMember is not null)
+                .Select(method => method.PublicMember!.StableSelector)
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            analyzed.Profiles,
+            profile => Assert.Contains(
+                analyzed.Methods,
+                method =>
+                    method.MetadataToken
+                        == profile.Profile.Method.MetadataToken));
+        Assert.All(
+            analyzed.Profiles,
+            profile => Assert.Equal(
+                "HttpClientBuilderExtensions",
+                profile.Profile.Method.DeclaringType.Name));
+    }
+
     static void AssertHubCounts(
         AssemblyImplementationProfileFamilyInspection result,
         Func<MethodIdentity, bool> isHub,
