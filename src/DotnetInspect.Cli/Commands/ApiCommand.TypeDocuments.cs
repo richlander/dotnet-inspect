@@ -405,8 +405,6 @@ public partial class ApiCommand
                 typeAnalysis ??= ApiAnalysisInspection.OpenTypeAnalysis(
                     renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions,
                     acquisition?.SourceAssembly);
-            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                TypeAnalysis().CompatibilityIndex();
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
@@ -434,7 +432,7 @@ public partial class ApiCommand
                 && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes)
                     || renderOptions.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysis().CallGraph, renderOptions.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, renderOptions);
@@ -457,7 +455,7 @@ public partial class ApiCommand
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysis().Optimization, renderOptions.IncludeSections,
                     renderOptions.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
@@ -466,7 +464,7 @@ public partial class ApiCommand
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysis().Leverage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
@@ -503,7 +501,7 @@ public partial class ApiCommand
                                 type,
                                 renderOptions)
                             : type,
-                        TypeAnalysisIndex(),
+                        TypeAnalysis().ImplementationProfiles,
                                 renderOptions is MemberOptions,
                                 restrictToModelMembers:
                             restrictImplementationProfiles,

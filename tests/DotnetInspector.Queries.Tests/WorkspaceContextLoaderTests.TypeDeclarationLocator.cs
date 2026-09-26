@@ -73,6 +73,46 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task TypeLocator_NamespaceRequestsUseTypedNamespaceSemantics()
+    {
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext context = await LocatorContext(
+            workspace,
+            LocatorImage(
+                "Namespaces",
+                metadata =>
+                {
+                    LocatorDefinition(metadata, "N", "Widget");
+                    LocatorDefinition(metadata, "N.Child", "Nested");
+                    LocatorDefinition(metadata, "N2", "Other");
+                }));
+        TypeDeclarationLocatorResult.Evaluated result = Locate(
+            CaptureDeclarations(workspace, context),
+            new TypeDeclarationLocatorRequest.Namespace(
+                "N",
+                MetadataNamespaceMatch.Exact),
+            new TypeDeclarationLocatorRequest.Namespace(
+                "N",
+                MetadataNamespaceMatch.ExactOrDescendant),
+            new TypeDeclarationLocatorRequest.Namespace(
+                ".Child",
+                MetadataNamespaceMatch.Suffix));
+
+        Assert.Equal(
+            ["N.Widget"],
+            result.Answers[0].Candidates.Select(
+                candidate => candidate.Name.ToMetadataFullName()));
+        Assert.Equal(
+            ["N.Widget", "N.Child.Nested"],
+            result.Answers[1].Candidates.Select(
+                candidate => candidate.Name.ToMetadataFullName()));
+        Assert.Equal(
+            ["N.Child.Nested"],
+            result.Answers[2].Candidates.Select(
+                candidate => candidate.Name.ToMetadataFullName()));
+    }
+
+    [Fact]
     public async Task TypeLocator_PublicAndAllAreDistinctWithoutFallbackSearches()
     {
         await using var workspace = new InspectionWorkspace();
@@ -305,6 +345,51 @@ public sealed partial class WorkspaceContextLoaderTests
                 cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(TypeDeclarationLocatorRejectionKind.InvalidRequest, invalid.Kind);
         Assert.Equal(1, invalid.RequestIndex);
+        var invalidNamespace =
+            Assert.IsType<TypeDeclarationLocatorResult.Rejected>(
+                TypeDeclarationLocatorQuery.Execute(
+                    population,
+                    [
+                        new TypeDeclarationLocatorRequest.Namespace(
+                            " ",
+                            MetadataNamespaceMatch.Exact),
+                    ],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(
+            TypeDeclarationLocatorRejectionKind.InvalidRequest,
+            invalidNamespace.Kind);
+        Assert.Equal(0, invalidNamespace.RequestIndex);
+        var invalidNamespaceMatch =
+            Assert.IsType<TypeDeclarationLocatorResult.Rejected>(
+                TypeDeclarationLocatorQuery.Execute(
+                    population,
+                    [
+                        new TypeDeclarationLocatorRequest.Namespace(
+                            "N",
+                            (MetadataNamespaceMatch)int.MaxValue),
+                    ],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(
+            TypeDeclarationLocatorRejectionKind.InvalidRequest,
+            invalidNamespaceMatch.Kind);
+        Assert.Equal(0, invalidNamespaceMatch.RequestIndex);
+        var invalidNamespaceSuffix =
+            Assert.IsType<TypeDeclarationLocatorResult.Rejected>(
+                TypeDeclarationLocatorQuery.Execute(
+                    population,
+                    [
+                        new TypeDeclarationLocatorRequest.Namespace(
+                            "N",
+                            MetadataNamespaceMatch.Suffix),
+                    ],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(
+            TypeDeclarationLocatorRejectionKind.InvalidRequest,
+            invalidNamespaceSuffix.Kind);
+        Assert.Equal(0, invalidNamespaceSuffix.RequestIndex);
         Assert.Equal(TypeDeclarationLocatorRejectionKind.InvalidInventoryReadLimit,
             Assert.IsType<TypeDeclarationLocatorResult.Rejected>(
                 TypeDeclarationLocatorQuery.Execute(population, [new TypeDeclarationLocatorRequest.Pattern("*")],

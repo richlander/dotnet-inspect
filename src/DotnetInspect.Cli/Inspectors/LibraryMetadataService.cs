@@ -1721,7 +1721,7 @@ internal static class LibraryMetadataService
             method);
 
     // Overload that also treats members of structurally-detected generated framework types
-    // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypes) as generated, so their
+    // (protobuf/gRPC, see LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes) as generated, so their
     // thick static initializers and stubs are marked in Top Leverage and suppressed from
     // Performance Triage even though no [GeneratedCode] attribute is emitted.
     internal static bool IsGeneratedMethod(
@@ -1790,11 +1790,6 @@ internal static class LibraryMetadataService
             .ToHashSet();
 
     internal static void ReportOptimizationDiagnostics(
-        Analysis.LibraryBodyIndex index,
-        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
-        => ReportOptimizationDiagnostics(index.Diagnostics, include);
-
-    internal static void ReportOptimizationDiagnostics(
         IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
         Func<Analysis.AnalysisDiagnostic, bool>? include = null)
     {
@@ -1809,13 +1804,6 @@ internal static class LibraryMetadataService
                 + diagnostic.Message);
         }
     }
-
-    internal static void ReportImplementationProfileDiagnostics(
-        Analysis.LibraryBodyIndex index,
-        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
-        => ReportImplementationProfileDiagnostics(
-            index.Diagnostics,
-            include);
 
     internal static void ReportImplementationProfileDiagnostics(
         IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
@@ -2097,11 +2085,11 @@ internal static class LibraryMetadataService
     }
 
     internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryOptimizationAnalysisResult optimization,
         PerformanceTriageOptions? options)
         => options?.IncludesAllocationFanout == true
-            ? index.OptimizationOpportunities.Concat(index.AllocationFanoutOpportunities)
-            : index.OptimizationOpportunities;
+            ? optimization.Opportunities.Concat(optimization.AllocationFanoutOpportunities)
+            : optimization.Opportunities;
 
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;
