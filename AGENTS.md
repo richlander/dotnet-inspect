@@ -45,10 +45,8 @@ development model and rationale. The binding summary:
   filtering, counting, or limiting it is LINQ in QuerySpace clothing unless the
   owning design names that as a reference slice.
 - **Modernization must satisfy intent, not only structure.** Wiring modern
-  substrate while retaining legacy work or cost is incomplete adoption. Before
-  landing, report exact base/head NativeAOT performance for every supported
-  terminal, like Count; follow
-  [`docs/evidence-and-validation.md`](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
+  substrate while retaining legacy work or cost is incomplete adoption. Report exact
+  base/head NativeAOT performance for every supported terminal, like Count; follow [the evidence contract](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
 - **Choose rendering strategy deliberately.** Use Markout as the default
   host-neutral substrate for centralized, multi-format rendering, and call out
   host-specific rendering that bypasses it. Broad information domains such as
@@ -158,6 +156,10 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 - **Remove it and expire recorded merge authorization** before a new round,
   author change, conflict recovery, restack, base-ref retarget, unresolved
   finding, or draft transition — anything that spends the clean reviews.
+
+## User-directed workflow adjustments
+
+User adjustments cannot make failed validation green, make an unmergeable PR ready, or transfer fixed-head evidence; follow [the standing mechanics](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ## Before changing files
 
