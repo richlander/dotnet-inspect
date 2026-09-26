@@ -193,9 +193,17 @@ internal sealed record ImplementationMetricAnalysisPlan(
         EffectiveEvidence.HasFlag(
             ImplementationMetricEvidenceKind.ControlFlow);
 
+    internal bool IncludesDirectCallEvidence =>
+        EffectiveEvidence.HasFlag(
+            ImplementationMetricEvidenceKind.DirectCalls);
+
     internal bool IncludesFocusedContextEvidence =>
         (EffectiveEvidence & FocusedContextEvidence)
             != ImplementationMetricEvidenceKind.None;
+
+    internal bool RequiresCanonicalContext =>
+        WorkStages.HasFlag(
+            ImplementationMetricWorkStage.CanonicalMethodContext);
 
     internal bool RequiresLocalSignatureDecode =>
         WorkStages.HasFlag(
@@ -364,7 +372,8 @@ internal sealed record ImplementationMetricAnalysisPlan(
     const ImplementationMetricEvidenceKind FocusedEvidence =
         HeaderEvidence
         | ImplementationMetricEvidenceKind.Locals
-        | FocusedContextEvidence;
+        | FocusedContextEvidence
+        | ImplementationMetricEvidenceKind.DirectCalls;
 
     const ImplementationMetricEvidenceKind FocusedContextEvidence =
         ImplementationMetricEvidenceKind.InstructionShape

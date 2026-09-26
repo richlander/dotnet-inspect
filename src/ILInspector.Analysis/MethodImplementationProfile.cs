@@ -258,6 +258,11 @@ internal static class MethodImplementationProfileAnalysis
                         body.EvidenceMethod.MetadataToken,
                         out DirectCall[]? calls);
                     calls ??= [];
+                    ImplementationMetricDirectCalls directCallMetrics =
+                        MeasureDirectCalls(
+                            calls,
+                            methodMap,
+                            incompleteReason: null);
 
                     return new MethodImplementationProfile(
                         method,
@@ -276,10 +281,8 @@ internal static class MethodImplementationProfileAnalysis
                         body.FinallyCount,
                         body.FaultCount,
                         body.LocalCount,
-                        calls.Length,
-                        CountDistinctCallees(
-                            calls,
-                            methodMap),
+                        directCallMetrics.InvocationCount,
+                        directCallMetrics.DistinctTargetCount,
                         signal.Allocations,
                         signal.Throws,
                         body.IsAsync,
@@ -301,6 +304,21 @@ internal static class MethodImplementationProfileAnalysis
                 .ThenByDescending(static profile => profile.BasicBlockCount)
                 .ThenBy(static profile => profile.Method.MetadataToken),
         ];
+    }
+
+    internal static ImplementationMetricDirectCalls MeasureDirectCalls(
+        IEnumerable<DirectCall> calls,
+        MethodDefinitionMap methodMap,
+        string? incompleteReason)
+    {
+        DirectCall[] invocations =
+        [
+            .. calls.Where(static call => IsInvocation(call.Kind)),
+        ];
+        return new(
+            invocations.Length,
+            CountDistinctCallees(invocations, methodMap),
+            incompleteReason);
     }
 
     static int CountDistinctCallees(

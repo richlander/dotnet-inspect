@@ -310,6 +310,34 @@ public sealed class MethodCallAnalysisTests
     }
 
     [Fact]
+    public void
+        DirectCallProjectionSkipsMultiplicityAndPreservesPartialResults()
+    {
+        byte[] il =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x28, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+
+        Assert.Throws<BadImageFormatException>(() =>
+            MethodCallAnalysis.CollectDirectCalls(
+                Context(il),
+                new Resolver(
+                    unsafeMember: true,
+                    throwOnSecondMember: true),
+                calls));
+
+        DirectCall call = Assert.Single(calls);
+        Assert.Equal(FirstToken, call.OperandToken);
+        Assert.Equal(
+            AllocationMultiplicity.Unknown,
+            call.Multiplicity);
+        Assert.Equal(default, call.ResultUse);
+    }
+
+    [Fact]
     public void CollectsFirstArgumentStringLiteral()
     {
         var userStrings = new Dictionary<int, string>
