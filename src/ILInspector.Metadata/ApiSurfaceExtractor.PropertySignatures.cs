@@ -817,23 +817,45 @@ public static partial class ApiSurfaceExtractor
                     : null;
     }
 
-    private static MetadataTypeDefinitionName? GetFirstParameterDefinitionName(
+    internal static MetadataTypeDefinitionName? GetFirstParameterDefinitionName(
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition method)
     {
+        TryGetFirstParameterDefinitionName(
+            reader,
+            typeDef,
+            method,
+            out MetadataTypeDefinitionName? definition);
+        return definition;
+    }
+
+    private static bool TryGetFirstParameterDefinitionName(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        out MetadataTypeDefinitionName? definition,
+        bool requireExactlyOneParameter = false)
+    {
         var context = GenericContext.ForMethod(reader, typeDef, method);
-        MethodSignature<MetadataTypeDefinitionName?> signature =
-            GuardedProviderDecode.Method(
+        ExtensionReceiverDefinitionProvider provider =
+            ExtensionReceiverDefinitionProvider.Create(
+                DefinesPrimitiveTypes(reader));
+        GuardedProviderDecode.DecodeResult<
+            MethodSignature<MetadataTypeDefinitionName?>> decoded =
+            GuardedProviderDecode.MethodResult(
                 reader,
                 method,
-                DefinesPrimitiveTypes(reader)
-                    ? ExtensionReceiverDefinitionProvider.WithLocalPrimitives
-                    : ExtensionReceiverDefinitionProvider.WithoutLocalPrimitives,
+                provider,
                 context,
                 fallbackReturn: null);
-        return signature.ParameterTypes.Length > 0
-            ? signature.ParameterTypes[0]
+        int parameterCount = decoded.Value.ParameterTypes.Length;
+        definition = parameterCount > 0
+            ? decoded.Value.ParameterTypes[0]
             : null;
+        return !decoded.IsDegraded
+            && !provider.HasRejectedMetadata
+            && parameterCount > 0
+            && (!requireExactlyOneParameter || parameterCount == 1);
     }
 }

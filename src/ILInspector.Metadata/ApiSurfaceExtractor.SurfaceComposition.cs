@@ -686,20 +686,24 @@ public static partial class ApiSurfaceExtractor
         ExtensionReceiverDefinitionProvider(bool primitivesAreLocal) =>
             this.primitivesAreLocal = primitivesAreLocal;
 
-        public static ExtensionReceiverDefinitionProvider WithLocalPrimitives { get; } =
-            new(primitivesAreLocal: true);
+        public bool HasRejectedMetadata { get; private set; }
 
-        public static ExtensionReceiverDefinitionProvider WithoutLocalPrimitives { get; } =
-            new(primitivesAreLocal: false);
+        public static ExtensionReceiverDefinitionProvider Create(
+            bool primitivesAreLocal) =>
+            new(primitivesAreLocal);
 
         public MetadataTypeDefinitionName? GetTypeFromDefinition(
             MetadataReader reader,
             TypeDefinitionHandle handle,
             byte rawTypeKind)
-            => MetadataTypeDefinitionNameReader.Read(reader, handle)
-                is MetadataTypeDefinitionNameReadResult.Read read
-                    ? read.Name
-                    : null;
+        {
+            MetadataTypeDefinitionNameReadResult result =
+                MetadataTypeDefinitionNameReader.Read(reader, handle);
+            if (result is MetadataTypeDefinitionNameReadResult.Read read)
+                return read.Name;
+            HasRejectedMetadata = true;
+            return null;
+        }
 
         public MetadataTypeDefinitionName? GetTypeFromReference(
             MetadataReader reader,
@@ -715,16 +719,20 @@ public static partial class ApiSurfaceExtractor
                     rootToLeaf,
                     out _,
                     out EntityHandle terminal,
-                    out _)
-                || terminal.Kind != HandleKind.ModuleDefinition)
+                    out _))
             {
+                HasRejectedMetadata = true;
                 return null;
             }
+            if (terminal.Kind != HandleKind.ModuleDefinition)
+                return null;
 
-            return MetadataTypeDefinitionNameReader.Read(reader, handle)
-                is MetadataTypeDefinitionNameReadResult.Read read
-                    ? read.Name
-                    : null;
+            MetadataTypeDefinitionNameReadResult result =
+                MetadataTypeDefinitionNameReader.Read(reader, handle);
+            if (result is MetadataTypeDefinitionNameReadResult.Read read)
+                return read.Name;
+            HasRejectedMetadata = true;
+            return null;
         }
 
         public MetadataTypeDefinitionName? GetTypeFromSpecification(
@@ -734,7 +742,10 @@ public static partial class ApiSurfaceExtractor
             byte rawTypeKind)
         {
             if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            {
+                HasRejectedMetadata = true;
                 return null;
+            }
             using (scope)
                 return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
         }

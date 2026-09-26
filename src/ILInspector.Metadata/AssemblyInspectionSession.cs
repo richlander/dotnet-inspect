@@ -638,6 +638,22 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Executes one terminal-specific MemberGroup population request for an
+    /// exact TypeDef in this image.
+    /// </summary>
+    public AssemblyTypeMemberGroupPopulationOutcome TypeMemberGroups(
+        AssemblyTypeMemberGroupPopulationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return AssemblyTypeMemberGroupPopulationReader.Read(
+            _image.GetMetadataReader(),
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Reports whether this image declares one exact structured extension
     /// member identity.
     /// </summary>
