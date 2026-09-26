@@ -284,6 +284,11 @@ import {
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import {
+  bindDirectUseClusterInspection,
+  createDirectUseClusterInspectionController,
+  renderDirectUseClusterInspection,
+} from "./direct-use-cluster-inspection.ts";
+import {
   createDocumentInspectionCoordinator,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
@@ -839,6 +844,8 @@ let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
 let inspectMemberCallGraph:
   EngineClient["callGraph"]["queryMemberCallGraph"];
+let inspectDirectUseClusters:
+  EngineClient["callGraph"]["queryDirectUseClusters"];
 let inspectDecodeWorkspaceShareState:
   EngineClient["catalog"]["decodeWorkspaceShareState"];
 let inspectEncodeWorkspaceShareState:
@@ -994,6 +1001,7 @@ async function loadEngineModule() {
     } = engineClient.source);
     ({
       expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+      queryDirectUseClusters: inspectDirectUseClusters,
       queryMemberCallGraph: inspectMemberCallGraph,
     } = engineClient.callGraph);
     ({
@@ -1284,6 +1292,12 @@ const initialState = {
   memberCallGraphError: "",
   graphMemberNavigationError: "",
   memberCallGraphKey: "",
+  directUseClusterGraphKey: "",
+  directUseClusterBoundary: null,
+  directUseClusterResult: null,
+  directUseClusterLoading: false,
+  directUseClusterError: "",
+  directUseClusterSeq: 0,
   callGraphTraversalFramework: "net12.0",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
@@ -1415,6 +1429,11 @@ interface StateOverrides {
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
+  directUseClusterBoundary:
+    import("./call-graph-inspection.ts").InspectedCallGraphBoundary | null;
+  directUseClusterResult:
+    import("./facades/inspect-web-call-graph.d.ts").BrowserDirectUseClusterInspection
+    | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   platformDemoContextId: string | null;
@@ -1693,6 +1712,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packageMetadataLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
+  snapshotState.directUseClusterLoading = false;
   snapshotState.platformDrillLoading = false;
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
@@ -1722,6 +1742,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
+  snapshotState.directUseClusterSeq++;
   snapshotState.graphMemberNavigationSeq++;
 
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
@@ -1760,6 +1781,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 ) {
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
+  const directUseClusterSeq = state.directUseClusterSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
@@ -1769,6 +1791,8 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
     Math.max(typeMetadataGeneration, snapshot.state.typeMetadataGeneration) + 1;
   state.memberCallGraphSeq =
     Math.max(memberCallGraphSeq, snapshot.state.memberCallGraphSeq) + 1;
+  state.directUseClusterSeq =
+    Math.max(directUseClusterSeq, snapshot.state.directUseClusterSeq) + 1;
   state.graphMemberNavigationSeq =
     Math.max(graphMemberNavigationSeq, snapshot.state.graphMemberNavigationSeq) + 1;
   state.platformIndex = platformIndex;
@@ -1850,6 +1874,7 @@ function invalidateWorkspaceAsyncOwners(): void {
   memberDetailInspection.invalidate();
   invalidateGraphMemberNavigation();
   invalidateMemberCallGraphWork(state);
+  directUseClusterInspection.reset();
   packageInspection.invalidatePackageResults();
   clearWorkspaceOccurrenceView();
 }
@@ -3486,6 +3511,22 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     await renderMermaidCallGraph();
   },
 });
+const directUseClusterInspection =
+  createDirectUseClusterInspectionController({
+    state,
+    query: request => inspectDirectUseClusters(
+      request.sourcePackageId,
+      request.sourceVersion,
+      request.sourceFramework,
+      request.sourceAssembly,
+      request.targetPackageId,
+      request.targetVersion,
+      request.targetFramework,
+      request.targetAssembly,
+      request.selectedCluster),
+    describeError: errorMessage,
+    render,
+  });
 const documentInspection = createDocumentInspectionCoordinator({
   state,
   queryDocument: request => inspectPackageDocument(
@@ -9826,6 +9867,13 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const incompleteGraph = diagnosticsMessage
       ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
       : "";
+    const directUseClusters = active && !platformView
+      ? renderDirectUseClusterInspection(
+          active,
+          state.memberCallGraphKey,
+          state,
+          escapeHtml)
+      : "";
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building dependency-aware call graph…</h2><p>Resolving package dependencies under ${escapeHtml(state.callGraphTraversalFramework)} and scanning implementation IL.</p></section>`
       : active && active.noBody
@@ -9851,6 +9899,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             ${callGraphLegendHtml(supplyChainGraph)}
+            ${directUseClusters}
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
@@ -11257,6 +11306,23 @@ function bindEvents() {
   bindGraphBack(document, graphBackActions);
   bindGraphExplore(document, openGraphExplorer);
   bindCallGraphTraversalFramework();
+  bindDirectUseClusterInspection(document, {
+    selectBoundary: id => {
+      const graph = currentCallGraph();
+      const boundary = graph?.boundaries.find(item => item.id === id);
+      if (!graph || !boundary) return;
+      observeAsync(
+        directUseClusterInspection.selectBoundary(
+          state.memberCallGraphKey,
+          boundary),
+        "Inspecting a Library dependency boundary");
+    },
+    selectCluster: ordinal => {
+      observeAsync(
+        directUseClusterInspection.selectCluster(ordinal),
+        "Inspecting a Direct-Use Cluster");
+    },
+  });
   bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
@@ -11274,6 +11340,7 @@ function bindCallGraphTraversalFramework() {
     state.memberCallGraph = null;
     state.memberCallGraphError = "";
     state.graphMemberNavigationError = "";
+    directUseClusterInspection.reset();
     render();
     observeAsync(
       loadSelectedMemberCallGraph(),
@@ -17533,6 +17600,9 @@ async function loadSelectedMemberCallGraph() {
     memberRequestSignature(type, overload, true);
   const signature =
     `${memberSignature}|traversal:${traversalFramework}`;
+  if (state.memberCallGraphKey !== signature) {
+    directUseClusterInspection.reset();
+  }
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
   return callGraphInspection.load({
@@ -20127,6 +20197,7 @@ function applyProductHomeDemoSelection(
   state.packageLens = "overview";
   resetMemberFilters();
   resetMemberSectionState();
+  directUseClusterInspection.reset();
   state.platformStack = [];
   state.memberBrowseTypeId = member ? type.id : "";
   state.selectedMemberKey = member?.key ?? "";

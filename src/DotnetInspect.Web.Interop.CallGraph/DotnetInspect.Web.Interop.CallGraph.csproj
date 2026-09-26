@@ -16,5 +16,6 @@
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
   </ItemGroup>
 </Project>

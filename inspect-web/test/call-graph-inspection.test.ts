@@ -36,6 +36,7 @@ function graph(mermaid: string): BrowserCallGraph {
       calleeScope: "target assembly",
     },
     targets: [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,

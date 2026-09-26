@@ -50,6 +50,17 @@ internal sealed record BrowserCallGraphScopeInfo(
     int CallerAssemblies,
     string CalleeScope);
 
+internal sealed record BrowserCallGraphBoundaryInfo(
+    string Id,
+    string SourcePackageId,
+    string SourcePackageVersion,
+    string SourcePackageFramework,
+    string SourceAssembly,
+    string TargetPackageId,
+    string TargetPackageVersion,
+    string TargetPackageFramework,
+    string TargetAssembly);
+
 internal sealed record BrowserCallGraphDiagnosticsInfo(
     int IncompleteNodes,
     int IncompleteEdges,
@@ -68,6 +79,7 @@ internal sealed record BrowserCallGraphInfo(
     BrowserCallGraphNodeInfo Callees,
     BrowserCallGraphScopeInfo Scope,
     BrowserCallGraphTargetInfo[] Targets,
+    BrowserCallGraphBoundaryInfo[] Boundaries,
     BrowserCallGraphDiagnosticsInfo Diagnostics,
     bool NoBody);
 
@@ -114,6 +126,7 @@ internal static class BrowserCallGraphProjection
                 scope.ImplementationParticipants.Select(
                     participant => participant.Assembly.Identity),
                 surfaceParticipants: scope.SurfaceParticipants),
+            [],
             Diagnostics(
                 view.Diagnostics,
                 projection.HasUnexploredTraversalBoundary,
@@ -122,7 +135,10 @@ internal static class BrowserCallGraphProjection
     }
 
     internal static BrowserCallGraphInfo Project(
-        PackageDependencyMemberCallGraphDocument document)
+        PackageDependencyMemberCallGraphDocument document,
+        string? rootPackageId = null,
+        string? rootPackageVersion = null,
+        string? rootPackageFramework = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         InspectionGraphDocument graph = document.Graph;
@@ -137,6 +153,7 @@ internal static class BrowserCallGraphProjection
                     Assemblies: 0,
                     CallerAssemblies: 0,
                     CalleeScope: ScopeLabel(document.Baseline.Kind)),
+                [],
                 [],
                 Diagnostics(graph),
                 NoBody: true);
@@ -173,8 +190,28 @@ internal static class BrowserCallGraphProjection
         Dictionary<int, PackageDependencyMemberCallGraphPackageSubject>
             packageSubjects = document.PackageSubjects.ToDictionary(
                 static subject => subject.NodeId);
+        if (!string.IsNullOrWhiteSpace(rootPackageId)
+            && !string.IsNullOrWhiteSpace(rootPackageVersion)
+            && !string.IsNullOrWhiteSpace(rootPackageFramework))
+        {
+            packageSubjects.TryAdd(
+                focusNodeId,
+                new(
+                    focusNodeId,
+                    rootPackageId,
+                    rootPackageVersion,
+                    rootPackageFramework));
+        }
         IReadOnlyDictionary<int, string> targetKinds =
             ExternalFocusTargetKinds(graph, focusNodeId);
+        BrowserCallGraphTargetInfo[] targets =
+        [
+            .. graph.Nodes.Select(node =>
+                Target(
+                    node,
+                    packageSubjects.GetValueOrDefault(node.Id),
+                    targetKinds[node.Id])),
+        ];
         return new BrowserCallGraphInfo(
             Mermaid(graph),
             EmptyTree(),
@@ -184,15 +221,65 @@ internal static class BrowserCallGraphProjection
                 assemblies.Length,
                 string.IsNullOrWhiteSpace(focusAssembly) ? 0 : 1,
                 ScopeLabel(document.Baseline.Kind)),
-            [
-                .. graph.Nodes.Select(node =>
-                    Target(
-                        node,
-                        packageSubjects.GetValueOrDefault(node.Id),
-                        targetKinds[node.Id])),
-            ],
+            targets,
+            Boundaries(graph, targets),
             Diagnostics(graph),
             NoBody: false);
+    }
+
+    static BrowserCallGraphBoundaryInfo[] Boundaries(
+        InspectionGraphDocument graph,
+        IReadOnlyList<BrowserCallGraphTargetInfo> targets)
+    {
+        IReadOnlyDictionary<string, BrowserCallGraphTargetInfo> targetsById =
+            targets.ToDictionary(target => target.Id, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var boundaries = new List<BrowserCallGraphBoundaryInfo>();
+        foreach (InspectionGraphEdge edge in graph.Edges.OrderBy(edge => edge.Id))
+        {
+            BrowserCallGraphTargetInfo source =
+                targetsById[$"n{edge.FromNodeId}"];
+            BrowserCallGraphTargetInfo target =
+                targetsById[$"n{edge.ToNodeId}"];
+            if (target.Kind != "boundary"
+                || string.IsNullOrWhiteSpace(source.PackageId)
+                || string.IsNullOrWhiteSpace(source.PackageVersion)
+                || string.IsNullOrWhiteSpace(source.PackageFramework)
+                || string.IsNullOrWhiteSpace(source.Assembly)
+                || string.IsNullOrWhiteSpace(target.PackageId)
+                || string.IsNullOrWhiteSpace(target.PackageVersion)
+                || string.IsNullOrWhiteSpace(target.PackageFramework)
+                || string.IsNullOrWhiteSpace(target.Assembly))
+            {
+                continue;
+            }
+
+            string key = string.Join(
+                '\u001F',
+                source.PackageId,
+                source.PackageVersion,
+                source.PackageFramework,
+                source.Assembly,
+                target.PackageId,
+                target.PackageVersion,
+                target.PackageFramework,
+                target.Assembly);
+            if (!seen.Add(key))
+                continue;
+
+            boundaries.Add(
+                new BrowserCallGraphBoundaryInfo(
+                    $"e{edge.Id}",
+                    source.PackageId,
+                    source.PackageVersion,
+                    source.PackageFramework,
+                    source.Assembly,
+                    target.PackageId,
+                    target.PackageVersion,
+                    target.PackageFramework,
+                    target.Assembly));
+        }
+        return [.. boundaries];
     }
 
     static string ScopeLabel(

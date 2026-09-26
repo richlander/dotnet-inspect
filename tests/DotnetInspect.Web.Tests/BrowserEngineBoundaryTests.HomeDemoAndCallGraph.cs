@@ -935,6 +935,20 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("1.2.3", boundaryTarget.PackageVersion);
         Assert.Equal("net8.0", boundaryTarget.PackageFramework);
         Assert.Equal("5.6.7.8", boundaryTarget.AssemblyVersion);
+        BrowserCallGraphBoundaryInfo projectedBoundary = Assert.Single(
+            projected.Boundaries);
+        Assert.Equal(
+            "Microsoft.Extensions.Options",
+            projectedBoundary.SourcePackageId);
+        Assert.Equal(
+            "Microsoft.Extensions.Options",
+            projectedBoundary.SourceAssembly);
+        Assert.Equal(
+            "OpenTelemetry.Api",
+            projectedBoundary.TargetPackageId);
+        Assert.Equal(
+            "OpenTelemetry.Api",
+            projectedBoundary.TargetAssembly);
         Assert.Equal(2, projected.Diagnostics.IncompleteNodes);
         Assert.Equal(3, projected.Diagnostics.IncompleteEdges);
         Assert.Equal(4, projected.Diagnostics.BindingIdentityConflicts);
@@ -1001,6 +1015,12 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("1.2.3", wireTarget.PackageVersion);
         Assert.Equal("net8.0", wireTarget.PackageFramework);
         Assert.Equal("5.6.7.8", wireTarget.AssemblyVersion);
+        DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphBoundary
+            wireBoundary = Assert.Single(wire.Boundaries);
+        Assert.Equal(
+            "Microsoft.Extensions.Options",
+            wireBoundary.SourcePackageId);
+        Assert.Equal("OpenTelemetry.Api", wireBoundary.TargetPackageId);
     }
 
     [Fact]

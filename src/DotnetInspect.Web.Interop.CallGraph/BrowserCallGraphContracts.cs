@@ -17,8 +17,20 @@ public sealed record BrowserCallGraph(
     BrowserCallGraphNode Callees,
     BrowserCallGraphScope Scope,
     BrowserCallGraphTarget[] Targets,
+    BrowserCallGraphBoundary[] Boundaries,
     BrowserCallGraphDiagnostics Diagnostics,
     bool NoBody = false);
+
+public sealed record BrowserCallGraphBoundary(
+    string Id,
+    string SourcePackageId,
+    string SourcePackageVersion,
+    string SourcePackageFramework,
+    string SourceAssembly,
+    string TargetPackageId,
+    string TargetPackageVersion,
+    string TargetPackageFramework,
+    string TargetAssembly);
 
 public sealed record BrowserCallGraphDiagnostics(
     int IncompleteNodes,
@@ -83,6 +95,54 @@ public sealed record BrowserCallGraphScope(
     int CallerAssemblies,
     string CalleeScope);
 
+public sealed record BrowserDirectUseClusterInspection(
+    string Outcome,
+    bool IsComplete,
+    BrowserDirectUseCluster[] Clusters,
+    int? SelectedCluster,
+    BrowserDirectUseCallSite[] CallSites,
+    BrowserDirectUseDiagnostic[] Diagnostics,
+    string? Failure);
+
+public sealed record BrowserDirectUseCluster(
+    int Ordinal,
+    BrowserDirectUseLibrary Source,
+    BrowserDirectUseLibrary Target,
+    int AnchorSourceToken,
+    int AnchorTargetToken,
+    int SourceMembers,
+    int ProviderTypes,
+    int TargetMembers,
+    int ExtensionMethods,
+    int CallSites);
+
+public sealed record BrowserDirectUseCallSite(
+    BrowserDirectUseLibrary Source,
+    string SourceMember,
+    int SourceToken,
+    BrowserDirectUseLibrary Target,
+    string TargetMember,
+    int TargetToken,
+    string CallKind,
+    string EvidenceMethod,
+    string EvidenceModuleVersionId,
+    int EvidenceToken,
+    int IlOffset);
+
+public sealed record BrowserDirectUseLibrary(
+    string Name,
+    string? Version,
+    string? Culture,
+    string? PublicKeyToken,
+    string ModuleVersionId);
+
+public sealed record BrowserDirectUseDiagnostic(
+    string Code,
+    string Severity,
+    string Summary,
+    string? Correspondence);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserCallGraph))]
+[JsonSerializable(typeof(BrowserDirectUseClusterInspection))]
 internal sealed partial class BrowserCallGraphJsonContext : JsonSerializerContext;
