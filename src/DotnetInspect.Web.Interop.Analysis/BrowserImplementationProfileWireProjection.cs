@@ -282,17 +282,7 @@ internal static partial class BrowserImplementationProfileWireProjection
                 .. coverage.ProfiledEvidenceBodies.Select(MethodKey),
             ],
             [
-                .. coverage.UnavailableBodies.Select(
-                    static body =>
-                        new BrowserImplementationProfileUnavailableBody(
-                            body.EvidenceMethod is { } method
-                                ? MethodKey(method)
-                                : null,
-                            body.MethodToken,
-                            body.Reason.ToString(),
-                            body.Diagnostic is { } diagnostic
-                                ? Project(diagnostic)
-                                : null)),
+                .. coverage.UnavailableBodies.Select(ProjectUnavailableBody),
             ],
             [
                 .. coverage.Diagnostics.Select(Project),

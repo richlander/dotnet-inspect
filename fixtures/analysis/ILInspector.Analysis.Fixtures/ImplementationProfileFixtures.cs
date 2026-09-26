@@ -131,6 +131,27 @@ public static class ImplementationHeatWidgetExtensions
         => turns.Length;
 }
 
+// A trivial logical body whose attributed lambda carries the code: the trivial
+// flag must follow every counted body, not only the logical one.
+public static class ImplementationHeatLambdaSample
+{
+    public static Func<int, int> Scale(int factor)
+        => value => value > 0 ? value * factor : -value * factor;
+
+    public static Func<long, long> Scale(long factor)
+        => value => value > 0 ? value * factor : -value * factor;
+}
+
+// No name on this Type has two public overloads.
+public static class ImplementationHeatSingleSample
+{
+    public static int One()
+        => 1;
+
+    public static int Two(int value)
+        => value + 2;
+}
+
 public sealed class GenericOverloadSample<T>
 {
     public int Route()

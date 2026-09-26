@@ -46,7 +46,8 @@ public sealed record ImplementationHeatFamily(
 /// <summary>
 /// Heat evidence for every eligible overload family on one Type, measured in a
 /// single Analysis execution. <see cref="Coverage"/> is that execution's
-/// receipt, or null when no family method has a body.
+/// receipt narrowed to the analyzed methods, or null when no family method has
+/// a body.
 /// </summary>
 public sealed record AssemblyTypeImplementationHeatInspection(
     string TypeDefinitionId,
@@ -174,7 +175,11 @@ public static class AssemblyContextTypeImplementationHeatQuery
             };
         var measured = new Measured(
             profiles,
-            analysis.ImplementationProfiles.Coverage);
+            AssemblyContextImplementationProfileFamilyQuery.ScopeCoverage(
+                analysis.ImplementationProfiles.Coverage,
+                profiles.Profiles.Where(profile =>
+                    bodyTokens.Contains(profile.Method.MetadataToken)),
+                bodyTokens));
 
         ImmutableArray<ImplementationHeatFamily> families =
         [
@@ -349,26 +354,24 @@ public static class AssemblyContextTypeImplementationHeatQuery
                     token));
             }
 
+            // Every roster member is declared on this Type with this name, so
+            // one enumeration lists the whole analyzed family.
+            ImmutableArray<ImplementationHeatRosterMember> rosterMembers =
+                roster.MoveToImmutable();
             HashSet<int> rosterTokens =
-                [.. roster.Select(member => member.MetadataToken)];
-            var methods = new SortedDictionary<int, AnalyzedMethod>();
-            foreach (int token in rosterTokens)
-            {
-                foreach (MethodBodyMember method
-                    in session.MethodBodies.EnumerateSameNameMethods(token))
-                {
-                    methods.TryAdd(
-                        method.MetadataToken,
-                        new AnalyzedMethod(
-                            method.MetadataToken,
-                            rosterTokens.Contains(method.MetadataToken),
-                            method.HasBody));
-                }
-            }
+                [.. rosterMembers.Select(member => member.MetadataToken)];
             families.Add(new SelectedFamily(
                 group.Key,
-                roster.MoveToImmutable(),
-                [.. methods.Values]));
+                rosterMembers,
+                [
+                    .. session.MethodBodies
+                        .EnumerateSameNameMethods(rosterMembers[0].MetadataToken)
+                        .Select(method => new AnalyzedMethod(
+                            method.MetadataToken,
+                            rosterTokens.Contains(method.MetadataToken),
+                            method.HasBody))
+                        .OrderBy(method => method.MetadataToken),
+                ]));
         }
 
         HashSet<int> typeTokens =

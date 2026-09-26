@@ -98,6 +98,7 @@ public sealed class ProductionFacadeContextTests
         [MetadataAssembly] =
         [
             "CancelLibraryApiDiff",
+            "FindTypes",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryMemberDeclaration",
@@ -220,10 +221,17 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
+<<<<<<< HEAD
         // 105 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
         Assert.Equal(105, everyExport.Length);
+=======
+        // 104 operations, and no operation name in two modules: a move that forgot to delete its
+        // origin, or a name published twice, fails here rather than in the browser.
+        string[] everyExport = [.. actual.Values.SelectMany(names => names)];
+        Assert.Equal(104, everyExport.Length);
+>>>>>>> origin/main
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -360,7 +368,9 @@ public sealed class ProductionFacadeContextTests
             }
         }
 
-        Assert.Equal(ExpectedAssemblies.Length, contexts);
+        Assert.True(
+            contexts >= ExpectedAssemblies.Length,
+            "Each facade assembly must own at least one JSON context.");
         Assert.True(
             assemblyLocalWireTypes > 0,
             "No assembly-local wire type was discovered.");

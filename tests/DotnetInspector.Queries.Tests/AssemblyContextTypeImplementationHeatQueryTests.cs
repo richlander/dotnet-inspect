@@ -30,7 +30,8 @@ public sealed class AssemblyContextTypeImplementationHeatQueryTests
             InspectionCost.Unbounded,
             AssemblyContextTypeImplementationHeatQuery.Definition.Cost);
 
-        // One execution receipt covers the bodies of both families.
+        // One execution receipt, narrowed to the analyzed methods, covers the
+        // bodies of both families.
         var coverage = Assert.IsType<
             ILInspector.Analysis.ImplementationProfilePopulationCoverageReceipt>(
                 result.Coverage);
@@ -41,6 +42,14 @@ public sealed class AssemblyContextTypeImplementationHeatQueryTests
             family => Assert.Contains(
                 family.Methods,
                 method => profiled.Contains(method.MetadataToken)));
+        HashSet<int> analyzed =
+        [
+            .. result.Families.SelectMany(family =>
+                family.Methods.Select(method => method.MetadataToken)),
+        ];
+        Assert.All(
+            coverage.DeclaredMethods,
+            method => Assert.Contains(method.MetadataToken, analyzed));
 
         ImplementationHeatFamily async = Assert.Single(
             result.Families,
@@ -114,6 +123,66 @@ public sealed class AssemblyContextTypeImplementationHeatQueryTests
 
         ImplementationHeatFamily scale = Assert.Single(result.Families);
         Assert.Equal("Scale", scale.Member);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_TrivialFlagFollowsEveryCountedBody()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, FixturePath());
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        string typeId = TypeId(group, participant, "ImplementationHeatLambdaSample");
+
+        ImplementationHeatFamily scale = Assert.Single(
+            Available(group, participant, typeId).Families);
+
+        // Each logical body alone is trivial; its attributed lambda branches.
+        AssemblyImplementationProfileFamilyInspection detail =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyImplementationProfileFamilyInspection>.Available>(
+                        AssemblyContextImplementationProfileFamilyQuery
+                            .ExecuteParticipant(
+                                group,
+                                participant,
+                                new ImplementationProfileFamilySelection(
+                                    typeId,
+                                    scale.Roster.Select(member =>
+                                        member.StableSelector))))
+                .Value;
+        Assert.All(
+            scale.Methods,
+            method =>
+            {
+                var own = Assert.Single(
+                    detail.Profiles,
+                    profile =>
+                        profile.Profile.Method.MetadataToken == method.MetadataToken
+                        && profile.Profile.EvidenceMethod.MetadataToken
+                            == method.MetadataToken).Profile;
+                Assert.True(own.InstructionCount <= 8);
+                Assert.Equal(0, own.BranchCount);
+                Assert.True(method.Size > own.InstructionCount);
+                Assert.False(method.IsTrivial);
+            });
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_TypeWithoutEligibleFamilyIsAvailableAndEmpty()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, FixturePath());
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        AssemblyTypeImplementationHeatInspection result = Available(
+            group,
+            participant,
+            TypeId(group, participant, "ImplementationHeatSingleSample"));
+
+        Assert.Empty(result.Families);
+        Assert.Null(result.Coverage);
     }
 
     [Fact]
