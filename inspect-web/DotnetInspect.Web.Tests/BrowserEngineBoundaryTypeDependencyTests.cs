@@ -137,6 +137,42 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_UsesGenericTypeQueryIdentity()
+    {
+        const string packageId = "Browser.GenericTypeRelations";
+        const string interfaceName =
+            "Browser.GenericTypeRelations.IService";
+        const string implementerName =
+            "Browser.GenericTypeRelations.Service";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildGenericInterfaceImplementationImage(
+                    packageId,
+                    interfaceName,
+                    implementerName),
+                $"lib/net11.0/{packageId}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{packageId}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            [$"{implementerName}`1"],
+            metadata.Implementers);
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_ExpandsDependenciesAcrossWorkspacePackages()
     {
         const string rootPackageId =
@@ -1063,6 +1099,33 @@ public sealed partial class BrowserEngineBoundaryTests
         nested.AddInterfaceImplementation(interfaceType);
         nested.CreateType();
         outer.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildGenericInterfaceImplementationImage(
+        string assemblyName,
+        string interfaceName,
+        string implementerName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = contract.CreateType();
+        TypeBuilder implementer = module.DefineType(
+            $"{implementerName}`1",
+            TypeAttributes.Public | TypeAttributes.Class);
+        implementer.DefineGenericParameters("T");
+        implementer.AddInterfaceImplementation(interfaceType);
+        implementer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);
