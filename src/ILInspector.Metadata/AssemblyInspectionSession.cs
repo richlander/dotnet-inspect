@@ -470,13 +470,13 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
-    /// Library enablements judged from this image alone
+    /// Library enablement facts decided from this image alone
     /// (<c>docs/design/library-enablements.md</c>).
     /// </summary>
-    public LibraryEnablements Enablements()
+    public LibraryEnablementFacts Enablements()
     {
         _image.EnsureAlive();
-        return LibraryEnablements.Read(_image.PEReader);
+        return LibraryEnablementFacts.Read(_image.PEReader);
     }
 
     /// <summary>Presence flags for assembly-level features.</summary>

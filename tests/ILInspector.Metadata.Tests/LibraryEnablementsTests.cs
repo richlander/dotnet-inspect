@@ -17,25 +17,25 @@ namespace ILInspector.Metadata.Tests;
 public sealed class LibraryEnablementsTests
 {
     [Theory]
-    [InlineData("System.Net.Sockets.dll", LibraryEnablementState.Enabled)]
-    [InlineData("System.Net.Http.dll", LibraryEnablementState.Enabled)]
-    [InlineData("System.Text.Json.dll", LibraryEnablementState.NotEnabled)]
+    [InlineData("System.Net.Sockets.dll", Expected.Enabled)]
+    [InlineData("System.Net.Http.dll", Expected.Enabled)]
+    [InlineData("System.Text.Json.dll", Expected.NotEnabled)]
     public void RuntimePack_RuntimeAsyncFollowsAsyncMethodDefinitions(
         string fileName,
-        LibraryEnablementState expected)
+        Expected expected)
     {
-        LibraryEnablements enablements = Read(Pinned("runtime", fileName));
+        LibraryEnablementFacts enablements = Read(Pinned("runtime", fileName));
 
-        Assert.Equal(expected, State(enablements, LibraryEnablementKind.RuntimeAsync));
-        Assert.Equal(LibraryEnablementState.Enabled, State(enablements, LibraryEnablementKind.AotCompatible));
+        Assert.Equal(expected, State(enablements, LibraryEnablementId.RuntimeAsync));
+        Assert.Equal(Expected.Enabled, State(enablements, LibraryEnablementId.AotCompatible));
     }
 
     [Fact]
     public void RuntimePack_UnmarkedImplementationIsNotMemorySafetyV2()
     {
-        LibraryEnablements enablements = Read(Pinned("runtime", "System.Security.Cryptography.dll"));
+        LibraryEnablementFacts enablements = Read(Pinned("runtime", "System.Security.Cryptography.dll"));
 
-        Assert.Equal(LibraryEnablementState.NotEnabled, State(enablements, LibraryEnablementKind.MemorySafetyV2));
+        Assert.Equal(Expected.NotEnabled, State(enablements, LibraryEnablementId.MemorySafetyV2));
     }
 
     [Theory]
@@ -46,15 +46,15 @@ public sealed class LibraryEnablementsTests
         // Both images carry IsAotCompatible, and System.Security.Cryptography
         // carries MemorySafetyRules(2); a reference surface still cannot say
         // how the implementation was built.
-        LibraryEnablements enablements = Read(Pinned("ref", fileName));
+        LibraryEnablementFacts enablements = Read(Pinned("ref", fileName));
 
         Assert.Equal(3, enablements.Items.Length);
         Assert.All(
             enablements.Items,
             item =>
             {
-                Assert.Equal(LibraryEnablementState.Unavailable, item.State);
-                Assert.Equal(LibraryEnablementUnavailableReason.ReferenceAssembly, item.Reason);
+                Assert.Equal(Expected.Unavailable, Classify(item));
+                Assert.Equal(LibraryEnablementUnavailableReason.ReferenceAssembly, ReasonOf(item));
             });
         Assert.Empty(enablements.Enabled());
     }
@@ -62,9 +62,9 @@ public sealed class LibraryEnablementsTests
     [Fact]
     public void UpdatedMemorySafetyFixture_IsMemorySafetyV2Enabled()
     {
-        LibraryEnablements enablements = Read(FixtureCatalog.MetadataMemorySafety.AssemblyPath());
+        LibraryEnablementFacts enablements = Read(FixtureCatalog.MetadataMemorySafety.AssemblyPath());
 
-        Assert.Equal(LibraryEnablementState.Enabled, State(enablements, LibraryEnablementKind.MemorySafetyV2));
+        Assert.Equal(Expected.Enabled, State(enablements, LibraryEnablementId.MemorySafetyV2));
     }
 
     [Theory]
@@ -79,10 +79,10 @@ public sealed class LibraryEnablementsTests
         int?[] markers = versions is null ? [null] : [.. versions.Select(static v => (int?)v)];
         LibraryEnablement memorySafety = Single(
             Read(MemorySafetyMetadataIndexTests.BuildSyntheticImage(markers)),
-            LibraryEnablementKind.MemorySafetyV2);
+            LibraryEnablementId.MemorySafetyV2);
 
-        Assert.Equal(LibraryEnablementState.Unavailable, memorySafety.State);
-        Assert.Equal(reason, memorySafety.Reason);
+        Assert.Equal(Expected.Unavailable, Classify(memorySafety));
+        Assert.Equal(reason, ReasonOf(memorySafety));
     }
 
     [Fact]
@@ -94,31 +94,31 @@ public sealed class LibraryEnablementsTests
         // The public-surface classification cannot see the only async method.
         Assert.False(session.PresenceFlags().HasRuntimeAsync);
         Assert.Equal(
-            LibraryEnablementState.Enabled,
-            State(session.Enablements(), LibraryEnablementKind.RuntimeAsync));
+            Expected.Enabled,
+            State(session.Enablements(), LibraryEnablementId.RuntimeAsync));
     }
 
     [Theory]
-    [InlineData(new string[0], LibraryEnablementState.NotEnabled, null)]
-    [InlineData(new[] { "True" }, LibraryEnablementState.Enabled, null)]
-    [InlineData(new[] { " true " }, LibraryEnablementState.Enabled, null)]
-    [InlineData(new[] { "False" }, LibraryEnablementState.NotEnabled, null)]
-    [InlineData(new[] { "True", "True" }, LibraryEnablementState.Enabled, null)]
-    [InlineData(new[] { "True", "False" }, LibraryEnablementState.Unavailable, LibraryEnablementUnavailableReason.ConflictingValues)]
-    [InlineData(new[] { "yes" }, LibraryEnablementState.Unavailable, LibraryEnablementUnavailableReason.UnrecognizedValue)]
-    [InlineData(new[] { "True", "False", "yes" }, LibraryEnablementState.Unavailable, LibraryEnablementUnavailableReason.UnrecognizedValue)]
+    [InlineData(new string[0], Expected.NotEnabled, null)]
+    [InlineData(new[] { "True" }, Expected.Enabled, null)]
+    [InlineData(new[] { " true " }, Expected.Enabled, null)]
+    [InlineData(new[] { "False" }, Expected.NotEnabled, null)]
+    [InlineData(new[] { "True", "True" }, Expected.Enabled, null)]
+    [InlineData(new[] { "True", "False" }, Expected.Unavailable, LibraryEnablementUnavailableReason.ConflictingValues)]
+    [InlineData(new[] { "yes" }, Expected.Unavailable, LibraryEnablementUnavailableReason.UnrecognizedValue)]
+    [InlineData(new[] { "True", "False", "yes" }, Expected.Unavailable, LibraryEnablementUnavailableReason.UnrecognizedValue)]
     public void AotCompatibleMarker_DecidesStateAndReason(
         string[] values,
-        LibraryEnablementState state,
+        Expected state,
         LibraryEnablementUnavailableReason? reason)
     {
         string source = string.Concat(
             values.Select(value =>
                 $"[assembly: System.Reflection.AssemblyMetadata(\"IsAotCompatible\", \"{value}\")]\n"));
-        LibraryEnablement aot = Single(Read(Compile(source)), LibraryEnablementKind.AotCompatible);
+        LibraryEnablement aot = Single(Read(Compile(source)), LibraryEnablementId.AotCompatible);
 
-        Assert.Equal(state, aot.State);
-        Assert.Equal(reason, aot.Reason);
+        Assert.Equal(state, Classify(aot));
+        Assert.Equal(reason, ReasonOf(aot));
     }
 
     [Fact]
@@ -126,33 +126,51 @@ public sealed class LibraryEnablementsTests
     {
         LibraryEnablement aot = Single(
             Read(BuildImageWithAssemblyMetadataBlob([0x01, 0x00, 0x05, 0x41])),
-            LibraryEnablementKind.AotCompatible);
+            LibraryEnablementId.AotCompatible);
 
-        Assert.Equal(LibraryEnablementState.Unavailable, aot.State);
-        Assert.Equal(LibraryEnablementUnavailableReason.UndecodableMetadata, aot.Reason);
+        Assert.Equal(Expected.Unavailable, Classify(aot));
+        Assert.Equal(LibraryEnablementUnavailableReason.UndecodableMetadata, ReasonOf(aot));
     }
 
     private static string Pinned(string pack, string fileName) =>
         Path.Combine(AppContext.BaseDirectory, "PinnedArtifacts", pack, fileName);
 
-    private static LibraryEnablements Read(string path)
+    private static LibraryEnablementFacts Read(string path)
     {
         using AssemblyInspectionSession session = AssemblyInspectionSession.Open(path);
         return session.Enablements();
     }
 
-    private static LibraryEnablements Read(byte[] image)
+    private static LibraryEnablementFacts Read(byte[] image)
     {
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(new MemoryStream(image, writable: false));
         return session.Enablements();
     }
 
-    private static LibraryEnablement Single(LibraryEnablements enablements, LibraryEnablementKind kind) =>
-        Assert.Single(enablements.Items, item => item.Kind == kind);
+    private static LibraryEnablement Single(LibraryEnablementFacts enablements, LibraryEnablementId id) =>
+        Assert.Single(enablements.Items, item => item.Id == id);
 
-    private static LibraryEnablementState State(LibraryEnablements enablements, LibraryEnablementKind kind) =>
-        Single(enablements, kind).State;
+    private static Expected State(LibraryEnablementFacts enablements, LibraryEnablementId id) =>
+        Classify(Single(enablements, id));
+
+    public enum Expected
+    {
+        Enabled,
+        NotEnabled,
+        Unavailable,
+    }
+
+    private static Expected Classify(LibraryEnablement item) => item switch
+    {
+        LibraryEnablement.Enabled => Expected.Enabled,
+        LibraryEnablement.NotEnabled => Expected.NotEnabled,
+        LibraryEnablement.Unavailable => Expected.Unavailable,
+        _ => throw new InvalidOperationException("Unknown enablement case."),
+    };
+
+    private static LibraryEnablementUnavailableReason? ReasonOf(LibraryEnablement item) =>
+        (item as LibraryEnablement.Unavailable)?.Reason;
 
     private static byte[] Compile(string source)
     {

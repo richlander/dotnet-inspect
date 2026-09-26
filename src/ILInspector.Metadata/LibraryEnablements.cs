@@ -10,8 +10,8 @@ namespace ILInspector.Metadata;
 /// The closed vocabulary of Library enablements. Serialized names are the
 /// stable identifiers owned by <c>docs/design/library-enablements.md</c>.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<LibraryEnablementKind>))]
-public enum LibraryEnablementKind
+[JsonConverter(typeof(JsonStringEnumConverter<LibraryEnablementId>))]
+public enum LibraryEnablementId
 {
     [JsonStringEnumMemberName("aot-compatible")]
     AotCompatible,
@@ -23,20 +23,7 @@ public enum LibraryEnablementKind
     MemorySafetyV2,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<LibraryEnablementState>))]
-public enum LibraryEnablementState
-{
-    [JsonStringEnumMemberName("enabled")]
-    Enabled,
-
-    [JsonStringEnumMemberName("not-enabled")]
-    NotEnabled,
-
-    [JsonStringEnumMemberName("unavailable")]
-    Unavailable,
-}
-
-/// <summary>Why an enablement cannot be judged from the inspected image.</summary>
+/// <summary>Why an enablement cannot be decided from the inspected image.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<LibraryEnablementUnavailableReason>))]
 public enum LibraryEnablementUnavailableReason
 {
@@ -65,41 +52,39 @@ public enum LibraryEnablementUnavailableReason
     MemorySafetyMetadataUnavailable,
 }
 
-/// <summary>One enablement judgment. <see cref="Reason"/> is set only when
-/// <see cref="State"/> is <see cref="LibraryEnablementState.Unavailable"/>.</summary>
-public sealed record LibraryEnablement
+/// <summary>
+/// One enablement fact: the closed Enabled, Not enabled, or Unavailable
+/// state of one <see cref="LibraryEnablementId"/>.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(Enabled), "enabled")]
+[JsonDerivedType(typeof(NotEnabled), "not-enabled")]
+[JsonDerivedType(typeof(Unavailable), "unavailable")]
+public abstract record LibraryEnablement
 {
-    public LibraryEnablement(
-        LibraryEnablementKind kind,
-        LibraryEnablementState state,
-        LibraryEnablementUnavailableReason? reason = null)
-    {
-        if ((state == LibraryEnablementState.Unavailable) != reason.HasValue)
-        {
-            throw new ArgumentException(
-                "An unavailable enablement requires a reason; other states carry none.",
-                nameof(reason));
-        }
+    private LibraryEnablement(LibraryEnablementId id) => Id = id;
 
-        Kind = kind;
-        State = state;
-        Reason = reason;
-    }
+    public LibraryEnablementId Id { get; }
 
-    public LibraryEnablementKind Kind { get; }
-    public LibraryEnablementState State { get; }
+    /// <summary>The image carries the evidence that the capability was built in.</summary>
+    public sealed record Enabled(LibraryEnablementId Id) : LibraryEnablement(Id);
 
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public LibraryEnablementUnavailableReason? Reason { get; }
+    /// <summary>The image was read completely and does not carry that evidence.</summary>
+    public sealed record NotEnabled(LibraryEnablementId Id) : LibraryEnablement(Id);
+
+    /// <summary>The evidence cannot support a judgment; the reason says why.</summary>
+    public sealed record Unavailable(
+        LibraryEnablementId Id,
+        LibraryEnablementUnavailableReason Reason) : LibraryEnablement(Id);
 }
 
 /// <summary>
-/// Every enablement judged for one image, in vocabulary order. See
+/// Every enablement fact for one image, in vocabulary order. See
 /// <c>docs/design/library-enablements.md</c>.
 /// </summary>
-public sealed record LibraryEnablements(ImmutableArray<LibraryEnablement> Items)
+public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> Items)
 {
-    public bool Equals(LibraryEnablements? other)
+    public bool Equals(LibraryEnablementFacts? other)
         => other is not null
             && Items.AsSpan().SequenceEqual(other.Items.AsSpan());
 
@@ -112,30 +97,30 @@ public sealed record LibraryEnablements(ImmutableArray<LibraryEnablement> Items)
     }
 
     /// <summary>The enablements a badge or chip presents: Enabled only.</summary>
-    public IEnumerable<LibraryEnablementKind> Enabled()
+    public IEnumerable<LibraryEnablementId> Enabled()
         => Items
-            .Where(static item => item.State == LibraryEnablementState.Enabled)
-            .Select(static item => item.Kind);
+            .OfType<LibraryEnablement.Enabled>()
+            .Select(static item => item.Id);
 
     /// <summary>The short host-neutral label for an enablement.</summary>
-    public static string Label(LibraryEnablementKind kind) => kind switch
+    public static string Label(LibraryEnablementId id) => id switch
     {
-        LibraryEnablementKind.AotCompatible => "AOT",
-        LibraryEnablementKind.RuntimeAsync => "Runtime Async",
-        LibraryEnablementKind.MemorySafetyV2 => "Memory Safety v2",
-        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        LibraryEnablementId.AotCompatible => "AOT",
+        LibraryEnablementId.RuntimeAsync => "Runtime Async",
+        LibraryEnablementId.MemorySafetyV2 => "Memory Safety v2",
+        _ => throw new ArgumentOutOfRangeException(nameof(id)),
     };
 
-    internal static LibraryEnablements Read(PEReader peReader)
+    internal static LibraryEnablementFacts Read(PEReader peReader)
     {
         MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         if (IsReferenceAssembly(reader))
         {
             return new(
             [
-                Unavailable(LibraryEnablementKind.AotCompatible, LibraryEnablementUnavailableReason.ReferenceAssembly),
-                Unavailable(LibraryEnablementKind.RuntimeAsync, LibraryEnablementUnavailableReason.ReferenceAssembly),
-                Unavailable(LibraryEnablementKind.MemorySafetyV2, LibraryEnablementUnavailableReason.ReferenceAssembly),
+                Unavailable(LibraryEnablementId.AotCompatible, LibraryEnablementUnavailableReason.ReferenceAssembly),
+                Unavailable(LibraryEnablementId.RuntimeAsync, LibraryEnablementUnavailableReason.ReferenceAssembly),
+                Unavailable(LibraryEnablementId.MemorySafetyV2, LibraryEnablementUnavailableReason.ReferenceAssembly),
             ]);
         }
 
@@ -169,9 +154,9 @@ public sealed record LibraryEnablements(ImmutableArray<LibraryEnablement> Items)
 
     private static LibraryEnablement ReadAotCompatible(MetadataReader reader)
     {
-        const LibraryEnablementKind kind = LibraryEnablementKind.AotCompatible;
+        const LibraryEnablementId id = LibraryEnablementId.AotCompatible;
         if (!reader.IsAssembly)
-            return new(kind, LibraryEnablementState.NotEnabled);
+            return new LibraryEnablement.NotEnabled(id);
 
         bool undecodable = false;
         bool unrecognized = false;
@@ -219,12 +204,12 @@ public sealed record LibraryEnablements(ImmutableArray<LibraryEnablement> Items)
         }
 
         if (undecodable)
-            return Unavailable(kind, LibraryEnablementUnavailableReason.UndecodableMetadata);
+            return Unavailable(id, LibraryEnablementUnavailableReason.UndecodableMetadata);
         if (unrecognized)
-            return Unavailable(kind, LibraryEnablementUnavailableReason.UnrecognizedValue);
+            return Unavailable(id, LibraryEnablementUnavailableReason.UnrecognizedValue);
         if (sawTrue && sawFalse)
-            return Unavailable(kind, LibraryEnablementUnavailableReason.ConflictingValues);
-        return new(kind, sawTrue ? LibraryEnablementState.Enabled : LibraryEnablementState.NotEnabled);
+            return Unavailable(id, LibraryEnablementUnavailableReason.ConflictingValues);
+        return sawTrue ? new LibraryEnablement.Enabled(id) : new LibraryEnablement.NotEnabled(id);
     }
 
     private static bool TryReadKeyValue(
@@ -255,35 +240,35 @@ public sealed record LibraryEnablements(ImmutableArray<LibraryEnablement> Items)
         foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
         {
             if ((reader.GetMethodDefinition(handle).ImplAttributes & AsyncImplFlag) != 0)
-                return new(LibraryEnablementKind.RuntimeAsync, LibraryEnablementState.Enabled);
+                return new LibraryEnablement.Enabled(LibraryEnablementId.RuntimeAsync);
         }
 
-        return new(LibraryEnablementKind.RuntimeAsync, LibraryEnablementState.NotEnabled);
+        return new LibraryEnablement.NotEnabled(LibraryEnablementId.RuntimeAsync);
     }
 
     private static LibraryEnablement ReadMemorySafetyV2(MemorySafetyRulesResult rules)
     {
-        const LibraryEnablementKind kind = LibraryEnablementKind.MemorySafetyV2;
+        const LibraryEnablementId id = LibraryEnablementId.MemorySafetyV2;
         return rules switch
         {
             MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Updated } =>
-                new(kind, LibraryEnablementState.Enabled),
+                new LibraryEnablement.Enabled(id),
             MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Legacy } =>
-                new(kind, LibraryEnablementState.NotEnabled),
+                new LibraryEnablement.NotEnabled(id),
             MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Unsupported } =>
-                Unavailable(kind, LibraryEnablementUnavailableReason.UnsupportedMemorySafetyRules),
+                Unavailable(id, LibraryEnablementUnavailableReason.UnsupportedMemorySafetyRules),
             MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Malformed } =>
-                Unavailable(kind, LibraryEnablementUnavailableReason.MalformedMemorySafetyRules),
+                Unavailable(id, LibraryEnablementUnavailableReason.MalformedMemorySafetyRules),
             MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Conflicting } =>
-                Unavailable(kind, LibraryEnablementUnavailableReason.ConflictingMemorySafetyRules),
+                Unavailable(id, LibraryEnablementUnavailableReason.ConflictingMemorySafetyRules),
             MemorySafetyRulesResult.Unavailable =>
-                Unavailable(kind, LibraryEnablementUnavailableReason.MemorySafetyMetadataUnavailable),
+                Unavailable(id, LibraryEnablementUnavailableReason.MemorySafetyMetadataUnavailable),
             _ => throw new InvalidOperationException("Unknown memory-safety rules result."),
         };
     }
 
     private static LibraryEnablement Unavailable(
-        LibraryEnablementKind kind,
+        LibraryEnablementId id,
         LibraryEnablementUnavailableReason reason)
-        => new(kind, LibraryEnablementState.Unavailable, reason);
+        => new LibraryEnablement.Unavailable(id, reason);
 }

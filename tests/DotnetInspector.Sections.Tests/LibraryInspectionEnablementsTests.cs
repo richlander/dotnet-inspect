@@ -31,12 +31,12 @@ public sealed class LibraryInspectionEnablementsTests
                 LibraryInspectionTestLibrary.Identity(reference),
                 implementation);
 
-        LibraryEnablementsOutcome.Judged judged = Judged(Execute(library, enablements: true));
+        LibraryEnablementsOutcome.Available available = Enablements(Execute(library, enablements: true));
 
-        Assert.Equal(LibraryEnablementsContent.ImplementationAssembly, judged.Content);
-        AssertState(judged, LibraryEnablementKind.AotCompatible, LibraryEnablementState.Enabled);
-        AssertState(judged, LibraryEnablementKind.RuntimeAsync, LibraryEnablementState.Enabled);
-        AssertState(judged, LibraryEnablementKind.MemorySafetyV2, LibraryEnablementState.NotEnabled);
+        Assert.Equal(LibraryEnablementsRole.ImplementationAssembly, available.Role);
+        AssertCase<LibraryEnablement.Enabled>(available, LibraryEnablementId.AotCompatible);
+        AssertCase<LibraryEnablement.Enabled>(available, LibraryEnablementId.RuntimeAsync);
+        AssertCase<LibraryEnablement.NotEnabled>(available, LibraryEnablementId.MemorySafetyV2);
     }
 
     [Fact]
@@ -49,17 +49,18 @@ public sealed class LibraryInspectionEnablementsTests
                 LibraryInspectionTestLibrary.Identity(reference),
                 implementation: null);
 
-        LibraryEnablementsOutcome.Judged judged = Judged(Execute(library, enablements: true));
+        LibraryEnablementsOutcome.Available available = Enablements(Execute(library, enablements: true));
 
-        Assert.Equal(LibraryEnablementsContent.ApiAssembly, judged.Content);
+        Assert.Equal(LibraryEnablementsRole.ApiAssembly, available.Role);
         Assert.All(
-            judged.Enablements.Items,
+            available.Facts.Items,
             item =>
             {
-                Assert.Equal(LibraryEnablementState.Unavailable, item.State);
-                Assert.Equal(LibraryEnablementUnavailableReason.ReferenceAssembly, item.Reason);
+                Assert.Equal(
+                    LibraryEnablementUnavailableReason.ReferenceAssembly,
+                    Assert.IsType<LibraryEnablement.Unavailable>(item).Reason);
             });
-        Assert.Empty(judged.Enablements.Enabled());
+        Assert.Empty(available.Facts.Enabled());
     }
 
     [Fact]
@@ -92,10 +93,14 @@ public sealed class LibraryInspectionEnablementsTests
         InspectionEnvelope<LibraryInspectionOutcome> envelope = Execute(library, enablements: true);
         string json = JsonSerializer.Serialize(envelope, LibraryInspectionJsonContext.Default.LibraryInspectionEnvelope);
 
-        Assert.Contains("\"kind\": \"aot-compatible\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"kind\": \"runtime-async\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"kind\": \"memory-safety-v2\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"state\": \"not-enabled\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"kind\": \"available\"", json, StringComparison.Ordinal);
+        // One assembly serves both roles here, so the implementation is judged.
+        Assert.Contains("\"role\": \"implementation-assembly\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"id\": \"aot-compatible\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"id\": \"runtime-async\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"id\": \"memory-safety-v2\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"kind\": \"not-enabled\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"state\"", json, StringComparison.Ordinal);
         InspectionEnvelope<LibraryInspectionOutcome>? roundTripped =
             JsonSerializer.Deserialize(json, LibraryInspectionJsonContext.Default.LibraryInspectionEnvelope);
         Assert.Equal(Document(envelope).Enablements, Document(roundTripped!).Enablements);
@@ -125,12 +130,12 @@ public sealed class LibraryInspectionEnablementsTests
     private static LibraryDocument Document(InspectionEnvelope<LibraryInspectionOutcome> envelope) =>
         Assert.IsType<LibraryInspectionOutcome.Available>(envelope.Content).Document;
 
-    private static LibraryEnablementsOutcome.Judged Judged(InspectionEnvelope<LibraryInspectionOutcome> envelope) =>
-        Assert.IsType<LibraryEnablementsOutcome.Judged>(Document(envelope).Enablements);
+    private static LibraryEnablementsOutcome.Available Enablements(InspectionEnvelope<LibraryInspectionOutcome> envelope) =>
+        Assert.IsType<LibraryEnablementsOutcome.Available>(Document(envelope).Enablements);
 
-    private static void AssertState(
-        LibraryEnablementsOutcome.Judged judged,
-        LibraryEnablementKind kind,
-        LibraryEnablementState state) =>
-        Assert.Equal(state, Assert.Single(judged.Enablements.Items, item => item.Kind == kind).State);
+    private static void AssertCase<TCase>(
+        LibraryEnablementsOutcome.Available available,
+        LibraryEnablementId id)
+        where TCase : LibraryEnablement =>
+        Assert.IsType<TCase>(Assert.Single(available.Facts.Items, item => item.Id == id));
 }

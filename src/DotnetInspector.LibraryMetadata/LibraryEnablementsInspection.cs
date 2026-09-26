@@ -5,9 +5,9 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.LibraryMetadata;
 
-/// <summary>Which Library content role the enablements were judged on.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<LibraryEnablementsContent>))]
-public enum LibraryEnablementsContent
+/// <summary>Which Library content role the enablement facts were decided on.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<LibraryEnablementsRole>))]
+public enum LibraryEnablementsRole
 {
     [JsonStringEnumMemberName("implementation-assembly")]
     ImplementationAssembly,
@@ -40,7 +40,7 @@ public enum LibraryEnablementsFailure
 /// (<c>docs/design/library-inspection-document.md#library-facts</c>).
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
-[JsonDerivedType(typeof(Judged), "judged")]
+[JsonDerivedType(typeof(Available), "available")]
 [JsonDerivedType(typeof(Failed), "failed")]
 public abstract record LibraryEnablementsOutcome
 {
@@ -48,9 +48,9 @@ public abstract record LibraryEnablementsOutcome
     {
     }
 
-    public sealed record Judged(
-        LibraryEnablementsContent Content,
-        LibraryEnablements Enablements)
+    public sealed record Available(
+        LibraryEnablementsRole Role,
+        LibraryEnablementFacts Facts)
         : LibraryEnablementsOutcome;
 
     public sealed record Failed(LibraryEnablementsFailure Reason)
@@ -58,7 +58,7 @@ public abstract record LibraryEnablementsOutcome
 }
 
 /// <summary>
-/// Judges Library enablements over the implementation content when the
+/// Decides Library enablement facts over the implementation content when the
 /// Library carries one, and over the API content otherwise.
 /// </summary>
 public static class LibraryEnablementsInspection
@@ -77,10 +77,10 @@ public static class LibraryEnablementsInspection
                 nameof(lease));
         }
 
-        (LibraryContentReference content, LibraryEnablementsContent role) =
+        (LibraryContentReference content, LibraryEnablementsRole role) =
             library.ImplementationAssembly is { } implementation
-                ? (implementation, LibraryEnablementsContent.ImplementationAssembly)
-                : (library.ApiAssembly, LibraryEnablementsContent.ApiAssembly);
+                ? (implementation, LibraryEnablementsRole.ImplementationAssembly)
+                : (library.ApiAssembly, LibraryEnablementsRole.ApiAssembly);
         return lease.Snapshot(
             content,
             role,
@@ -90,7 +90,7 @@ public static class LibraryEnablementsInspection
 
     private static LibraryEnablementsOutcome Inspect(
         scoped LibraryContentView view,
-        LibraryEnablementsContent role,
+        LibraryEnablementsRole role,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -104,7 +104,7 @@ public static class LibraryEnablementsInspection
     private static LibraryEnablementsOutcome Inspect(
         Stream content,
         LibraryContentReference reference,
-        LibraryEnablementsContent role)
+        LibraryEnablementsRole role)
     {
         try
         {
@@ -120,7 +120,7 @@ public static class LibraryEnablementsInspection
                 return new LibraryEnablementsOutcome.Failed(LibraryEnablementsFailure.AssemblyIdentityMismatch);
             }
 
-            return new LibraryEnablementsOutcome.Judged(role, session.Enablements());
+            return new LibraryEnablementsOutcome.Available(role, session.Enablements());
         }
         catch (UnsupportedMetadataFormatException)
         {
