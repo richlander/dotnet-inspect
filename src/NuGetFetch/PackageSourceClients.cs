@@ -26,6 +26,9 @@ public enum PackageSourceKind
 
     /// <summary>A package source backed by a local directory.</summary>
     LocalFolder,
+
+    /// <summary>A package source backed by one immutable package archive.</summary>
+    ExactArchive,
 }
 
 /// <summary>
