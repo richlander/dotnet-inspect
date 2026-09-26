@@ -121,6 +121,12 @@ npm test
 npm run lint
 ```
 
+The WebAssembly host is part of the normal solution graph, but its default
+build compiles only managed code and does not invoke Node. Build the frontend
+first and pass `-p:InspectWebIncludeFrontend=true` for a complete browser build
+or publish; publishing without that explicit opt-in fails rather than producing
+an incomplete site.
+
 The managed suite is an xUnit Microsoft Testing Platform executable. Use
 `--filter-class` and `--filter-method` after `--` for focused selections. It
 covers the `DotnetInspect.Web` host, shared Sections and Networking

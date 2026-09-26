@@ -146,7 +146,7 @@ function resolveDotnetDeclaration(
   const dotnet = process.env.DOTNET ?? "dotnet";
   const project = resolve(
     inspectWeb,
-    "DotnetInspect.Web/DotnetInspect.Web.csproj",
+    "../src/DotnetInspect.Web/DotnetInspect.Web.csproj",
   );
   const result = run(dotnet, [
     "msbuild",

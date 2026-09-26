@@ -623,7 +623,6 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Ecosystems.csproj");
         string[] productionProjects =
         [
-            EngineProjectPath,
             .. Directory.EnumerateFiles(
                     Path.Combine(repositoryRoot, "src"),
                     "DotnetInspect.Web*.csproj",
@@ -862,7 +861,7 @@ public sealed class BrowserEngineLayeringTests
 
     static string EngineProjectPath => Path.Combine(
         RepositoryRoot(),
-        "inspect-web",
+        "src",
         "DotnetInspect.Web",
         "DotnetInspect.Web.csproj");
 

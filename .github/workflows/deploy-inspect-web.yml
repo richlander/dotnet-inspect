@@ -56,9 +56,10 @@ jobs:
           version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output artifacts/inspect-web-publish \
+            -p:InspectWebIncludeFrontend=true \
             -p:VersionPrefix="$version" \
             -p:SourceRevisionId="$GITHUB_SHA" \
             -p:BuildTimestampUtc="$built_at" \
@@ -71,7 +72,7 @@ jobs:
         run: |
           eng/verify-inspect-web-async-deployment.sh \
             compiler \
-            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
             artifacts/inspect-web-publish/wwwroot \
             artifacts/inspect-web-publish/async-lowering.json \
             artifacts/inspect-web-compiler-async-receipts

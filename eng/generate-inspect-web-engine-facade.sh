@@ -6,8 +6,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 inspect_web="$repo_root/inspect-web"
-engine_csproj="$inspect_web/DotnetInspect.Web/DotnetInspect.Web.csproj"
-engine_output="$inspect_web/DotnetInspect.Web/bin/Release/net11.0"
+engine_csproj="$repo_root/src/DotnetInspect.Web/DotnetInspect.Web.csproj"
+engine_output="$repo_root/artifacts/bin/DotnetInspect.Web/release"
 engine_dll="$engine_output/DotnetInspect.Web.dll"
 context_type="DotnetInspect.Web.InspectWebJsExportContext"
 
@@ -214,6 +214,7 @@ verify_msbuild_facade_build() {
     "$engine_csproj" \
     -c Release \
     --no-restore \
+    -p:InspectWebIncludeFrontend=true \
     "$@" >&2
   if [[ -e "$stale_msbuild_module" ]]; then
     echo "error: the .NET build left the stale facade module in place." >&2
@@ -231,6 +232,7 @@ verify_msbuild_facade_publish() {
     -c Release \
     --no-restore \
     --output "$publish_output" \
+    -p:InspectWebIncludeFrontend=true \
     "$@" >&2
   if [[ -e "$stale_msbuild_module" ]]; then
     echo "error: the .NET publish left the stale facade module in place." >&2

@@ -132,6 +132,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" />
+    <Project Path="src/DotnetInspect.Web/DotnetInspect.Web.csproj" />
     <Project Path="src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj" />
     <Project Path="src/DotnetInspect.Web.Interop.Analysis/DotnetInspect.Web.Interop.Analysis.csproj" />
     <Project Path="src/DotnetInspect.Web.Interop.CallGraph/DotnetInspect.Web.Interop.CallGraph.csproj" />

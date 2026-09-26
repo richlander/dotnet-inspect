@@ -1,0 +1,136 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>DotnetInspect.Web</AssemblyName>
+    <RootNamespace>DotnetInspect.Web</RootNamespace>
+    <IsPublishable>true</IsPublishable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
+    <RepositoryUrl>https://github.com/richlander/dotnet-inspect</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <InspectWebIncludeFrontend Condition="'$(InspectWebIncludeFrontend)' == ''">false</InspectWebIncludeFrontend>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="RepositoryCommit" Value="$(SourceRevisionId)" Condition="'$(SourceRevisionId)' != ''" />
+    <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" />
+    <AssemblyMetadata Include="BuildTimestampUtc" Value="$(BuildTimestampUtc)" Condition="'$(BuildTimestampUtc)' != ''" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
+    <!--
+      Every browser interaction that inspects an assembly runs inside a workspace, through a public
+      product query that owns the session. BannedSymbols.txt makes the compiler enforce that;
+      Directory.Build.targets already escalates RS0030 to an error for every .csproj.
+      BrowserEngineLayeringTests pins this wiring.
+    -->
+    <AdditionalFiles Include="BannedSymbols.txt" />
+    <ProjectReference Include="..\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
+    <!--
+      The host references every capability export assembly. That is what lets the compiled
+      InspectWebJsExportContext name all eight roots without any reverse or sibling dependency,
+      and what puts every facade's WebCIL assembly in the published browser app.
+    -->
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Package\DotnetInspect.Web.Interop.Package.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Library\DotnetInspect.Web.Interop.Library.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Metadata\DotnetInspect.Web.Interop.Metadata.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Analysis\DotnetInspect.Web.Interop.Analysis.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Source\DotnetInspect.Web.Interop.Source.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.CallGraph\DotnetInspect.Web.Interop.CallGraph.csproj" />
+    <ProjectReference Include="..\DotnetInspect.Web.Interop.Catalog\DotnetInspect.Web.Interop.Catalog.csproj" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Package" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Library" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Metadata" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Analysis" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Source" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.CallGraph" />
+    <TrimmerRootAssembly Include="DotnetInspect.Web.Interop.Catalog" />
+    <Content Include="..\..\inspect-web\dist\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\dist\manifest.json" Link="wwwroot\manifest.json" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\dist\assets\**\*" Link="wwwroot\assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\staticwebapp.config.json" Link="wwwroot\staticwebapp.config.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\assets\dotnet-inspect-bot.png" Link="wwwroot\assets\dotnet-inspect-bot.png" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\assets\bots\*.png" Link="wwwroot\assets\bots\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\assets\platform-index.json" Link="wwwroot\assets\platform-index.json" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\runtime-loader.js" Link="wwwroot\runtime-loader.js" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Remove="wwwroot\inspect-web-*.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-host.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-package.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-library.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-metadata.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-analysis.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-source.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-call-graph.js" />
+    <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-catalog.js" />
+  </ItemGroup>
+
+  <Target Name="ValidateInspectWebIncludeFrontend"
+    BeforeTargets="PrepareForBuild;PrepareForPublish">
+    <Error
+      Condition="'$(InspectWebIncludeFrontend)' != 'true' And '$(InspectWebIncludeFrontend)' != 'false'"
+      Text="InspectWebIncludeFrontend must be 'true' or 'false'." />
+  </Target>
+
+  <Target Name="RequireInspectWebFrontendForPublish"
+    BeforeTargets="PrepareForPublish"
+    Condition="'$(InspectWebIncludeFrontend)' != 'true'">
+    <Error Text="Publishing DotnetInspect.Web requires '-p:InspectWebIncludeFrontend=true' after building the inspect-web frontend." />
+  </Target>
+
+  <Target Name="GenerateInspectWebEngineFacades"
+    BeforeTargets="ResolveProjectStaticWebAssets;PrepareForPublish"
+    Condition="'$(InspectWebIncludeFrontend)' == 'true'">
+    <Exec Command="node &quot;../../inspect-web/scripts/compile-engine-facades.ts&quot; --install" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <ItemGroup>
+      <Content Include="@(_InspectWebGeneratedFacadeModule)" Link="wwwroot\%(Filename)%(Extension)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="IncludeInspectWebRuntimeAssembliesForPostprocessing" AfterTargets="_ComputeUserRuntimeAssemblies">
+    <ItemGroup>
+      <!-- WebAssembly overlap handling omits managed app DLLs from the standard publish list. -->
+      <ResolvedFileToPublish
+        Include="@(UserRuntimeAssembly);@(IntermediateAssembly)"
+        Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>%(Filename)%(Extension)</RelativePath>
+        <PostprocessAssembly>true</PostprocessAssembly>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="ValidateInspectWebFrontendBundle"
+    BeforeTargets="ResolveProjectStaticWebAssets;PrepareForPublish"
+    DependsOnTargets="GenerateInspectWebEngineFacades"
+    Condition="'$(InspectWebIncludeFrontend)' == 'true'">
+    <Error Condition="!Exists('..\..\inspect-web\dist\index.html') Or !Exists('..\..\inspect-web\dist\manifest.json')" Text="The inspect-web frontend bundle is missing. Run 'npm ci' and 'npm run build' in inspect-web before building or publishing." />
+    <Exec Command="node &quot;../../inspect-web/scripts/verify-site-artifact.ts&quot; &quot;../../inspect-web/dist&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="PublishInspectWebFrontendIndex"
+    AfterTargets="ComputeAndCopyFilesToPublishDirectory"
+    Condition="'$(InspectWebIncludeFrontend)' == 'true'">
+    <Error Condition="'@(_HtmlPublishCandidates)' == ''" Text="The .NET SDK did not produce the inspect-web HTML placeholder artifact." />
+    <Copy SourceFiles="@(_HtmlPublishCandidates)" DestinationFiles="@(_HtmlPublishCandidates->'$(PublishDir)wwwroot/index.html')" />
+  </Target>
+
+  <Target Name="PublishInspectWebRuntimeLoader"
+    AfterTargets="PublishInspectWebFrontendIndex"
+    Condition="'$(InspectWebIncludeFrontend)' == 'true'">
+    <Exec Command="node &quot;../../inspect-web/scripts/publish-runtime-loader.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="PublishInspectWebContentSecurityPolicy"
+    AfterTargets="PublishInspectWebRuntimeLoader"
+    Condition="'$(InspectWebIncludeFrontend)' == 'true'">
+    <Exec Command="node &quot;../../inspect-web/scripts/publish-content-security-policy.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="VerifyPublishedInspectWebSite"
+    AfterTargets="PublishInspectWebContentSecurityPolicy"
+    Condition="'$(InspectWebIncludeFrontend)' == 'true'">
+    <Exec Command="node &quot;../../inspect-web/scripts/verify-site-artifact.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+</Project>

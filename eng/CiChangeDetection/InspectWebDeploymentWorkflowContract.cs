@@ -21,7 +21,7 @@ internal static class InspectWebDeploymentWorkflowContract
         """
         eng/verify-inspect-web-async-deployment.sh \
           compiler \
-          inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+          artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
           artifacts/inspect-web-publish/wwwroot \
           artifacts/inspect-web-publish/async-lowering.json \
           artifacts/inspect-web-compiler-async-receipts
@@ -31,7 +31,7 @@ internal static class InspectWebDeploymentWorkflowContract
         RestoreConfigFile="$RUNNER_TEMP/inspect-web-coreclr-NuGet.Config" \
           eng/verify-inspect-web-async-deployment.sh \
             runtime \
-            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll \
             artifacts/inspect-web-coreclr-publish/wwwroot \
             artifacts/inspect-web-coreclr-publish/async-lowering.json \
             artifacts/inspect-web-runtime-async-receipts
@@ -210,8 +210,8 @@ internal static class InspectWebDeploymentWorkflowContract
             "Staging workflow contract accepted a non-rerun-safe artifact upload.");
         AssertMutationRejected(
             stagingWorkflow,
-            "inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll",
-            "inspect-web/DotnetInspect.Web/obj/Release/net11.0/linked/DotnetInspect.Web.dll",
+            "artifacts/bin/DotnetInspect.Web/release/DotnetInspect.Web.dll",
+            "artifacts/obj/DotnetInspect.Web/release/linked/DotnetInspect.Web.dll",
             ValidateStaging,
             "Staging contract accepted async evidence from the wrong assembly.");
         AssertMutationRejected(
@@ -366,6 +366,13 @@ internal static class InspectWebDeploymentWorkflowContract
             || Count(
                 runtimeCohortWorkflow,
                 "            -p:SourceRevisionId=\"${{ inputs.source_sha }}\" \\\n") != 2
+            || Count(
+                runtimeCohortWorkflow,
+                "          dotnet publish \\\n"
+                    + "            src/DotnetInspect.Web/DotnetInspect.Web.csproj \\\n") != 2
+            || Count(
+                runtimeCohortWorkflow,
+                "            -p:InspectWebIncludeFrontend=true \\\n") != 2
             || Count(
                 runtimeCohortWorkflow,
                 "            --source-commit \"${{ inputs.source_sha }}\" \\\n") != 1)
@@ -565,9 +572,10 @@ internal static class InspectWebDeploymentWorkflowContract
             version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
-              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+              src/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -c Release \
               --output artifacts/inspect-web-publish \
+              -p:InspectWebIncludeFrontend=true \
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="$GITHUB_SHA" \
               -p:BuildTimestampUtc="$built_at" \
@@ -1018,7 +1026,7 @@ internal static class InspectWebDeploymentWorkflowContract
             test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
 
             target_framework=$(dotnet msbuild \
-              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+              src/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -getProperty:TargetFramework \
               -nologo)
             test "$target_framework" = "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK"
@@ -1159,10 +1167,11 @@ internal static class InspectWebDeploymentWorkflowContract
             version=$(dotnet msbuild src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
-              inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+              src/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -c Release \
               --output artifacts/inspect-web-coreclr-publish \
               --configfile "$nuget_config" \
+              -p:InspectWebIncludeFrontend=true \
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="${{ inputs.source_sha }}" \
               -p:BuildTimestampUtc="$built_at" \
