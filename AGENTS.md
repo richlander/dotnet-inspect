@@ -44,6 +44,11 @@ development model and rationale. The binding summary:
   QuerySpace means the question reaches the work: building every row and then
   filtering, counting, or limiting it is LINQ in QuerySpace clothing unless the
   owning design names that as a reference slice.
+- **Modernization must satisfy intent, not only structure.** Wiring modern
+  substrate while retaining legacy work or cost is incomplete adoption. Before
+  landing, report exact base/head NativeAOT performance for every supported
+  terminal, like Count; follow
+  [`docs/evidence-and-validation.md`](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
 - **Choose rendering strategy deliberately.** Use Markout as the default
   host-neutral substrate for centralized, multi-format rendering, and call out
   host-specific rendering that bypasses it. Broad information domains such as
@@ -153,14 +158,6 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 - **Remove it and expire recorded merge authorization** before a new round,
   author change, conflict recovery, restack, base-ref retarget, unresolved
   finding, or draft transition — anything that spends the clean reviews.
-
-## User-directed workflow adjustments
-
-A user may adjust sequencing for one task or PR, but cannot turn failed
-validation green, make an unmergeable PR ready, or transfer fixed-head evidence.
-Record its scope and consequence; follow
-[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments)
-for the standing mechanics.
 
 ## Before changing files
 
@@ -555,11 +552,6 @@ current-head CI and positive mergeability; round 12 and later presume splitting
 unless the checkpoint establishes a strong reason and the user explicitly
 approves keeping the PR intact. Full checkpoint mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
-
-## Lead with the demo
-
-Every PR body puts `## Demo` above validation and follows the full
-[demo contract](docs/development-practices.md#lead-with-the-demo).
 
 ## PR and CI discipline
 
