@@ -35,9 +35,11 @@ package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
 carried forward.
 
-`DotnetInspect.Web` remains the executable Browser/Wasm host and the owner of
-all current exports and wire DTOs. `DotnetInspect.Web.Core` is its one-way,
-implementation-only dependency for shared package/platform workspaces,
+`DotnetInspect.Web` remains the executable Browser/Wasm host under this website
+workspace and the owner of all current exports and wire DTOs. The managed Core
+and interop production libraries live under `src/`, where the normal solution
+build covers them without invoking Node. `DotnetInspect.Web.Core` is the host's
+one-way, implementation-only dependency for shared package/platform workspaces,
 operation lifetimes, browser host policy, and typed internal results. Engine
 maps those results to its wire DTOs; Core contains no `[JSExport]` method or
 generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
