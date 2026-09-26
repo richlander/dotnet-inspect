@@ -8,9 +8,9 @@ delivery slice under
 [#8319](https://github.com/richlander/dotnet-inspect/issues/8319).
 
 `Inspector.Text` implements the immutable document, exact line, bounded pull,
-source-local position, oversized-line, and fragment contracts. The existing
-Source view projection is the first adopter: it now uses this substrate for
-its complete line inventory instead of maintaining a second line parser.
+source-local position, and line-limit failure contracts. The existing Source
+view projection is the first adopter: it now uses this substrate for its
+complete line inventory instead of maintaining a second line parser.
 
 SourceHouse continuation, QueryOverflow composition, host-visible receipts,
 CLI draining, Browser delivery, and package README adoption remain unverified
@@ -31,9 +31,8 @@ The owner defines:
 - source-local positions within one immutable document instance;
 - positive hard maxima for candidate rows, UTF-16 row text, and
   JSON-encoded UTF-8 row text;
-- normal batches that satisfy every maximum;
-- explicit identification of one individually over-bound semantic line;
-- bounded execution-only fragments for that line; and
+- batches that satisfy every maximum;
+- visible failure when one complete line exceeds a content maximum; and
 - exact line Count disclosure only when the document is exhausted.
 
 The owner does not define:
@@ -115,8 +114,7 @@ One line carries:
   terminator.
 
 Concatenating content and terminators reconstructs the decoded string exactly.
-Line starts and fragment starts are UTF-16 code-unit coordinates. A valid
-surrogate pair is never divided between fragments.
+Line starts are UTF-16 code-unit coordinates.
 
 The empty string contains one empty line at start zero with no terminator.
 A decoded string ending in a terminator contains a final empty line after that
@@ -150,11 +148,12 @@ When a later line would exceed an aggregate maximum, the batch ends before
 that line. Therefore, a short batch does not imply completion. The caller must
 use the explicit completion state.
 
-When the next line cannot fit either content maximum by itself, the pull
-returns that line alone with `OversizedLine` kind. This is not permission to
-publish an over-bound host segment. It lets QueryOverflow still observe one
-complete candidate row while the outer delivery operation uses the fragment
-contract below.
+When the next complete line cannot fit either content maximum by itself, the
+pull fails with `DecodedTextLineLimitException`. The failure identifies the
+line and both measured and allowed sizes. It does not return a partial row,
+advance the source position, or let QueryOverflow observe the rejected line.
+An owner may retry the same position under a different compatible policy;
+Source's fixed production policy instead reports the operation failure.
 
 The candidate-row maximum is designed to accept
 `QueryOverflowInputRequest.MaximumCandidateRows`. The decoded-text owner
@@ -162,52 +161,27 @@ retains its independent UTF-16 and serialized-text ceilings. QueryOverflow
 does not learn physical text bounds, and the decoded-text source does not
 interpret Head, Count, delivery credit, or query completion.
 
-## Oversized-line fragments
-
-An individually over-bound line can be read as a sequence of fragments. A
-fragment carries a content slice, its UTF-16 position within the line, and the
-exact terminator only when that fragment completes the line.
-
-Every fragment satisfies the caller's UTF-16 and JSON-encoded UTF-8 maxima. A
-fragment boundary never divides a valid surrogate pair. If the supplied limits
-cannot hold the next Unicode scalar or the complete terminator, fragmentation
-fails visibly instead of returning an empty nonterminal fragment.
-
-A fragment is an execution or transport piece. It is not:
-
-- a line row;
-- a line identity;
-- a Count unit;
-- a QuerySpace selection input; or
-- evidence that the line or document is complete.
-
-The outer operation may advance QueryOverflow with the complete immutable line
-and retain fragment delivery state until that published row has been fully
-transferred. It must not request another candidate batch while an earlier
-published row remains only partially delivered.
-
 ## Completion and Count
 
 A batch reports document completion only after it contains the final
 coordinate line. Only that completed batch exposes exact line Count, equal to
 the final line number.
 
-A candidate-row limit, content limit, short batch, oversized line, fragment,
-or continuation does not establish Count. QueryOverflow decides whether the
+A candidate-row limit, content limit, short batch, line-limit failure, or
+continuation does not establish Count. QueryOverflow decides whether the
 resolved terminal is semantically complete; the decoded-text source supplies
 only document exhaustion.
 
 ## Ownership and failure
 
-Line and fragment content are immutable memory slices over the document's
-retained string. They remain valid after a batch object is released and do not
-borrow mutable source buffers.
+Line content is an immutable memory slice over the document's retained string.
+It remains valid after a batch object is released and does not borrow mutable
+source buffers.
 
 Invalid limits, a cross-document position, a position outside the document,
-an offset that splits a surrogate pair, integer overflow, or a fragment limit
-that cannot make progress fails visibly. The implementation does not return a
-successful empty batch, silently clamp a request, or restart from the
-beginning.
+an individually over-bound line, invalid decoded text, or integer overflow
+fails visibly. The implementation does not return a partial row, successful
+empty batch, silently clamp a request, or restart from the beginning.
 
 ## First adopter and production path
 
@@ -241,8 +215,7 @@ The pure substrate additionally gates:
 - supplementary Unicode scalars;
 - empty and final-empty coordinate lines;
 - aggregate bounds ending a batch before its candidate-row maximum;
-- an individually over-bound line split across bounded fragments;
-- a fragment request too small to make progress; and
+- an individually over-bound line failing visibly; and
 - a position used with the wrong document.
 
 ## Required evidence
@@ -252,8 +225,8 @@ The pure substrate additionally gates:
 | `PullsReconstructExactDecodedText` | Mixed terminators, line numbers, UTF-16 starts, and supplementary scalars reconstruct exactly across bounded pulls. | Verified in Release by `Inspector.Text.Tests`. |
 | `EmptyAndFinalEmptyLinesAreCoordinates` | Empty and trailing-terminator documents retain their coordinate lines and exact Count. | Verified in Release by `Inspector.Text.Tests`. |
 | `DifferentPullBoundsPreserveRowsAndCompletion` | Accepted pull partitions preserve line values, order, completion, and Count. | Verified in Release by `Inspector.Text.Tests`. |
-| `NormalPullsRespectEveryMaximum` | Every normal batch satisfies all three caller maxima. | Verified in Release by `Inspector.Text.Tests`. |
-| `OversizedLineProducesBoundedFragments` | One oversized row is explicit; fragments are bounded, preserve its terminator, avoid surrogate-pair splits, and reconstruct it exactly. | Verified in Release by `Inspector.Text.Tests`. |
+| `NormalPullsRespectEveryMaximum` | Every successful batch satisfies all three caller maxima. | Verified in Release by `Inspector.Text.Tests`. |
+| `LineExceedingPullLimitsFailsVisibly` | A line exceeding either content maximum reports a typed failure with measured and allowed sizes. | Verified in Release by `Inspector.Text.Tests`. |
 | `PullPositionIsBoundToOneDocument` | A source position cannot resume a different document. | Verified in Release by `Inspector.Text.Tests`. |
 | `SourceViewLinesReconstructExactDecodedText` | The first Source adopter preserves its existing exact line contract through the shared substrate. | Verified in Release by `DotnetInspector.Queries.Tests`. |
 
@@ -271,6 +244,6 @@ This contract does not claim:
 - portable or durable continuation;
 - random access by line number;
 - original-byte reconstruction;
-- that fragments are semantic rows;
+- support for a line exceeding an owner's content ceilings;
 - that every text Finding uses this coordinate model; or
 - completed CLI or Browser progressive delivery.

@@ -141,7 +141,6 @@ public sealed class DecodedTextDocumentTests
         {
             DecodedTextBatch batch = document.Pull(position, request);
 
-            Assert.Equal(DecodedTextBatchKind.Rows, batch.Kind);
             Assert.InRange(
                 batch.Lines.Length,
                 1,
@@ -181,76 +180,60 @@ public sealed class DecodedTextDocumentTests
         Assert.NotNull(batch.Continuation);
     }
 
-    [Fact]
-    public void OversizedLineProducesBoundedFragments()
+    [Theory]
+    [InlineData("abcdef", 5, 100, 6, 6)]
+    [InlineData("<", 10, 5, 1, 6)]
+    public void LineExceedingPullLimitsFailsVisibly(
+        string text,
+        int maximumUtf16CodeUnits,
+        int maximumJsonEncodedUtf8Bytes,
+        int expectedUtf16CodeUnits,
+        int expectedJsonEncodedUtf8Bytes)
     {
-        const string text =
-            "ab😀cd\u2028tail";
         var document = new DecodedTextDocument(text);
-        var pullRequest = new DecodedTextPullRequest(
-            maximumCandidateRows: 4,
-            maximumUtf16CodeUnits: 4,
-            maximumJsonEncodedUtf8Bytes: 16);
+        var request = new DecodedTextPullRequest(
+            maximumCandidateRows: 1,
+            maximumUtf16CodeUnits,
+            maximumJsonEncodedUtf8Bytes);
 
-        DecodedTextBatch batch = document.Pull(
-            document.Start,
-            pullRequest);
-        DecodedTextLine line = Assert.Single(batch.Lines);
+        DecodedTextLineLimitException exception =
+            Assert.Throws<DecodedTextLineLimitException>(
+                () => document.Pull(document.Start, request));
 
+        Assert.Equal(1, exception.LineNumber);
         Assert.Equal(
-            DecodedTextBatchKind.OversizedLine,
-            batch.Kind);
-        Assert.False(batch.IsComplete);
-
-        var fragmentRequest = new DecodedTextFragmentRequest(
-            maximumUtf16CodeUnits: 3,
-            maximumJsonEncodedUtf8Bytes: 12);
-        var fragments = new List<DecodedTextLineFragment>();
-        int? offset = 0;
-        while (offset is not null)
-        {
-            DecodedTextLineFragment fragment =
-                line.ReadFragment(
-                    offset.Value,
-                    fragmentRequest);
-            Assert.InRange(
-                fragment.Utf16CodeUnits,
-                0,
-                fragmentRequest.MaximumUtf16CodeUnits);
-            Assert.InRange(
-                fragment.JsonEncodedUtf8Bytes,
-                0,
-                fragmentRequest.MaximumJsonEncodedUtf8Bytes);
-            Assert.False(
-                fragment.Content.Length > 0
-                && char.IsLowSurrogate(fragment.Content.Span[0]));
-            Assert.False(
-                fragment.Content.Length > 0
-                && char.IsHighSurrogate(fragment.Content.Span[^1]));
-            fragments.Add(fragment);
-            offset = fragment.NextContentOffset;
-        }
-
-        Assert.True(fragments.Count > 1);
-        Assert.All(
-            fragments[..^1],
-            fragment =>
-            {
-                Assert.False(fragment.IsLineComplete);
-                Assert.Equal(
-                    DecodedTextLineTerminator.None,
-                    fragment.Terminator);
-            });
+            expectedUtf16CodeUnits,
+            exception.Utf16CodeUnits);
         Assert.Equal(
-            DecodedTextLineTerminator.LineSeparator,
-            fragments[^1].Terminator);
+            maximumUtf16CodeUnits,
+            exception.MaximumUtf16CodeUnits);
         Assert.Equal(
-            "ab😀cd\u2028",
-            string.Concat(
-                fragments.Select(
-                    fragment =>
-                        fragment.Content.ToString()
-                        + fragment.TerminatorText)));
+            expectedJsonEncodedUtf8Bytes,
+            exception.JsonEncodedUtf8Bytes);
+        Assert.Equal(
+            maximumJsonEncodedUtf8Bytes,
+            exception.MaximumJsonEncodedUtf8Bytes);
+    }
+
+    [Fact]
+    public void PullReturnsBoundedPrefixBeforeOverLimitLine()
+    {
+        var document = new DecodedTextDocument(
+            "first\nsecond line is too long");
+        var request = new DecodedTextPullRequest(
+            maximumCandidateRows: 10,
+            maximumUtf16CodeUnits: 10,
+            maximumJsonEncodedUtf8Bytes: 100);
+
+        DecodedTextBatch batch =
+            document.Pull(document.Start, request);
+
+        Assert.Equal("first", Assert.Single(batch.Lines).Content.ToString());
+        Assert.NotNull(batch.Continuation);
+        DecodedTextLineLimitException exception =
+            Assert.Throws<DecodedTextLineLimitException>(
+                () => document.Pull(batch.Continuation, request));
+        Assert.Equal(2, exception.LineNumber);
     }
 
     [Fact]
@@ -289,29 +272,6 @@ public sealed class DecodedTextDocumentTests
         Assert.Equal(expected, line.JsonEncodedUtf8Bytes);
     }
 
-    [Fact]
-    public void FragmentFailsWhenLimitsCannotMakeProgress()
-    {
-        var document = new DecodedTextDocument("😀");
-        DecodedTextLine line =
-            Assert.Single(
-                document.Pull(
-                        document.Start,
-                        new DecodedTextPullRequest(1, 1, 1))
-                    .Lines);
-
-        ArgumentException exception =
-            Assert.Throws<ArgumentException>(
-                () => line.ReadFragment(
-                    0,
-                    new DecodedTextFragmentRequest(1, 1)));
-
-        Assert.Contains(
-            "cannot contain",
-            exception.Message,
-            StringComparison.Ordinal);
-    }
-
     private static IReadOnlyList<DecodedTextLine> Drain(
         DecodedTextDocument document,
         DecodedTextPullRequest request,
@@ -323,12 +283,6 @@ public sealed class DecodedTextDocumentTests
         while (position is not null)
         {
             DecodedTextBatch batch = document.Pull(position, request);
-            if (batch.Kind == DecodedTextBatchKind.OversizedLine)
-            {
-                throw new InvalidOperationException(
-                    "The test request unexpectedly required fragmentation.");
-            }
-
             lines.AddRange(batch.Lines);
             count = batch.ExactLineCount;
             position = batch.Continuation;

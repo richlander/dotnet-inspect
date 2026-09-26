@@ -46,7 +46,7 @@ identity, view binding, exact Count requirement, and Source-owned continuation
 compatibility.
 It does not redefine:
 
-- the shared decoded-text document, segment, pull, long-line fragmentation, or
+- the shared decoded-text document, segment, pull, line-limit failure, or
   continuation mechanics owned by
   [Decoded text document](decoded-text-document.md) and tracked through
   [issue #8319](https://github.com/richlander/dotnet-inspect/issues/8319);
@@ -192,11 +192,10 @@ when unusually long lines make the row limit ineffective.
 
 The complete next row is included only when all applicable bounds remain
 satisfied. If one untrusted line exceeds a content bound by itself, the shared
-substrate may split that line into execution-only fragments. A fragment is not
-a Source row, line identity, Count unit, semantic selection result, or
-coordinate-space replacement. Fragmentation does not split a UTF-16 surrogate
-pair, and the exact terminator remains associated with the completed line.
-Ordinary segments otherwise contain only complete semantic rows.
+substrate fails visibly without returning a partial row or advancing the
+source position. Source reports that typed failure instead of weakening its
+execution policy. Every successful segment contains only complete semantic
+rows.
 
 One Rows execution may return its bounded segment plus a Source-compatible
 continuation. The continuation is an opaque receipt bound to:
@@ -316,9 +315,10 @@ bytes.
 At the selected 256-row, 32,768-UTF-16, and 65,536-JSON-byte bounds, 855 of
 3,334 documents required continuation. The population produced 5,935 total
 segments; p95 was four segments per document and the maximum was 153. No
-observed line required fragmentation. Doubling both content bounds saved one
-segment across the population, so the 256-row bound dominates ordinary files
-while the content bounds contain pathological lines.
+observed line exceeded either content bound. Doubling both content bounds
+saved one segment across the population, so the 256-row bound dominates
+ordinary files while the content bounds reject unsupported pathological
+lines.
 
 A separate exact PDB census reproduced the pinned 104-assembly broad package
 pool. Seventy-seven assemblies supplied Portable PDBs and 76 supplied
@@ -351,8 +351,8 @@ Implementation proceeds through focused slices:
    view-binding, execution-policy, and host-adoption contract, with a
    reproducible observational census.
 2. [Decoded text document](decoded-text-document.md) adds the shared immutable
-   decoded-text document, bounded pull, source-local position, and
-   execution-only long-line fragments under #8319.
+   decoded-text document, bounded pull, source-local position, and visible
+   line-limit failure under #8319.
 3. Compose the existing host-neutral Source view/artifact model and completed
    type and member Source envelopes with that shared substrate. Gate exact
    reconstruction, Source request compatibility, and failure preservation
@@ -377,7 +377,7 @@ acquisition, Query Space, or the viewer.
 | `SourceViewProjectionDistinguishesArtifactsAndPreservesEvidence` | The four view kinds are explicit; authored origins retain their physical artifact and member mapping; decompiled origins have no artifact; a declaration excerpt does not masquerade as its physical file; PDB/decompiled success and non-success preserve facts, Share, diagnostics, mapping, and typed failures. | Verified in Release by `SourceViewInspectionTests`. |
 | `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
 | `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
-| `SourceLineSegmentsRespectExecutionBounds` | Normal pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line uses non-row fragments without splitting a surrogate pair or changing exact reconstruction. | Unverified until slices 2 and 3. |
+| `SourceLineSegmentsRespectExecutionBounds` | Successful pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line fails visibly without returning a partial row or advancing its position. | Unverified until slices 2 and 3. |
 | `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
 | `CliSourceDrainsContinuationWithoutChangingOutput` | CLI default output equals the pre-adoption decoded document, while Count and Rows observe source lines. | Unverified until slice 4. |
 | `BrowserSourceRequestsContinuedLines` | Published Browser/Wasm obtains the same envelope and document facts, requests later line segments instead of receiving complete text first, and keeps authored and decompiled views independently selectable and lazy. | Unverified until slice 5. |

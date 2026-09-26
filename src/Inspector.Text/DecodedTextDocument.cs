@@ -16,12 +16,6 @@ public enum DecodedTextLineTerminator
     ParagraphSeparator,
 }
 
-public enum DecodedTextBatchKind
-{
-    Rows,
-    OversizedLine,
-}
-
 public sealed class DecodedTextPullRequest
 {
     public DecodedTextPullRequest(
@@ -55,22 +49,37 @@ public sealed class DecodedTextPullRequest
             int.MaxValue);
 }
 
-public sealed class DecodedTextFragmentRequest
+public sealed class DecodedTextLineLimitException
+    : InvalidOperationException
 {
-    public DecodedTextFragmentRequest(
+    internal DecodedTextLineLimitException(
+        int lineNumber,
+        int utf16CodeUnits,
         int maximumUtf16CodeUnits,
+        int jsonEncodedUtf8Bytes,
         int maximumJsonEncodedUtf8Bytes)
+        : base(
+            $"Decoded text line {lineNumber:N0} requires "
+            + $"{utf16CodeUnits:N0} UTF-16 code units and "
+            + $"{jsonEncodedUtf8Bytes:N0} JSON-encoded UTF-8 bytes, "
+            + "which exceeds the pull limits of "
+            + $"{maximumUtf16CodeUnits:N0} UTF-16 code units and "
+            + $"{maximumJsonEncodedUtf8Bytes:N0} JSON-encoded UTF-8 bytes.")
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-            maximumUtf16CodeUnits);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-            maximumJsonEncodedUtf8Bytes);
-
+        LineNumber = lineNumber;
+        Utf16CodeUnits = utf16CodeUnits;
         MaximumUtf16CodeUnits = maximumUtf16CodeUnits;
+        JsonEncodedUtf8Bytes = jsonEncodedUtf8Bytes;
         MaximumJsonEncodedUtf8Bytes = maximumJsonEncodedUtf8Bytes;
     }
 
+    public int LineNumber { get; }
+
+    public int Utf16CodeUnits { get; }
+
     public int MaximumUtf16CodeUnits { get; }
+
+    public int JsonEncodedUtf8Bytes { get; }
 
     public int MaximumJsonEncodedUtf8Bytes { get; }
 }
@@ -133,158 +142,21 @@ public sealed class DecodedTextLine
     public int Utf16CodeUnits => _rowText.Length;
 
     public int JsonEncodedUtf8Bytes { get; }
-
-    public DecodedTextLineFragment ReadFragment(
-        int contentOffset,
-        DecodedTextFragmentRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentOutOfRangeException.ThrowIfNegative(contentOffset);
-        if (contentOffset > _contentLength)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(contentOffset),
-                "The fragment offset exceeds the line content.");
-        }
-
-        ReadOnlySpan<char> content = Content.Span;
-        if (contentOffset > 0
-            && contentOffset < content.Length
-            && char.IsHighSurrogate(content[contentOffset - 1])
-            && char.IsLowSurrogate(content[contentOffset]))
-        {
-            throw new ArgumentException(
-                "The fragment offset splits a UTF-16 surrogate pair.",
-                nameof(contentOffset));
-        }
-
-        int consumed = 0;
-        int jsonBytes = 0;
-        while (contentOffset + consumed < content.Length)
-        {
-            int scalarLength = DecodedTextEncoding.ScalarLength(
-                content,
-                contentOffset + consumed);
-            int scalarJsonBytes =
-                DecodedTextEncoding.JsonEncodedUtf8Length(
-                    content.Slice(
-                        contentOffset + consumed,
-                        scalarLength));
-            if (consumed + scalarLength
-                    > request.MaximumUtf16CodeUnits
-                || jsonBytes + scalarJsonBytes
-                    > request.MaximumJsonEncodedUtf8Bytes)
-            {
-                break;
-            }
-
-            consumed += scalarLength;
-            jsonBytes = checked(jsonBytes + scalarJsonBytes);
-        }
-
-        bool contentComplete =
-            contentOffset + consumed == content.Length;
-        int terminatorLength =
-            DecodedTextTerminators.Utf16Length(Terminator);
-        int terminatorJsonBytes =
-            DecodedTextEncoding.JsonEncodedUtf8Length(
-                TerminatorText.AsSpan());
-        bool lineComplete =
-            contentComplete
-            && consumed + terminatorLength
-                <= request.MaximumUtf16CodeUnits
-            && jsonBytes + terminatorJsonBytes
-                <= request.MaximumJsonEncodedUtf8Bytes;
-
-        if (lineComplete)
-        {
-            jsonBytes = checked(jsonBytes + terminatorJsonBytes);
-        }
-        else if (consumed == 0)
-        {
-            throw new ArgumentException(
-                "The fragment limits cannot contain the next Unicode "
-                + "scalar or complete line terminator.",
-                nameof(request));
-        }
-
-        return new DecodedTextLineFragment(
-            Number,
-            Start,
-            contentOffset,
-            Content.Slice(contentOffset, consumed),
-            lineComplete
-                ? Terminator
-                : DecodedTextLineTerminator.None,
-            lineComplete ? null : contentOffset + consumed,
-            consumed + (lineComplete ? terminatorLength : 0),
-            jsonBytes);
-    }
-}
-
-public sealed class DecodedTextLineFragment
-{
-    internal DecodedTextLineFragment(
-        int lineNumber,
-        int lineStart,
-        int contentOffset,
-        ReadOnlyMemory<char> content,
-        DecodedTextLineTerminator terminator,
-        int? nextContentOffset,
-        int utf16CodeUnits,
-        int jsonEncodedUtf8Bytes)
-    {
-        LineNumber = lineNumber;
-        LineStart = lineStart;
-        ContentOffset = contentOffset;
-        Content = content;
-        Terminator = terminator;
-        NextContentOffset = nextContentOffset;
-        Utf16CodeUnits = utf16CodeUnits;
-        JsonEncodedUtf8Bytes = jsonEncodedUtf8Bytes;
-    }
-
-    public int LineNumber { get; }
-
-    public int LineStart { get; }
-
-    public int ContentOffset { get; }
-
-    public int Start => checked(LineStart + ContentOffset);
-
-    public ReadOnlyMemory<char> Content { get; }
-
-    public DecodedTextLineTerminator Terminator { get; }
-
-    public string TerminatorText =>
-        DecodedTextTerminators.Text(Terminator);
-
-    public int? NextContentOffset { get; }
-
-    public bool IsLineComplete => NextContentOffset is null;
-
-    public int Utf16CodeUnits { get; }
-
-    public int JsonEncodedUtf8Bytes { get; }
 }
 
 public sealed class DecodedTextBatch
 {
     internal DecodedTextBatch(
-        DecodedTextBatchKind kind,
         ImmutableArray<DecodedTextLine> lines,
         DecodedTextPosition? continuation,
         int utf16CodeUnits,
         int jsonEncodedUtf8Bytes)
     {
-        Kind = kind;
         Lines = lines;
         Continuation = continuation;
         Utf16CodeUnits = utf16CodeUnits;
         JsonEncodedUtf8Bytes = jsonEncodedUtf8Bytes;
     }
-
-    public DecodedTextBatchKind Kind { get; }
 
     public ImmutableArray<DecodedTextLine> Lines { get; }
 
@@ -355,11 +227,20 @@ public sealed class DecodedTextDocument
             if (lines.Count != 0 && (oversized || exceedsBatch))
             {
                 return CreateBatch(
-                    DecodedTextBatchKind.Rows,
                     lines,
                     current,
                     utf16CodeUnits,
                     jsonEncodedUtf8Bytes);
+            }
+
+            if (oversized)
+            {
+                throw new DecodedTextLineLimitException(
+                    line.Number,
+                    line.Utf16CodeUnits,
+                    request.MaximumUtf16CodeUnits,
+                    line.JsonEncodedUtf8Bytes,
+                    request.MaximumJsonEncodedUtf8Bytes);
             }
 
             lines.Add(line);
@@ -371,29 +252,16 @@ public sealed class DecodedTextDocument
                     + line.JsonEncodedUtf8Bytes);
             current = next;
 
-            if (oversized)
-            {
-                return CreateBatch(
-                    DecodedTextBatchKind.OversizedLine,
-                    lines,
-                    current,
-                    utf16CodeUnits,
-                    jsonEncodedUtf8Bytes);
-            }
-
             if (current is null)
             {
                 return CreateBatch(
-                    DecodedTextBatchKind.Rows,
                     lines,
                     continuation: null,
                     utf16CodeUnits,
                     jsonEncodedUtf8Bytes);
             }
         }
-
         return CreateBatch(
-            DecodedTextBatchKind.Rows,
             lines,
             current,
             utf16CodeUnits,
@@ -443,13 +311,11 @@ public sealed class DecodedTextDocument
     }
 
     private static DecodedTextBatch CreateBatch(
-        DecodedTextBatchKind kind,
         ImmutableArray<DecodedTextLine>.Builder lines,
         DecodedTextPosition? continuation,
         int utf16CodeUnits,
         int jsonEncodedUtf8Bytes) =>
         new(
-            kind,
             lines.ToImmutable(),
             continuation,
             utf16CodeUnits,
