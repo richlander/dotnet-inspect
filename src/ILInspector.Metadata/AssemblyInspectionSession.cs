@@ -221,6 +221,22 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Executes request-driven Count and bounded Rows over this image's
+    /// canonical extension relation population for one exact receiver Type.
+    /// </summary>
+    public MetadataExtensionRelationPopulationOutcome ExtensionRelations(
+        MetadataExtensionRelationPopulationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection.ExecuteExtensionPopulation(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
     /// <see cref="AssemblyInfo"/> when only reachability by name is needed: it decodes no
