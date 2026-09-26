@@ -1095,7 +1095,7 @@ async function installFacades(
           profile(1, "logical-1", 5, 0, 0)
         ];
         return {
-          schemaVersion: 2,
+          schemaVersion: 3,
           outcome: "available",
           subject: {
             identity: {
@@ -1135,7 +1135,38 @@ async function installFacades(
             }],
             generatedFrameworkTypes: [typeDefinitionId + "+<>c"],
             analysisDiagnostics: [],
-            apiSurfaceInspectionFailures: []
+            apiSurfaceInspectionFailures: [],
+            analyzedFamily: {
+              methods: members.map(member => ({
+                metadataToken: member.bodyTokens[0],
+                hasBody: true,
+                publicMember: member
+              })),
+              profiles,
+              coverage: {
+                wasRequested: true,
+                hasFullMethodEvidenceScope: false,
+                declaredMethodKeys: logicalMethods.map(method => method.key),
+                managedMethodBodyKeys: [
+                  ...logicalMethods.map(method => method.key),
+                  generatedMethod.key
+                ],
+                profiledEvidenceBodyKeys: [
+                  ...logicalMethods.map(method => method.key),
+                  generatedMethod.key
+                ],
+                unavailableBodies: [],
+                diagnostics: []
+              },
+              overloadRelationships: [{
+                callerKey: "logical-0",
+                calleeKey: "logical-1",
+                evidenceMethodKey: "logical-0",
+                ilOffset: 12,
+                kind: "Direct"
+              }],
+              analysisDiagnostics: []
+            }
           },
           failure: null,
           share: {
