@@ -425,7 +425,7 @@ public class LibrarySourceAdapterTests
 
     [Theory]
     [InlineData("library", "--package")]
-    [InlineData("coordinate", "--platform")]
+    [InlineData("address", "--platform")]
     public async Task CommandAdaptersSurfaceMalformedDeclarations(
         string route,
         string option)
@@ -435,7 +435,7 @@ public class LibrarySourceAdapterTests
             :
             [
                 "library",
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 option,
                 "\0",

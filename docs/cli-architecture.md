@@ -256,7 +256,7 @@ descriptor is preferred unchanged; otherwise the command consumes
 platform resolver's typed provenance. The command does not decode metadata to
 reclassify that result.
 
-The Coordinate child admits exact points and files before source resolution.
+The Address child admits exact points and files before source resolution.
 After admission, a `Rejected` selection is reported with the selected path
 before SourceLink probing, ordinary inspection, or single/batch coordinate
 resolution. A `Descriptorless` selection keeps the path-only compatibility
@@ -267,10 +267,10 @@ contributes a warning and non-zero exit status without suppressing healthy
 participants.
 
 `LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen`,
-`LibraryCoordinateCommand_FileRejectsMissingFileBeforeLibraryAcquisition`,
-`LibraryCoordinateCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
-`LibraryCoordinateCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
-`LibraryCoordinateCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates`,
+`LibraryAddressCommand_FileRejectsMissingFileBeforeLibraryAcquisition`,
+`LibraryAddressCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
+`LibraryAddressCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
+`LibraryAddressCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates`,
 and
 `LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected`
 gate this composition.
