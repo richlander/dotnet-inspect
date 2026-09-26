@@ -51,6 +51,20 @@ export interface MemberOverloadSummary {
   graphOnly?: boolean;
 }
 
+// Overload rows share their family's name, so the row starts at the member
+// name and drops the return type. A signature that does not spell the member
+// name, such as a constructor or operator, is shown whole.
+export function overloadNavLabel(name: string, signature: string): string {
+  for (const suffix of ["(", "<"]) {
+    const needle = `${name}${suffix}`;
+    let index = signature.indexOf(needle);
+    while (index > 0 && signature[index - 1] !== " ")
+      index = signature.indexOf(needle, index + 1);
+    if (index >= 0) return signature.slice(index);
+  }
+  return signature;
+}
+
 export interface MemberGroup {
   key: string;
   name: string;
@@ -545,7 +559,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
           return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             <span class="overload-branch">↳</span>
-            <code>${highlight(overload.signature)}</code>
+            <code>${highlight(overloadNavLabel(entry.group.name, overload.signature))}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>

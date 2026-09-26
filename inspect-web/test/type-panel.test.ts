@@ -4,6 +4,7 @@ import {
   bindTypePanel,
   createMemberSourcePartSelector,
   memberSourceText,
+  overloadNavLabel,
   renderGraphMemberPending,
   renderMemberNav,
   renderSourcePageActions,
@@ -1869,3 +1870,18 @@ function memberSourceFixture(): BrowserMemberSource {
     ],
   };
 }
+
+test("overload rows start at the member name and drop the return type", () => {
+  assert.equal(
+    overloadNavLabel("WriteString", "void WriteString(string propertyName, string? value)"),
+    "WriteString(string propertyName, string? value)");
+  assert.equal(
+    overloadNavLabel("Serialize", "string Serialize<TValue>(TValue value)"),
+    "Serialize<TValue>(TValue value)");
+  // The name inside a return type is not the member name.
+  assert.equal(
+    overloadNavLabel("Run", "Task<ARun(int)> Run(int value)"),
+    "Run(int value)");
+  // Constructors and operators do not spell the member name.
+  assert.equal(overloadNavLabel(".ctor", "Widget(int value)"), "Widget(int value)");
+});
