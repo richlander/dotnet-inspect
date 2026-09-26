@@ -7,6 +7,9 @@ import {
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 import { packageRemoveButton } from "./package-removal.ts";
+import {
+  replaceChildrenPreservingRenderedInteractions,
+} from "./rendered-interaction.ts";
 
 type LensDefinition = readonly [id: string, label: string];
 type SpotlightFocus = "input" | "chips";
@@ -276,7 +279,10 @@ export function createSpotlight(options: SpotlightOptions) {
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
   let renderedResults: readonly SpotlightResult[] = [];
+  let renderedResultsByIdentity = new Map<string, SpotlightResult>();
   let selectedResultIdentity: string | null = null;
+  const boundResultControls = new WeakSet<HTMLElement>();
+  const boundRemoveControls = new WeakSet<HTMLElement>();
   const dismissedPackageIds = new Set<string>();
   let dismissalQuery = state.spotlightQuery;
   let packageAddition: PackageAdditionOptions | null = null;
@@ -313,27 +319,35 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function withRemoveButton(
     result: SpotlightResult,
-    index: number,
     row: string,
   ): string {
     if (!removable(result)) return row;
+    const identity = spotlightResultIdentity(result);
     const label = result.kind === "pkg-recent"
       ? `Forget ${result.entry.id} from recent packages`
       : `Remove ${result.pkg.id} ${result.pkg.version} ${result.pkg.activeFramework ?? ""} from Workspace`;
     return `<div class="package-search-row" role="presentation">${row}${packageRemoveButton(
-      "data-sl-remove", String(index), label, escapeHtml)}</div>`;
+      "data-sl-remove", identity, label, escapeHtml)}</div>`;
   }
 
   function rowHtml(result: SpotlightResult, index: number): string {
     const selected = index === state.spotlightIndex;
+    const identity = spotlightResultIdentity(result);
     if (result.kind === "command") {
-      return commandPaletteRowHtml(result, index, selected, escapeHtml);
+      return commandPaletteRowHtml(
+        result,
+        index,
+        selected,
+        identity,
+        escapeHtml,
+      );
     }
 
     const selectedClass = selected ? "selected" : "";
-    const base = `id="spotlight-result-${index}" class="spotlight-item ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}"${packageAddition ? ' tabindex="-1"' : ""}`;
+    const escapedIdentity = escapeHtml(identity);
+    const base = `id="spotlight-result-${index}" class="spotlight-item ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}" data-sl-result-identity="${escapedIdentity}" data-rendered-interaction-key="spotlight-result:${escapedIdentity}"${packageAddition ? ' tabindex="-1"' : ""}`;
     if (result.kind === "pkg-loaded") {
-      return withRemoveButton(result, index, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
+      return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
@@ -353,7 +367,7 @@ export function createSpotlight(options: SpotlightOptions) {
       const version = result.entry.version && result.entry.version !== "latest"
         ? result.entry.version
         : "";
-      return withRemoveButton(result, index, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
+      return withRemoveButton(result, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${version ? `${escapeHtml(version)} · ` : ""}recent</span>
@@ -495,6 +509,9 @@ export function createSpotlight(options: SpotlightOptions) {
     const items = results();
     restoreSelection(items);
     renderedResults = items;
+    renderedResultsByIdentity = new Map(
+      items.map(item => [spotlightResultIdentity(item), item]),
+    );
     return items;
   }
 
@@ -571,21 +588,29 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function bindResultClicks(root: ParentNode): void {
-    root.querySelectorAll<HTMLElement>("[data-sl-index]").forEach(item => {
+    root.querySelectorAll<HTMLElement>("[data-sl-result-identity]").forEach(item => {
+      if (boundResultControls.has(item)) return;
+      boundResultControls.add(item);
+      const identity = item.dataset.slResultIdentity;
+      if (!identity) return;
       item.addEventListener("click", () => {
-        const index = Number(item.dataset.slIndex);
-        const result = renderedResults[index];
+        const result = renderedResultsByIdentity.get(identity);
         if (result) pick(result);
       });
     });
     root.querySelectorAll<HTMLElement>("[data-sl-remove]").forEach(button => {
-      button.addEventListener("click", () =>
-        removeResultAt(Number(button.dataset.slRemove)));
+      if (boundRemoveControls.has(button)) return;
+      boundRemoveControls.add(button);
+      const identity = button.dataset.slRemove;
+      if (!identity) return;
+      button.addEventListener("click", () => {
+        const result = renderedResultsByIdentity.get(identity);
+        if (result) removeResult(result);
+      });
     });
   }
 
-  function removeResultAt(index: number): boolean {
-    const result = renderedResults[index];
+  function removeResult(result: SpotlightResult | undefined): boolean {
     if (!result || !removable(result)) return false;
     const input = document.querySelector<HTMLInputElement>("#spotlight-input");
     const start = input?.selectionStart ?? state.spotlightQuery.length;
@@ -598,6 +623,10 @@ export function createSpotlight(options: SpotlightOptions) {
     replacement?.focus({ preventScroll: true });
     replacement?.setSelectionRange(start, end);
     return true;
+  }
+
+  function removeResultAt(index: number): boolean {
+    return removeResult(renderedResults[index]);
   }
 
   function focus(selection?: {
@@ -627,7 +656,10 @@ export function createSpotlight(options: SpotlightOptions) {
     const container = document.querySelector<HTMLElement>("#spotlight-results");
     if (!container) return;
     const items = resultsForRender();
-    container.innerHTML = resultsHtml(items);
+    replaceChildrenPreservingRenderedInteractions(
+      container,
+      resultsHtml(items),
+    );
     bindResultClicks(container);
     syncActiveDescendant(items.length);
     container.querySelector(".spotlight-item.selected")
@@ -666,6 +698,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
     renderedResults = [];
+    renderedResultsByIdentity = new Map();
     selectedResultIdentity = null;
   }
 

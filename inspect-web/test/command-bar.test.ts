@@ -273,11 +273,13 @@ test("command result markup keeps command text and metadata inert", () => {
     category: "lens",
     command: 'show "<source>"',
     action: "execute",
-  }, 2, true, escapeHtml);
+  }, 2, true, '["command","show"]', escapeHtml);
 
   assert.match(html, /class="spotlight-item selected"/);
   assert.match(html, /id="spotlight-result-2"/);
   assert.match(html, /data-sl-index="2"/);
+  assert.match(html, /data-sl-result-identity=/);
+  assert.match(html, /data-rendered-interaction-key=/);
   assert.match(html, /show &quot;&lt;source&gt;&quot;/);
   assert.match(html, /A&amp;B · lens/);
 });

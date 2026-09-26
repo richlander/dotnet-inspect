@@ -5,6 +5,7 @@ import {
   createSpotlight,
   nextSpotlightScope,
   nextSpotlightSelection,
+  spotlightResultIdentity,
 } from "../src/spotlight.ts";
 import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
 import type {
@@ -208,10 +209,15 @@ function withBoundSpotlight(
   input.focus = () => { activeElement = input; };
   const cancel = element("spotlight-cancel");
   const backdrop = element("spotlight-backdrop");
-  const rows = [...harness.spotlight.modalHtml().matchAll(/data-sl-index="(\d+)"/g)]
-    .map(match => ({
+  const html = harness.spotlight.modalHtml();
+  const rendered = harness.spotlight.results();
+  const rows = [...html.matchAll(/data-sl-index="(\d+)"/g)]
+    .map((match, index) => ({
       ...element(`spotlight-result-${match[1]}`),
-      dataset: { slIndex: match[1] },
+      dataset: {
+        slIndex: match[1],
+        slResultIdentity: spotlightResultIdentity(rendered[index]!),
+      },
       classList: { toggle: () => {} },
       setAttribute: () => {},
       scrollIntoView: () => {},
@@ -220,7 +226,10 @@ function withBoundSpotlight(
     innerHTML: "",
     querySelector: () => null,
     querySelectorAll: (selector: string) =>
-      selector === ".spotlight-item" || selector === "[data-sl-index]" ? rows : [],
+      selector === ".spotlight-item"
+        || selector === "[data-sl-result-identity]"
+        ? rows
+        : [],
   };
   const root = {
     querySelector: (selector: string) => {
@@ -230,7 +239,8 @@ function withBoundSpotlight(
       if (selector === "#spotlight-results") return results;
       return null;
     },
-    querySelectorAll: (selector: string) => selector === "[data-sl-index]" ? rows : [],
+    querySelectorAll: (selector: string) =>
+      selector === "[data-sl-result-identity]" ? rows : [],
   };
   const document = fakeDom.document({
     ...root,
@@ -339,6 +349,27 @@ test("Add package dispatches rendered loaded, NuGet and recent rows only to Add"
   });
   assert.deepEqual(picked, [...packageRows, packageRows[1]]);
   assert.equal(normalPicks, 0);
+});
+
+test("result activation follows rendered identity instead of a reused index", () => {
+  let current = [packageRows[0]!, packageRows[1]!];
+  const picked: SpotlightPackageResult[] = [];
+  const harness = createHarness({ searchResults: () => current });
+  withStubbedFocusTarget(() => harness.spotlight.openForPackageAddition({
+    pickResult: result => picked.push(result),
+    focusAfterDismiss: () => {},
+  }));
+
+  withBoundSpotlight(harness, dom => {
+    current = [packageRows[2]!, packageRows[0]!, packageRows[1]!];
+    harness.spotlight.modalHtml();
+    dom.clickRow(0);
+    current = [packageRows[1]!];
+    harness.spotlight.modalHtml();
+    dom.clickRow(0);
+  });
+
+  assert.deepEqual(picked, [packageRows[0]]);
 });
 
 test("Add package keeps selection identity as pending results change", () => {
@@ -770,7 +801,10 @@ test("newer document focus blocks delayed command focus restoration", async () =
   assert.notEqual(commandIndex, -1);
   spotlight.modalHtml();
   const row = {
-    dataset: { slIndex: String(commandIndex) },
+    dataset: {
+      slIndex: String(commandIndex),
+      slResultIdentity: spotlightResultIdentity(results[commandIndex]!),
+    },
     addEventListener: (_name: string, listener: () => void) => {
       click = listener;
     },
@@ -788,7 +822,7 @@ test("newer document focus blocks delayed command focus restoration", async () =
     querySelector: (selector: string) =>
       selector === "#spotlight-input" ? input : null,
     querySelectorAll: (selector: string) =>
-      selector === "[data-sl-index]" ? [row] : [],
+      selector === "[data-sl-result-identity]" ? [row] : [],
   };
 
   withStubbedFocusTarget(() =>
