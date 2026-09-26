@@ -750,7 +750,10 @@ outcomes.
 19. Press a framework-Library result on its descendant label while ordinary
     acquisition changes that result's visible metadata. Confirm that the
     button and pressed descendant remain connected and release activates once.
-20. Repeat while removing the pressed result identity and confirm that release
+20. On Home, hold Space on a result while a whole-application render changes
+    its positional DOM ID. Confirm that focus remains on the exact result
+    identity and release activates that result once.
+21. Repeat while removing the pressed result identity and confirm that release
     does not activate the result that inherited its former array position.
 
 ### Local Open

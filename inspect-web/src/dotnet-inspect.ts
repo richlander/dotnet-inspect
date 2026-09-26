@@ -6774,6 +6774,7 @@ type HomeFocusTarget =
     region: "home-bar" | "data-bar";
     href: string;
   }
+  | { kind: "spotlight-result"; identity: string }
   | { kind: "spotlight-scope"; scope: string }
   | { kind: "settings-theme"; theme: string }
   | { kind: "settings-taste"; taste: string };
@@ -6788,6 +6789,10 @@ function captureHomeFocus(
       ? "home"
       : null;
   if (!surface) return null;
+  const spotlightResult = focused.dataset.slResultIdentity;
+  if (surface === "home" && spotlightResult) {
+    return { kind: "spotlight-result", identity: spotlightResult };
+  }
   if (focused.id) return { kind: "id", surface, id: focused.id };
   if (surface === "settings") {
     const theme = focused.dataset.theme;
@@ -6811,7 +6816,17 @@ function captureHomeFocus(
 
 function restoreHomeFocus(target: HomeFocusTarget): boolean {
   let element: HTMLElement | null = null;
-  if (target.kind === "id") {
+  if (target.kind === "spotlight-result") {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement
+      && active.dataset.slResultIdentity === target.identity) {
+      return true;
+    }
+    element = [...document.querySelectorAll<HTMLElement>(
+      "[data-sl-result-identity]",
+    )].find(candidate =>
+      candidate.dataset.slResultIdentity === target.identity) ?? null;
+  } else if (target.kind === "id") {
     element = document.getElementById(target.id);
   } else if (target.kind === "spotlight-scope") {
     element = [...document.querySelectorAll<HTMLElement>("[data-sl-scope]")]
