@@ -13,7 +13,7 @@ adoption in
 
 The motivating production scenarios are:
 
-- an unpruned `System.Text.Json@12.0.0` PackageRef whose selected package
+- an unpruned `System.Text.Json@10.0.0` PackageRef whose selected package
   content supplies `System.Text.Json.dll`;
 - Polly-family AssemblyRefs whose reachable PackageRefs and selected package
   content identify the supplying package;
@@ -159,10 +159,10 @@ Likewise, a same-named file with an incompatible version, culture, public key,
 or content remains `NameOwnedNoMatch`, rejected, or another owner-issued
 non-success. It is not a successful binding.
 
-### `System.Text.Json@12.0.0`
+### `System.Text.Json@10.0.0`
 
 For a package Library with an external `System.Text.Json` AssemblyRef and an
-actual `System.Text.Json@12.0.0` dependency:
+actual `System.Text.Json@10.0.0` dependency on a .NET 9 target:
 
 1. the PackageRef is reachable under the selected package target;
 2. pruning returns `NotSubsumed`, so the package edge remains;
@@ -338,8 +338,8 @@ The records are conclusive in separate stages:
 They do not serialize a direct package-to-assembly relation, and none is
 required.
 
-- With `System.Text.Json@12.0.0`, pruning retains the edge and ordinary Package
-  correlation plus selected content can establish the supplier.
+- With `System.Text.Json@10.0.0` on .NET 9, pruning retains the edge; ordinary
+  Package correlation plus selected content can establish the supplier.
 - With a subsumed `System.Text.Json` edge, the Package supplier is removed and
   exact Platform membership can establish the specialized supplier.
 - With no `System.Text.Json` edge, the prune row is irrelevant and exact
@@ -457,9 +457,9 @@ a section or broad information domain.
 
 Future Release gates must prove:
 
-- `System.Text.Json@12.0.0` remains unpruned, is correlated by exact PackageRef
-  name and selected `System.Text.Json.dll` content, and binds through decoded
-  Metadata identity;
+- `System.Text.Json@10.0.0` on .NET 9 remains unpruned, is correlated by exact
+  PackageRef name and selected `System.Text.Json.dll` content, and binds
+  through decoded Metadata identity;
 - real Polly-family dependencies exercise exact and boundary-prefix PackageRef
   correlation followed by selected-content verification;
 - a same-named or prefix-related PackageRef without the assembly does not own

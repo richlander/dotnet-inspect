@@ -433,7 +433,8 @@ For a `net10.0` origin with an eligible .NET Runtime Platform target and a
 - `System.Text.Json@9.0.0` delegates conclusively after the exact edge is
   `Subsumed`; the independent `AssemblyRef` must still resolve against the
   exact Platform population;
-- `System.Text.Json@12.0.0` is `NotSubsumed`, retains the package route, and
+- `System.Text.Json@10.0.0` on .NET 9 is `NotSubsumed`, retains the package
+  route, and
   exact namesake plus selected `System.Text.Json.dll` content nominates the
   ordinary Package supplier before Metadata binding confirms it;
 - an unresolved or otherwise incomparable version is `NotComparable` and
@@ -954,10 +955,10 @@ An ordinary Package reference:
 
 ```text
 request
-  origin: Contoso.App/lib/net11.0/Contoso.App.dll
-  AssemblyRef: System.Text.Json, Version=12.0.0.0
-  package edge: System.Text.Json [12.0.0]
-  platform prune watermark: 11.0.0
+  origin: Contoso.App/lib/net9.0/Contoso.App.dll
+  AssemblyRef: System.Text.Json, Version=10.0.0.0
+  package edge: System.Text.Json [10.0.0]
+  platform prune watermark: 9.0.0
   focal length: Everything
 
 ladder
@@ -965,8 +966,8 @@ ladder
     NoNameOwner
   package correlation
     PackageRef: exact namesake
-    selected member: ref/net11.0/System.Text.Json.dll
-    Metadata identity: System.Text.Json, Version=12.0.0.0
+    selected member: lib/net9.0/System.Text.Json.dll
+    Metadata identity: System.Text.Json, Version=10.0.0.0
   platform specialization
     not applicable: package edge is NotSubsumed
   package
