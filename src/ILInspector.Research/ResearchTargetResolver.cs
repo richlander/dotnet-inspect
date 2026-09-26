@@ -11,7 +11,7 @@ namespace ILInspector.Research;
 
 /// <summary>
 /// Research-owned side-local target request planning and terminal attempt
-/// resolution for the implementation-comparison profile.
+/// resolution for both rank-1 comparison profiles.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,7 +22,9 @@ namespace ILInspector.Research;
 /// descriptor; it opens nothing.
 /// </para>
 /// <para>
-/// Resolution borrows each implementation input only while it resolves, staging
+/// Resolution borrows each admitted input's target evidence -- the same
+/// descriptor, resolver, and Analysis method population for either profile --
+/// only while it resolves, staging
 /// one <see cref="MetadataSource"/> per admitted input for all of that input's
 /// requests. It validates the live image against the acquisition descriptor and
 /// the Analysis-issued module identity before it resolves anything, reuses
@@ -49,7 +51,7 @@ public static class ResearchTargetResolver
 {
     /// <summary>
     /// Plans and resolves every side-local target for one admitted
-    /// implementation-comparison population.
+    /// implementation-comparison or body-signal population.
     /// </summary>
     /// <exception cref="OperationCanceledException">
     /// <paramref name="cancellationToken"/> was observed. No partial plan,
@@ -87,15 +89,6 @@ public static class ResearchTargetResolver
         ResearchTargetPlanningRequest request)
     {
         ResearchAdmittedPopulation population = request.Population;
-        if (population.Profile
-            != ResearchComparisonProfile.ImplementationComparison)
-        {
-            return Reject(
-                ResearchTargetPlanningRejectionKind.UnsupportedProfile,
-                new ResearchTargetPlanningLocation.Operation(),
-                $"The {population.Profile} profile supplies no typed Metadata target evidence.");
-        }
-
         HashSet<ResearchAdmittedInput> admitted = new(
             population.Inputs,
             ReferenceEqualityComparer.Instance);
@@ -366,8 +359,7 @@ public static class ResearchTargetResolver
 
     static ResearchTargetDomainKey DomainKey(ResearchAdmittedInput input)
         => ResearchTargetDomainKey.From(
-            ((ImplementationComparisonInputOccurrence)input.Occurrence)
-                .Assembly.Identity);
+            input.Occurrence.TargetEvidence.Assembly.Identity);
 
     // ----------------------------------------------------------------- resolve
 
@@ -422,7 +414,7 @@ public static class ResearchTargetResolver
         IReadOnlyList<PlannedRequest> requests,
         CancellationToken cancellationToken)
     {
-        var occurrence = (ImplementationComparisonInputOccurrence)input.Occurrence;
+        ResearchTargetEvidence occurrence = input.Occurrence.TargetEvidence;
         MetadataSource? source;
         try
         {
@@ -679,15 +671,9 @@ public static class ResearchTargetResolver
         out ResearchTargetBodyIdentity? identity)
     {
         identity = null;
-        if (input.Occurrence
-            is not ImplementationComparisonInputOccurrence occurrence)
-        {
-            return false;
-        }
-
         MethodIdentity? method = null;
         foreach (MethodIdentity candidate
-            in occurrence.MethodPopulation.DeclaredMethods)
+            in input.Occurrence.TargetEvidence.MethodPopulation.DeclaredMethods)
         {
             if (candidate.MetadataToken != metadataToken)
                 continue;

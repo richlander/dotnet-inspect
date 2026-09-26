@@ -1042,29 +1042,6 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void CompareAssemblies_BodySignals_MemberTargetsKeepUnsafeRows()
-    {
-        var unfiltered = ResearchDiff.CompareAssemblies(
-            FixtureCatalog.DiffPair.OldAssemblyPath(),
-            FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
-        var targetId = Assert.Single(unfiltered.MembersWhere(member =>
-            member.Subject.Display.Contains("AddsUnsafe", StringComparison.Ordinal)
-            && member.HasChange("unsafe.stackalloc.added"))).Subject.Id;
-
-        var filtered = ResearchDiff.CompareAssemblies(
-            FixtureCatalog.DiffPair.OldAssemblyPath(),
-            FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(
-                ResearchChangeMechanism.BodySignals,
-                MemberTargetIdentities: new HashSet<string>(StringComparer.Ordinal) { targetId }));
-
-        var changed = Assert.Single(filtered.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
-        Assert.Equal(targetId, changed.Subject.Id);
-        Assert.Contains("AddsUnsafe", changed.Subject.Display);
-    }
-
-    [Fact]
     public void CompareAssemblies_BodySignals_TypeFiltersApplyToUnsafeRows()
     {
         var diff = ResearchDiff.CompareAssemblies(

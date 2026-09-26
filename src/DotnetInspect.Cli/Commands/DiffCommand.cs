@@ -436,26 +436,22 @@ public class DiffCommand
                 if (workspaceTarget is not null
                     && SelectsAnalysisDiff(options))
                 {
-                    BodySignalComparisonInput? analysisInput =
-                        null;
                     try
                     {
-                        analysisInput =
-                            CreateBodySignalComparisonInput(
-                                inputs,
-                                options);
+                        workspaceAnalysis =
+                            RequireBodySignalComparison(
+                                BodySignalComparisonQuery.Execute(
+                                    CreateBodySignalComparisonInput(
+                                        inputs,
+                                        options)),
+                                options,
+                                DiffSections.AnalysisDiff.Name);
                     }
                     catch (InvalidOperationException exception)
                         when (options.MemberFilter.Count > 0)
                     {
                         workspaceAnalysisFailure =
                             exception.Message;
-                    }
-                    if (analysisInput is not null)
-                    {
-                        workspaceAnalysis =
-                            BodySignalComparisonQuery.Execute(
-                                analysisInput);
                     }
                 }
                 IReadOnlyList<ApiDiffInspectionFailure>
@@ -707,11 +703,12 @@ public class DiffCommand
                     }
                     else
                     {
-                        var analysis = BuildAnalysisDiff(
-                            workspaceAnalysis
-                                ?? queryResults.Get(
+                        var analysis = workspaceAnalysis is not null
+                            ? BuildAnalysisDiff(workspaceAnalysis, options)
+                            : BuildAnalysisDiff(
+                                queryResults.Get(
                                     BodySignalComparisonQuery.Definition),
-                            options);
+                                options);
                         view = DiffOutputFormatter.BuildAnalysisDiffView(
                             inputs.Name,
                             analysis.Rows,
@@ -1428,11 +1425,12 @@ public class DiffCommand
             }
             else
             {
-                var analysis = BuildAnalysisDiff(
-                    workspaceAnalysis
-                        ?? queryResults.Get(
+                var analysis = workspaceAnalysis is not null
+                    ? BuildAnalysisDiff(workspaceAnalysis, options)
+                    : BuildAnalysisDiff(
+                        queryResults.Get(
                             BodySignalComparisonQuery.Definition),
-                    options);
+                        options);
                 analysisView = DiffOutputFormatter.BuildAnalysisDiffView(
                     inputs.Name,
                     analysis.Rows,
@@ -1578,6 +1576,110 @@ public class DiffCommand
     }
 
     internal static AnalysisDiffResult BuildAnalysisDiff(
+        BodySignalComparisonResult result,
+        DiffOptions options)
+        => BuildAnalysisDiff(
+            RequireBodySignalComparison(
+                result,
+                options,
+                DiffSections.AnalysisDiff.Name),
+            options);
+
+    /// <summary>
+    /// Returns the completed body-signal comparison, or throws one explicit
+    /// message for every typed failure. A targeted comparison whose selection
+    /// selected no endpoint on either side is a failure, never an empty
+    /// comparison.
+    /// </summary>
+    internal static ResearchComparison RequireBodySignalComparison(
+        BodySignalComparisonResult result,
+        DiffOptions options,
+        string sectionName)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(options);
+        switch (result)
+        {
+            case BodySignalComparisonResult.Compared compared:
+                if (compared.Resolution is { } resolution)
+                    RequireSelectedEndpoints(resolution, compared.Correspondences, options);
+                return compared.Comparison;
+            case BodySignalComparisonResult.TargetFailed failed:
+                throw new InvalidOperationException(
+                    (failed.Failures.All(static failure => failure.Kind
+                            == BodySignalTargetFailureKind.EndpointWithoutMethodAddress)
+                        ? $"{sectionName} --member requires a method-like target: "
+                        : $"{sectionName} --member target selected no comparable method: ")
+                    + string.Join(
+                        " ",
+                        failed.Failures.Select(static failure => failure.Summary)));
+            case BodySignalComparisonResult.PlanningRejected rejected:
+                throw new InvalidOperationException(
+                    $"{sectionName} --member target planning was rejected "
+                    + $"({rejected.Rejection.Kind}): {rejected.Rejection.Summary}");
+            case BodySignalComparisonResult.AdmissionRejected rejected:
+                throw new InvalidOperationException(
+                    $"{sectionName} body-signal inputs were not admitted "
+                    + $"({rejected.Rejection.Kind}): {rejected.Rejection.Summary}");
+            case BodySignalComparisonResult.ProjectionRejected rejected:
+                throw new InvalidOperationException(
+                    $"{sectionName} body-signal inputs could not be associated "
+                    + $"with Research admission ({rejected.Reason}).");
+            case BodySignalComparisonResult.PopulationRejected rejected:
+                throw new InvalidOperationException(
+                    $"{sectionName} body-signal inputs were rejected "
+                    + $"({rejected.Rejection.Kind}).");
+            default:
+                throw new InvalidOperationException(
+                    "Unknown body-signal comparison result.");
+        }
+    }
+
+    // Every member selection must select an endpoint on at least one side.
+    // Scopes follow selection-occurrence order, which is --member order.
+    static void RequireSelectedEndpoints(
+        ResearchTargetResolution resolution,
+        ImmutableArray<ResearchTargetCorrespondenceOutcome> correspondences,
+        DiffOptions options)
+    {
+        string[] rawTargets = [.. options.MemberFilter];
+        for (int index = 0; index < resolution.Scopes.Length; index++)
+        {
+            ResearchTargetScope scope = resolution.Scopes[index];
+            ResearchTargetCorrespondenceOutcome[] outcomes =
+            [
+                .. correspondences.Where(outcome =>
+                    ReferenceEquals(outcome.Scope, scope.Id)),
+            ];
+            if (outcomes.Any(static outcome =>
+                    outcome is ResearchTargetCorrespondenceOutcome.Paired
+                        or ResearchTargetCorrespondenceOutcome.BeforeOnly
+                        or ResearchTargetCorrespondenceOutcome.AfterOnly))
+            {
+                continue;
+            }
+
+            string rawTarget = index < rawTargets.Length
+                ? rawTargets[index]
+                : scope.Selector.RequestedText;
+            string? diagnostic = outcomes
+                .OfType<ResearchTargetCorrespondenceOutcome.Absent>()
+                .SelectMany(static absent => new[]
+                {
+                    absent.BeforeAbsence.NotFoundAttempt,
+                    absent.AfterAbsence.NotFoundAttempt,
+                })
+                .Select(static attempt =>
+                    (attempt?.Outcome as ResearchTargetOutcome.NotFound)
+                        ?.MetadataDiagnostic?.Message)
+                .FirstOrDefault(static message => message is not null);
+            throw new InvalidOperationException(
+                diagnostic
+                ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
+        }
+    }
+
+    internal static AnalysisDiffResult BuildAnalysisDiff(
         ResearchComparison research,
         DiffOptions options)
     {
@@ -1621,37 +1723,71 @@ public class DiffCommand
         IReadOnlyList<string> toPaths,
         DiffOptions options,
         ApiSurface? fromSurface = null,
-        ApiSurface? toSurface = null)
+        ApiSurface? toSurface = null,
+        IReadOnlyList<FindingDescriptor>? retainedComparisons = null)
     {
-        var memberTargetIdentities = options.MemberFilter.Count == 0
-            ? null
-            : ResolveMemberTargetIdentities(
-                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
-                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
-                options.MemberFilter,
-                options.TypeFilter,
-                requireBodyTargets: true).MemberIdentities;
+        IReadOnlyList<ComparisonMemberSelection>? selections =
+            options.MemberFilter.Count == 0
+                ? null
+                : ResolveComparisonMemberSelections(
+                    fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
+                    toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
+                    options);
         return new BodySignalComparisonInput(
-            fromPaths
-                .Select(OpenAnalysis)
-                .ToArray(),
-            toPaths
-                .Select(OpenAnalysis)
-                .ToArray(),
+            [.. fromPaths.Select(CreateBodySignalBinding)],
+            [.. toPaths.Select(CreateBodySignalBinding)],
             options.TypeFilter,
-            memberTargetIdentities);
+            selections,
+            retainedComparisons);
+    }
 
-        static BodySignalAnalysisInput OpenAnalysis(string path)
-        {
-            ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
-                MethodBodyInspectionSession.Open(path)
-                    .AnalysisExecution;
-            return new(
+    static BodySignalComparisonBinding CreateBodySignalBinding(string path)
+    {
+        var assembly = ResolvedAssemblyReference.CreateFromPath(
+            path,
+            AssemblyResolutionProvenance.Local(
+                "diff body-signal comparison"));
+        ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
+            MethodBodyInspectionSession.Open(assembly).AnalysisExecution;
+        return new(
+            assembly,
+            MetadataSource.DefaultAssemblyReferenceResolver(path),
+            new BodySignalAnalysisInput(
                 execution.Allocations,
                 execution.Safety,
                 execution.CallGraph,
-                execution.Optimization);
+                execution.Optimization));
+    }
+
+    /// <summary>
+    /// Lowers each --member target to typed selection intent: the Metadata
+    /// type definition and the member selector. Research resolves the member.
+    /// </summary>
+    static IReadOnlyList<ComparisonMemberSelection> ResolveComparisonMemberSelections(
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        DiffOptions options)
+    {
+        List<ComparisonMemberSelection> selections = [];
+        foreach (string rawTarget in options.MemberFilter)
+        {
+            ParsedDiffMemberTarget parsed = ParseDiffMemberTarget(
+                rawTarget,
+                fromSurface,
+                toSurface,
+                options.TypeFilter);
+            WorkspaceImplementationTypeSelection type =
+                ResolveWorkspaceImplementationTypeName(
+                    fromSurface,
+                    toSurface,
+                    parsed.TypeName)
+                ?? throw new InvalidOperationException(
+                    $"Member target '{rawTarget}' names type "
+                    + $"'{parsed.TypeName}', which has no single Metadata "
+                    + "type definition in the diff inputs.");
+            selections.Add(new(type.DefinitionName, parsed.Selector));
         }
+        return selections;
     }
 
     internal static ImplementationDiffResult BuildImplementationDiff(
@@ -2902,7 +3038,7 @@ public class DiffCommand
         string fromVersion,
         string toVersion,
         DiffOptions options)
-        => BuildRetainedFindingTransitions<AllocationOccurrence>(
+        => BuildBodySignalFindingTransitions<AllocationOccurrence>(
             fromPaths,
             toPaths,
             fromSurface,
@@ -2910,8 +3046,6 @@ public class DiffCommand
             fromVersion,
             toVersion,
             options,
-            ResearchChangeMechanism.BodySignals,
-            emitEmptyComparison: false,
             AnalysisFindings.AllocationDescriptor,
             ToAllocationTransitionRow);
 
@@ -2923,7 +3057,7 @@ public class DiffCommand
         string fromVersion,
         string toVersion,
         DiffOptions options)
-        => BuildRetainedFindingTransitions<DirectCall>(
+        => BuildBodySignalFindingTransitions<DirectCall>(
             fromPaths,
             toPaths,
             fromSurface,
@@ -2931,8 +3065,6 @@ public class DiffCommand
             fromVersion,
             toVersion,
             options,
-            ResearchChangeMechanism.BodySignals,
-            emitEmptyComparison: false,
             AnalysisFindings.CallSiteDescriptor,
             ToCallSiteTransitionRow);
 
@@ -2944,7 +3076,7 @@ public class DiffCommand
         string fromVersion,
         string toVersion,
         DiffOptions options)
-        => BuildRetainedFindingTransitions<UnsafetyOccurrence>(
+        => BuildBodySignalFindingTransitions<UnsafetyOccurrence>(
             fromPaths,
             toPaths,
             fromSurface,
@@ -2952,8 +3084,6 @@ public class DiffCommand
             fromVersion,
             toVersion,
             options,
-            ResearchChangeMechanism.BodySignals,
-            emitEmptyComparison: false,
             AnalysisFindings.UnsafetyDescriptor,
             ToUnsafetyTransitionRow);
 
@@ -2999,6 +3129,73 @@ public class DiffCommand
             IlFindings.OperationDescriptor,
             ToIlTransitionRow);
 
+    // Analysis Findings select their endpoint methods only from Research
+    // target correspondence over the admitted body-signal population.
+    static IReadOnlyList<FindingTransitionRow> BuildBodySignalFindingTransitions<T>(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options,
+        FindingDescriptor descriptor,
+        Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
+            toTransitionRow)
+        where T : notnull
+    {
+        RequireSingleFindingMember(options, descriptor);
+        ResearchComparison research = RequireBodySignalComparison(
+            BodySignalComparisonQuery.Execute(
+                CreateBodySignalComparisonInput(
+                    fromPaths,
+                    toPaths,
+                    options,
+                    fromSurface,
+                    toSurface,
+                    [descriptor])),
+            options,
+            DiffSections.FindingTransitions.Name);
+        return RetainedTransitionRows(
+            research,
+            fromVersion,
+            toVersion,
+            emitEmptyComparison: false,
+            descriptor,
+            toTransitionRow);
+    }
+
+    static void RequireSingleFindingMember(
+        DiffOptions options,
+        FindingDescriptor descriptor)
+    {
+        if (options.MemberFilter.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"--finding {descriptor.Id} requires exactly one --member target.");
+        }
+    }
+
+    static IReadOnlyList<FindingTransitionRow> RetainedTransitionRows<T>(
+        ResearchComparison research,
+        string fromVersion,
+        string toVersion,
+        bool emitEmptyComparison,
+        FindingDescriptor descriptor,
+        Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
+            toTransitionRow)
+        where T : notnull
+        => research.RetainedComparisons.Get<T>(descriptor)
+            .SelectMany(comparison => RetainedComparisonRows(
+                comparison,
+                fromVersion,
+                toVersion,
+                emitEmptyComparison,
+                toTransitionRow))
+            .OrderBy(row => row.Target, StringComparer.Ordinal)
+            .ThenBy(row => row.Transition, StringComparer.Ordinal)
+            .ToList();
+
     static IReadOnlyList<FindingTransitionRow> BuildRetainedFindingTransitions<T>(
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
@@ -3014,12 +3211,7 @@ public class DiffCommand
             toTransitionRow)
         where T : notnull
     {
-        if (options.MemberFilter.Count != 1)
-        {
-            throw new InvalidOperationException(
-                $"--finding {descriptor.Id} requires exactly one --member target.");
-        }
-
+        RequireSingleFindingMember(options, descriptor);
         var targets = ResolveMemberTargetIdentities(
             fromSurface,
             toSurface,
@@ -3038,16 +3230,13 @@ public class DiffCommand
                 RetainedComparisonDescriptorIds =
                     ImmutableHashSet.Create(StringComparer.Ordinal, descriptor.Id),
             });
-        return research.RetainedComparisons.Get<T>(descriptor)
-            .SelectMany(comparison => RetainedComparisonRows(
-                comparison,
-                fromVersion,
-                toVersion,
-                emitEmptyComparison,
-                toTransitionRow))
-            .OrderBy(row => row.Target, StringComparer.Ordinal)
-            .ThenBy(row => row.Transition, StringComparer.Ordinal)
-            .ToList();
+        return RetainedTransitionRows(
+            research,
+            fromVersion,
+            toVersion,
+            emitEmptyComparison,
+            descriptor,
+            toTransitionRow);
     }
 
     internal static IEnumerable<FindingTransitionRow> RetainedComparisonRows<T>(

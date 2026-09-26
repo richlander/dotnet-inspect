@@ -2678,6 +2678,13 @@ public sealed class PackageAssemblyContextRealizationTests
         [
             .. paths.Select(path => new PackageContentEntry(path, 0)),
         ];
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            PackageContentEntryScanner.From(
+            [
+                .. paths.Select(path =>
+                    new PackageContentEntry(path, 0)),
+            ]);
     }
 
     sealed class TrackingPackageContent(

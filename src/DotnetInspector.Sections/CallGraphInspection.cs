@@ -490,7 +490,7 @@ internal sealed record CallGraphJsonTypeOrigin(
                     null,
                     module.ModuleName),
             _ => throw new NotSupportedException(
-                $"Call Graph JSON cannot serialize type origin "
+                $"Analysis identity JSON cannot serialize type origin "
                 + $"'{origin.GetType().FullName}'."),
         };
 }
@@ -805,4 +805,5 @@ internal sealed record CallGraphJsonEvidence(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(CallGraphJsonDocument))]
+[JsonSerializable(typeof(CallGraphJsonType))]
 internal partial class CallGraphJsonContext : JsonSerializerContext;

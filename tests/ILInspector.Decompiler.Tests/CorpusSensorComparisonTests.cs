@@ -2403,7 +2403,7 @@ public class CorpusSensorComparisonTests
             censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
-            "(github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')",
+            "inputs.lane == 'release-candidate'",
             censusJob,
             StringComparison.Ordinal);
         Assert.Contains(

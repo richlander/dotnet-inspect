@@ -198,13 +198,6 @@ public sealed class ResearchTargetPlanningRequest
 /// </remarks>
 public enum ResearchTargetPlanningRejectionKind
 {
-    /// <summary>
-    /// The admitted population is not an implementation comparison. The
-    /// body-signal profile has no typed Metadata target evidence, so it cannot
-    /// enter the target path.
-    /// </summary>
-    UnsupportedProfile,
-
     /// <summary>The request contains no selection occurrence.</summary>
     MissingSelections,
 

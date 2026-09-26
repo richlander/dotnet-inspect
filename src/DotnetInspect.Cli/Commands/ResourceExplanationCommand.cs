@@ -66,10 +66,22 @@ public static class ResourceExplanationCommand
                 capabilityCatalog,
                 PackageQueryCapabilityResourcePaths.Create(
                     capabilityCatalog));
+        InspectionCapabilityCatalog packageFilesCapabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageFileInventoryCapability.ProductModule,
+                    PackageFileInventoryCommandCapability.Module,
+                ]);
+        ResourceExplanationCatalog packageFilesCapabilityExplanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                packageFilesCapabilityCatalog,
+                PackageFileInventoryCapabilityResourcePaths.Create(
+                    packageFilesCapabilityCatalog));
         ResourceExplanationCatalog catalog =
             ResourceExplanationCatalog.Combine(
                 structuralCatalog,
-                capabilityExplanation);
+                capabilityExplanation,
+                packageFilesCapabilityExplanation);
         string normalizedOperand = operand.Trim();
         ResourcePath.TryCreate(
             normalizedOperand,

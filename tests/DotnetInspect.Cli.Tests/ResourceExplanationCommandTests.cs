@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
+using DotnetInspect.Cli.Commands;
 using DotnetInspector.Networking;
+using DotnetInspector.Sections;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
@@ -235,6 +237,56 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                     == "RequiredContext"
                 && relationship.GetProperty("target_path").GetString()
                     == "package-query/query/facets/library-target");
+    }
+
+    [Fact]
+    public async Task PackageFiles_ExplainsRouteQuerySpaceAndCliBinding()
+    {
+        InspectionCapabilityCatalog capabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageFileInventoryCapability.ProductModule,
+                    PackageFileInventoryCommandCapability.Module,
+                ]);
+        Assert.Empty(capabilityCatalog.AdoptionGaps);
+
+        var result = await RunAsync(
+            "explain",
+            "package-files/routes/default",
+            "--depth",
+            "2",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Contains(
+            document.RootElement
+                .GetProperty("resources")
+                .EnumerateArray(),
+            resource =>
+                resource.GetProperty("resource_kind").GetString()
+                    == "InspectionDocument"
+                && resource.GetProperty("path").GetString()
+                    == "package-files");
+        Assert.Contains(
+            document.RootElement
+                .GetProperty("resources")
+                .EnumerateArray(),
+            resource =>
+                resource.GetProperty("resource_kind").GetString()
+                    == "QuerySpace"
+                && resource.GetProperty("path").GetString()
+                    == "package-files/query");
+        Assert.Contains(
+            document.RootElement
+                .GetProperty("resources")
+                .EnumerateArray(),
+            resource =>
+                resource.GetProperty("resource_kind").GetString()
+                    == "ConsumerBinding"
+                && resource.GetProperty("path").GetString()
+                    == "package-files/bindings/cli");
     }
 
     [Fact]

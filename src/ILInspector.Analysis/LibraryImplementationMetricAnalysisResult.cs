@@ -15,12 +15,30 @@ internal sealed record ImplementationMetricLocalEvidence(
     internal bool IsComplete => IncompleteReason is null;
 }
 
+internal sealed record ImplementationMetricInstructionShape(
+    int InstructionCount,
+    int DistinctOpcodeCount);
+
+internal sealed record ImplementationMetricControlFlow(
+    int BasicBlockCount,
+    int BranchCount,
+    int ConditionalBranchCount,
+    int SwitchCount,
+    int SwitchTargetCount,
+    int LoopCount)
+{
+    internal int NormalFlowCyclomaticComplexity =>
+        1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+}
+
 internal sealed record MethodImplementationMetricEvidence(
     MethodIdentity Method,
     MethodIdentity EvidenceMethod,
     int? ILBytes,
     ImplementationMetricExceptionRegionCounts? ExceptionRegions,
-    ImplementationMetricLocalEvidence? Locals);
+    ImplementationMetricLocalEvidence? Locals,
+    ImplementationMetricInstructionShape? InstructionShape,
+    ImplementationMetricControlFlow? ControlFlow);
 
 internal sealed record ImplementationMetricStageParticipation(
     ImplementationMetricWorkStage Stage,

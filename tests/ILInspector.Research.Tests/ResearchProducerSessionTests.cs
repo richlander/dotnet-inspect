@@ -101,8 +101,8 @@ public partial class ResearchProducerSessionTests
                     broken,
                     [ResearchProducerKind.CSharp])).Kind);
 
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
-            FixtureCatalog.ResearchTargetSample.AssemblyPath());
+        string bodyPath = FixtureCatalog.ResearchTargetSample.AssemblyPath();
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(bodyPath);
         ResearchAdmittedPopulation bodySignal =
             Assert.IsType<ResearchAdmissionOutcome.Admitted>(
                 ResearchComparisonAdmission.Admit(
@@ -110,7 +110,15 @@ public partial class ResearchProducerSessionTests
                         ResearchComparisonProfile.BodySignal,
                         [
                             new ResearchComparisonAdmissionQuestion(
-                                [new BodySignalComparisonInputOccurrence(bodyIndex.CallGraphAnalysis)],
+                                [
+                                    new BodySignalComparisonInputOccurrence(
+                                        ResolvedAssemblyReference.CreateFromPath(
+                                            bodyPath,
+                                            AssemblyResolutionProvenance.Local(
+                                                "producer session test")),
+                                        new NullResolver(),
+                                        BodySignalAnalysisTestInput.FromIndex(bodyIndex)),
+                                ],
                                 []),
                         ]))).Population;
         Assert.Equal(
