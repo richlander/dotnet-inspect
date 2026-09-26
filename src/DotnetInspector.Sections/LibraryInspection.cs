@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
 using InertText;
 
@@ -262,17 +263,28 @@ public sealed record LibraryInspectionPlan
 {
     public LibraryInspectionPlan(
         LibraryTypePopulationRequest types,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        LibraryEnablementsRequest? enablements = null)
     {
         Types = types
             ?? throw new ArgumentNullException(nameof(types));
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
+        Enablements = enablements;
     }
 
     public LibraryTypePopulationRequest Types { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
+
+    /// <summary>Requests the Enablements fact group.</summary>
+    public LibraryEnablementsRequest? Enablements { get; }
 }
+
+/// <summary>
+/// Request for the Enablements fact group
+/// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+/// </summary>
+public sealed record LibraryEnablementsRequest;
 
 /// <summary>
 /// An in-process request pairing portable execution intent with exact Library
@@ -715,7 +727,14 @@ public sealed record LibraryDocument(
     Guid ModuleVersionId,
     LibraryTypePopulationResult Types,
     LibraryInspectionWork Work,
-    ApiSurfaceExtractionBounds Bounds);
+    ApiSurfaceExtractionBounds Bounds)
+{
+    /// <summary>
+    /// The requested Enablements fact group, or null when not requested.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LibraryEnablementsOutcome? Enablements { get; init; }
+}
 
 public enum LibraryInspectionRejection
 {

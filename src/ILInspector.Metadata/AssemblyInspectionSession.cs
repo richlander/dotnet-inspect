@@ -469,6 +469,16 @@ public sealed class AssemblyInspectionSession :
         return AssemblyDetailScanner.ScanAuditMetadata(_image.PEReader);
     }
 
+    /// <summary>
+    /// Library enablements judged from this image alone
+    /// (<c>docs/design/library-enablements.md</c>).
+    /// </summary>
+    public LibraryEnablements Enablements()
+    {
+        _image.EnsureAlive();
+        return LibraryEnablements.Read(_image.PEReader);
+    }
+
     /// <summary>Presence flags for assembly-level features.</summary>
     public PresenceFlags PresenceFlags()
         => AssemblyDetailScanner.ScanPresenceFlags(_image.PEReader);
