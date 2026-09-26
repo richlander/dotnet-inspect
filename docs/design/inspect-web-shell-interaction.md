@@ -733,10 +733,14 @@ outcomes.
     asynchronous package search update before release, and confirm that the
     surviving exact result retains focus and activates exactly that package
     once on release.
-16. Focus a rendered package result, replace the whole application shell, and
-    confirm that the surviving exact result retains the same DOM node and
-    browser focus.
-17. Repeat while removing the pressed result identity and confirm that release
+16. In modal Spotlight, focus a rendered package result, press Space, replace
+    the whole application shell, and wait through the next focus-restoration
+    frame. Confirm that the surviving exact result retains the same DOM node
+    and browser focus and activates exactly once on release.
+17. In Add package, retain the active result and modal backdrop while a shell
+    replacement installs a new input and Cancel control. Confirm that Tab and
+    Shift+Tab cycle through the current controls rather than a detached input.
+18. Repeat while removing the pressed result identity and confirm that release
     does not activate the result that inherited its former array position.
 
 ### Local Open

@@ -185,6 +185,7 @@ function withBoundSpotlight(
       addEventListener: (name: string, listener: EventListener) => {
         listeners.set(name, listener);
       },
+      getAttribute: () => null,
       focus: () => { activeElement = result; },
     };
     return result;
@@ -218,6 +219,9 @@ function withBoundSpotlight(
         slIndex: match[1],
         slResultIdentity: spotlightResultIdentity(rendered[index]!),
       },
+      getAttribute: (name: string) => name === "data-sl-result-identity"
+        ? spotlightResultIdentity(rendered[index]!)
+        : null,
       classList: { toggle: () => {} },
       setAttribute: () => {},
       scrollIntoView: () => {},
@@ -423,6 +427,86 @@ test("Add package keeps arrows in results, preserves text selection, and tabs to
   });
   assert.equal(dismissed, 1);
   assert.equal(harness.state.spotlightOpen, false);
+});
+
+test("retained Add package backdrop tabs through replacement controls after rebinding", () => {
+  const harness = createHarness();
+  withStubbedFocusTarget(() => harness.spotlight.openForPackageAddition({
+    pickResult: () => {},
+    focusAfterDismiss: () => {},
+  }));
+  let activeElement: { id: string } | null = null;
+  function element(id: string) {
+    const result = {
+      id,
+      addEventListener: () => {},
+      getAttribute: () => null,
+      focus: () => { activeElement = result; },
+    };
+    return result;
+  }
+  function inputElement(id: string) {
+    return {
+      ...element(id),
+      value: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+      selectionDirection: "none",
+      setAttribute: () => {},
+      removeAttribute: () => {},
+      setSelectionRange: () => {},
+    };
+  }
+  const backdrop = element("spotlight-backdrop");
+  const results = {
+    innerHTML: "",
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+  let input = inputElement("spotlight-input-old");
+  let cancel = element("spotlight-cancel-old");
+  const root = {
+    querySelector: (selector: string) => {
+      if (selector === "#spotlight-input") return input;
+      if (selector === "#spotlight-cancel") return cancel;
+      if (selector === "#spotlight-backdrop") return backdrop;
+      if (selector === "#spotlight-results") return results;
+      return null;
+    },
+    querySelectorAll: () => [],
+  };
+  const document = fakeDom.document({
+    ...root,
+    get activeElement() { return activeElement; },
+  });
+  const press = (key: string, shiftKey = false) => {
+    const target = fakeDom.eventTarget(activeElement ?? input);
+    return harness.keybindings.dispatch(fakeDom.keyboardEvent({
+      key,
+      shiftKey,
+      target,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      defaultPrevented: false,
+      composedPath: () => [target, fakeDom.eventTarget(backdrop)],
+      preventDefault: () => {},
+    })).handled;
+  };
+
+  withStubbedFocusTarget(() => {
+    const boundRoot = fakeDom.parentNode(root);
+    harness.spotlight.bind(boundRoot, "modal");
+    input = inputElement("spotlight-input-current");
+    cancel = element("spotlight-cancel-current");
+    harness.spotlight.bind(boundRoot, "modal");
+
+    cancel.focus();
+    assert.equal(press("Tab"), true);
+    assert.equal(activeElement?.id, "spotlight-input-current");
+    assert.equal(press("Tab", true), true);
+    assert.equal(activeElement?.id, "spotlight-cancel-current");
+  }, document);
 });
 
 test("Add package dismissal uses its focus callback for Cancel, Escape and backdrop", () => {

@@ -1973,6 +1973,60 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(registry.downloadCount(healthy)).toBe(1);
   });
 
+  test("modal whole-app rendering does not steal a pending Space activation", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
+
+    await page.goto("/demos");
+    await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+      .toBeVisible({ timeout: 120_000 });
+    await page.keyboard.press("Control+p");
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.focus();
+    await expect(recent).toBeFocused();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    await page.keyboard.down("Space");
+
+    await page.evaluate(() => {
+      const theme = document.querySelector<HTMLButtonElement>("#home-theme");
+      if (!theme) throw new Error("Demos theme control is unavailable.");
+      theme.click();
+    });
+    await page.evaluate(() => new Promise<void>(complete =>
+      requestAnimationFrame(() => requestAnimationFrame(() => complete()))));
+
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await expect(recent).toBeFocused();
+    await page.keyboard.up("Space");
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
   test("does not transfer a pressed Spotlight result after its identity disappears", async ({
     page,
     context,

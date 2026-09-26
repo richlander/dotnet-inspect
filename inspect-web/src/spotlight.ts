@@ -283,6 +283,7 @@ export function createSpotlight(options: SpotlightOptions) {
   let selectedResultIdentity: string | null = null;
   const boundResultControls = new WeakSet<HTMLElement>();
   const boundRemoveControls = new WeakSet<HTMLElement>();
+  const boundModalBackdrops = new WeakSet<Element>();
   const dismissedPackageIds = new Set<string>();
   let dismissalQuery = state.spotlightQuery;
   let packageAddition: PackageAdditionOptions | null = null;
@@ -980,30 +981,39 @@ export function createSpotlight(options: SpotlightOptions) {
     if (mode === "modal") {
       root.querySelector("#spotlight-cancel")?.addEventListener("click", close);
       const backdrop = root.querySelector("#spotlight-backdrop");
-      if (backdrop) options.keybindings.register({
-        id: "spotlight-package-addition.dismiss-or-tab",
-        key: ["Tab", "Escape"],
-        allowExtraModifiers: true,
-        priority: WORKBENCH_KEYBINDING_PRIORITY.element,
-        available: () => packageAddition !== null,
-        run: event => {
-          if (event.key === "Escape") close();
-          else {
-            const cancel = root.querySelector<HTMLButtonElement>("#spotlight-cancel");
-            const target = document.activeElement === cancel ? input : cancel;
-            target?.focus();
-          }
-          return true;
-        },
-      }, backdrop);
-      backdrop?.addEventListener(
-        "mousedown",
-        event => {
-          const target = event.target;
-          if (hasElementId(target) && target.id === "spotlight-backdrop") close();
-        },
-      );
-      focus(selection);
+      if (backdrop && !boundModalBackdrops.has(backdrop)) {
+        boundModalBackdrops.add(backdrop);
+        options.keybindings.register({
+          id: "spotlight-package-addition.dismiss-or-tab",
+          key: ["Tab", "Escape"],
+          allowExtraModifiers: true,
+          priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+          available: () => packageAddition !== null,
+          run: event => {
+            if (event.key === "Escape") close();
+            else {
+              const currentInput =
+                root.querySelector<HTMLInputElement>("#spotlight-input");
+              const cancel =
+                root.querySelector<HTMLButtonElement>("#spotlight-cancel");
+              const target =
+                document.activeElement === cancel ? currentInput : cancel;
+              target?.focus();
+            }
+            return true;
+          },
+        }, backdrop);
+        backdrop.addEventListener(
+          "mousedown",
+          event => {
+            const target = event.target;
+            if (hasElementId(target) && target.id === "spotlight-backdrop") close();
+          },
+        );
+      }
+      const activeResultIdentity = document.activeElement
+        ?.getAttribute("data-sl-result-identity") ?? undefined;
+      if (activeResultIdentity === undefined) focus(selection);
     }
   }
 
