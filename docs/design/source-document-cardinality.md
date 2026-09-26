@@ -47,7 +47,8 @@ compatibility.
 It does not redefine:
 
 - the shared decoded-text document, segment, pull, long-line fragmentation, or
-  continuation mechanics tracked by
+  continuation mechanics owned by
+  [Decoded text document](decoded-text-document.md) and tracked through
   [issue #8319](https://github.com/richlander/dotnet-inspect/issues/8319);
 - authored preference, decompiled fallback, checksum verification, or
   acquisition failure, which remain owned by
@@ -349,8 +350,9 @@ Implementation proceeds through focused slices:
 1. Lock this Source view, physical-artifact association, line identity,
    view-binding, execution-policy, and host-adoption contract, with a
    reproducible observational census.
-2. Issue #8319 adds the shared immutable decoded-text document, bounded pull,
-   execution-only long-line fragments, and opaque continuation substrate.
+2. [Decoded text document](decoded-text-document.md) adds the shared immutable
+   decoded-text document, bounded pull, source-local position, and
+   execution-only long-line fragments under #8319.
 3. Compose the existing host-neutral Source view/artifact model and completed
    type and member Source envelopes with that shared substrate. Gate exact
    reconstruction, Source request compatibility, and failure preservation

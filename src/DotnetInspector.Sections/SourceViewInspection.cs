@@ -5,6 +5,7 @@ using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
 using Inspector.Findings;
+using Inspector.Text;
 
 namespace DotnetInspector.Sections;
 
@@ -214,8 +215,10 @@ public sealed record SourceViewTypeMappingEvidence
 
     public bool IsPartial { get; }
 
-    public ImmutableArray<SourceViewAdditionalDocument>
-        AdditionalDocuments { get; }
+    public ImmutableArray<SourceViewAdditionalDocument> AdditionalDocuments
+    {
+        get;
+    }
 }
 
 public sealed record SourceViewLine
@@ -608,57 +611,46 @@ public static class SourceViewInspection
 
     private static ImmutableArray<SourceViewLine> Lines(string text)
     {
-        ArgumentNullException.ThrowIfNull(text);
-
-        var lines = ImmutableArray.CreateBuilder<SourceViewLine>();
-        int lineStart = 0;
-        int lineNumber = 1;
-        for (int i = 0; i <= text.Length; i++)
+        var document = new DecodedTextDocument(text);
+        DecodedTextBatch batch = document.Pull(
+            document.Start,
+            DecodedTextPullRequest.Unbounded(int.MaxValue));
+        if (!batch.IsComplete)
         {
-            SourceViewLineTerminator terminator =
-                i < text.Length
-                    ? Terminator(text, i)
-                    : SourceViewLineTerminator.None;
-            if (i < text.Length
-                && terminator == SourceViewLineTerminator.None)
-            {
-                continue;
-            }
-
-            lines.Add(
-                new SourceViewLine(
-                    lineNumber,
-                    lineStart,
-                    text[lineStart..i],
-                    terminator));
-            if (i == text.Length)
-                break;
-
-            int terminatorLength =
-                terminator
-                == SourceViewLineTerminator.CarriageReturnLineFeed
-                    ? 2
-                    : 1;
-            i += terminatorLength - 1;
-            lineStart = i + 1;
-            lineNumber++;
+            throw new InvalidOperationException(
+                "Unbounded decoded-text projection did not complete.");
         }
 
-        return lines.ToImmutable();
+        return
+        [
+            .. batch.Lines.Select(
+                static line => new SourceViewLine(
+                    line.Number,
+                    line.Start,
+                    line.Content.ToString(),
+                    SourceTerminator(line.Terminator))),
+        ];
     }
 
-    private static SourceViewLineTerminator Terminator(
-        string text,
-        int index) =>
-        text[index] switch
+    private static SourceViewLineTerminator SourceTerminator(
+        DecodedTextLineTerminator terminator) =>
+        terminator switch
         {
-            '\r' when index + 1 < text.Length && text[index + 1] == '\n' =>
+            DecodedTextLineTerminator.None =>
+                SourceViewLineTerminator.None,
+            DecodedTextLineTerminator.CarriageReturnLineFeed =>
                 SourceViewLineTerminator.CarriageReturnLineFeed,
-            '\r' => SourceViewLineTerminator.CarriageReturn,
-            '\n' => SourceViewLineTerminator.LineFeed,
-            '\u0085' => SourceViewLineTerminator.NextLine,
-            '\u2028' => SourceViewLineTerminator.LineSeparator,
-            '\u2029' => SourceViewLineTerminator.ParagraphSeparator,
-            _ => SourceViewLineTerminator.None,
+            DecodedTextLineTerminator.CarriageReturn =>
+                SourceViewLineTerminator.CarriageReturn,
+            DecodedTextLineTerminator.LineFeed =>
+                SourceViewLineTerminator.LineFeed,
+            DecodedTextLineTerminator.NextLine =>
+                SourceViewLineTerminator.NextLine,
+            DecodedTextLineTerminator.LineSeparator =>
+                SourceViewLineTerminator.LineSeparator,
+            DecodedTextLineTerminator.ParagraphSeparator =>
+                SourceViewLineTerminator.ParagraphSeparator,
+            _ => throw new InvalidOperationException(
+                "Unknown decoded-text line terminator."),
         };
 }
