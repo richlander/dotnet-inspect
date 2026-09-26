@@ -59,7 +59,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
-    <ProjectReference Include="..\DotnetInspect.Web\DotnetInspect.Web.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspect.Web\DotnetInspect.Web.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
     <ProjectReference Include="..\..\src\UntrustedDocuments\UntrustedDocuments.csproj" />
