@@ -80,30 +80,71 @@ receipt and the reason. It never yields an empty graph.
 Library Metrics may share the same execution. Neither document recomputes the
 other's facts.
 
+### Analysis prerequisite: same-module callee resolution
+
+Internal-target admission needs an Analysis-issued answer to one question for
+every direct call: which method definition declared in the inspected module
+does this call bind to, if any? The raw definition token on a direct call
+does not answer it. A call through a generic instantiation, such as a method
+of `Box<T>` calling its own `B()`, is encoded as a member reference on a type
+specification, and that token stays unresolved. Analysis already resolves
+these calls internally, first by token and then by signature, but it does not
+publish the result for this use.
+
+Analysis owns that resolution and its typed failures (unmatched, ambiguous,
+unsupported signature, work limit). Publishing it as a public per-call fact
+keyed by the physical occurrence is adoption step 0, an Analysis-owned focused
+effort. Research consumes the result. It never re-implements signature
+matching, and it never treats a missing resolution as an external call.
+
 ## Admitted graph
 
 ### Nodes
 
-A **type node** is one type definition declared in the inspected module,
-identified by its exact metadata definition identity. Generic arity and
-nesting are part of identity. A **namespace node** is one exact metadata
-namespace string declared by at least one type node. The global namespace is
-an explicit node, never an empty display label. A nested type belongs to its
-outermost enclosing type's namespace.
+A **type node** is one type definition in the inspected module that declares
+at least one method in Analysis's declared-method population. Identity is the
+exact metadata definition identity, including generic arity and nesting. Types
+that declare no method (enums, member-less interfaces) are not nodes, because
+no call can target or originate in them. A namespace that contains only such
+types is therefore not a node either. This is a deliberate narrowing to
+evidence the imported execution issues. Enumerating every type definition
+would need a second, Metadata-owned input.
 
-An **external node** is one exact pair of referenced assembly identity and
-namespace, taken from the callee's owner-issued type reference. External nodes
-exist only as edge targets. The document does not enumerate or inspect the
-referenced assembly.
+A **namespace node** is one exact metadata namespace string declared by at
+least one type node. The global namespace is an explicit node, never an empty
+display label. A nested type belongs to its outermost enclosing type's
+namespace.
+
+An **external node** is one exact pair of referenced assembly and namespace.
+The assembly is the `AssemblyReferenceIdentity` recorded in the callee
+declaring type's reference origin, exactly as referenced. Type forwarding is
+not followed, and canonical core-library folding is not applied, so
+`System.Runtime` and `System.Runtime.Extensions` remain distinct nodes. For a
+generic instantiation, the declaring type is its generic definition. A
+primitive declaring type with an intrinsic core-library origin maps to one
+explicit **intrinsic core library** external node. External nodes exist only
+as edge targets. The document does not enumerate or inspect the referenced
+assembly.
 
 ### Relationship source
 
 Each admitted relationship originates from one physical direct call issued by
-Analysis. The source type is the declaring type of the call's **logical
-caller**, the Analysis-issued declared-source association. A lambda,
-iterator, async state machine, or local function therefore contributes to the
-type that declared it, not to its compiler-created container. The physical
-evidence body stays on the occurrence so the association remains auditable.
+Analysis. An **occurrence** is identified by Analysis's physical call-site
+key: evidence body token, IL offset, and operand token. Two lifted bodies of
+one declaring method may share an IL offset, and they remain distinct
+occurrences.
+
+The source type is the declaring type of the call's **logical caller**, the
+Analysis-issued declared-source association. An internal target that is itself
+a compiler-lifted body (a closure method, state-machine constructor, or local
+function) maps to its logical owner's declaring type through the same
+association. Where Analysis issues the association, a lambda, iterator, async
+state machine, or local function contributes to the type that declared it on
+both ends, and compiler containers never become type nodes. Where Analysis
+issues no association, the physical declaring type is used. Any Analysis
+diagnostic for that body qualifies the document (see the population
+receipt). The physical evidence body stays on the occurrence so the
+association remains auditable.
 
 ### Relationship kinds
 
@@ -116,16 +157,25 @@ union. `calli` has no static target and is counted as unresolved.
 
 ### Targets
 
-- **Internal:** the callee definition token resolves to a method declared in
-  the inspected module. The target is that method's declaring type node.
-- **External:** the callee's declaring type reference names another assembly.
-  The target is the external node for that assembly and the callee's
-  declaring type namespace. Generic instantiation does not create an edge to a
-  type argument's namespace: `List<Foo>.Add` is an edge to
-  `System.Collections.Generic` only.
-- **Unresolved:** anything else, including `calli`, a failed reference
-  decode, or a token that resolves to no declared method. These are counted
-  per reason in the receipt and never guessed.
+- **Internal:** the Analysis same-module resolution binds the call to a method
+  declared in the inspected module, including calls through generic
+  instantiations. The target is that method's declaring type node, or its
+  logical owner's type for a lifted body.
+- **External:** the callee declaring type's reference origin names another
+  assembly or the intrinsic core library. The target is the external node for
+  that assembly and the declaring type's namespace. Type arguments never
+  create edges: `List<Foo>.Add` is an edge to `System.Collections.Generic`
+  only.
+- **Runtime-provided:** methods the runtime supplies on array types (for
+  example multidimensional `Get`/`Set`). They are counted in the receipt, are
+  not edges, and do not qualify absence, because they cannot bind to a
+  declared method.
+- **Unresolved:** each remaining call, with a typed reason. The reasons are:
+  `calli` (no static target); a current-module declaring type for which
+  Analysis resolution reports unmatched, ambiguous, unsupported, or
+  work-limited; a module-reference origin; and a reference decode failure.
+  Reasons carry Analysis's typed resolution failure unchanged. Unresolved
+  calls are counted per reason and never guessed.
 
 A relationship whose source and target are the same type node is retained as
 intra-type volume, not as an edge.
@@ -141,13 +191,16 @@ The receipt preserves the Analysis receipt unchanged and adds exact counts:
   diagnostics carried unchanged. The input is the receipt's method-keyed
   Analysis diagnostics. Every diagnosed body counts as incomplete for this
   document, whichever Analysis feature raised the diagnostic. This is
-  conservative: it can over-qualify, but it never under-qualifies. A future
+  conservative: it can over-qualify, but it never under-qualifies. The count
+  is a lower bound on affected bodies, because Analysis may report one
+  diagnostic for a budget-limited group of lifted bodies. Any non-zero count
+  qualifies the document. A future
   Analysis-issued call-coverage receipt would replace this input; Research
   does not construct that receipt itself; and
 - type, namespace, and external nodes.
 
-A duplicate physical occurrence identity is invalid owner input. It fails
-visibly and never coalesces.
+A duplicate physical call-site key is invalid owner input. It fails visibly
+and never coalesces.
 
 ## Issued document
 
@@ -189,11 +242,16 @@ of one cycle share one level. External edges do not affect levels.
 
 When the Analysis receipt establishes whole-library scope and the population
 receipt shows no incomplete bodies and no unresolved occurrences, the document
-may state that the namespace graph is acyclic or
-that a namespace has no dependency on another. Otherwise the same facts are
-issued as **qualified**: "no cycle among admitted evidence". The document
-never states an unqualified absence over partial evidence. This is the
-contract's central correctness property.
+may state that the namespace call graph is
+acyclic or that a namespace has no call dependency on another. Otherwise the
+same facts are issued as **qualified**: "no cycle among admitted call
+evidence". The document never states an unqualified absence over partial
+evidence. This is the contract's central correctness property.
+
+Every absence is about **call** dependencies. Field access, casts, `ldtoken`,
+signatures, and attributes can create dependencies this methodology does not
+admit, so an issued absence never says "no dependency" without the word
+"call".
 
 ## Interpretation boundary
 
@@ -223,8 +281,10 @@ interpretations under the #8516 narrative levels.
   `JsonContext` dominated the #8634 probe. A typed generator-provenance
   classification belongs to the Metadata/PDB source owner
   ([#8643](https://github.com/richlander/dotnet-inspect/issues/8643)). This document neither filters nor classifies generated code.
-- **Signature, field, attribute, and inheritance references** are not call
-  evidence and are not admitted. They would need a Metadata-owned relationship
+- **Signature, field-access, cast, `ldtoken`, attribute, and inheritance
+  references** are not call evidence and are not admitted. `jmp` is not a
+  direct call in Analysis and is likewise outside the methodology. The C#
+  compiler does not emit it. They would need a Metadata-owned relationship
   producer and a new relationship kind in a later methodology version.
 - **Folder structure** from PDB document paths is a second declared axis. It
   depends on the same source-provenance owner and is out of scope.
@@ -264,7 +324,21 @@ executable over a compiled fixture library under `fixtures/research/`:
   call-free execution is unavailable and retains its receipt.
 - `LibraryDependencyStructure_AttributesLiftedBodiesToLogicalOwner`: a lambda,
   async method, and iterator in namespace `A` calling into `B` produce an
-  `A → B` edge. The occurrence retains the physical evidence body.
+  `A → B` edge. The occurrence retains the physical evidence body. Creating
+  the closure or state machine (target side) is intra-type volume, and no
+  compiler container becomes a type node.
+- `LibraryDependencyStructure_AcceptsDistinctLiftedBodiesAtEqualOffsets`: two
+  lambdas in one method with calls at the same IL offset are two occurrences,
+  not a duplicate.
+- `LibraryDependencyStructure_ResolvesCallsThroughGenericInstantiations`: a
+  method of `Box<T>` calling its own member, and a call to another internal
+  generic type through an instantiation, produce internal edges rather than
+  unresolved counts.
+- `LibraryDependencyStructure_KeysExternalNodesByExactReference`: calls into
+  types referenced through `System.Runtime` and `System.Runtime.Extensions`
+  yield distinct external nodes. A forwarded type stays with the referenced
+  facade, and a primitive declaring type maps to the intrinsic core library
+  node.
 - `LibraryDependencyStructure_ProjectsNestedAndGlobalNamespaces`: a nested
   type uses its outermost type's namespace, and the global namespace is an
   explicit node.
@@ -279,8 +353,9 @@ executable over a compiled fixture library under `fixtures/research/`:
   otherwise acyclic graph with one Analysis-issued incomplete body issues
   qualified absence, not unqualified acyclicity.
 - `LibraryDependencyStructure_CountsUnresolvedAndRejectsDuplicateOccurrence`:
-  `calli` is unresolved by reason, and a duplicated occurrence identity fails
-  visibly.
+  `calli` is unresolved by reason, a multidimensional array accessor is
+  runtime-provided and does not qualify absence, and a duplicated physical
+  call-site key fails visibly.
 - `LibraryDependencyStructure_BoundsExplanationWithExactRemainder`: an edge
   with seven contributing type edges retains five in the specified order and a
   remainder of two.
@@ -293,6 +368,10 @@ cache.
 
 ## Adoption plan
 
+0. **Analysis prerequisite:** publish the same-module callee resolution
+   described under [Imported evidence](#analysis-prerequisite-same-module-callee-resolution),
+   with its typed failures, as an Analysis-owned focused effort under
+   [Library body analysis service](library-body-analysis-service.md).
 1. **Research:** the document, typed outcome, and fixture gates.
 2. **Query:** a Research-backed query in `DotnetInspector.ResearchQueries`
    carries the completed document without rendering it. It shares the Analysis
@@ -310,5 +389,7 @@ cache.
    architecture-narrative workflow that consumes this document and labels
    interpretations as such.
 
-Steps 1–2 are shared by both hosts. #8406 consumes step 1's admitted type
-graph rather than defining a second graph population.
+Steps 0–2 are shared by both hosts. The CLI reaches observable behavior in
+four steps (0–3), and the skill adds a fifth. Browser/Wasm reaches it in four
+steps (0, 1, 2, 4). #8406 consumes step 1's admitted type graph rather than
+defining a second graph population.
