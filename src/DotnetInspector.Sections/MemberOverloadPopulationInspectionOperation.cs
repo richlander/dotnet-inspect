@@ -28,17 +28,16 @@ public static class MemberOverloadPopulationInspectionOperation
 
             MemberOverloadRowsRequest? rows =
                 request.Plan.Overloads.Rows;
-            ManagedMetadataIdentity.Assembly requestedAssembly =
+            AssemblyReferenceIdentity requestedAssembly =
                 request.Library.ApiAssembly.AssemblyIdentity
+                    ?.Identity
                 ?? throw new InvalidOperationException(
                     "An exact-Member population requires a managed API assembly identity.");
-            LibraryAssemblyIdentity portableAssembly =
-                PortableIdentity(requestedAssembly.Identity);
             bool compatibleContinuation =
                 rows?.Continuation is not { } continuation
                 || IsCompatible(
                     continuation.Binding,
-                    portableAssembly,
+                    requestedAssembly,
                     request.Plan.Subject,
                     rows.Ordering,
                     request.Plan.Overloads.Accessibility,
@@ -313,12 +312,17 @@ public static class MemberOverloadPopulationInspectionOperation
 
     private static bool IsCompatible(
         MemberOverloadPopulationBinding binding,
-        LibraryAssemblyIdentity assembly,
+        AssemblyReferenceIdentity assembly,
         MemberGroupSubject subject,
         MemberOverloadOrdering ordering,
         MemberOverloadAccessibilityFilter accessibility,
         MemberOverloadReceiverFilter receiver) =>
-        binding.Assembly == assembly
+        assembly.IsEquivalentTo(
+            new(
+                binding.Assembly.Name.ToString(),
+                binding.Assembly.Version,
+                binding.Assembly.Culture?.ToString(),
+                binding.Assembly.PublicKeyToken?.ToString()))
         && binding.DeclaringType == subject.DeclaringType
         && string.Equals(
             binding.Name,
