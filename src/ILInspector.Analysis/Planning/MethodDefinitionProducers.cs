@@ -61,14 +61,20 @@ public abstract class MethodDefinitionProducer<TFact, TResult>
     /// <summary>Whether a unit fact settles an Exists terminal for this producer.</summary>
     internal virtual bool Settles(TFact fact) => false;
 
-    IMethodDefinitionProducerRun IMethodDefinitionProducer.CreateRun() =>
-        new Run(this);
+    IMethodDefinitionProducerRun IMethodDefinitionProducer.CreateRun(
+        bool keepUnitFacts) =>
+        new Run(this, keepUnitFacts);
 
-    sealed class Run(MethodDefinitionProducer<TFact, TResult> producer)
+    internal sealed class Run(
+        MethodDefinitionProducer<TFact, TResult> producer,
+        bool keepUnitFacts)
         : IMethodDefinitionProducerRun
     {
         readonly List<TFact> _facts = [];
-        readonly Dictionary<int, TFact> _factsByUnit = [];
+
+        // Retained by unit only when the plan has a producer that reads them.
+        readonly Dictionary<int, TFact>? _factsByUnit =
+            keepUnitFacts ? [] : null;
 
         public ProducerDeclaration Producer => producer;
 
@@ -76,15 +82,22 @@ public abstract class MethodDefinitionProducer<TFact, TResult>
         {
             TFact fact = producer.Visit(view);
             _facts.Add(fact);
-            _factsByUnit[view.Token] = fact;
+            if (_factsByUnit is not null)
+                _factsByUnit[view.Token] = fact;
             return producer.Settles(fact);
         }
 
-        public bool TryGetFact(int unitToken, out object? fact)
+        public bool TryGetFact(int unitToken, out TFact fact)
         {
-            bool found = _factsByUnit.TryGetValue(unitToken, out TFact? value);
-            fact = value;
-            return found;
+            if (_factsByUnit is not null
+                && _factsByUnit.TryGetValue(unitToken, out TFact? value))
+            {
+                fact = value;
+                return true;
+            }
+
+            fact = default!;
+            return false;
         }
 
         public object? Complete(MethodDefinitionCompletionView completion) =>
@@ -96,7 +109,7 @@ internal interface IMethodDefinitionProducer
 {
     MethodDefinitionLayers Layers { get; }
 
-    IMethodDefinitionProducerRun CreateRun();
+    IMethodDefinitionProducerRun CreateRun(bool keepUnitFacts);
 }
 
 internal interface IMethodDefinitionProducerRun
@@ -104,8 +117,6 @@ internal interface IMethodDefinitionProducerRun
     ProducerDeclaration Producer { get; }
 
     bool Visit(scoped MethodDefinitionView view);
-
-    bool TryGetFact(int unitToken, out object? fact);
 
     object? Complete(MethodDefinitionCompletionView completion);
 }
@@ -147,8 +158,7 @@ public readonly ref struct MethodDefinitionView
     {
         get
         {
-            if (!_producer.Declaration.Layers.HasFlag(
-                    MethodDefinitionLayers.ModuleLookup))
+            if (!_producer.HasLookupLayer)
             {
                 throw new ProducerContractException(
                     $"Producer '{_producer.Run.Producer.Identity}' did not "
@@ -172,8 +182,7 @@ public readonly ref struct MethodDefinitionView
     /// </summary>
     internal MethodBodyBlock GetBody()
     {
-        if (!_producer.Declaration.Layers.HasFlag(
-                MethodDefinitionLayers.Body))
+        if (!_producer.HasBodyLayer)
         {
             throw new ProducerContractException(
                 $"Producer '{_producer.Run.Producer.Identity}' did not "
@@ -191,7 +200,7 @@ public readonly ref struct MethodDefinitionView
         _producer.Require(
             dependency,
             ProducerDependencyKind.VisitNeedsVisit);
-        return (TFact)_producer.Execution.FactFor(dependency, Token)!;
+        return _producer.Execution.FactFor(dependency, Token);
     }
 
     /// <summary>The completed result of a declared result dependency.</summary>

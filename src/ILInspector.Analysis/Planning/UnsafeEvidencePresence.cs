@@ -44,8 +44,16 @@ public sealed class UnsafeEvidencePresenceProducer
 
     internal override bool Complete(
         IReadOnlyList<bool> facts,
-        MethodDefinitionCompletionView completion) =>
-        facts.Contains(true);
+        MethodDefinitionCompletionView completion)
+    {
+        for (int i = 0; i < facts.Count; i++)
+        {
+            if (facts[i])
+                return true;
+        }
+
+        return false;
+    }
 
     internal override bool Settles(bool fact) => fact;
 }
