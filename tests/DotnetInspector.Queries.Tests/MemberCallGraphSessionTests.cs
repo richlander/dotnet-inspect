@@ -1156,6 +1156,79 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             ResourceOwnershipPathOutcome.Released,
             genericFinding.Payload.Outcome);
+        Assert.Equal(
+            Analysis.ArrayPoolResourceEffectModel.BufferKind,
+            genericFinding.Payload.ResourceKind.Identity);
+        Assert.False(genericFinding.Payload.IsComplete);
+        Assert.Single(genericFinding.Payload.Steps);
+
+        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
+            Assert.Single(legacy.Findings);
+        Assert.Equal(
+            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+            legacyFinding.Payload.Outcome);
+        Assert.Single(legacyFinding.Payload.Steps);
+    }
+
+    [Fact]
+    public async Task
+        GenericOwnershipMatchesRootlessReleaseDespiteUnrelatedDomain()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "RentAndReturnThroughConditionallyReplacedParameterWithOtherRelease");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    ArrayPoolWithUnrelatedReleaseAdmission(),
+            });
+        MemberCallGraphView view = graph.Callers();
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                view.CallerRoot,
+                view.CalleeRoot);
+
+        Analysis.ResourceOwnershipMethodSummary helper =
+            Assert.Single(
+                view.ResourceOwnershipSummaries,
+                summary =>
+                    summary.Method.Name
+                    == "ReturnConditionallyReplacedAfterOtherRelease");
+        Analysis.ResourceOwnershipParameterFlow parameter =
+            Assert.Single(
+                helper.Parameters,
+                candidate => candidate.ParameterIndex == 0);
+        Assert.Equal(
+            2,
+            parameter.Uses.Count(use =>
+                use.Kind
+                    == Analysis.ResourceOwnershipUseKind.Released));
+
+        ResourceOwnershipPathInspection generic =
+            ResourceOwnershipPathFindings.Inspect(
+                view,
+                projection,
+                ResourceOwnershipSearchOptions.ArrayPool);
+        AnnotatedCallGraphOwnershipInspection legacy =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                projection);
+
+        Finding<ResourceOwnershipPathWitness> genericFinding =
+            Assert.Single(generic.Findings);
+        Assert.Equal(
+            ResourceOwnershipPathOutcome.Released,
+            genericFinding.Payload.Outcome);
         Assert.False(genericFinding.Payload.IsComplete);
         Assert.Single(genericFinding.Payload.Steps);
 
@@ -2924,6 +2997,57 @@ public sealed class MemberCallGraphSessionTests
                 ]);
         Analysis.ResourceEffectAdmissionOutcome outcome =
             Analysis.ResourceEffectAdmissionBuilder.Admit([definition]);
+        return Assert.IsType<
+            Analysis.ResourceEffectAdmissionOutcome.Admitted>(
+                outcome).Admission;
+    }
+
+    static Analysis.ResourceEffectAdmission
+        ArrayPoolWithUnrelatedReleaseAdmission()
+    {
+        var model =
+            new Analysis.ResourceEffectModelIdentity(
+                "test.generic-research-ownership.unrelated-release");
+        var kind =
+            new Analysis.ResourceKindIdentity(
+                "test.generic-research-ownership.unrelated");
+        var resource =
+            new Analysis.ResourceKindReference(kind, []);
+        var byteArray =
+            new Analysis.ResourceTypeExpression.SzArray(
+                CoreType("Byte"));
+        var definition =
+            new Analysis.ResourceEffectModelDefinition(
+                Analysis.ResourceEffectLanguageIdentity.Version1,
+                model,
+                [
+                    new Analysis.ResourceKindDefinition(
+                        kind,
+                        arity: 0,
+                        [Provenance(model, 0)]),
+                ],
+                [],
+                [
+                    Declaration(
+                        model,
+                        FixtureEntryType(),
+                        "ReleaseOtherResource",
+                        [byteArray],
+                        CoreType("Void"),
+                        new Analysis.ResourceEffect.Release(
+                            new Analysis.ResourceEffectLocation.Parameter(0),
+                            new Analysis.ResourceEffectCompletion.NormalReturn(),
+                            resource,
+                            Correspondence: null,
+                            Observation: null),
+                        1),
+                ]);
+        Analysis.ResourceEffectAdmissionOutcome outcome =
+            Analysis.ResourceEffectAdmissionBuilder.Admit(
+                [
+                    Analysis.ArrayPoolResourceEffectModel.Definition(),
+                    definition,
+                ]);
         return Assert.IsType<
             Analysis.ResourceEffectAdmissionOutcome.Admitted>(
                 outcome).Admission;

@@ -58,16 +58,16 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
-    public void Open_ExposesConfiguredNeutralIndex()
+    public void Open_ExposesConfiguredFocusedResults()
     {
         var session = MethodBodyInspectionSession.Open(
             ProductPath,
             includeAllocations: false,
             includeOpportunities: false);
 
-        Assert.NotEmpty(session.BodyIndex.Methods);
-        Assert.Empty(session.BodyIndex.GetAllocationOccurrences());
-        Assert.Empty(session.BodyIndex.OptimizationOpportunities);
+        Assert.NotEmpty(session.CallGraphAnalysis.Methods);
+        Assert.Empty(session.AnalysisExecution.Allocations.Occurrences);
+        Assert.Empty(session.AnalysisExecution.Optimization.Opportunities);
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class MethodBodyInspectionSessionTests
             ProductPath,
             includeAllocations: false,
             includeOpportunities: false,
-            bodyScope: new HashSet<int> { token }).BodyIndex;
+            bodyScope: new HashSet<int> { token }).CallGraphAnalysis;
 
         Assert.NotEmpty(scopedIndex.DirectCalls);
         Assert.All(scopedIndex.DirectCalls, call => Assert.Equal(token, call.Caller.MetadataToken));
@@ -128,13 +128,13 @@ public class MethodBodyInspectionSessionTests
         Analysis.TypeRef intType =
             Analysis.TypeRef.CoreLib("System", "Int32");
         Analysis.MethodIdentity target =
-            session.BodyIndex.DeclaredMethods.Single(method =>
+            session.CallGraphAnalysis.DeclaredMethods.Single(method =>
                 method.DeclaringType.Equals(decimalType)
                 && method.Name == "op_Explicit"
                 && method.ParameterTypes.SequenceEqual([decimalType])
                 && method.ReturnType.Equals(intType));
         Analysis.DirectCall sibling =
-            session.BodyIndex.DirectCalls.First(call =>
+            session.CallGraphAnalysis.DirectCalls.First(call =>
                 call.Callee.DeclaringType.Equals(decimalType)
                 && call.Callee.Name == target.Name
                 && call.Callee.ParameterTypes.SequenceEqual(
@@ -161,23 +161,23 @@ public class MethodBodyInspectionSessionTests
     {
         var session = MethodBodyInspectionSession.Open(TestPath);
         Analysis.DirectCall cdeclCall =
-            session.BodyIndex.DirectCalls.Single(call =>
+            session.CallGraphAnalysis.DirectCalls.Single(call =>
                 call.Caller.Name
                     == nameof(
                         FunctionPointerConversionFixture.CallCdecl)
                 && call.Callee.Name == "op_Explicit");
         Analysis.DirectCall stdcallCall =
-            session.BodyIndex.DirectCalls.Single(call =>
+            session.CallGraphAnalysis.DirectCalls.Single(call =>
                 call.Caller.Name
                     == nameof(
                         FunctionPointerConversionFixture.CallStdcall)
                 && call.Callee.Name == "op_Explicit");
         Analysis.MethodIdentity cdecl =
-            session.BodyIndex.DeclaredMethods.Single(method =>
+            session.CallGraphAnalysis.DeclaredMethods.Single(method =>
                 method.MetadataToken
                     == cdeclCall.CalleeDefinitionToken);
         Analysis.MethodIdentity stdcall =
-            session.BodyIndex.DeclaredMethods.Single(method =>
+            session.CallGraphAnalysis.DeclaredMethods.Single(method =>
                 method.MetadataToken
                     == stdcallCall.CalleeDefinitionToken);
 
@@ -199,7 +199,7 @@ public class MethodBodyInspectionSessionTests
         var target = MethodBodyInspectionSession.Open(
             ProductPath,
             ApiAnalysisInspection.CreateReferenceResolver(ProductPath));
-        var openMethod = target.BodyIndex.Methods.Single(method =>
+        var openMethod = target.CallGraphAnalysis.Methods.Single(method =>
             method.DeclaringType.Name == nameof(MethodBodyInspectionSession)
             && method.Name == nameof(MethodBodyInspectionSession.Open)
             && method.ParameterTypes.Length > 0
@@ -234,7 +234,7 @@ public class MethodBodyInspectionSessionTests
         using Analysis.CatalogCallGraphScope scope =
             MethodBodyInspectionSession.CreateCallGraphScope(
                 [target, caller]);
-        var expected = target.BodyIndex.BuildCallerTree(token, scope);
+        var expected = target.CallGraphAnalysis.BuildCallerTree(token, scope);
         var actual = target.CallerTree(token, [caller]);
 
         Assert.Equal(expected.Children.Count(), actual.Children.Count());
@@ -249,7 +249,7 @@ public class MethodBodyInspectionSessionTests
         MethodBodyInspectionSession caller =
             MethodBodyInspectionSession.Open(TestPath);
         Analysis.MethodIdentity method =
-            target.BodyIndex.DeclaredMethods.Single(candidate =>
+            target.CallGraphAnalysis.DeclaredMethods.Single(candidate =>
                 candidate.DeclaringType.Name
                     == nameof(MethodBodyInspectionSession)
                 && candidate.Name
@@ -259,7 +259,7 @@ public class MethodBodyInspectionSessionTests
         Analysis.CallTreeNode callerRoot =
             target.CallerTree(method.MetadataToken, [caller]);
         Analysis.CallTreeNode calleeRoot =
-            target.BodyIndex.BuildCallTree(method.MetadataToken);
+            target.CallGraphAnalysis.BuildCallTree(method.MetadataToken);
         CallGraphProjection projection =
             CallGraphProjection.Create(callerRoot, calleeRoot);
 
@@ -283,7 +283,7 @@ public class MethodBodyInspectionSessionTests
                 targetPath,
                 ApiAnalysisInspection.CreateReferenceResolver(targetPath));
         Analysis.MethodIdentity root =
-            caller.BodyIndex.DeclaredMethods.Single(method =>
+            caller.CallGraphAnalysis.DeclaredMethods.Single(method =>
                 method.DeclaringType.Name == "Entry"
                 && method.Name == "RunAcrossBoundary");
 
@@ -321,7 +321,7 @@ public class MethodBodyInspectionSessionTests
                 TestPath,
                 resolver);
         Analysis.MethodIdentity typeIdentity =
-            target.BodyIndex.DeclaredMethods.Single(method =>
+            target.CallGraphAnalysis.DeclaredMethods.Single(method =>
                 method.DeclaringType.Name
                     == nameof(Analysis.CallGraphMemberResolver)
                 && method.Name == "TypeIdentity");
@@ -418,7 +418,7 @@ public class MethodBodyInspectionSessionTests
                 OpenFixture(bridgePath);
             MethodBodyInspectionSession v1 = OpenFixture(v1Path);
             Analysis.MethodIdentity root =
-                v2.BodyIndex.DeclaredMethods.Single(method =>
+                v2.CallGraphAnalysis.DeclaredMethods.Single(method =>
                     method.DeclaringType.Name == "Api"
                     && method.Name == "Root");
 
@@ -535,7 +535,7 @@ public class MethodBodyInspectionSessionTests
             MethodBodyInspectionSession callerV2 =
                 OpenFixture(callerV2Path);
             Analysis.MethodIdentity root =
-                target.BodyIndex.DeclaredMethods.Single(method =>
+                target.CallGraphAnalysis.DeclaredMethods.Single(method =>
                     method.DeclaringType.Name == "Api"
                     && method.Name == "Root");
 
@@ -583,7 +583,7 @@ public class MethodBodyInspectionSessionTests
         MethodBodyInspectionSession targetV1Session =
             MethodBodyInspectionSession.Open(targetV1);
         Analysis.MethodIdentity ping =
-            target.BodyIndex.DeclaredMethods.Single(method =>
+            target.CallGraphAnalysis.DeclaredMethods.Single(method =>
                 method.DeclaringType.Name == "Api"
                 && method.Name == "Ping"
                 && method.ParameterTypes.Length == 0);

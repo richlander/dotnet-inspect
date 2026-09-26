@@ -52,8 +52,8 @@ public static class TypeOptionsParser
         if (error is not null)
             return true;
         bool hasProjectSource =
-            !string.IsNullOrWhiteSpace(
-                parseResult.GetValue(args.ProjectOption));
+            parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false };
         error =
             SharedParsers.GetStructuralPositionalVersionError(
                 sourceInputs,
@@ -146,7 +146,8 @@ public static class TypeOptionsParser
         Option<string[]> KindOption,
         Option<string?> AtOption,
         Option<string?> WorkspaceOption,
-        Option<string?> ShareOption);
+        Option<string?> ShareOption,
+        Option<string?> SuppressRuntimeTypeFallbackOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -182,8 +183,8 @@ public static class TypeOptionsParser
                 args.AssemblyOption,
                 args.PlatformOption);
         bool hasProjectSource =
-            !string.IsNullOrWhiteSpace(
-                parseResult.GetValue(args.ProjectOption));
+            parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false };
         if (!sourceInputs.HasExplicitSource && !hasProjectSource)
             return false;
 
@@ -262,6 +263,11 @@ public static class TypeOptionsParser
         bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
         bool hasNonProjectSource = sourceInputs.HasExplicitSource;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        bool routerCompletedPlatformLookup =
+            RouterCommandDefinition
+                .IsSuppressRuntimeTypeFallbackCapability(
+                    parseResult.GetValue(
+                        args.SuppressRuntimeTypeFallbackOption));
         string? workspacePacket =
             parseResult.GetValue(args.WorkspaceOption);
         WorkspaceShareFormat? shareFormat =
@@ -394,7 +400,9 @@ public static class TypeOptionsParser
                 sourceOptions,
                 parseResult.GetValue(opts.Verbose),
                 tryQualifiedTypeName: true,
-                parseResult.GetValue(args.FrameworkOption));
+                parseResult.GetValue(args.FrameworkOption),
+                allowRuntimeTypeFallback:
+                    !routerCompletedPlatformLookup);
             source = sourceSelection.Source;
         }
 
@@ -459,6 +467,8 @@ public static class TypeOptionsParser
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
+            RouterCompletedPlatformLookup =
+                routerCompletedPlatformLookup,
             WorkspacePacket = workspacePacket,
             ShareFormat = shareFormat,
             PackagePath = source.PackagePath,

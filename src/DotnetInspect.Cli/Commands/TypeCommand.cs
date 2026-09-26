@@ -228,7 +228,9 @@ public static class TypeCommand
             {
                 if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
-                if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
+                if (!options.RouterCompletedPlatformLookup
+                    && await TryExecuteFindIfMissAsync(options)
+                        is { } findIfMissExitCode)
                     return findIfMissExitCode;
             }
             catch (Exception ex)

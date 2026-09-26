@@ -35,6 +35,54 @@ public sealed record BrowserWorkspacePackage(
     string Version,
     string Framework);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeFindResultStatus>))]
+public enum BrowserTypeFindResultStatus
+{
+    Completed,
+    Rejected,
+    Unavailable,
+    Stale,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeFindActivationSource>))]
+public enum BrowserTypeFindActivationSource
+{
+    Package,
+    Framework,
+    Unsupported,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeFindActivationStatus>))]
+public enum BrowserTypeFindActivationStatus
+{
+    Available,
+    Unavailable,
+    Stale,
+    Ambiguous,
+    Refused,
+    Failed,
+}
+
+public sealed record BrowserTypeFindCandidateReference(
+    int AnswerOrdinal,
+    int CandidateOrdinal);
+
+public sealed record BrowserTypeFindCandidateActivation(
+    BrowserTypeFindCandidateReference Candidate,
+    BrowserTypeFindActivationSource Source,
+    BrowserTypeFindActivationStatus Status,
+    string? Action,
+    string? Reason);
+
+public sealed record BrowserTypeFindOperationResult(
+    InspectionEnvelope<JsonElement> Find,
+    BrowserTypeFindCandidateActivation[] Activations);
+
+public sealed record BrowserTypeFindResult(
+    BrowserTypeFindResultStatus Status,
+    BrowserTypeFindOperationResult? Operation,
+    string? Reason);
+
 /// <summary>
 /// One Browser type experience composed from the unchanged exact-Type
 /// inspection envelope and Browser-specific relationship results.
@@ -291,6 +339,13 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(BrowserTypeFindResult))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<JsonElement>),
+    TypeInfoPropertyName = "JsonInspectionEnvelope")]
+internal sealed partial class BrowserTypeFindJsonContext : JsonSerializerContext;
 
 internal static class BrowserMetadataJsonSerialization
 {

@@ -1,5 +1,6 @@
 src/CSharpText
 src/CSharpText.MemberSlicing
+src/DotnetInspect.Web
 src/DotnetInspect.Web.Core
 src/DotnetInspect.Web.Interop.Analysis
 src/DotnetInspect.Web.Interop.CallGraph
