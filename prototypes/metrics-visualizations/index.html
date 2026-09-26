@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Metrics visual language prototypes</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">dotnet-inspect · visual exploration</p>
+      <h1>Make the library legible before explaining the metric.</h1>
+      <p class="lede">Three D3.js sketches using real compiled method-body evidence.
+        Each one starts with a question a developer can answer without knowing
+        what cyclomatic complexity or P95 means.</p>
+      <div class="source-note">
+        <span class="source-dot"></span>
+        <span><strong>Real data</strong> · ILInspector.Analysis (13,100 bodies) and
+          ILInspector.Research (4,008 bodies)</span>
+      </div>
+    </header>
+
+    <section class="prototype-card" aria-labelledby="map-title">
+      <div class="card-copy">
+        <p class="eyebrow">01 · orient</p>
+        <h2 id="map-title">Where is the implementation?</h2>
+        <p>Start with familiar territory: a map of the library. Large regions
+          contain more implementation, while warmer color means more branching
+          density relative to the selected library. Click a region to zoom in.</p>
+        <p class="explanation"><span class="key area-key"></span> area = instruction
+          volume <span class="key color-key"></span> color = average branching
+          density</p>
+      </div>
+      <div class="chart-shell">
+        <div class="chart-toolbar">
+          <span id="map-breadcrumb">ILInspector.Analysis</span>
+          <button id="map-reset" type="button">Reset view</button>
+        </div>
+        <svg id="map-chart" role="img" aria-label="Zoomable library implementation map"></svg>
+        <div id="map-detail" class="chart-detail" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="prototype-card" aria-labelledby="flow-title">
+      <div class="card-copy">
+        <p class="eyebrow">02 · follow</p>
+        <h2 id="flow-title">Where does the code flow?</h2>
+        <p>Relationships make “spaghetti code” visible. The same real call
+          evidence can be lowered three ways: a flow from source to destination,
+          an arc that exposes crossings, or a chord that shows mutual pull.</p>
+        <div class="view-switcher" role="group" aria-label="Relationship view">
+          <button class="view-button is-selected" data-flow-view="sankey" type="button">Flow</button>
+          <button class="view-button" data-flow-view="arc" type="button">Arc</button>
+          <button class="view-button" data-flow-view="chord" type="button">Chord</button>
+        </div>
+        <div id="flow-summary" class="field-summary"></div>
+      </div>
+      <div class="chart-shell">
+        <div class="chart-toolbar">
+          <span id="flow-label">Sankey · type-to-type calls</span>
+          <span class="legend-note">top connected types</span>
+        </div>
+        <svg id="flow-chart" role="img" aria-label="Type relationship visualization"></svg>
+        <div id="flow-detail" class="chart-detail" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="prototype-card" aria-labelledby="composition-title">
+      <div class="card-copy">
+        <p class="eyebrow">03 · compose</p>
+        <h2 id="composition-title">What kind of code fills the library?</h2>
+        <p>Composition is easier to read as a shape than as a list of
+          percentages. The radial view shows namespace and type hierarchy;
+          the donut turns implementation size into a few plain-language bands.</p>
+        <label class="metric-picker" for="composition-metric">Size bands by
+          <select id="composition-metric">
+            <option value="instructionCount">implementation size</option>
+            <option value="complexity">branching</option>
+          </select>
+        </label>
+        <div id="composition-summary" class="field-summary"></div>
+      </div>
+      <div class="chart-shell">
+        <div class="chart-toolbar">
+          <span id="composition-label">Radial map · namespace → type</span>
+          <span class="legend-note">click a segment to zoom</span>
+        </div>
+        <div class="dual-chart">
+          <svg id="radial-chart" role="img" aria-label="Radial library composition"></svg>
+          <svg id="band-chart" role="img" aria-label="Library metric size bands"></svg>
+        </div>
+        <div id="composition-detail" class="chart-detail" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="prototype-card" aria-labelledby="compare-title">
+      <div class="card-copy">
+        <p class="eyebrow">04 · compare</p>
+        <h2 id="compare-title">What changed between libraries?</h2>
+        <p>A diverging chart gives direction a visual meaning. The center is
+          the shared baseline; bars to the left or right show which namespace
+          or metric carries more implementation volume in one assembly or the
+          other.</p>
+        <label class="metric-picker" for="compare-scope">Compare by
+          <select id="compare-scope">
+            <option value="metric">metric</option>
+            <option value="namespace">namespace</option>
+            <option value="type">type</option>
+          </select>
+        </label>
+        <div class="explanation"><span class="key analysis-key"></span>
+          more in Analysis <span class="key research-key"></span>
+          more in Research</div>
+      </div>
+      <div class="chart-shell">
+        <div class="chart-toolbar">
+          <span id="compare-label">Diverging implementation volume</span>
+          <span class="legend-note">top differences</span>
+        </div>
+        <svg id="compare-chart" role="img" aria-label="Diverging library comparison"></svg>
+        <div id="compare-detail" class="chart-detail" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>Prototype question: can the visual answer come before the metric vocabulary?</p>
+      <p class="muted">The page is intentionally separate from the production Browser/Wasm renderer.</p>
+    </footer>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
