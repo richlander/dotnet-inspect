@@ -162,11 +162,13 @@ public static class SharedParsers
         NuGetSourceOptions? sourceOptions,
         bool verbose,
         bool tryQualifiedTypeName,
-        string? platformFramework = null)
+        string? platformFramework = null,
+        bool allowRuntimeTypeFallback = true)
     {
         var source = await SourceResolver.ResolveAsync(
             inputs.Args, inputs.ExplicitPackage, inputs.ExplicitAssembly, inputs.ExplicitPlatform,
-            sourceOptions, verbose, tryQualifiedTypeName, platformFramework)
+            sourceOptions, verbose, tryQualifiedTypeName, platformFramework,
+            allowRuntimeTypeFallback)
             .ConfigureAwait(false);
 
         return new SourceSelection(
@@ -255,14 +257,16 @@ public static class SharedParsers
         string value,
         IReadOnlyList<string> sourceKeys,
         bool allowPlatformPrefixFallback,
-        Action<string>? reportPlatformLookupFailure = null)
+        Action<string>? reportPlatformLookupFailure = null,
+        bool allowRuntimeTypeFallback = true)
         => TrySplitQualifiedTypeMember(
             value,
             (candidate, fallback, report) => SourceResolver.TryResolveQualifiedTypeName(
                 candidate,
                 sourceKeys,
                 fallback,
-                report),
+                report,
+                allowRuntimeTypeFallback),
             allowPlatformPrefixFallback,
             reportPlatformLookupFailure);
 
@@ -270,14 +274,16 @@ public static class SharedParsers
         string value,
         NuGetSourceOptions? sourceOptions,
         bool allowPlatformPrefixFallback,
-        Action<string>? reportPlatformLookupFailure = null)
+        Action<string>? reportPlatformLookupFailure = null,
+        bool allowRuntimeTypeFallback = true)
         => TrySplitQualifiedTypeMember(
             value,
             (candidate, fallback, report) => SourceResolver.TryResolveQualifiedTypeName(
                 candidate,
                 sourceOptions,
                 fallback,
-                report),
+                report,
+                allowRuntimeTypeFallback),
             allowPlatformPrefixFallback,
             reportPlatformLookupFailure);
 

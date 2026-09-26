@@ -87,9 +87,11 @@ An incoming parameter remains resource-neutral until Research supplies an
 acquisition obligation from a caller. When reaching definitions prove that the
 parameter's entry definition can reach an unresolved release, Analysis may
 attach the limitation's exact resource domain to that incomplete terminal use
-without requiring an incoming occurrence root. Research accepts the terminal
-only when its existing exact domain join matches the caller's obligation.
-Replacement definitions do not inherit the parameter flow.
+without requiring or filtering through an incoming occurrence root. Unrelated
+incoming resource domains on the same parameter do not change that terminal's
+domain. Research accepts the terminal only when its existing exact domain join
+matches the caller's obligation. Replacement definitions do not inherit the
+parameter flow.
 
 Analysis builds the summary in the same execution that produced Resource
 Occurrence. It reuses the retained `MethodBodyAnalysisContext`, resolved
@@ -194,7 +196,8 @@ The focused gates establish:
   released preserves both the stored and incomplete released uses;
 - an incoming parameter conditionally replaced before a release preserves an
   incomplete release only for a matching caller obligation whose value can
-  reach that release;
+  reach that release, even when the same parameter has an unrelated incoming
+  resource root;
 - missing and ambiguous body correspondence remain incomplete;
 - a positive terminal witness survives unrelated incompleteness; and
 - witness and path budgets preserve positive evidence while reporting their
