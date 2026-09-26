@@ -31,6 +31,7 @@ Supporting designs by role:
 | Cross-library call use, for multi-assembly questions | [Pairwise library direct-use clusters](pairwise-library-direct-use-clusters.md) |
 | Complete-Content host boundary | `InspectionEnvelope<TContent>` ([#8517](https://github.com/richlander/dotnet-inspect/issues/8517) adoption pattern) |
 | Section defaults | [Progressive disclosure](progressive-disclosure.md) |
+| Row selection substrate | [QuerySpace library boundary](query-space-library.md), [Semantic row selection](semantic-row-selection.md) |
 
 ## User question
 
@@ -98,11 +99,44 @@ effort. The existing catalog-scoped `DirectCallDefinitionResolution` already
 has a comparable shape; whether step 0 reuses it is Analysis's decision.
 Target-side attribution also needs the declared-source association for methods
 that make no calls. Today that is public only through the transitional
-compatibility index. Step 0 therefore also covers publishing that
-association on the focused result, and Analysis decides its shape. Nested
-lifted bodies are attributed exactly as the association issues them.
+compatibility index, which this owner may not use (see [Modern
+infrastructure only](#modern-infrastructure-only)). Step 0 therefore also
+covers publishing that association on the focused result, and Analysis
+decides its shape. Nested lifted bodies are attributed exactly as the
+association issues them.
 Research consumes the result. It never re-implements signature
 matching, and it never treats a missing resolution as an external call.
+
+### Modern infrastructure only
+
+Every slice of this work builds only on the current architecture, and
+superseded infrastructure is prohibited:
+
+- **`LibraryBodyIndex` is prohibited.** That includes its
+  `CompatibilityIndex()` adapter on `LibraryBodyAnalysisExecution` and any
+  API that returns or wraps it. Research, the query, and both hosts consume
+  only Analysis's focused typed results from one
+  `LibraryBodyAnalysisExecution`. When a needed fact exists only on the
+  compatibility index, the resolution is to have Analysis publish it on a
+  focused result (step 0). Never read through the index "for now".
+- **QuerySpace is the encouraged selection substrate.** Filtering, ordering,
+  counting, and limiting the issued rows (type, namespace, and external nodes;
+  edges; cycles) use QuerySpace, with the row vocabulary declared
+  host-neutrally beside this owner rather than in a host. Hosts do not
+  hand-filter, re-sort, or re-count issued collections.
+- **Selection runs after the graph is built.** This is a deliberate reference
+  slice. Cycles, levels, and qualified absence are defined over the complete
+  admitted graph, so the document is always derived in full from the
+  whole-scope execution, and QuerySpace selection applies to the issued
+  document's rows. Pushing selection into Analysis is a non-goal, because no
+  predicate can narrow the population without changing a derived fact.
+- **Other current substrate:** Content, Share, and diagnostics travel in
+  `InspectionEnvelope<TContent>`, and the CLI lowers through Markout. No
+  parallel envelope, row model, or renderer is introduced.
+
+The prohibition is a design rule enforced by review of each slice, not by a
+dedicated absence gate. That choice of coverage is recorded operator
+direction.
 
 ## Admitted graph
 
@@ -405,7 +439,9 @@ cache.
 1. **Research:** the document, typed outcome, and fixture gates.
 2. **Query:** a Research-backed query in `DotnetInspector.ResearchQueries`
    carries the completed document without rendering it. It shares the Analysis
-   execution with `LibraryMetricsQuery` when both are selected.
+   execution with `LibraryMetricsQuery` when both are selected, consumes only
+   focused Analysis results, and exposes the issued rows through QuerySpace
+   (see [Modern infrastructure only](#modern-infrastructure-only)).
 3. **CLI:** an exact-name-only `library` section, `Dependency Structure`,
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
