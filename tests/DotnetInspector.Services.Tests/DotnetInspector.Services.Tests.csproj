@@ -15,6 +15,8 @@
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
+    <PackageDownload Include="Microsoft.Azure.SignalR"
+                     Version="[1.33.1]" />
     <PackageDownload Include="System.Text.Json"
                      Version="[10.0.0]" />
     <PackageDownload Include="Avalonia" Version="[12.1.2]" />
@@ -56,6 +58,9 @@
   <ItemGroup>
     <None Include="$(NuGetPackageRoot)avalonia/12.1.2/avalonia.12.1.2.nupkg"
           Link="RealAssets/PackageReadDemand/avalonia.12.1.2.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.azure.signalr/1.33.1/microsoft.azure.signalr.1.33.1.nupkg"
+          Link="RealAssets/FrameworkReferences/microsoft.azure.signalr.1.33.1.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/system.text.json.10.0.0.nupkg"
           Link="RealAssets/PackageAdmission/System.Text.Json.10.0.0.nupkg"

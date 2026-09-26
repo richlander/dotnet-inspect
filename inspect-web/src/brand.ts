@@ -8,7 +8,8 @@ function escapeAttribute(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-export type ProductDestination = "home" | "query" | "workspace" | "activity";
+export type ProductDestination =
+  "home" | "query" | "workspace" | "activity" | "demos";
 export type ProductAction = "open-library";
 
 export interface ProductNavigationActions {
@@ -29,6 +30,7 @@ const productDestinations = [
   ["query", "Query"],
   ["workspace", "Workspace"],
   ["activity", "Activity"],
+  ["demos", "Demos"],
 ] as const;
 
 export function renderBrand(options: {
@@ -62,7 +64,8 @@ function isProductDestination(
   return value === "home"
     || value === "query"
     || value === "workspace"
-    || value === "activity";
+    || value === "activity"
+    || value === "demos";
 }
 
 function isProductAction(

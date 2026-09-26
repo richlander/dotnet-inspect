@@ -120,14 +120,14 @@ public enum ResearchTargetDiagnosticKind
     DomainAmbiguous,
 
     /// <summary>
-    /// The live image, the acquisition descriptor, and the Analysis body index
-    /// do not name the same assembly.
+    /// The live image, the acquisition descriptor, and the Analysis call-graph
+    /// result do not name the same assembly.
     /// </summary>
     AssemblyIdentityMismatch,
 
     /// <summary>
     /// The live image, artifact-bound acquisition descriptor, and Analysis
-    /// body index do not name the same module generation.
+    /// call-graph result do not name the same module generation.
     /// </summary>
     ModuleIdentityMismatch,
 
@@ -198,9 +198,9 @@ public sealed class ResearchTargetDiagnostic
             ResearchTargetDiagnosticKind.DomainAmbiguous =>
                 "This domain admits more than one input on one side.",
             ResearchTargetDiagnosticKind.AssemblyIdentityMismatch =>
-                "The live image, descriptor, and body index name different assemblies.",
+                "The live image, descriptor, and Analysis method population name different assemblies.",
             ResearchTargetDiagnosticKind.ModuleIdentityMismatch =>
-                "The live image and the body index name different modules.",
+                "The live image and the Analysis method population name different modules.",
             ResearchTargetDiagnosticKind.StandaloneModule =>
                 "The image is a standalone managed module with no assembly identity.",
             ResearchTargetDiagnosticKind.InvalidMethodDefinitionToken =>
@@ -410,7 +410,7 @@ public abstract class ResearchTargetOutcome
 /// typed selection intent, the pinned surface scope, the request kind, and the
 /// optional asserted exact-address evidence. It retains no
 /// <see cref="ResearchAdmittedInput"/>, occurrence, acquisition descriptor,
-/// reference resolver, or body index.
+/// reference resolver, or call-graph result.
 /// <c>ResearchTargetRequests_AreStrictlySideInputAndScopeLocal</c> and
 /// <c>ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation</c>
 /// gate those properties.
@@ -678,7 +678,7 @@ public sealed class ResearchTargetScope
 /// exact owner-issued Metadata target, anchor, candidate, and diagnostic
 /// values, durable metadata addresses, exact Analysis module identities, and
 /// bounded Research diagnostics. It retains no admitted population, selection
-/// occurrence, acquisition descriptor, reference resolver, body index, metadata
+/// occurrence, acquisition descriptor, reference resolver, call-graph result, metadata
 /// reader, PE reader, stream, callback, lease, raw exception, producer,
 /// presentation row, or mutable caller collection.
 /// <c>ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation</c>

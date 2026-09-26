@@ -363,9 +363,16 @@ public record InspectionOptions : IProjectionOptions
     public bool SelectExplicitlySet { get; init; }
 
     /// <summary>
-    /// True when the user explicitly chose an output format via CLI flags.
+    /// True when the user chose an output format via CLI flags or an
+    /// environment default.
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// Environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
 
     /// <summary>
     /// Suppress column headers (use with --table or --tsv).
@@ -423,6 +430,9 @@ public record InspectionOptions : IProjectionOptions
     /// Output the complete shared inspection envelope as JSON.
     /// </summary>
     public bool EnvelopeOutput { get; init; }
+
+    /// <summary>Output minified envelope JSON.</summary>
+    public bool CompactJson { get; init; }
 
     /// <summary>
     /// Limit data rows per rendered table.

@@ -210,6 +210,12 @@ import {
   type PreparedProductHomeDemoSource,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
+import {
+  installStaleDeploymentDetection,
+  retainSuccessfulImport,
+  STALE_DEPLOYMENT_NOTICE,
+  staleDeploymentDetected,
+} from "./stale-deployment.ts";
 import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.ts";
 import { bindSavedWorkspaces, restoreSavedWorkspaceFocus } from "./saved-workspaces-view.ts";
 import {
@@ -1159,7 +1165,7 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
-type LibraryOpenReturnTarget = "home" | "product-navigation" | "surface";
+type LibraryOpenReturnTarget = "product-navigation" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -4239,8 +4245,11 @@ let graphExplorerOriginKey: string | null = null;
 type MermaidModule = typeof import("mermaid");
 type MarkedModule = typeof import("marked");
 type DomPurifyModule = typeof import("dompurify");
-let mermaidModule: Promise<MermaidModule> | undefined;
-let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
+const loadMermaidModule = retainSuccessfulImport<MermaidModule>(
+  () => import("mermaid"));
+const loadMarkdownModules =
+  retainSuccessfulImport<[MarkedModule, DomPurifyModule]>(
+    () => Promise.all([import("marked"), import("dompurify")]));
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let mermaidRenderSequence = 0;
 let callGraphRenderSeq = 0;
@@ -7230,8 +7239,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
-  const callGraphPageContext =
-    activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment =>
     [segment.label, segment.targetFramework, segment.qualifier]
@@ -7269,8 +7276,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}
@@ -7279,9 +7286,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
                 : ""}
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
-                : ""}
-              ${callGraphPageContext
-                ? `<button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>`
                 : ""}
               ${annotatedPageContext
                 ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
@@ -9925,17 +9929,25 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     assertNever(state.memberSection, "member section");
   }
   if (!memberSectionUsesWorkingSurface(state.memberSection)) return content;
+  const callGraphExplore = state.memberSection === "call-graph"
+    ? `<div class="member-surface-actions" role="group" aria-label="Call graph actions">
+        <button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>
+      </div>`
+    : "";
   // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
   // the top scope+lens bar, so the detail view renders only the section content itself.
   return `
     <section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-        <p>${escapeHtml(member.kind)} <span>· ${
-          state.memberSection === "implementation-profiles"
-            ? `${member.overloads.length} overloads`
-            : `${overloadIndex + 1} of ${member.overloads.length}`
-        }</span></p>
+        <div class="member-surface-meta">
+          <p>${escapeHtml(member.kind)} <span>· ${
+            state.memberSection === "implementation-profiles"
+              ? `${member.overloads.length} overloads`
+              : `${overloadIndex + 1} of ${member.overloads.length}`
+          }</span></p>
+          ${callGraphExplore}
+        </div>
       </header>
       <div class="member-surface-scroll">${content}</div>
     </section>`;
@@ -11224,10 +11236,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   },
   onNavigateBack: navBack,
   onNavigateForward: navForward,
-  onRetryNotice: () => {
-    const retryAction = state.queryNoticeRetryAction;
-    if (retryAction) observeAction(retryAction, "Retrying the inspection");
-  },
+  onRetryNotice: retryQueryNotice,
   onSearch: () => openSpotlight(),
 };
 
@@ -13901,11 +13910,26 @@ function appendQueryNotice(message: string, retryAction: RetryAction = null) {
   state.queryNoticeRetryAction = retryAction;
 }
 
+// A retry after a redeploy re-requests chunk hashes that no longer exist, so it
+// reloads the page onto the current build instead.
+function retryQueryNotice(): void {
+  const retryAction = state.queryNoticeRetryAction;
+  if (!retryAction) return;
+  if (staleDeploymentDetected()) {
+    window.location.reload();
+    return;
+  }
+  observeAction(retryAction, "Retrying the inspection");
+}
+
 function visibleQueryNotice() {
   const routeNotice = failedWorkspaceUrlState?.kind === "route"
     ? failedWorkspaceUrlState.notice
     : null;
-  return [state.queryNotice, routeNotice]
+  const staleNotice = state.queryNoticeRetryAction && staleDeploymentDetected()
+    ? STALE_DEPLOYMENT_NOTICE
+    : null;
+  return [state.queryNotice, staleNotice, routeNotice]
     .filter(Boolean)
     .join(" ");
 }
@@ -13999,8 +14023,6 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
         ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
-          <button id="home-open-library" type="button"
-            ${enginePending ? "disabled" : ""}>Open Library…</button>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
@@ -14073,7 +14095,7 @@ function homeArtSvg() {
 const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
-  onOpenLibrary: () => openLibraryDialog("home"),
+  onRetryNotice: retryQueryNotice,
   onToggleTheme: toggleTheme,
 };
 
@@ -14185,7 +14207,6 @@ function renderProductDemosPage(): void {
         ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="/">Home</a>
-          <button id="home-open-library" type="button">Open Library…</button>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
@@ -14769,9 +14790,8 @@ function goHome(): boolean {
 }
 
 function currentProductDestination(): ProductDestination | null {
-  if (isDiagnosticsPath(location.pathname)
-    || isProductHomeDemosPath(location.pathname)
-    || state.credits) return null;
+  if (isDiagnosticsPath(location.pathname) || state.credits) return null;
+  if (isProductHomeDemosPath(location.pathname)) return "demos";
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
   if (state.workspaceSubjectOpen && !state.home) return "workspace";
@@ -14827,6 +14847,10 @@ function navigateProductDestination(destination: ProductDestination): void {
   }
   if (destination === "activity") {
     openPackageActivityRoute("application-activity");
+    return;
+  }
+  if (destination === "demos") {
+    openProductDemos();
     return;
   }
   observeAsync(
@@ -17175,8 +17199,7 @@ async function renderMermaidDefinition(
   idPrefix: string,
   definition: string,
 ): Promise<string> {
-  mermaidModule ??= import("mermaid");
-  const { default: mermaid } = await mermaidModule;
+  const { default: mermaid } = await loadMermaidModule();
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
@@ -17422,8 +17445,7 @@ async function renderDependencyGraph() {
       return;
     }
     phase = "Diagram rendering";
-    mermaidModule ??= import("mermaid");
-    const { default: mermaid } = await mermaidModule;
+    const { default: mermaid } = await loadMermaidModule();
     if (!depGraphRenderSequence.isCurrent(seq)) return;
     mermaid.initialize({
       startOnLoad: false,
@@ -17660,8 +17682,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
   const definition = active.mermaid;
   const promise = (async (): Promise<CallGraphRenderResult> => {
     try {
-      mermaidModule ??= import("mermaid");
-      const { default: mermaid } = await mermaidModule;
+      const { default: mermaid } = await loadMermaidModule();
       if (seq !== callGraphRenderSeq) {
         return { status: "superseded" };
       }
@@ -17690,7 +17711,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       }
       targetContainer.innerHTML =
         '<div class="graph-viewport"></div>'
-        + graphControlsHtml();
+        + graphControlsHtml(true);
       const viewport =
         targetContainer.querySelector<HTMLElement>(".graph-viewport");
       if (!viewport) {
@@ -17703,6 +17724,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       targetContainer.dataset.graphDef = definition;
       bindGraphPanZoom(targetContainer, viewport, {
         keybindings,
+        focusNodeSelector: "g.node.target",
         resolveCallGraphNode: nodeId =>
           callGraphNodeBinding(mounted, nodeId),
       });
@@ -18158,6 +18180,7 @@ function graphExplorerTarget() {
   if (dependencies) {
     return {
       key,
+      role: "dependency" as const,
       kind: "Dependency graph",
       subject: packageCoordinateLabel(pkg),
       context: `Target framework ${pkg.activeFramework}`,
@@ -18171,6 +18194,7 @@ function graphExplorerTarget() {
   if (typeRelationships) {
     return {
       key,
+      role: "type" as const,
       kind: "Type relationships",
       subject: path.at(-1)?.label ?? "Selected type",
       context: packageCoordinateLabel(pkg),
@@ -18195,6 +18219,7 @@ function graphExplorerTarget() {
     : packageCoordinateLabel(pkg);
   return {
     key,
+    role: "call" as const,
     kind: "Call graph",
     subject: overload?.signature ?? path.at(-1)?.label ?? "Selected member",
     context: `${packageContext} · ${parent}`,
@@ -19084,11 +19109,7 @@ function closeGraphSource() {
 // rather than a merge gate: an advisory is reported after the fact instead of failing a build,
 // because `npm audit` reaching the registry is not something a merge can depend on.
 async function markdownLibs() {
-  markdownModule ??= Promise.all([
-    import("marked"),
-    import("dompurify")
-  ]);
-  const [{ marked }, { default: DOMPurify }] = await markdownModule;
+  const [{ marked }, { default: DOMPurify }] = await loadMarkdownModules();
   return { marked, DOMPurify };
 }
 
@@ -19269,10 +19290,7 @@ function closeLibraryDialog() {
   state.libraryOpenError = "";
   render({ synchronizeUrl: false });
   requestAnimationFrame(() => {
-    if (returnTarget === "home") {
-      document.querySelector<HTMLElement>("#home-open-library")
-        ?.focus({ preventScroll: true });
-    } else if (returnTarget === "product-navigation") {
+    if (returnTarget === "product-navigation") {
       restoreOrdinaryModalDismissFocus(() =>
         document.querySelector<HTMLElement>(
           "[data-product-navigation-button]")
@@ -22064,6 +22082,8 @@ function dismissModalsForRoutedNavigation() {
   documentInspection.clear();
   return dismissedAnnotatedSourceModal;
 }
+
+installStaleDeploymentDetection(window);
 
 window.addEventListener("popstate", () => {
   void (async () => {

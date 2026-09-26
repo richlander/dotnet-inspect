@@ -391,7 +391,7 @@ public static class ResearchProducerSession
         InputStage acquiredStage = stage.Stage!;
         MetadataReader reader = acquiredStage.Source.Reader;
         if (target.Module
-                != acquiredStage.Occurrence.BodyIndex.ModuleIdentity
+                != acquiredStage.Occurrence.MethodPopulation.ModuleIdentity
             || !address.Value.BelongsTo(reader)
             || address.Value.Handle.IsNil
             || MetadataTokens.GetRowNumber(address.Value.Handle)
@@ -452,8 +452,10 @@ public static class ResearchProducerSession
             ResearchTargetInputValidationEvidence evidence =
                 ResearchInputImageValidation.Capture(
                     source.Reader,
-                    occurrence);
-            access = ResearchInputImageValidation.Validate(evidence, occurrence)
+                    occurrence.TargetEvidence);
+            access = ResearchInputImageValidation.Validate(
+                    evidence,
+                    occurrence.TargetEvidence)
                 switch
                 {
                     ResearchTargetDiagnosticKind.AssemblyIdentityMismatch
