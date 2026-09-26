@@ -28,8 +28,8 @@ rows show which overloads carry the most code and which overloads are hubs the
 others call. Two channels carry that claim:
 
 - **Heat**: a tint whose strength follows each overload's instruction count
-  relative to the largest same-name method body in its family, including
-  non-public methods.
+  relative to the largest same-name method size in its family, including
+  methods that are not listed overloads.
 - **Hub strip**: a marker on an overload that same-name methods call and that
   calls no same-name method itself.
 
@@ -94,11 +94,12 @@ For each eligible family, two sets are distinct:
 - the **analyzed family** is every same-name method declared on the Type,
   regardless of accessibility.
 
-Heat and hub derivation read only the analyzed family. Non-public methods are
+Heat and hub derivation read only the analyzed family. Methods outside the
+public roster, whether non-public or public but hidden by the API surface, are
 never rows and never show heat or a hub strip, but they set the family maximum
-and take part in call relationships. A public overload is therefore not
-presented as large when a non-public implementation dwarfs it, and a public
-forwarder into a non-public method is never a hub.
+and take part in call relationships. A listed overload is therefore not
+presented as large when an unlisted implementation dwarfs it, and a listed
+forwarder into an unlisted method is never a hub.
 
 Readers take sparse walks through an assembly. The Type the reader selected is
 the aggregation scope; this design does not analyze a whole Library by
@@ -174,16 +175,16 @@ record per eligible family. Each family record carries:
 
 - the family's public Member anchors in roster order: Type definition ID,
   stable selector, and the owner-issued logical method token;
-- for each analyzed method: metadata token, whether it is public, whether it
-  was declared with a body, its size as defined under Family projection, and
-  whether its measurement, including every body counted in that size, is
-  complete;
+- for each analyzed method: metadata token, whether it is a roster member,
+  whether it was declared with a body, its size and whether it is trivial as
+  defined under Family projection, and whether its measurement, including
+  every body counted in that size, is complete;
 - the family's same-name call relationships: caller and callee tokens; and
 - the family's coverage receipt: unavailable bodies and Analysis diagnostics
   that fall inside the analyzed family.
 
-The Type heat query computes each size when it constructs the record; the
-Browser reads it and never recomputes it from physical bodies. The record
+The Type heat query computes each size and trivial flag when it constructs the
+record; the Browser reads them and never recomputes them from physical bodies. The record
 carries no raw metric set, physical-body breakdown, or IL offsets. Those remain
 in the family detail result. The record also carries the envelope
 outcome, Share outcome, and ordered diagnostics.
@@ -247,8 +248,12 @@ starts the state machine. Declared-source attribution assigns each generated
 body to exactly one logical method, so the sum counts no body twice. The family
 detail result keeps each physical body as a separate evidence row.
 
+An analyzed method is **trivial** when every body counted in its size has at
+most eight instructions and no branches, loops, exception regions, unsafe
+evidence, or Reflection evidence.
+
 The **family maximum** is the largest size in the analyzed family, including
-non-public methods. A method declared without a body, such as an abstract or
+methods outside the public roster. A method declared without a body, such as an abstract or
 extern method, has no size and does not affect the maximum; it is recorded as
 declared without a body, not as an unavailable body. When the family's
 coverage has an unavailable body or an incomplete measurement, the maximum is
@@ -302,9 +307,7 @@ maximum. Every other row is untinted.
   selection backgrounds remain visible under it.
 
 The Browser shows no heat when comparison would add noise: fewer than two
-measured bodies in the analyzed family, or every analyzed body has at most
-eight instructions with no branches, loops, exception regions, unsafe
-evidence, or Reflection evidence.
+analyzed methods have a size, or every analyzed method with a size is trivial.
 
 ### Hub strip
 
@@ -329,9 +332,9 @@ count:
 ### Accessible description
 
 Each nested row with heat or a hub strip carries an accessible description:
-its instruction count; its share of the family maximum and whether that
-maximum belongs to a non-public method; and, for a hub, how many same-name
-methods call it. Neither channel relies on color alone.
+its size in instructions; its share of the family maximum and whether that
+maximum belongs to a method outside the listed overloads; and, for a hub, how
+many same-name methods call it. Neither channel relies on color alone.
 
 ### Detail
 
@@ -420,11 +423,11 @@ The following gates enforce this design:
 1. Type heat query tests prove, on real assets, that `JsonDocument.Parse`
    records its non-public implementation as the family maximum; that Dapper
    `SqlMapper.QueryAsync` sizes its private async implementation as stub plus
-   state machine; that `Utf8JsonWriter.WriteString` records the same-name
-   relationships from which the Browser derives its 8 hubs; that ineligible,
-   attached-extension, and mixed groups are absent; and that one Analysis
-   execution serves every family on the Type. The family query and CLI
-   `Member Metrics` gates pass unchanged.
+   state machine; that trivial flags follow every counted body; that
+   `Utf8JsonWriter.WriteString` records the same-name relationships from which
+   the Browser derives its 8 hubs; that ineligible, attached-extension, and
+   mixed groups are absent; and that one Analysis execution serves every family
+   on the Type. The family query and CLI `Member Metrics` gates pass unchanged.
 2. Analysis-facade projection tests compare Type heat and family detail wire
    results with their completed host-neutral envelopes, including outcome,
    identities, sizes, relationships, coverage, Share, and ordered diagnostics.
@@ -437,10 +440,11 @@ The following gates enforce this design:
    request running with queued requests for departed Types dropped, cache reuse
    on return, explicit retry, workspace replacement, and stale-publication
    suppression.
-5. Family-projection tests prove size, the family maximum, the
-   half-of-maximum heat threshold, noise suppression, hub derivation, and
-   unknown-maximum handling over the real-asset families plus synthetic
-   incomplete, bodyless, generated-body, and non-public-callee boundaries.
+5. Family-projection tests prove size, the family maximum, the half-of-maximum
+   heat threshold, noise suppression from sizes and trivial flags, hub
+   derivation, and unknown-maximum handling over the real-asset families plus
+   synthetic incomplete, bodyless, generated-body, and non-public-callee
+   boundaries.
 6. Member-list rendering and accessibility tests prove roster order,
    right-anchored heat with at most 75% reach, the hub strip, parent-row status
    text and tokens, accessible descriptions, and every visible state.
