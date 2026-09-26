@@ -95,7 +95,13 @@ Analysis owns that resolution and its typed failures (unmatched, ambiguous,
 unsupported signature, work limit). Publishing it as a public per-call fact
 keyed by the physical occurrence is adoption step 0, an Analysis-owned focused
 effort. The existing catalog-scoped `DirectCallDefinitionResolution` already
-has a comparable shape; whether step 0 reuses it is Analysis's decision. Research consumes the result. It never re-implements signature
+has a comparable shape; whether step 0 reuses it is Analysis's decision.
+Target-side attribution also needs the declared-source association for methods
+that make no calls. Today that is public only through the transitional
+compatibility index. Step 0 therefore also covers publishing that
+association on the focused result, and Analysis decides its shape. Nested
+lifted bodies are attributed exactly as the association issues them.
+Research consumes the result. It never re-implements signature
 matching, and it never treats a missing resolution as an external call.
 
 ## Admitted graph
@@ -195,8 +201,10 @@ intra-type volume, not as an edge.
 The receipt preserves the Analysis receipt unchanged and adds exact counts:
 
 - physical direct calls examined;
-- admitted internal, admitted external, and unresolved occurrences, with
-  unresolved counts by reason;
+- admitted internal (including same-type), admitted external,
+  runtime-provided, and unresolved occurrences, with unresolved counts by
+  reason. These four categories partition the examined calls exactly, so
+  their sum equals the examined count;
 - physical bodies whose call evidence is incomplete, with Analysis
   diagnostics carried unchanged. The input is the receipt's method-keyed
   Analysis diagnostics. Every diagnosed body counts as incomplete for this
@@ -222,8 +230,9 @@ The Research result is a typed `LibraryDependencyStructureResult`. Its
 2. every type node with its namespace and its intra-type relationship count;
 3. every type-to-type edge and every type-to-external edge, each with
    invocation and function-reference counts;
-4. every namespace node with type count, intra-namespace relationship count,
-   and its derived cycle and level (below);
+4. every namespace node with type count, intra-namespace relationship count
+   (type-to-type edges within the namespace plus its types' intra-type
+   volume), and its derived cycle and level (below);
 5. every namespace-to-namespace edge with invocation and function-reference
    counts, contributing type-edge count, and up to five **explaining type
    edges** drawn from item 3's type-to-type edges, selected by descending
@@ -374,8 +383,9 @@ executable over a compiled fixture library under `fixtures/research/`:
   qualified absence, not unqualified acyclicity.
 - `LibraryDependencyStructure_CountsUnresolvedAndRejectsDuplicateOccurrence`:
   `calli` is unresolved by reason, a multidimensional array accessor is
-  runtime-provided and does not qualify absence, and a duplicated physical
-  call-site key fails visibly.
+  counted as runtime-provided and does not qualify absence, the four receipt
+  categories sum to the examined count, and a duplicated physical call-site
+  key fails visibly.
 - `LibraryDependencyStructure_BoundsExplanationWithExactRemainder`: an edge
   with seven contributing type edges retains five in the specified order and a
   remainder of two.
