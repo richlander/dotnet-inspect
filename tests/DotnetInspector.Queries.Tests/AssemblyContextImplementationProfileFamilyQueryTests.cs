@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using DotnetInspector.Fixtures;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -157,6 +158,241 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
         Assert.Equal(2, result.Coverage.DeclaredMethods.Length);
         Assert.Empty(result.Coverage.ProfiledEvidenceBodies);
         Assert.Empty(result.Coverage.UnavailableBodies);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_MeasuresNonPublicImplementationOnlyInAnalyzedFamily()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "ImplementationProfileHiddenImplementationSample",
+                "Parse");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        Assert.Equal(2, result.Members.Length);
+        Assert.All(
+            result.Profiles,
+            profile => Assert.Single(profile.PublicMembers));
+        Assert.Empty(result.OverloadRelationships);
+
+        ImplementationProfileAnalyzedFamily analyzed = result.AnalyzedFamily;
+        Assert.Equal(3, analyzed.Methods.Length);
+        ImplementationProfileAnalyzedMethod hidden = Assert.Single(
+            analyzed.Methods,
+            method => method.PublicMember is null);
+        Assert.True(hidden.HasBody);
+        Assert.DoesNotContain(
+            result.Profiles,
+            profile =>
+                profile.Profile.Method.MetadataToken == hidden.MetadataToken);
+
+        AssemblyImplementationProfileMember implementation = Assert.Single(
+            analyzed.Profiles,
+            profile =>
+                profile.Profile.Method.MetadataToken == hidden.MetadataToken);
+        Assert.Empty(implementation.PublicMembers);
+        Assert.All(
+            analyzed.Profiles.Where(profile => !profile.PublicMembers.IsEmpty),
+            profile => Assert.True(
+                profile.Profile.InstructionCount * 2
+                    < implementation.Profile.InstructionCount));
+        Assert.Equal(
+            [.. analyzed.Methods
+                .Where(method => method.PublicMember is not null)
+                .Select(method => method.MetadataToken)
+                .Order()],
+            analyzed.OverloadRelationships
+                .Where(relationship =>
+                    relationship.Callee.MetadataToken == hidden.MetadataToken)
+                .Select(relationship => relationship.Caller.MetadataToken)
+                .Order());
+        Assert.True(analyzed.Coverage.WasRequested);
+        Assert.Empty(analyzed.Coverage.UnavailableBodies);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_KeepsRosterSiblingCountsWhenNonPublicOverloadsCall()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "ImplementationProfileHiddenImplementationSample",
+                "Describe");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        AssertHubCounts(
+            result,
+            hub => hub.ParameterTypes is [{ Name: "Int32" }],
+            rosterIncoming: 1,
+            analyzedIncoming: 2);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_AnalyzedFamilyMatchesRosterWithoutNonPublicOverloads()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "ImplementationProfileSample",
+                "Analyze");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        ImplementationProfileAnalyzedFamily analyzed = result.AnalyzedFamily;
+        Assert.Equal(4, analyzed.Methods.Length);
+        Assert.All(
+            analyzed.Methods,
+            method => Assert.NotNull(method.PublicMember));
+        Assert.Equal(
+            result.Profiles.Select(profile => profile.Profile),
+            analyzed.Profiles.Select(profile => profile.Profile));
+        Assert.Equal(
+            result.OverloadRelationships,
+            analyzed.OverloadRelationships);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_JsonDocumentParseImplementationIsNonPublic()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            RealAsset("DocumentationQuery", "System.Text.Json.dll"));
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(group, participant, "JsonDocument", "Parse");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        ImplementationProfileAnalyzedFamily analyzed = result.AnalyzedFamily;
+        Assert.Contains(
+            analyzed.Methods,
+            method => method.PublicMember is null);
+        Assert.All(
+            result.Profiles,
+            profile => Assert.NotEmpty(profile.PublicMembers));
+        MethodImplementationProfile largest = analyzed.Profiles
+            .Select(profile => profile.Profile)
+            .MaxBy(profile => profile.InstructionCount)!;
+        Assert.DoesNotContain(
+            analyzed.Methods,
+            method =>
+                method.MetadataToken == largest.Method.MetadataToken
+                && method.PublicMember is not null);
+        Assert.All(
+            analyzed.Profiles.Where(profile => !profile.PublicMembers.IsEmpty),
+            profile => Assert.True(
+                profile.Profile.InstructionCount * 2
+                    < largest.InstructionCount));
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_JsonConvertToStringKeepsRosterIncomingCount()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            RealAsset("ImplementationProfileFamily", "Newtonsoft.Json.dll"));
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(group, participant, "JsonConvert", "ToString");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        AssertHubCounts(
+            result,
+            method => method.ParameterTypes is
+                [{ Name: "String" }, { Name: "Char" }],
+            rosterIncoming: 1,
+            analyzedIncoming: 3);
+    }
+
+    static void AssertHubCounts(
+        AssemblyImplementationProfileFamilyInspection result,
+        Func<MethodIdentity, bool> isHub,
+        int rosterIncoming,
+        int analyzedIncoming)
+    {
+        MethodImplementationProfile roster = Assert.Single(
+            result.Profiles,
+            profile =>
+                profile.Profile.Method == profile.Profile.EvidenceMethod
+                && isHub(profile.Profile.Method))
+            .Profile;
+        MethodImplementationProfile analyzed = Assert.Single(
+            result.AnalyzedFamily.Profiles,
+            profile =>
+                profile.Profile.Method == profile.Profile.EvidenceMethod
+                && isHub(profile.Profile.Method))
+            .Profile;
+
+        Assert.Equal(rosterIncoming, roster.IncomingOverloadCallerCount);
+        Assert.Equal(analyzedIncoming, analyzed.IncomingOverloadCallerCount);
+        Assert.Equal(
+            analyzedIncoming,
+            result.AnalyzedFamily.OverloadRelationships
+                .Where(relationship =>
+                    relationship.Callee.MetadataToken
+                        == analyzed.Method.MetadataToken)
+                .Select(relationship => relationship.Caller.MetadataToken)
+                .Distinct()
+                .Count());
+        Assert.All(
+            result.OverloadRelationships,
+            relationship => Assert.Contains(
+                result.Members,
+                member => member.BodyTokens.Contains(
+                    relationship.Caller.MetadataToken)));
     }
 
     [Fact]
@@ -364,12 +600,19 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
             selectors);
     }
 
-    static AssemblyContextGroup Group(InspectionWorkspace workspace)
+    static string RealAsset(string scenario, string fileName) =>
+        Path.Combine(AppContext.BaseDirectory, "RealAssets", scenario, fileName);
+
+    static AssemblyContextGroup Group(InspectionWorkspace workspace) =>
+        Group(workspace, FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+
+    static AssemblyContextGroup Group(
+        InspectionWorkspace workspace,
+        string assemblyPath)
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
-                File.ReadAllBytes(
-                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath()));
+                File.ReadAllBytes(assemblyPath));
         using var reader = new PEReader(image);
         AssemblyReferenceIdentity identity =
             AssemblyReferenceIdentity.FromAssemblyDefinition(

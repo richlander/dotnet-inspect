@@ -76,6 +76,44 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return methods;
     }
 
+    /// <summary>
+    /// Methods declared directly on one TypeDef with an exact name, in
+    /// metadata order and regardless of accessibility.
+    /// </summary>
+    public IReadOnlyList<MethodBodyMember> EnumerateMethodsNamed(
+        int typeDefinitionToken,
+        string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        _ensureAlive();
+        EntityHandle handle = MetadataTokens.EntityHandle(typeDefinitionToken);
+        if (handle.Kind != HandleKind.TypeDefinition
+            || MetadataTokens.GetRowNumber(handle) is var row
+                && (row < 1 || row > _reader.TypeDefinitions.Count))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(typeDefinitionToken),
+                $"Token 0x{typeDefinitionToken:X8} is not a TypeDef in "
+                    + "this image.");
+        }
+
+        var type = _reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+        string typeName = _reader.GetFullTypeName(type);
+        List<MethodBodyMember> methods = [];
+        foreach (var methodHandle in type.GetMethods())
+        {
+            var method = _reader.GetMethodDefinition(methodHandle);
+            if (!_reader.StringComparer.Equals(method.Name, name))
+                continue;
+            methods.Add(new MethodBodyMember(
+                MetadataTokens.GetToken(methodHandle),
+                typeName,
+                name,
+                method.RelativeVirtualAddress != 0));
+        }
+        return methods;
+    }
+
     public bool TryRead(
         int methodToken,
         out MethodBodyData? body,

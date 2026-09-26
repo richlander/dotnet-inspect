@@ -36,6 +36,7 @@
                      Version="[11.0.0-preview.7.26381.103];[8.0.6];[9.0.0];[10.0.0]" />
     <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
     <PackageDownload Include="Polly.Core" Version="[8.8.0]" />
+    <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -132,6 +133,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.xml"
           Link="RealAssets/DocumentationQuery/System.Text.Json.xml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll"
+          Link="RealAssets/ImplementationProfileFamily/Newtonsoft.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
           Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"

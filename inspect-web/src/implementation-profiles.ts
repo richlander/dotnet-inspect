@@ -350,7 +350,7 @@ ImplementationProfileResultCache {
 function validateInspection(
   inspection: BrowserImplementationProfiles,
 ): void {
-  if (inspection.schemaVersion !== 2)
+  if (inspection.schemaVersion !== 3)
     throw new Error("Unsupported implementation-profile schema version.");
   if (inspection.compileLibrary === null
     || typeof inspection.compileLibrary !== "object") {

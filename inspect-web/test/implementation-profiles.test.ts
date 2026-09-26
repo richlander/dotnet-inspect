@@ -150,7 +150,7 @@ function profile(
 function content(
   overrides: Partial<BrowserImplementationProfileContent> = {},
 ): BrowserImplementationProfileContent {
-  return {
+  const roster = {
     members: [{
       typeDefinitionId: "type:Example.Widget",
       member: "M",
@@ -216,6 +216,20 @@ function content(
     generatedFrameworkTypes: ["Example.Widget+<M>d__1"],
     analysisDiagnostics: [],
     apiSurfaceInspectionFailures: [],
+  };
+  return {
+    ...roster,
+    analyzedFamily: {
+      methods: roster.members.map(member => ({
+        metadataToken: member.bodyTokens[0] ?? 0,
+        hasBody: true,
+        publicMember: member,
+      })),
+      profiles: roster.profiles,
+      coverage: roster.coverage,
+      overloadRelationships: roster.overloadRelationships,
+      analysisDiagnostics: roster.analysisDiagnostics,
+    },
     ...overrides,
   };
 }
@@ -224,7 +238,7 @@ function available(
   overrides: Partial<BrowserImplementationProfiles> = {},
 ): BrowserImplementationProfiles {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     outcome: "available",
     subject: {
       identity: {
@@ -273,7 +287,7 @@ function ownerFailure(
 ): BrowserImplementationProfiles {
   const unavailable = outcome === "unavailable";
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     outcome,
     subject: unavailable ? null : available().subject,
     content: null,

@@ -353,6 +353,20 @@ export interface BrowserImplementationProfileAnalysisDiagnostic {
   readonly sourceDeclaringType: string | null;
 }
 
+export interface BrowserImplementationProfileAnalyzedFamily {
+  readonly methods: ReadonlyArray<BrowserImplementationProfileAnalyzedMethod>;
+  readonly profiles: ReadonlyArray<BrowserImplementationProfile>;
+  readonly coverage: BrowserImplementationProfileCoverage;
+  readonly overloadRelationships: ReadonlyArray<BrowserImplementationProfileRelationship>;
+  readonly analysisDiagnostics: ReadonlyArray<BrowserImplementationProfileAnalysisDiagnostic>;
+}
+
+export interface BrowserImplementationProfileAnalyzedMethod {
+  readonly metadataToken: number;
+  readonly hasBody: boolean;
+  readonly publicMember: BrowserImplementationProfilePublicMember | null;
+}
+
 export interface BrowserImplementationProfileApiSurfaceFailure {
   readonly operation: string;
   readonly subjectToken: number;
@@ -372,6 +386,7 @@ export interface BrowserImplementationProfileContent {
   readonly generatedFrameworkTypes: ReadonlyArray<string>;
   readonly analysisDiagnostics: ReadonlyArray<BrowserImplementationProfileAnalysisDiagnostic>;
   readonly apiSurfaceInspectionFailures: ReadonlyArray<BrowserImplementationProfileApiSurfaceFailure>;
+  readonly analyzedFamily: BrowserImplementationProfileAnalyzedFamily;
 }
 
 export interface BrowserImplementationProfileCoverage {

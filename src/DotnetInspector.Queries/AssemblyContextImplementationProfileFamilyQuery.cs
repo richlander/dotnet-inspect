@@ -52,11 +52,37 @@ public sealed record AssemblyImplementationProfileFamilyInspection(
     ImmutableArray<OverloadCallRelationship> OverloadRelationships,
     ImmutableHashSet<TypeRef> GeneratedFrameworkTypes,
     ImmutableArray<AnalysisDiagnostic> Diagnostics,
-    ImmutableArray<ApiSurfaceInspectionFailure> ApiSurfaceInspectionFailures);
+    ImmutableArray<ApiSurfaceInspectionFailure> ApiSurfaceInspectionFailures,
+    ImplementationProfileAnalyzedFamily AnalyzedFamily);
+
+/// <summary>
+/// One same-name method declared on the family's Type, regardless of
+/// accessibility. <see cref="PublicMember"/> is set only for a public roster
+/// member.
+/// </summary>
+public sealed record ImplementationProfileAnalyzedMethod(
+    int MetadataToken,
+    bool HasBody,
+    ImplementationProfilePublicMember? PublicMember);
+
+/// <summary>
+/// Implementation evidence for every same-name method declared on the
+/// family's Type, regardless of accessibility, measured in its own analysis
+/// scope. The enclosing family inspection's roster profiles, relationships,
+/// coverage, and diagnostics remain the roster-scoped analysis and are never
+/// derived from this record.
+/// </summary>
+public sealed record ImplementationProfileAnalyzedFamily(
+    ImmutableArray<ImplementationProfileAnalyzedMethod> Methods,
+    ImmutableArray<AssemblyImplementationProfileMember> Profiles,
+    ImplementationProfilePopulationCoverageReceipt Coverage,
+    ImmutableArray<OverloadCallRelationship> OverloadRelationships,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 /// <summary>
 /// Collects implementation profiles for one exact public method-overload
-/// family selected by product-issued API identities.
+/// family selected by product-issued API identities, plus a separate
+/// analyzed-family record over every same-name method on the Type.
 /// </summary>
 public static class AssemblyContextImplementationProfileFamilyQuery
 {
@@ -132,13 +158,93 @@ public static class AssemblyContextImplementationProfileFamilyQuery
         var resolver = AssemblyContextAnalysisSource.Resolver(
             group,
             subject);
+        ImmutableHashSet<int> declaredTokens =
+            family.DeclaredBodyTokens;
+        MeasuredScope roster = Measure(
+            subject,
+            snapshot,
+            resolver,
+            declaredTokens);
+
+        ImmutableArray<AssemblyImplementationProfileMember>
+            attributedProfiles =
+        [
+            .. AssemblyContextImplementationProfilesQuery
+                .AttributeProfiles(
+                    roster.Profiles.Profiles,
+                    family.ByDeclaredBodyToken)
+                .Where(profile => !profile.PublicMembers.IsEmpty),
+        ];
+        ImmutableArray<OverloadCallRelationship> relationships =
+            WithinScope(
+                roster.Profiles.OverloadRelationships,
+                declaredTokens);
+        ImmutableArray<ImplementationProfilePublicMember> members =
+            CompleteMembers(
+                family.Members,
+                attributedProfiles);
+        ImplementationProfilePopulationCoverageReceipt coverage =
+            ScopeCoverage(
+                roster.Coverage,
+                attributedProfiles,
+                declaredTokens);
+
+        // The analyzed family runs in its own scope so non-public callers
+        // never enter the roster profiles' sibling counts.
+        ImmutableHashSet<int> analyzedTokens = family.AnalyzedBodyTokens;
+        MeasuredScope analyzed = analyzedTokens.SetEquals(declaredTokens)
+            ? roster
+            : Measure(subject, snapshot, resolver, analyzedTokens);
+        ImmutableArray<AssemblyImplementationProfileMember>
+            analyzedProfiles =
+        [
+            .. AssemblyContextImplementationProfilesQuery
+                .AttributeProfiles(
+                    analyzed.Profiles.Profiles,
+                    family.ByDeclaredBodyToken)
+                .Where(profile => analyzedTokens.Contains(
+                    profile.Profile.Method.MetadataToken)),
+        ];
+        ImplementationProfilePopulationCoverageReceipt analyzedCoverage =
+            ScopeCoverage(
+                analyzed.Coverage,
+                analyzedProfiles,
+                analyzedTokens);
+        var analyzedFamily = new ImplementationProfileAnalyzedFamily(
+            family.AnalyzedMethods,
+            analyzedProfiles,
+            analyzedCoverage,
+            WithinScope(
+                analyzed.Profiles.OverloadRelationships,
+                analyzedTokens),
+            analyzedCoverage.Diagnostics);
+
+        var result =
+            new AssemblyImplementationProfileFamilyInspection(
+                members,
+                attributedProfiles,
+                coverage,
+                relationships,
+                roster.Profiles.GeneratedFrameworkTypes,
+                coverage.Diagnostics,
+                family.InspectionFailures,
+                analyzedFamily);
+        resolver.ValidateForPublication();
+        return result;
+    }
+
+    static MeasuredScope Measure(
+        AssemblyContextSubject subject,
+        AssemblyImageSnapshot snapshot,
+        AssemblyContextAnalysisSource.BindingPolicyResolver resolver,
+        ImmutableHashSet<int> bodyTokens)
+    {
         LibraryBodyAnalysisExecution analysis =
             LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
                 LibraryBodyAnalysisRequest
-                    .CreateCompleteImplementationProfile(
-                    family.DeclaredBodyTokens),
+                    .CreateCompleteImplementationProfile(bodyTokens),
                 resolver);
 
         ImplementationProfilesResult.Available profiles =
@@ -159,48 +265,18 @@ public static class AssemblyContextImplementationProfileFamilyQuery
                 _ => throw new InvalidOperationException(
                     "Unknown implementation-profile query result."),
             };
-
-        ImmutableArray<AssemblyImplementationProfileMember>
-            attributedProfiles =
-        [
-            .. AssemblyContextImplementationProfilesQuery
-                .AttributeProfiles(
-                    profiles.Profiles,
-                    family.ByDeclaredBodyToken)
-                .Where(profile => !profile.PublicMembers.IsEmpty),
-        ];
-        ImmutableHashSet<int> declaredTokens =
-            family.DeclaredBodyTokens;
-        ImmutableArray<OverloadCallRelationship> relationships =
-        [
-            .. profiles.OverloadRelationships.Where(
-                relationship =>
-                    declaredTokens.Contains(
-                        relationship.Caller.MetadataToken)
-                    && declaredTokens.Contains(
-                        relationship.Callee.MetadataToken)),
-        ];
-        ImmutableArray<ImplementationProfilePublicMember> members =
-            CompleteMembers(
-                family.Members,
-                attributedProfiles);
-        ImplementationProfilePopulationCoverageReceipt coverage =
-            ScopeCoverage(
-                analysis.ImplementationProfiles.Coverage,
-                attributedProfiles,
-                declaredTokens);
-        var result =
-            new AssemblyImplementationProfileFamilyInspection(
-                members,
-                attributedProfiles,
-                coverage,
-                relationships,
-                profiles.GeneratedFrameworkTypes,
-                coverage.Diagnostics,
-                family.InspectionFailures);
-        resolver.ValidateForPublication();
-        return result;
+        return new(profiles, analysis.ImplementationProfiles.Coverage);
     }
+
+    static ImmutableArray<OverloadCallRelationship> WithinScope(
+        ImmutableArray<OverloadCallRelationship> relationships,
+        ImmutableHashSet<int> tokens) =>
+    [
+        .. relationships.Where(
+            relationship =>
+                tokens.Contains(relationship.Caller.MetadataToken)
+                && tokens.Contains(relationship.Callee.MetadataToken)),
+    ];
 
     static SelectedFamily SelectFamily(
         AssemblyInspectionSession session,
@@ -335,6 +411,9 @@ public static class AssemblyContextImplementationProfileFamilyQuery
                 familyTokens.Add(declarationToken);
         }
 
+        ImmutableArray<ImplementationProfileAnalyzedMethod> analyzedMethods =
+            AnalyzedMethods(session, type, names[0], family);
+
         return new SelectedFamily(
             [.. family.Select(candidate => candidate.PublicMember)],
             byDeclaredBodyToken.ToDictionary(
@@ -344,11 +423,51 @@ public static class AssemblyContextImplementationProfileFamilyQuery
                 .. family.SelectMany(candidate =>
                     candidate.DeclaredBodyTokens),
             ],
+            analyzedMethods,
+            [
+                .. family.SelectMany(candidate =>
+                    candidate.DeclaredBodyTokens),
+                .. analyzedMethods
+                    .Where(method => method.HasBody)
+                    .Select(method => method.MetadataToken),
+            ],
             [
                 .. surface.InspectionFailures.Where(
                     failure => familyTokens.Contains(
                         failure.SubjectToken)),
             ]);
+    }
+
+    static ImmutableArray<ImplementationProfileAnalyzedMethod>
+        AnalyzedMethods(
+            AssemblyInspectionSession session,
+            ApiType type,
+            string name,
+            ImmutableArray<FamilyCandidate> family)
+    {
+        if (type.MetadataToken is not { } typeToken)
+        {
+            throw new InspectionQueryException(
+                $"Public API Type '{AssemblyContextApiSurfaceQuery
+                    .MetadataTypeIdentity(type)}' has no metadata token for "
+                    + "implementation-profile family analysis.");
+        }
+
+        Dictionary<int, ImplementationProfilePublicMember> roster = [];
+        foreach (FamilyCandidate candidate in family)
+        {
+            if (candidate.MemberToken is { } memberToken)
+                roster[memberToken] = candidate.PublicMember;
+        }
+        return
+        [
+            .. session.MethodBodies
+                .EnumerateMethodsNamed(typeToken, name)
+                .Select(method => new ImplementationProfileAnalyzedMethod(
+                    method.MetadataToken,
+                    method.HasBody,
+                    roster.GetValueOrDefault(method.MetadataToken))),
+        ];
     }
 
     static FamilyCandidate Candidate(
@@ -482,6 +601,8 @@ public static class AssemblyContextImplementationProfileFamilyQuery
             ImmutableArray<ImplementationProfilePublicMember>>
                 ByDeclaredBodyToken,
         ImmutableHashSet<int> DeclaredBodyTokens,
+        ImmutableArray<ImplementationProfileAnalyzedMethod> AnalyzedMethods,
+        ImmutableHashSet<int> AnalyzedBodyTokens,
         ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
 
     sealed record FamilyCandidate(
@@ -491,6 +612,10 @@ public static class AssemblyContextImplementationProfileFamilyQuery
         bool IsMethod,
         int? MemberToken,
         int? DeclarationToken);
+
+    sealed record MeasuredScope(
+        ImplementationProfilesResult.Available Profiles,
+        ImplementationProfilePopulationCoverageReceipt Coverage);
 
     readonly record struct PublicMemberKey(
         string TypeDefinitionId,
