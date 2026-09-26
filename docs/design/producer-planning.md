@@ -394,7 +394,7 @@ on link order and spelling. Research's string-keyed producers show the axis
 that [Assembly Inspection Query](assembly-inspection-query.md#prior-art-the-research-producer-registry)
 already flagged.
 
-### Discovery lists catalog analyses, not producers
+### Producers are not discovery registrations
 
 **Rule.** Producer declarations are not capability registrations. Discovery
 surfaces such as `explain`, capability search, and `-D` draw on the
