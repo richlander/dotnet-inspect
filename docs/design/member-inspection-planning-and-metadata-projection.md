@@ -1027,8 +1027,13 @@ reimplement the admission stages. The validation matrix gate must cover:
 
 ### Shared declaration facts
 
-The exact implementation types are deferred, but the facts have one Metadata
-owner:
+Most exact implementation types remain deferred, but the facts have one
+Metadata owner. `MetadataMethodDeclarationEvidence.OperatorCandidate` posts
+the `SpecialName`-anchored operator candidacy fact without applying C# shape
+policy. `MetadataAccessorDeclarationEvidence` posts one complete property or
+event aggregate from the lossless association census, retaining every physical
+occurrence and its exact `MetadataMethodDeclarationEvidence`; typed rejection
+keeps census, ownership, dependency-posting, and budget failure visible.
 
 | Fact | Required distinctions |
 | --- | --- |
