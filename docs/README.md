@@ -93,6 +93,7 @@ root README remains current without cataloging every focused capability.
 | Which remote package archives are cached and which are read by range; durable identity for credential-free HTTP feeds | [Package cache policy](design/package-cache-policy.md) |
 | How much of a package a command reads by range: surface or implementation, a folder at a time | [Package read demand](design/package-read-demand.md) |
 | What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
+| Opening one package version as an inspection scope through the House, shared by every host | [Package endpoint scope](design/package-endpoint-scope.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
 | Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |

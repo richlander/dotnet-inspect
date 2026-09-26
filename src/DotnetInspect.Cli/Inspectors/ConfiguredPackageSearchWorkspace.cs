@@ -632,30 +632,45 @@ internal sealed class PackageSearchQuerySources
 
 /// <summary>
 /// One authority-scoped desktop store per configured authority for one
-/// search or one package document export, and the temporary root that holds
-/// authorities without a durable cache identity. The root is deleted when
-/// the search or export closes.
+/// search, one package document export, or one pairwise package diff, and
+/// the temporary root that holds authorities without a durable cache
+/// identity. The root is deleted when the search, export, or diff closes.
 /// </summary>
-internal sealed class SearchPackageStores : IDisposable
+internal sealed class SearchPackageStores(string temporaryPrefix = "inspect-search")
+    : IDisposable
 {
     readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
     string? _temporaryRoot;
 
+    readonly Lock _sync = new();
+
+    /// <summary>Safe to call from concurrent acquisitions, as a pairwise diff's endpoints are.</summary>
     internal IPackageStore GetStore(
         ConfiguredPackageAuthority authority,
         PackageProducerIdentity producer)
     {
-        if (!_stores.TryGetValue(authority, out IPackageStore? store))
+        lock (_sync)
         {
-            store = new AuthorityScopedFileSystemPackageStore(
-                authority,
-                producer,
-                () => _temporaryRoot ??=
-                    Directory.CreateTempSubdirectory("inspect-search").FullName);
-            _stores.Add(authority, store);
+            if (!_stores.TryGetValue(authority, out IPackageStore? store))
+            {
+                store = new AuthorityScopedFileSystemPackageStore(
+                    authority,
+                    producer,
+                    TemporaryRoot);
+                _stores.Add(authority, store);
+            }
+            return store;
         }
-        return store;
+    }
+
+    string TemporaryRoot()
+    {
+        lock (_sync)
+        {
+            return _temporaryRoot ??=
+                Directory.CreateTempSubdirectory(temporaryPrefix).FullName;
+        }
     }
 
     public void Dispose()
