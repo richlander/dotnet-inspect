@@ -518,6 +518,7 @@ import {
   type SpotlightPackageSearchResultState,
 } from "./spotlight-package-search.ts";
 import { createPackageRemoval } from "./package-removal.ts";
+import { captureRenderedInteractions } from "./rendered-interaction.ts";
 import {
   createCatalogRequests,
   type CatalogPackage,
@@ -6844,10 +6845,12 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  const renderedInteractions = captureRenderedInteractions(app);
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
   } finally {
+    renderedInteractions.restore(app);
     productNavigationBinding.afterRender();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
