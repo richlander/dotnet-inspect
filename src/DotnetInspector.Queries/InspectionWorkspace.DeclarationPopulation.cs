@@ -128,6 +128,22 @@ public sealed partial class InspectionWorkspace
     }
 
     /// <summary>
+    /// Captures the current admitted declaration contexts in publication order.
+    /// The returned contexts remain valid only while this Workspace remains open.
+    /// </summary>
+    public ImmutableArray<WorkspaceDeclarationContext>
+        GetDeclarationContextsSnapshot()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _state != InspectionWorkspaceState.Open,
+                this);
+            return [.. _declarationContexts];
+        }
+    }
+
+    /// <summary>
     /// Gets this Workspace's lazy locator over its admitted declaration contexts.
     /// The first call fixes its limits; getting it does not activate inspection.
     /// </summary>
