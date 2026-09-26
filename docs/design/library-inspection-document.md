@@ -294,7 +294,14 @@ requested in closed groups because their costs differ:
   [Library enablements](library-enablements.md), with that owner's states and
   reasons.
 
-Identity is always present and is not a requestable group.
+Identity is always present and is not a requestable group. Image and
+Description describe the `ApiAssembly` content. Enablements ask how the
+implementation was built, so they are decided over the
+`ImplementationAssembly` content whenever the `LibraryReference` carries one,
+and over the `ApiAssembly` content otherwise. A Platform Library pairs its
+reference-pack and runtime-pack assemblies in those roles, so its Enablements
+come from the runtime pack. A Library realized only from a reference assembly
+receives that owner's `ReferenceAssembly` Unavailable outcome.
 
 A requested group appears in the document; an unrequested group is absent. A
 fact the image does not carry, such as a missing `Company` attribute, is
@@ -722,6 +729,10 @@ The design and implementation slices require Release gates for:
   facts-only request executes no population work;
 - the same Library bytes realized from a package and as a direct file produce
   equal fact groups;
+- a Platform `System.Net.Sockets` Library carrying reference-pack and
+  runtime-pack contents reports Image facts from the reference assembly and
+  AOT plus Runtime Async Enabled from the implementation, while the same
+  reference assembly realized alone reports every enablement Unavailable;
 - an undecodable descriptive attribute is unavailable within its group while
   other requested groups succeed;
 - Type rows carry requested Member Count without retaining Member rows;

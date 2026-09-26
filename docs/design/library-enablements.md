@@ -111,8 +111,11 @@ The real `Microsoft.NETCore.App.Ref` and `Microsoft.NETCore.App.Runtime`
   surface is annotated for v2 callers. No runtime-pack implementation carries
   it.
 
-Answering for the implementation behind a reference assembly requires pairing
-it with that implementation, which is a separate adoption.
+This owner judges the image it is given. When a Library carries both a
+reference and an implementation assembly, the
+[Library document](library-inspection-document.md#library-facts) asks about
+the implementation, so the reference rule applies only when no implementation
+is available.
 
 ### AOT
 
@@ -125,6 +128,9 @@ decide the state:
   `ConflictingValues` when decoded values disagree, or `UndecodableMetadata`
   when any assembly `AssemblyMetadataAttribute` blob cannot be decoded,
   because the undecoded row might carry the key.
+
+When several conditions hold, the reported reason is the first of
+`UndecodableMetadata`, `UnrecognizedValue`, and `ConflictingValues`.
 
 Values compare case-insensitively after trimming surrounding whitespace, the
 grammar MSBuild's `True` and `False` spellings satisfy. `AssemblyMetadata` on
@@ -179,6 +185,10 @@ derivation. The current Signals AOT reading, which also scans module, Type, and
 member attributes and lets the last value win, retires in the CLI adoption
 slice.
 
+Badges and chips show only Enabled. Not enabled and Unavailable are silent in
+those presentations, so a badge is never a guess. Structured output and the
+Signals rows retain every state and reason.
+
 ## Evidence
 
 Release gates in `ILInspector.Metadata` tests, using the real assets above:
@@ -213,8 +223,8 @@ Pathological fixtures:
 This owner does not define:
 
 - package, Platform, or multi-Library aggregation of enablements;
-- choosing an implementation assembly to answer for a reference assembly;
-- chip, badge, color, or icon presentation;
+- which image of a Library is judged, which the Library document owns;
+- chip or badge visual design, color, or icons;
 - whether an enablement is requested by default in any host;
 - Native AOT execution, trimming, or warning-free build verification;
 - the amount or location of unsafe code, P/Invoke, or runtime marshalling; or
