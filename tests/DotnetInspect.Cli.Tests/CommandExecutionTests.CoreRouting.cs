@@ -625,6 +625,22 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("No members matched", error);
     }
 
+    [Theory]
+    [InlineData("System.Numerics.String")]
+    [InlineData("System.Numerics.String.IsNullOrEmpty")]
+    public async Task
+        Router_QualifiedCompatibilityRoutePreservesAmbiguity(string query)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            query, "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Platform type lookup is ambiguous across 2 candidates.",
+            error);
+    }
+
     [Fact]
     public async Task Router_BareGenericType_UsesTargetBoundPlatformLocator()
     {

@@ -482,7 +482,7 @@ internal static class PlatformTypeLocatorRouting
         int answerIndex =
             completed.NamespaceAnswerIndex + 1 + patternIndex;
         ImmutableArray<TypeDeclarationLocatorSectionCandidate> preferred =
-            PreferCandidates(
+            SelectCompatibilityCandidates(
                 evaluated.Answers[answerIndex].Candidates,
                 pattern,
                 cancellationToken);
@@ -695,6 +695,91 @@ internal static class PlatformTypeLocatorRouting
         return definitions.IsDefaultOrEmpty
             ? preferred
             : definitions;
+    }
+
+    private static ImmutableArray<TypeDeclarationLocatorSectionCandidate>
+        SelectCompatibilityCandidates(
+            ImmutableArray<TypeDeclarationLocatorSectionCandidate>
+                candidates,
+            string pattern,
+            CancellationToken cancellationToken)
+    {
+        string normalizedPattern =
+            FqnParser.NormalizeTypeName(pattern.Trim()).Replace('+', '.');
+        bool explicitGeneric =
+            TypeMatcher.HasExplicitGenericNotation(pattern);
+        ImmutableArray<TypeDeclarationLocatorSectionCandidate> selected =
+        [
+            .. candidates.Where(
+                candidate =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return TypeMatcher.MatchesNormalized(
+                        Normalize(candidate.Name),
+                        normalizedPattern);
+                }),
+        ];
+        ImmutableArray<TypeDeclarationLocatorSectionCandidate> definitions =
+        [
+            .. selected.Where(
+                candidate =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return candidate.DeclarationKind
+                        == AssemblyTypeDeclarationKind.Definition;
+                }),
+        ];
+        if (!definitions.IsDefaultOrEmpty)
+            selected = definitions;
+
+        ImmutableArray<TypeDeclarationLocatorSectionCandidate> exact =
+        [
+            .. selected.Where(
+                candidate =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string normalizedCandidate = Normalize(candidate.Name);
+                    return normalizedCandidate.Equals(
+                            normalizedPattern,
+                            StringComparison.OrdinalIgnoreCase)
+                        || normalizedCandidate.EndsWith(
+                            $".{normalizedPattern}",
+                            StringComparison.OrdinalIgnoreCase);
+                }),
+        ];
+        if (!exact.IsDefaultOrEmpty)
+            selected = exact;
+        else if (explicitGeneric)
+            return [];
+
+        if (selected.Length <= 1
+            || selected
+                .Select(candidate => Normalize(candidate.Name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() != 1)
+        {
+            return selected;
+        }
+
+        string resolvedTypeName = Normalize(selected[0].Name);
+        TypeDeclarationLocatorSectionCandidate[] assemblyPrefixMatches =
+        [
+            .. selected
+                .Where(candidate =>
+                    resolvedTypeName.StartsWith(
+                        candidate.Observation.AssemblyIdentity.Name + ".",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(candidate =>
+                    candidate.Observation.AssemblyIdentity.Name.Length),
+        ];
+        return assemblyPrefixMatches.Length > 0
+            && (assemblyPrefixMatches.Length == 1
+                || assemblyPrefixMatches[0]
+                        .Observation.AssemblyIdentity.Name.Length
+                    > assemblyPrefixMatches[1]
+                        .Observation.AssemblyIdentity.Name.Length)
+            ? [assemblyPrefixMatches[0]]
+            : selected;
     }
 
     private static bool TryGetRejection(
