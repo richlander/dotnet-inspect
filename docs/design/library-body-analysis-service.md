@@ -730,6 +730,87 @@ Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution
 substrate lands ahead of adoption.
 
+## Producer Planning adoption
+
+This owner is the first adopter of [Producer Planning](producer-planning.md),
+tracked by [#8568](https://github.com/richlander/dotnet-inspect/issues/8568).
+The first slice adopts one producer, unsafe-evidence presence. Every other
+producer keeps the fused execution described above until its own slice moves
+it.
+
+### Example
+
+Library discovery asks whether System.Text.Json contains any unsafe evidence.
+The work description names one producer, unsafe-evidence presence, with one
+request: every method definition at declaration depth, plus body depth for
+each definition that has a managed IL body, with an Exists terminal. The
+reference execution visits definitions in metadata order. When the producer
+publishes its first evidence, the Exists terminal is settled, and the
+remaining work stops with the stopped outcome. If a definition's analysis is
+incomplete before any evidence is found, the producer's outcome is failed with
+that definition's diagnostic, and the answer is not reported as absent.
+
+### Adoption decisions
+
+1. **Where the contract lives.** Declarations, planning, work descriptions,
+   outcomes, and receipts live in `ILInspector.Analysis` under
+   `ILInspector.Analysis.Planning`. They name no Analysis-specific type, so
+   they can move below both adopters when Research adopts.
+2. **Unit and layers.** The unit is one method definition, in the same order
+   as today's probe: type definitions in metadata order, then each type's
+   methods. This slice defines two layers: the declaration layer (the
+   definition's metadata, signature, and declaring type) and the body layer
+   (the managed IL body and its local signature, when one exists). The body
+   layer is the borrowed raw body, not decoded instructions, so a producer
+   that stops at its first finding does not pay to decode the rest of the
+   body. Decoded instructions and control-flow graphs become layers when a
+   producer slice first requests them.
+3. **Borrowed views.** A producer receives each layer as a snapshot-callback
+   borrow through a scoped `readonly ref struct` view, so retaining the view
+   is a compile error. A producer that did not request the body layer cannot
+   obtain it.
+4. **Interim executor.** Until level 2 exists
+   ([#8577](https://github.com/richlander/dotnet-inspect/issues/8577)), this
+   owner provides the serial reference executor for the method-definition
+   source. It implements the reference passes exactly, stops at a settled
+   Exists terminal, and records participation. It is not an optimization
+   and makes no parallel or collapse claim.
+5. **Producer algorithm.** Unsafe-evidence presence keeps the existing probe
+   algorithm unchanged: the declaration check, the unsafe local-signature
+   check, and the instruction scan with its call probe. It keeps the
+   existing presence work budget and its bounds.
+6. **Failure.** In metadata order, the first definition whose analysis is
+   incomplete before any evidence is found fails the producer with that
+   diagnostic. Evidence found first settles the terminal, and later
+   definitions are not visited. This matches the retired probe.
+7. **Retirement.** `LibraryBodyIndex.HasUnsafeEvidence` and the builder's
+   presence loop are removed, and `UnsafeEvidencePresenceQuery` reads the
+   producer's result. `DotnetInspector.Queries` then has no dependency on
+   `LibraryBodyIndex`.
+8. **Coexistence.** The fused execution for all other producers is unchanged
+   and shares no mutable state with the planned execution.
+
+### Gates
+
+These gates land with the implementing slice and run in Release:
+
+- **Description without bytes:** planning the presence request opens no
+  image.
+- **Whole-request rejection:** cycles, missing dependencies, upward-tier
+  dependencies, and conflicting parameters are rejected with typed reasons,
+  exercised with test declarations.
+- **Equivalence:** the existing `UnsafeEvidencePresenceTests` cases produce
+  the same answers and failures through the planned execution.
+- **Early stop:** the receipt shows no definition visited after the first
+  evidence.
+- **Failure:** an incomplete definition before any evidence yields the failed
+  outcome, not an absent answer.
+- **Undeclared layer:** a producer that requested only the declaration layer
+  cannot obtain the body layer.
+
+This slice makes no claim about fusing several producers, parallel execution,
+or request collapse. Those belong to later producer slices and to level 2.
+
 ## Consumer-led adoption
 
 The library section system is the first deliberate result-type consumer. It
