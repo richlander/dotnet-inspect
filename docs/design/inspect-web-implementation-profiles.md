@@ -62,7 +62,8 @@ This owner composes existing contracts by their issued currencies:
 
 This design transfers one claim to the family query: an available family
 result also carries a separate **analyzed-family record** covering every
-same-name method declared on the Type, regardless of accessibility. The record
+same-name method declared on each roster member's declaring TypeDef, regardless
+of accessibility. The record
 has its own profiles, relationships, coverage, and diagnostics, computed over
 the whole analyzed family.
 
@@ -82,7 +83,12 @@ definition IDs, stable Member selectors, and exact Library coordinates.
 ## Supported scope
 
 The production experience is the member list's expanded overload rows for a
-public API group with multiple method overloads. It supports package
+public API group with multiple method overloads whose member kind is `method`.
+Extension-method families that the API surface attaches to an extended Type
+are not eligible: their declaring static class can also declare same-name
+extensions for other receivers, and whether those belong in the analyzed
+family is undecided. That decision precedes their eligibility. It supports
+package
 implementation assets and platform implementation assemblies. Uploaded
 standalone Libraries are outside this slice because they do not yet
 participate in the same retained Browser workspace and Analysis facade path.
@@ -90,8 +96,9 @@ participate in the same retained Browser workspace and Analysis facade path.
 Two sets are distinct:
 
 - the **public roster** is the listed overloads; only these are rows; and
-- the **analyzed family** is every same-name method declared on the Type,
-  regardless of accessibility.
+- the **analyzed family** is every same-name method declared on the TypeDef
+  that declares each roster member, regardless of accessibility. For an
+  ordinary method family that is the Type itself.
 
 Heat and hub derivation read only the analyzed-family record. Non-public
 methods are never rows and never show heat or a hub strip, but they set the
@@ -113,7 +120,8 @@ The member list is built in two passes:
 2. When an eligible overload family is expanded in the member navigation
    list, and not before the list's first paint, the Browser requests that one
    family's profiles and annotates its nested overload rows when the result
-   publishes.
+   publishes. The member navigation list expands the selected member, so
+   selecting an overloaded method is the expansion.
 
 The family query declares `InspectionCost.Unbounded`, which requires an
 explicit request. Expanding a family is that request, made once per family by
@@ -226,10 +234,9 @@ async bodies are grouped under their logical overload but remain separate,
 named physical evidence rows. The family operation excludes unrelated and
 unattributed Library profiles before transport.
 
-Each logical overload has one **size**: the largest instruction count among
-its attributed physical profiles. Generated bodies contribute to their logical
-overload's evidence but do not replace the logical body's own measurement when
-that body is available.
+Each logical overload has one **size**: the instruction count of its own
+logical body. Generated bodies remain separate evidence rows; the largest of
+them stands in for size only when the logical body has no profile of its own.
 
 The **family maximum** is the largest size in the analyzed-family record,
 including non-public methods. A method declared without a body, such as an

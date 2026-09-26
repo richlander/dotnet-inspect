@@ -455,6 +455,14 @@ export function renderTypeNav(options: TypeNavOptions): string {
     </aside>`;
 }
 
+/** Implementation evidence for one nested overload row. */
+export interface MemberNavOverloadHeat {
+  /** Tint strength in (0, 1]; null leaves the row untinted. */
+  heatStrength: number | null;
+  hub: boolean;
+  description: string;
+}
+
 export interface MemberNavOptions {
   type: TypeSummary;
   entries: readonly MemberNavEntry[];
@@ -467,6 +475,8 @@ export interface MemberNavOptions {
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
   highlight: (value: string) => string;
+  overloadHeat?: (group: MemberGroup, index: number) => MemberNavOverloadHeat | null;
+  familyHeatCue?: (group: MemberGroup) => string | null;
 }
 
 export function renderMemberNav(options: MemberNavOptions): string {
@@ -474,6 +484,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
     escapeHtml, typeDisplayName, shortKind, highlight,
+    overloadHeat, familyHeatCue,
   } = options;
   const navigationSelection = selectedMemberKey
     ? (selectedOverloadIndex == null
@@ -504,10 +515,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
               group.overloads.some(overload => overload.graphOnly);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
+            const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;
             return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}${cue === null ? "" : ` <span class="family-heat-cue">${escapeHtml(cue)}</span>`}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
@@ -516,7 +528,16 @@ export function renderMemberNav(options: MemberNavOptions): string {
             throw new Error(
               `Member group '${entry.group.key}' has no overload ${entry.index}.`);
           }
-          return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
+          const heat = overloadHeat?.(entry.group, entry.index) ?? null;
+          const heated = heat?.heatStrength != null;
+          const heatStyle = heated
+            ? ` style="--heat-t: ${heat.heatStrength!.toFixed(3)}; --heat-reach: ${Math.round(18 + heat.heatStrength! * 72)}%"`
+            : "";
+          const heatClasses = `${heated ? " heated" : ""}${heat?.hub ? " hub" : ""}`;
+          const heatDescription = heat === null
+            ? ""
+            : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
+          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             <span class="overload-branch">↳</span>
             <code>${highlight(overload.signature)}</code>
           </button>`;

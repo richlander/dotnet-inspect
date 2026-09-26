@@ -4,6 +4,7 @@ import {
   createImplementationProfileCoordinator,
   createImplementationProfileResultCache,
   implementationProfileCacheKey,
+  projectFamilyHeat,
   projectImplementationProfileFamily,
   renderImplementationProfileState,
 } from "../src/implementation-profiles.ts";
@@ -217,20 +218,22 @@ function content(
     analysisDiagnostics: [],
     apiSurfaceInspectionFailures: [],
   };
+  const merged = { ...roster, ...overrides };
+  // By default the analyzed family is the roster: no non-public same-name
+  // methods, measured in the same scope.
   return {
-    ...roster,
-    analyzedFamily: {
-      methods: roster.members.map(member => ({
+    ...merged,
+    analyzedFamily: overrides.analyzedFamily ?? {
+      methods: merged.members.map(member => ({
         metadataToken: member.bodyTokens[0] ?? 0,
         hasBody: true,
         publicMember: member,
       })),
-      profiles: roster.profiles,
-      coverage: roster.coverage,
-      overloadRelationships: roster.overloadRelationships,
-      analysisDiagnostics: roster.analysisDiagnostics,
+      profiles: merged.profiles,
+      coverage: merged.coverage,
+      overloadRelationships: merged.overloadRelationships,
+      analysisDiagnostics: merged.analysisDiagnostics,
     },
-    ...overrides,
   };
 }
 
@@ -497,9 +500,8 @@ test("family projection uses Type definition ID plus stable selector and keeps p
   );
   assert.deepEqual(
     projected.family.rows.flatMap(row =>
-      row.physicalRows.map(physical =>
-        physical.relativeInstructionPercent)),
-    [100, 50, 25],
+      row.physicalRows.map(physical => physical.instructionText)),
+    ["20 instructions", "10 instructions", "5 instructions"],
   );
   assert.equal(projected.family.relationships[0], relationship);
   assert.equal(
@@ -677,68 +679,136 @@ test("family ordering uses largest physical body, roster ties, and measured-firs
   );
 });
 
-test("relative bars are suppressed for one row and uniformly tiny families", () => {
-  const oneProfile = available({
-    content: content({
-      profiles: [profile()],
-      overloadRelationships: [],
-    }),
-  });
-  const one = projectImplementationProfileFamily(
-    oneProfile,
-    selection(),
-  );
-  assert.equal(one.status, "available");
-  if (one.status === "available") {
-    assert.equal(one.family.relativeBarsVisible, false);
-    assert.equal(
-      one.family.rows[0]?.physicalRows[0]?.relativeInstructionPercent,
-      null,
-    );
-  }
+const rosterMembers = [
+  { typeDefinitionId: "type:Example.Widget", stableSelector: "M(int)" },
+  { typeDefinitionId: "type:Example.Widget", stableSelector: "M(string)" },
+];
 
-  const tiny = available({
-    content: content({
+test("heat tints overloads at or above half of the family maximum", () => {
+  const heat = projectFamilyHeat(content(), rosterMembers);
+  assert.equal(heat.status, "shown");
+  assert.equal(heat.maximum, 20);
+  assert.equal(heat.maximumIsNonPublic, false);
+  const [intOverload, stringOverload] = heat.overloads;
+  // M(int)'s size is its own 20-instruction body, not its generated body.
+  assert.equal(intOverload?.size, 20);
+  assert.equal(intOverload?.heatStrength, 1);
+  assert.equal(stringOverload?.size, 5);
+  assert.equal(stringOverload?.heatStrength, null);
+});
+
+test("a hub is called by a sibling and calls no same-name method", () => {
+  const heat = projectFamilyHeat(content(), rosterMembers);
+  const [intOverload, stringOverload] = heat.overloads;
+  assert.equal(intOverload?.hub, false);
+  assert.equal(stringOverload?.hub, true);
+  assert.equal(stringOverload?.incomingCallers, 1);
+  assert.match(stringOverload?.description ?? "", /hub called by 1 sibling method/);
+});
+
+test("a larger non-public implementation sets the maximum and removes public heat", () => {
+  const base = content();
+  const hidden = {
+    ...base.methods[0]!,
+    key: "hidden",
+    metadataToken: 0x06000009,
+    display: "Widget.M(ReadOnlySpan<char>)",
+  };
+  const withHidden = content({
+    methods: [...base.methods, hidden],
+    analyzedFamily: {
+      ...base.analyzedFamily,
+      methods: [
+        ...base.analyzedFamily.methods,
+        { metadataToken: 0x06000009, hasBody: true, publicMember: null },
+      ],
       profiles: [
-        profile({ instructionCount: 8, branchCount: 0 }),
+        ...base.analyzedFamily.profiles,
         profile({
-          methodKey: "logical-string",
-          evidenceMethodKey: "logical-string",
-          instructionCount: 4,
-          branchCount: 0,
-          outgoingOverloadTargetCount: 0,
-          publicMembers: [{
-            typeDefinitionId: "type:Example.Widget",
-            member: "M",
-            stableSelector: "M(string)",
-            bodyTokens: [0x06000002],
-          }],
+          methodKey: "hidden",
+          evidenceMethodKey: "hidden",
+          instructionCount: 100,
+          publicMembers: [],
         }),
       ],
-      overloadRelationships: [],
-    }),
-  });
-  const projectedTiny = projectImplementationProfileFamily(tiny, selection());
-  assert.equal(projectedTiny.status, "available");
-  if (projectedTiny.status === "available")
-    assert.equal(projectedTiny.family.relativeBarsVisible, false);
-
-  const tinyContent = tiny.content;
-  assert.ok(tinyContent);
-  const tinyWithBranch = available({
-    content: {
-      ...tinyContent,
-      profiles: tinyContent.profiles.map((item, index) =>
-        index === 1 ? { ...item, branchCount: 1 } : item),
+      overloadRelationships: [
+        ...base.analyzedFamily.overloadRelationships,
+        {
+          callerKey: "logical-string",
+          calleeKey: "hidden",
+          evidenceMethodKey: "logical-string",
+          ilOffset: 4,
+          kind: "Direct",
+        },
+      ],
     },
   });
-  const structural = projectImplementationProfileFamily(
-    tinyWithBranch,
-    selection(),
+  const heat = projectFamilyHeat(withHidden, rosterMembers);
+  assert.equal(heat.status, "shown");
+  assert.equal(heat.maximum, 100);
+  assert.equal(heat.maximumIsNonPublic, true);
+  assert.deepEqual(
+    heat.overloads.map(overload => overload.heatStrength),
+    [null, null],
   );
-  assert.equal(structural.status, "available");
-  if (structural.status === "available")
-    assert.equal(structural.family.relativeBarsVisible, true);
+  // M(string) now forwards into the non-public method, so it is not a hub.
+  assert.deepEqual(heat.overloads.map(overload => overload.hub), [false, false]);
+  assert.match(heat.overloads[0]?.description ?? "", /20% of the largest body in this family, which is non-public/);
+});
+
+test("an unavailable analyzed body makes the maximum unknown but keeps complete hubs", () => {
+  const base = content();
+  const heat = projectFamilyHeat(content({
+    analyzedFamily: {
+      ...base.analyzedFamily,
+      coverage: {
+        ...base.analyzedFamily.coverage,
+        unavailableBodies: [{
+          evidenceMethodKey: null,
+          methodToken: 0x06000009,
+          reason: "InvalidBody",
+          diagnostic: null,
+        }],
+      },
+    },
+  }), rosterMembers);
+  assert.equal(heat.status, "unknown-maximum");
+  assert.deepEqual(
+    heat.overloads.map(overload => overload.heatStrength),
+    [null, null],
+  );
+  assert.equal(heat.overloads[1]?.hub, true);
+});
+
+test("heat is suppressed for one measured body and uniformly tiny families", () => {
+  const one = projectFamilyHeat(content({
+    profiles: [profile()],
+    overloadRelationships: [],
+    members: [content().members[0]!],
+  }), [rosterMembers[0]!]);
+  assert.equal(one.status, "suppressed");
+
+  const tinyProfiles = [
+    profile({ instructionCount: 8, branchCount: 0 }),
+    profile({
+      methodKey: "logical-string",
+      evidenceMethodKey: "logical-string",
+      instructionCount: 4,
+      branchCount: 0,
+    }),
+  ];
+  const tiny = projectFamilyHeat(content({
+    profiles: tinyProfiles,
+    overloadRelationships: [],
+  }), rosterMembers);
+  assert.equal(tiny.status, "suppressed");
+
+  const structural = projectFamilyHeat(content({
+    profiles: tinyProfiles.map((item, index) =>
+      index === 1 ? { ...item, branchCount: 1 } : item),
+    overloadRelationships: [],
+  }), rosterMembers);
+  assert.equal(structural.status, "shown");
 });
 
 test("available, incomplete, empty, rejected, failed, and unavailable remain distinct", () => {
@@ -834,9 +904,12 @@ test("operation authority suppresses stale publication while exact-family result
       })),
     },
   );
-  packagePending.resolve(available());
-  await first;
-  await settle();
+  // The second family waits behind the in-flight request.
+  await second;
+  assert.equal(
+    queries.get(implementationProfileCacheKey(otherFamilyRequest)),
+    undefined,
+  );
   const loadingState = readState();
   assert.equal(loadingState.status, "loading");
   if (loadingState.status === "loading")
@@ -845,8 +918,17 @@ test("operation authority suppresses stale publication while exact-family result
       otherFamilyRequest.typeDefinitionId,
     );
 
+  packagePending.resolve(available());
+  await first;
+  await settle();
+  assert.equal(
+    queries.get(implementationProfileCacheKey(otherFamilyRequest)),
+    1,
+  );
+  assert.equal(readState().status, "loading");
+
   otherFamilyPending.resolve(ownerFailure("rejected"));
-  await second;
+  await settle();
   assert.equal(readState().status, "rejected");
 
   packageCurrent = true;
@@ -982,7 +1064,58 @@ test("the coordinator retains producer-failed state and retries only explicitly"
   assert.equal(queries, 2);
 });
 
-test("rendering exposes textual evidence, raw metrics, relationships, and accessible relative bars", () => {
+test("only the most recently expanded family waits behind an in-flight request", async () => {
+  const state: ImplementationProfileStateHost = {
+    implementationProfiles: { status: "idle" },
+  };
+  const pending = new Map<string, ReturnType<typeof deferred<BrowserImplementationProfiles>>>();
+  const queried: string[] = [];
+  const coordinator = createImplementationProfileCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: request => {
+      queried.push(request.typeDefinitionId);
+      const next = deferred<BrowserImplementationProfiles>();
+      pending.set(request.typeDefinitionId, next);
+      return next.promise;
+    },
+    describeError: String,
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  let current = "type:Example.Widget";
+  const familyRequest = (typeDefinitionId: string) => ({
+    ...packageRequest,
+    typeDefinitionId,
+  });
+  const familySelection = (typeDefinitionId: string) => ({
+    ...selection(() => current === typeDefinitionId),
+    typeDefinitionId,
+    members: selection().members.map(member => ({
+      ...member,
+      typeDefinitionId,
+    })),
+  });
+
+  void coordinator.activate(
+    familyRequest("type:Example.Widget"),
+    familySelection("type:Example.Widget"));
+  current = "type:Example.Second";
+  void coordinator.activate(
+    familyRequest("type:Example.Second"),
+    familySelection("type:Example.Second"));
+  current = "type:Example.Third";
+  void coordinator.activate(
+    familyRequest("type:Example.Third"),
+    familySelection("type:Example.Third"));
+  assert.deepEqual(queried, ["type:Example.Widget"]);
+
+  pending.get("type:Example.Widget")?.resolve(available());
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(queried, ["type:Example.Widget", "type:Example.Third"]);
+});
+
+test("rendering exposes textual evidence, raw metrics, relationships, and the heat note", () => {
   const projected = projectImplementationProfileFamily(
     available(),
     selection(),
@@ -994,17 +1127,16 @@ test("rendering exposes textual evidence, raw metrics, relationships, and access
   assert.match(html, /Generated physical body/);
   assert.match(html, /Branches: 2/);
   assert.match(html, /Async evidence/);
-  assert.match(
-    html,
-    /role="img" aria-label="20 instructions; 100% of the largest physical body in this overload family"/,
-  );
+  assert.match(html, /<p class="implementation-profile-instruction-cue">20 instructions<\/p>/);
+  assert.match(html, /20 instructions; 100% of the largest body in this family/);
+  assert.doesNotMatch(html, /role="img"/);
   assert.match(html, /Raw implementation metrics/);
   assert.match(html, /Distinct opcode count/);
   assert.match(html, /Incoming sibling-overload callers/);
   assert.match(html, /Exact sibling-overload relationships \(1\)/);
   assert.match(html, /logical-int/);
   assert.match(html, /logical-string/);
-  assert.match(html, /Raw counts remain authoritative/);
+  assert.match(html, /Member-list heat compares each overload with the largest same-name body in this family \(20 instructions\)/);
 });
 
 test("rendering distinguishes incomplete and producer failure without relying on color", () => {

@@ -73,8 +73,7 @@ interface ImplementationProfilePhysicalRow {
   readonly logicalMethod: BrowserImplementationProfileMethod;
   readonly evidenceMethod: BrowserImplementationProfileMethod;
   readonly generatedEvidence: boolean;
-  readonly relativeInstructionPercent: number | null;
-  readonly relativeInstructionText: string;
+  readonly instructionText: string;
   readonly evidenceCues: ReadonlyArray<string>;
   readonly rawMetrics: ReadonlyArray<ImplementationProfileRawMetric>;
   readonly relationships: ReadonlyArray<BrowserImplementationProfileRelationship>;
@@ -87,12 +86,42 @@ interface ImplementationProfileOverloadRow {
   readonly largestInstructionCount: number | null;
 }
 
+/**
+ * Member-list evidence for one public overload: family-relative size (heat)
+ * and whether it is a hub that sibling methods call.
+ */
+export interface OverloadHeat {
+  readonly stableSelector: string;
+  readonly size: number | null;
+  /** Tint strength in (0, 1]; null when the row is untinted. */
+  readonly heatStrength: number | null;
+  readonly hub: boolean;
+  readonly incomingCallers: number;
+  readonly description: string;
+}
+
+/**
+ * Heat is shown only when the family maximum is known and comparison is
+ * meaningful. `unknown-maximum` means an analyzed body was unavailable or
+ * incomplete; `suppressed` means comparison would add noise.
+ */
+export type FamilyHeatStatus = "shown" | "suppressed" | "unknown-maximum";
+
+export interface FamilyHeat {
+  readonly status: FamilyHeatStatus;
+  readonly maximum: number | null;
+  readonly maximumIsNonPublic: boolean;
+  readonly overloads: ReadonlyArray<OverloadHeat>;
+}
+
+/** Overloads at or above this share of the family maximum are tinted. */
+export const heatThreshold = 0.5;
+
 interface ImplementationProfileFamilyProjection {
   readonly display: string;
+  readonly heat: FamilyHeat;
   readonly rows: ReadonlyArray<ImplementationProfileOverloadRow>;
   readonly physicalRowCount: number;
-  readonly relativeBarsVisible: boolean;
-  readonly maximumInstructionCount: number;
   readonly relationships: ReadonlyArray<BrowserImplementationProfileRelationship>;
   readonly subject: BrowserImplementationProfileSubject;
   readonly share: BrowserAnalysisInspectionShare;
@@ -460,6 +489,54 @@ function validateInspectionForRequest(
     if (body.evidenceMethodKey !== null)
       requireMethod(body.evidenceMethodKey);
   }
+
+  const analyzed = content.analyzedFamily;
+  const analyzedMembers = new Set<string>();
+  const analyzedTokens = new Set<number>();
+  for (const method of analyzed.methods) {
+    if (analyzedTokens.has(method.metadataToken)) {
+      throw new Error(
+        "The analyzed implementation-profile family has a duplicate method.",
+      );
+    }
+    analyzedTokens.add(method.metadataToken);
+    if (method.publicMember === null) continue;
+    const key = familyMemberKey(
+      method.publicMember.typeDefinitionId,
+      method.publicMember.stableSelector,
+    );
+    if (!expectedMembers.has(key)) {
+      throw new Error(
+        "The analyzed implementation-profile family names a member outside the requested family.",
+      );
+    }
+    analyzedMembers.add(key);
+  }
+  if ([...expectedMembers].some(key => !analyzedMembers.has(key))) {
+    throw new Error(
+      "The analyzed implementation-profile family omits a requested member.",
+    );
+  }
+  for (const profile of analyzed.profiles) {
+    requireMethod(profile.methodKey);
+    requireMethod(profile.evidenceMethodKey);
+  }
+  for (const relationship of analyzed.overloadRelationships) {
+    requireMethod(relationship.callerKey);
+    requireMethod(relationship.calleeKey);
+    requireMethod(relationship.evidenceMethodKey);
+  }
+  for (const key of [
+    ...analyzed.coverage.declaredMethodKeys,
+    ...analyzed.coverage.managedMethodBodyKeys,
+    ...analyzed.coverage.profiledEvidenceBodyKeys,
+  ]) {
+    requireMethod(key);
+  }
+  for (const body of analyzed.coverage.unavailableBodies) {
+    if (body.evidenceMethodKey !== null)
+      requireMethod(body.evidenceMethodKey);
+  }
 }
 
 function methodMap(
@@ -580,6 +657,154 @@ function familyIsIncomplete(
     || content.analysisDiagnostics.length > 0
     || content.apiSurfaceInspectionFailures.length > 0
     || inspection.diagnostics.length > 0;
+}
+
+function isUniformlyTiny(profile: BrowserImplementationProfile): boolean {
+  return profile.instructionCount <= 8
+    && profile.branchCount === 0
+    && profile.loopCount === 0
+    && exceptionRegionCount(profile) === 0
+    && !profile.unsafe
+    && profile.reflectionCallCount === 0;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Projects heat and hub state from the analyzed-family record: every
+ * same-name method declared with the family, regardless of accessibility.
+ * Rows remain the public roster; non-public methods only set the maximum and
+ * take part in relationships.
+ */
+export function projectFamilyHeat(
+  content: BrowserImplementationProfileContent,
+  members: ReadonlyArray<Pick<
+    ImplementationProfileFamilyMember,
+    "typeDefinitionId" | "stableSelector"
+  >>,
+): FamilyHeat {
+  const methods = methodMap(content);
+  const tokenOf = (key: string): number => {
+    const method = methods.get(key);
+    if (method === undefined)
+      throw new Error(`Unknown implementation-profile method '${key}'.`);
+    return method.metadataToken;
+  };
+  const analyzed = content.analyzedFamily;
+  const analyzedTokens = new Set(
+    analyzed.methods.map(method => method.metadataToken));
+  const profilesByMethod = new Map<number, BrowserImplementationProfile[]>();
+  for (const profile of analyzed.profiles) {
+    const token = tokenOf(profile.methodKey);
+    const existing = profilesByMethod.get(token);
+    if (existing === undefined) profilesByMethod.set(token, [profile]);
+    else existing.push(profile);
+  }
+  // An overload's size is its own logical body; generated bodies stand in
+  // only when the logical body has no profile of its own.
+  const sizeOf = (token: number): number | null => {
+    const profiles = profilesByMethod.get(token);
+    if (profiles === undefined || profiles.length === 0) return null;
+    const own = profiles.find(profile =>
+      profile.methodKey === profile.evidenceMethodKey);
+    return own?.instructionCount
+      ?? Math.max(...profiles.map(profile => profile.instructionCount));
+  };
+
+  const bodied = analyzed.methods.filter(method => method.hasBody);
+  const sizes = bodied.map(method => ({
+    method,
+    size: sizeOf(method.metadataToken),
+  }));
+  const unknownMaximum = analyzed.coverage.unavailableBodies.length > 0
+    || analyzed.profiles.some(profile => !profile.isComplete)
+    || sizes.some(item => item.size === null);
+  let maximum: number | null = null;
+  let maximumIsNonPublic = false;
+  for (const item of sizes) {
+    if (item.size === null || (maximum !== null && item.size <= maximum))
+      continue;
+    maximum = item.size;
+    maximumIsNonPublic = item.method.publicMember === null;
+  }
+  const status: FamilyHeatStatus = unknownMaximum
+    ? "unknown-maximum"
+    : sizes.length < 2
+      || maximum === null
+      || maximum === 0
+      || analyzed.profiles.every(isUniformlyTiny)
+      ? "suppressed"
+      : "shown";
+
+  const relationships = analyzed.overloadRelationships.map(relationship => ({
+    caller: tokenOf(relationship.callerKey),
+    callee: tokenOf(relationship.calleeKey),
+    evidenceKey: relationship.evidenceMethodKey,
+  }));
+  const tokenFor = new Map<string, number>();
+  for (const method of analyzed.methods) {
+    if (method.publicMember !== null) {
+      tokenFor.set(
+        familyMemberKey(
+          method.publicMember.typeDefinitionId,
+          method.publicMember.stableSelector,
+        ),
+        method.metadataToken,
+      );
+    }
+  }
+
+  const overloads = members.map(member => {
+    const token = tokenFor.get(
+      familyMemberKey(member.typeDefinitionId, member.stableSelector));
+    const size = token === undefined ? null : sizeOf(token);
+    const profiles = token === undefined
+      ? []
+      : profilesByMethod.get(token) ?? [];
+    const evidenceKeys = new Set(
+      profiles.map(profile => profile.evidenceMethodKey));
+    const callers = new Set(relationships
+      .filter(relationship =>
+        relationship.callee === token
+        && relationship.caller !== token
+        && analyzedTokens.has(relationship.caller))
+      .map(relationship => relationship.caller));
+    const callsSibling = relationships.some(relationship =>
+      (relationship.caller === token
+        || evidenceKeys.has(relationship.evidenceKey))
+      && relationship.callee !== token
+      && analyzedTokens.has(relationship.callee));
+    const hub = token !== undefined
+      && profiles.length > 0
+      && profiles.every(profile => profile.isComplete)
+      && callers.size > 0
+      && !callsSibling;
+    const heatStrength = status === "shown"
+      && size !== null
+      && maximum !== null
+      && size >= maximum * heatThreshold
+      ? Math.sqrt(size / maximum)
+      : null;
+    const parts = [size === null
+      ? "No measured body"
+      : plural(size, "instruction")];
+    if (status === "shown" && size !== null && maximum !== null) {
+      parts.push(`${Math.round((size / maximum) * 100)}% of the largest body in this family${
+        maximumIsNonPublic ? ", which is non-public" : ""}`);
+    }
+    if (hub) parts.push(`hub called by ${plural(callers.size, "sibling method")}`);
+    return {
+      stableSelector: member.stableSelector,
+      size,
+      heatStrength,
+      hub,
+      incomingCallers: callers.size,
+      description: parts.join("; "),
+    };
+  });
+  return { status, maximum, maximumIsNonPublic, overloads };
 }
 
 export function projectImplementationProfileFamily(
@@ -729,23 +954,10 @@ function projectAvailableFamily(
       bodyTokens.has(body.methodToken));
     return { member, rosterIndex, physical, unavailableBodies };
   });
-  const allProfiles = attributed.flatMap(item =>
-    item.physical.map(physical => physical.profile));
-  const physicalRowCount = allProfiles.length;
-  const maximumInstructionCount = allProfiles.reduce(
-    (maximum, profile) => Math.max(maximum, profile.instructionCount),
+  const physicalRowCount = attributed.reduce(
+    (count, item) => count + item.physical.length,
     0,
   );
-  const uniformlyTiny = allProfiles.every(profile =>
-    profile.instructionCount <= 8
-    && profile.branchCount === 0
-    && profile.loopCount === 0
-    && exceptionRegionCount(profile) === 0
-    && !profile.unsafe
-    && profile.reflectionCallCount === 0);
-  const relativeBarsVisible = physicalRowCount >= 2
-    && !uniformlyTiny
-    && maximumInstructionCount > 0;
   const relationships = content.overloadRelationships;
 
   const rows = attributed.map(item => {
@@ -762,20 +974,12 @@ function projectAvailableFamily(
         );
       const generatedEvidence =
         profile.methodKey !== profile.evidenceMethodKey;
-      const relativeInstructionPercent = relativeBarsVisible
-        ? Math.round(
-            (profile.instructionCount / maximumInstructionCount) * 100,
-          )
-        : null;
       return {
         profile,
         logicalMethod,
         evidenceMethod,
         generatedEvidence,
-        relativeInstructionPercent,
-        relativeInstructionText: relativeInstructionPercent === null
-          ? `${profile.instructionCount} instructions`
-          : `${profile.instructionCount} instructions; ${relativeInstructionPercent}% of the largest physical body in this overload family`,
+        instructionText: plural(profile.instructionCount, "instruction"),
         evidenceCues: evidenceCues(profile, generatedEvidence),
         rawMetrics: rawMetrics(profile),
         relationships: relationships.filter(relationship =>
@@ -803,10 +1007,9 @@ function projectAvailableFamily(
 
   return {
     display: selection.display,
+    heat: projectFamilyHeat(content, familyMembers),
     rows: rows.map(({ rosterIndex: _rosterIndex, ...row }) => row),
     physicalRowCount,
-    relativeBarsVisible,
-    maximumInstructionCount,
     relationships,
     subject,
     share,
@@ -833,6 +1036,11 @@ export function createImplementationProfileCoordinator(
 
   const cache = dependencies.cache ?? createImplementationProfileResultCache();
   const inputs = new Map<OperationId, ImplementationProfileOperationInput>();
+  // Navigation may expand several families quickly. At most one family
+  // request runs; only the most recently expanded family waits behind it,
+  // and intermediate families are dropped.
+  let inFlightKey: string | null = null;
+  let pending: ImplementationProfileOperationInput | null = null;
   const inputFor = (operationId: OperationId) => {
     const input = inputs.get(operationId);
     if (input === undefined)
@@ -929,15 +1137,22 @@ export function createImplementationProfileCoordinator(
           requestCancellation: () => undefined,
           activate: () => {
             let result: Promise<BrowserImplementationProfiles>;
+            const key = implementationProfileCacheKey(input.request);
             try {
               result = cache.load(
                 input.request,
-                request => dependencies.query(request),
+                request => {
+                  inFlightKey = key;
+                  return dependencies.query(request);
+                },
               );
             } catch (error: unknown) {
+              settle(key);
               return fail(error);
             }
-            void result.then(finish, fail);
+            void result
+              .then(finish, fail)
+              .finally(() => settle(key));
             return undefined;
           },
           abandon: () => {
@@ -947,6 +1162,36 @@ export function createImplementationProfileCoordinator(
         },
       };
     },
+  };
+
+  function settle(key: string): void {
+    if (inFlightKey !== key) return;
+    inFlightKey = null;
+    const next = pending;
+    pending = null;
+    if (next !== null && next.selection.isCurrent())
+      void start(next.request, next.selection);
+  }
+
+  const activate = (
+    request: ImplementationProfileFamilyRequest,
+    selection: ImplementationProfileFamilySelection,
+  ): Promise<void> => {
+    if (inFlightKey !== null
+      && inFlightKey !== implementationProfileCacheKey(request)
+      && cache.status(request) === "missing") {
+      pending = { request, selection };
+      if (selection.isCurrent()) {
+        dependencies.state.implementationProfiles = {
+          status: "loading",
+          request,
+          selection,
+        };
+        dependencies.render();
+      }
+      return Promise.resolve();
+    }
+    return start(request, selection);
   };
 
   const start = (
@@ -972,9 +1217,12 @@ export function createImplementationProfileCoordinator(
 
   return {
     hasActivated(request) {
-      return cache.status(request) !== "missing";
+      return cache.status(request) !== "missing"
+        || (pending !== null
+          && implementationProfileCacheKey(pending.request)
+            === implementationProfileCacheKey(request));
     },
-    activate: start,
+    activate,
     retry(request, selection) {
       cache.retry(request);
       return start(request, selection);
@@ -1087,12 +1335,6 @@ function renderPhysicalRow(
   index: number,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const bar = row.relativeInstructionPercent === null
-    ? ""
-    : `<div class="implementation-profile-bar" role="img" aria-label="${escapeHtml(row.relativeInstructionText)}">
-        <span class="implementation-profile-bar-fill" style="width: ${row.relativeInstructionPercent}%"></span>
-        <span>${escapeHtml(row.relativeInstructionText)}</span>
-      </div>`;
   const methodIdentity = row.generatedEvidence
     ? `<p><span>Logical overload:</span> <code>${escapeHtml(row.logicalMethod.display)}</code><br><span>Physical evidence:</span> <code>${escapeHtml(row.evidenceMethod.display)}</code></p>`
     : `<p><span>Physical evidence:</span> <code>${escapeHtml(row.evidenceMethod.display)}</code></p>`;
@@ -1110,8 +1352,7 @@ function renderPhysicalRow(
   return `<article class="implementation-profile-physical-row" aria-labelledby="implementation-profile-physical-${index}">
     <h4 id="implementation-profile-physical-${index}">${escapeHtml(row.generatedEvidence ? "Generated physical body" : "Physical body")}</h4>
     ${methodIdentity}
-    <p class="implementation-profile-instruction-cue">${escapeHtml(row.relativeInstructionText)}</p>
-    ${bar}
+    <p class="implementation-profile-instruction-cue">${escapeHtml(row.instructionText)}</p>
     ${cues}
     <details>
       <summary>Raw implementation metrics</summary>
@@ -1124,16 +1365,34 @@ function renderPhysicalRow(
   </article>`;
 }
 
+function heatNote(heat: FamilyHeat): string {
+  switch (heat.status) {
+    case "shown":
+      return `Member-list heat compares each overload with the largest same-name body in this family (${plural(heat.maximum ?? 0, "instruction")}${heat.maximumIsNonPublic ? ", non-public" : ""}). Overloads with at least half of that size are tinted.`;
+    case "suppressed":
+      return "Member-list heat is omitted because this family has fewer than two measured bodies or only uniformly tiny bodies. Raw counts remain available.";
+    case "unknown-maximum":
+      return "Member-list heat is omitted because an analyzed same-name body is unavailable or incomplete, so the family maximum is unknown.";
+  }
+  throw new Error("Unknown member-list heat status.");
+}
+
 function renderFamily(
   state: Extract<
     ImplementationProfileProjectionOutcome,
     { readonly status: "available" | "incomplete" | "empty" }
   >,
   escapeHtml: (value: unknown) => string,
+  stableSelector: string | null,
 ): string {
   const family = state.family;
   let physicalIndex = 0;
-  const rows = family.rows.map((row, rowIndex) => {
+  const heatBySelector = new Map(family.heat.overloads.map(overload =>
+    [overload.stableSelector, overload]));
+  const visibleRows = stableSelector === null
+    ? family.rows
+    : family.rows.filter(row => row.member.stableSelector === stableSelector);
+  const rows = visibleRows.map((row, rowIndex) => {
     const physical = row.physicalRows.map(item =>
       renderPhysicalRow(item, physicalIndex++, escapeHtml)).join("");
     const unavailable = renderUnavailableBodies(
@@ -1146,8 +1405,10 @@ function renderFamily(
     const absence = physical.length > 0 || unavailable.length > 0
       ? ""
       : `<p class="implementation-profile-no-body">No physical profile was attributed to this overload.</p>`;
+    const heat = heatBySelector.get(row.member.stableSelector);
     return `<section class="implementation-profile-overload${row.member.selected ? " is-selected" : ""}" aria-labelledby="implementation-profile-overload-${rowIndex}">
       <h3 id="implementation-profile-overload-${rowIndex}">${escapeHtml(row.member.display)}${row.member.selected ? " - selected overload" : ""}</h3>
+      ${heat === undefined ? "" : `<p class="implementation-profile-heat-summary">${escapeHtml(heat.description)}</p>`}
       ${physical}${unavailable}${absence}
     </section>`;
   }).join("");
@@ -1163,9 +1424,7 @@ function renderFamily(
         <p>Available physical evidence is shown, but coverage or diagnostics qualify this family.</p>
       </section>`
     : "";
-  const barNote = family.relativeBarsVisible
-    ? `<p>Instruction bars are relative only to the largest physical body in this overload family. Raw counts remain authoritative.</p>`
-    : `<p>Relative instruction bars are omitted because this family has fewer than two physical rows or only uniformly tiny bodies without structural evidence. Raw counts remain available.</p>`;
+  const barNote = `<p>${escapeHtml(heatNote(family.heat))}</p>`;
   const diagnosticDetails = state.status === "incomplete"
     ? `<details class="implementation-profile-qualification">
         <summary>Coverage and diagnostic details</summary>
@@ -1205,6 +1464,7 @@ function renderFamily(
 export function renderImplementationProfileState(
   state: ImplementationProfileState | ImplementationProfileProjectionOutcome,
   escapeHtml: (value: unknown) => string,
+  stableSelector: string | null = null,
 ): string {
   switch (state.status) {
     case "idle":
@@ -1214,7 +1474,7 @@ export function renderImplementationProfileState(
     case "available":
     case "incomplete":
     case "empty":
-      return renderFamily(state, escapeHtml);
+      return renderFamily(state, escapeHtml, stableSelector);
     case "rejected":
       return renderFailure("Implementation profile request rejected", state, escapeHtml);
     case "failed":

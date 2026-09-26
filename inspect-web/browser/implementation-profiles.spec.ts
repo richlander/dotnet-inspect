@@ -1,11 +1,9 @@
 import { expect, test } from "@playwright/test";
 import {
-  chooseInspector,
   chooseSubject,
   core,
   createType,
   installFacades,
-  inspectorTab,
   releaseFacade,
   root,
   run,
@@ -78,7 +76,7 @@ function overloadedPackage(): BrowserPackageSurface {
   };
 }
 
-test("implementation profiles stay lazy, preserve family identity, and render accessible evidence", async ({
+test("member-list heat follows the expanded family and marks the hub", async ({
   page,
 }) => {
   await installFacades(
@@ -95,27 +93,15 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
   await selectLibrary(page, core.id);
   await chooseSubject(page, "type", "Type");
   await page.locator("#type-list [data-type]").click();
-  await chooseSubject(page, "member", "Member");
 
   const html = page.locator("html");
   expect(await html.getAttribute(
     "data-implementation-profile-request-count")).toBeNull();
-  const tab = inspectorTab(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-  );
-  await expect(tab).toHaveAttribute("aria-label", "Implementation profiles");
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
+  await expect(page.locator('[data-member-section="implementation-profiles"]'))
+    .toHaveCount(0);
 
-  await expect(page.getByRole("heading", {
-    name: "Loading implementation profiles",
-  })).toBeVisible();
+  await chooseSubject(page, "member", "Member");
+  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
     "1",
@@ -130,54 +116,32 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
     "Example.Widget",
     ["Run(int)", "Run(string)"],
   ]);
+  const runRow = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+  await expect(runRow.locator(".family-heat-cue")).toHaveText("measuring");
+  await expect(page.locator(".overload-nav-row.heated")).toHaveCount(0);
 
   await releaseFacade(
     page,
     `fixture-implementation-profiles-ready:${core.id}`,
   );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
-  await expect(page.locator(".member-surface-head p"))
-    .toContainText("2 overloads");
-  await expect(page.locator(".implementation-profile-overload"))
-    .toHaveCount(2);
-  await expect(page.locator(".implementation-profile-physical-row"))
-    .toHaveCount(3);
-  await expect(page.getByRole("heading", {
-    name: "Generated physical body",
-  })).toBeVisible();
-  await expect(page.getByRole("img", {
-    name: "80 instructions; 100% of the largest physical body in this overload family",
-  })).toBeVisible();
-  await expect(page.getByText("Branches: 8", { exact: true })).toBeVisible();
-  await expect(page.getByText("Loops: 2", { exact: true })).toBeVisible();
-
-  await page.getByText("Raw implementation metrics", { exact: true })
-    .first()
-    .click();
-  await expect(
-    page.getByText("Distinct opcode count", { exact: true }).first(),
-  ).toBeVisible();
+  const intRow = page.locator('[data-nav-overload="0"]');
+  const stringRow = page.locator('[data-nav-overload="1"]');
+  await expect(intRow).toHaveClass(/\bheated\b/);
+  await expect(intRow).not.toHaveClass(/\bhub\b/);
+  await expect(intRow).toHaveAttribute(
+    "aria-description",
+    "80 instructions; 100% of the largest body in this family",
+  );
+  await expect(stringRow).toHaveClass(/\bhub\b/);
+  await expect(stringRow).not.toHaveClass(/\bheated\b/);
+  await expect(stringRow).toHaveAttribute(
+    "aria-description",
+    "5 instructions; 6% of the largest body in this family; hub called by 1 sibling method",
+  );
+  await expect(runRow.locator(".family-heat-cue")).toHaveCount(0);
 
   await page.locator("[data-nav-member]").filter({ hasText: "Compute" })
     .click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "1",
-  );
-  await expect(inspectorTab(
-    page,
-    "data-member-section",
-    "overview",
-  )).toHaveAttribute("aria-selected", "true");
-
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
     "2",
@@ -196,53 +160,32 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
     page,
     `fixture-implementation-profiles-ready:${core.id}`,
   );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Compute",
-  })).toBeVisible();
 
   await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
+  await expect(page.locator('[data-nav-overload="0"]'))
+    .toHaveClass(/\bheated\b/);
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
     "2",
   );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
 
   await page.locator('[data-nav-overload="0"]').click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
+  await expect(page.getByRole("heading", { name: "Implementation" }))
+    .toBeVisible();
+  await expect(page.locator(".implementation-profile-physical-row"))
+    .toHaveCount(2);
   await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
+    name: "Generated physical body",
   })).toBeVisible();
+  await expect(page.getByText("Branches: 8", { exact: true })).toBeVisible();
+  await page.getByText("Raw implementation metrics", { exact: true })
+    .first()
+    .click();
   await expect(
-    page.locator(".implementation-profile-physical-row"),
-  ).toHaveCount(3);
-
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "overview",
-    "Overview",
-  );
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
+    page.getByText("Distinct opcode count", { exact: true }).first(),
+  ).toBeVisible();
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
     "2",
   );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
 });
