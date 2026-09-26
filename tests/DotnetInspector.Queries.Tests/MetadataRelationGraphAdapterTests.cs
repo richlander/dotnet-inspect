@@ -425,6 +425,317 @@ public sealed class MetadataRelationGraphAdapterTests
     }
 
     [Fact]
+    public void ExtensionPopulationCarriesTerminalsToMetadata()
+    {
+        string sourcePath = typeof(MetadataFindings).Assembly.Location;
+        AssemblyReferenceIdentity sourceIdentity =
+            ReadIdentity(sourcePath);
+        ResolvedAssemblyReference source =
+            Resolved(sourcePath, sourceIdentity);
+        string receiverPath =
+            typeof(System.Reflection.Metadata.MetadataReader)
+                .Assembly.Location;
+        ResolvedAssemblyReference receiverAssembly =
+            Resolved(receiverPath, ReadIdentity(receiverPath));
+        var coordinate =
+            new RealizedMemberCoordinate.Package(
+                "extension.population",
+                "1.0.0",
+                "local",
+                "net11.0",
+                runtimeIdentifier: null);
+        StructuralSubjectTestData.PackageContext package =
+            StructuralSubjectTestData.Package(coordinate);
+        var receiverInput =
+            new WorkspaceContextMember(
+                WorkspaceMemberCoordinate.Package(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    coordinate.Framework,
+                    coordinate.RuntimeIdentifier),
+                coordinate,
+                new AssemblyContextParticipant(
+                    receiverAssembly,
+                    NoResolverAssemblyBindingPolicy.Instance));
+        MetadataTypeDefinitionName receiverType =
+            TypeName(
+                "System.Reflection.Metadata",
+                "MetadataReader");
+        StructuralSubjectIdentity.TypeSubject focus =
+            StructuralSubjectIdentity.ForType(
+                StructuralSubjectIdentity.ForLibrary(
+                    package.Subject,
+                    receiverInput),
+                receiverType);
+        SubjectRelationPopulationAuthority population =
+            SubjectRelationPopulationAuthority.Capture(
+                package.Workspace,
+                new object());
+        var receiver = new MetadataExtensionReceiverSelection(
+            receiverAssembly.Identity,
+            receiverType);
+        var selection =
+            new SubjectRelationPopulationSelection(
+                SubjectRelationForm.Extension,
+                MetadataRelationGraphCatalog.Extension.Id,
+                SubjectRelationDirectionSelection.Incoming,
+                SubjectRelationEvidenceKind.Declaration);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(sourcePath);
+
+        StructuralSubjectIdentity.TypeSubject differentFocus =
+            StructuralSubjectIdentity.ForType(
+                focus.Library,
+                TypeName(
+                    "System.Reflection.Metadata",
+                    "MetadataBuilder"));
+        ArgumentException mismatchedFocus =
+            Assert.Throws<ArgumentException>(
+                () =>
+                    MetadataExtensionSubjectRelationsOperation.Execute(
+                        session,
+                        source,
+                        receiver,
+                        new(
+                            SubjectRelationsRouteKind.Type,
+                            differentFocus,
+                            population,
+                            new(
+                                selection,
+                                count:
+                                    new SubjectRelationPopulationCountRequest())),
+                        MetadataOperationPolicy.Unbounded,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+        Assert.Equal("request", mismatchedFocus.ParamName);
+
+        MetadataExtensionSubjectRelationsExecution execution =
+            MetadataExtensionSubjectRelationsOperation.Execute(
+                session,
+                source,
+                receiver,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(2))),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        int expected =
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    execution.Population.Count).Value;
+        Assert.True(expected > 2);
+
+        var allRows = new List<SubjectRelationRow>();
+        MetadataExtensionSubjectRelationsContinuationAuthority? authority =
+            null;
+        while (true)
+        {
+            var rows =
+                Assert.IsType<
+                    SubjectRelationPopulationRowsOutcome.Read>(
+                        execution.Population.Rows);
+            Assert.InRange(rows.Items.Length, 0, 2);
+            allRows.AddRange(rows.Items);
+            Assert.All(
+                rows.Items,
+                row =>
+                {
+                    Assert.Equal(
+                        SubjectRelationForm.Extension,
+                        row.Form);
+                    Assert.Equal(
+                        SubjectRelationDirection.Incoming,
+                        row.Direction);
+                    Assert.Same(focus, row.Correspondence.Focus);
+                    Assert.NotEmpty(row.Occurrences);
+                    Assert.All(
+                        row.Occurrences,
+                        occurrence => Assert.IsType<
+                            MetadataExtensionGraphEvidence>(
+                                occurrence.Occurrence.Evidence));
+                });
+
+            if (rows.Continuation is null)
+                break;
+
+            authority =
+                execution.ContinuationAuthority
+                ?? throw new Xunit.Sdk.XunitException(
+                    "Expected extension continuation authority.");
+            execution =
+                MetadataExtensionSubjectRelationsOperation.Execute(
+                    session,
+                    source,
+                    receiver,
+                    new(
+                        SubjectRelationsRouteKind.Type,
+                        focus,
+                        population,
+                        new(
+                            selection,
+                            rows:
+                                new SubjectRelationPopulationRowsRequest(
+                                    2,
+                                    continuation:
+                                        rows.Continuation))),
+                    MetadataOperationPolicy.Unbounded,
+                    continuationAuthority: authority,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(expected, allRows.Count);
+        Assert.Null(execution.ContinuationAuthority);
+        Assert.Contains(
+            allRows,
+            static row =>
+                row.Source
+                    is InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.AcquiredApi
+                            {
+                                Member.MemberName:
+                                    "GetFullTypeName",
+                            },
+                    });
+
+        MetadataExtensionSubjectRelationsExecution initial =
+            MetadataExtensionSubjectRelationsOperation.Execute(
+                session,
+                source,
+                receiver,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.NotNull(
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Read>(
+                    initial.Population.Rows).Continuation);
+        MetadataExtensionSubjectRelationsContinuationAuthority
+            initialAuthority =
+                initial.ContinuationAuthority
+                ?? throw new Xunit.Sdk.XunitException(
+                    "Expected initial extension continuation authority.");
+        var differentReceiver =
+            new MetadataExtensionReceiverSelection(
+                receiverAssembly.Identity,
+                TypeName(
+                    "System.Reflection.Metadata",
+                    "MetadataBuilder"));
+        MetadataExtensionSubjectRelationsExecution incompatible =
+            MetadataExtensionSubjectRelationsOperation.Execute(
+                session,
+                source,
+                differentReceiver,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    differentFocus,
+                    population,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                1,
+                                continuation:
+                                    Assert.IsType<
+                                        SubjectRelationPopulationRowsOutcome
+                                            .Read>(
+                                                initial.Population.Rows)
+                                        .Continuation))),
+                MetadataOperationPolicy.Unbounded,
+                continuationAuthority: initialAuthority,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection.IncompatibleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    incompatible.Population.Rows).Reason);
+
+        MetadataExtensionSubjectRelationsExecution accessibilityChanged =
+            MetadataExtensionSubjectRelationsOperation.Execute(
+                session,
+                source,
+                receiver,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    population,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                1,
+                                continuation:
+                                    Assert.IsType<
+                                        SubjectRelationPopulationRowsOutcome
+                                            .Read>(
+                                                initial.Population.Rows)
+                                        .Continuation))),
+                MetadataOperationPolicy.Unbounded,
+                includeNonPublic: true,
+                continuationAuthority: initialAuthority,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection.IncompatibleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    accessibilityChanged.Population.Rows).Reason);
+
+        SubjectRelationPopulationAuthority differentPopulation =
+            SubjectRelationPopulationAuthority.Capture(
+                package.Workspace,
+                new object());
+        MetadataExtensionSubjectRelationsExecution populationChanged =
+            MetadataExtensionSubjectRelationsOperation.Execute(
+                session,
+                source,
+                receiver,
+                new(
+                    SubjectRelationsRouteKind.Type,
+                    focus,
+                    differentPopulation,
+                    new(
+                        selection,
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(
+                                1,
+                                continuation:
+                                    Assert.IsType<
+                                        SubjectRelationPopulationRowsOutcome
+                                            .Read>(
+                                                initial.Population.Rows)
+                                        .Continuation))),
+                MetadataOperationPolicy.Unbounded,
+                continuationAuthority: initialAuthority,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(
+            SubjectRelationPopulationRowsRejection.StaleContinuation,
+            Assert.IsType<
+                SubjectRelationPopulationRowsOutcome.Rejected>(
+                    populationChanged.Population.Rows).Reason);
+    }
+
+    [Fact]
     public void ExtensionAndSignatureFamiliesBindTheSameMemberFocus()
     {
         string path = typeof(MetadataFindings).Assembly.Location;

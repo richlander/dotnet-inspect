@@ -240,6 +240,9 @@ public sealed record MetadataExtensionGraphEvidence(
         MetadataRelationGraphCatalog.ExtensionEvidence;
 }
 
+public sealed record MetadataExtensionReceiverCorrespondenceEvidence(
+    MetadataExtensionReceiverSelection Selection);
+
 public sealed record MetadataSignatureGraphEvidence(
     AssemblyAcquisitionRegistration Registration,
     MetadataSignatureRelationEvidence Evidence)
@@ -513,6 +516,95 @@ public static class MetadataRelationGraphAdapter
         }
     }
 
+    public static ImmutableArray<SubjectRelationRow> BindExtensionRows(
+        ResolvedAssemblyReference source,
+        IEnumerable<MetadataExtensionRelationPopulationRow> rows,
+        StructuralSubjectIdentity focus,
+        SubjectRelationPopulationAuthority population,
+        MetadataExtensionReceiverSelection receiver)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(focus);
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(receiver);
+
+        var result = ImmutableArray.CreateBuilder<SubjectRelationRow>();
+        int occurrenceId = 0;
+        foreach (MetadataExtensionRelationPopulationRow row in rows)
+        {
+            InspectionGraphOccurrence[] occurrences =
+            [
+                .. row.Occurrences.Select(evidence =>
+                    ExtensionOccurrence(
+                        source,
+                        evidence,
+                        occurrenceId++)),
+            ];
+            InspectionGraphOccurrence representative = occurrences[0];
+            SubjectRelationFocusCorrespondence correspondence =
+                SubjectRelationFocusCorrespondence.Create(
+                    focus,
+                    population,
+                    representative.TargetSubject,
+                    InspectionGraphEndpointRole.Target,
+                    new MetadataExtensionReceiverCorrespondenceEvidence(
+                        receiver));
+            result.Add(
+                new(
+                    SubjectRelationForm.Extension,
+                    SubjectRelationEvidenceKind.Declaration,
+                    MetadataRelationGraphCatalog.Extension,
+                    representative.SourceSubject,
+                    representative.TargetSubject,
+                    correspondence,
+                    occurrences));
+        }
+
+        return result.ToImmutable();
+    }
+
+    public static SubjectRelationProducerOutcome ExtensionProducerOutcome(
+        MetadataExtensionRelationPopulationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return Outcome(
+            ExtensionQuery,
+            result.Disposition,
+            result.Coverage,
+            result.Diagnostics,
+            [MetadataRelationGraphCatalog.Extension]);
+    }
+
+    public static void ValidateExtensionPopulation(
+        ResolvedAssemblyReference source,
+        MetadataExtensionRelationPopulationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(result);
+        Guid? moduleVersionId = result.Receipt.ModuleVersionId;
+        AssemblyReferenceIdentity? assembly = result.Receipt.Assembly;
+        bool requiresIdentity =
+            result.Disposition
+                is MetadataRelationFamilyDisposition.Complete
+                    or MetadataRelationFamilyDisposition.Partial;
+        if ((requiresIdentity
+                && (moduleVersionId is null
+                    || assembly is null))
+            || assembly is not null
+                && !source.Identity.IsEquivalentTo(assembly)
+            || requiresIdentity
+                && source.Registration.ModuleVersionId is Guid bound
+                && moduleVersionId is Guid receipt
+                && bound != receipt)
+        {
+            throw new ArgumentException(
+                "The Metadata extension population must belong to the "
+                    + "exact resolved acquisition.",
+                nameof(result));
+        }
+    }
+
     private static void ProjectHierarchy(
         ResolvedAssemblyReference source,
         MetadataRelationFamilyResult<MetadataHierarchyRelationEvidence>
@@ -574,24 +666,10 @@ public static class MetadataRelationGraphAdapter
             in result.Evidence)
         {
             occurrences.Add(
-                new(
-                    occurrences.Count,
-                    MetadataRelationGraphCatalog.Extension,
-                    InspectionGraphSubject.ForAcquiredApiMember(
-                        source.Registration,
-                        evidence.DeclaringTypeName,
-                        evidence.Member),
-                    InspectionGraphSubject.ForMetadataTypeShape(
-                        source.Registration,
-                        evidence.Receiver,
-                        GenericContext(
-                            evidence.Receiver,
-                            evidence.ReceiverContextType,
-                            evidence.ReceiverDeclarationMethod)),
-                    new MetadataExtensionGraphEvidence(
-                        source.Registration,
-                        evidence),
-                    []));
+                ExtensionOccurrence(
+                    source,
+                    evidence,
+                    occurrences.Count));
         }
 
         producers.Add(
@@ -600,6 +678,29 @@ public static class MetadataRelationGraphAdapter
                 result,
                 [MetadataRelationGraphCatalog.Extension]));
     }
+
+    private static InspectionGraphOccurrence ExtensionOccurrence(
+        ResolvedAssemblyReference source,
+        MetadataExtensionRelationEvidence evidence,
+        int occurrenceId) =>
+        new(
+            occurrenceId,
+            MetadataRelationGraphCatalog.Extension,
+            InspectionGraphSubject.ForAcquiredApiMember(
+                source.Registration,
+                evidence.DeclaringTypeName,
+                evidence.Member),
+            InspectionGraphSubject.ForMetadataTypeShape(
+                source.Registration,
+                evidence.Receiver,
+                GenericContext(
+                    evidence.Receiver,
+                    evidence.ReceiverContextType,
+                    evidence.ReceiverDeclarationMethod)),
+            new MetadataExtensionGraphEvidence(
+                source.Registration,
+                evidence),
+            []);
 
     private static void ProjectReferences(
         ResolvedAssemblyReference source,

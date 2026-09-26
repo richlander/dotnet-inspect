@@ -18,11 +18,16 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
                      Version="[11.0.0-rc.1.26425.128]" />
+    <PackageDownload Include="System.Net.Http.Json"
+                     Version="[10.0.0]" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Private.CoreLib.dll"
           Link="PinnedArtifacts\System.Private.CoreLib.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.net.http.json/10.0.0/lib/net10.0/System.Net.Http.Json.dll"
+          Link="PinnedArtifacts\System.Net.Http.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
