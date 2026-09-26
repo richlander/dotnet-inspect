@@ -1,18 +1,20 @@
-# Coordinate child command
+# Address child command
 
 ## Status and authority
 
-This document is the focused owner for placing required subordinate
-coordinates under an already selected CLI subject. The operator approved
-`coordinate` as the child-command term on 2026-09-16.
+This document is the focused owner for placing required physical or
+document-local addresses under an already selected CLI subject. The operator
+approved `address` as the child-command term on 2026-09-26, superseding the
+earlier `coordinate` term without changing the admitted requests or results.
 Focused and end-to-end CLI adoption is tracked by
-[#7307](https://github.com/richlander/dotnet-inspect/issues/7307).
+[#8650](https://github.com/richlander/dotnet-inspect/issues/8650).
 
-The initial adoption is complete: `library coordinate` is the executable
+The initial adoption is complete: `library address` is the executable
 surface for exact IL points, exact metadata-heap points, and bounded sparse
-IL-coordinate files. The former `library --il-offset`,
-`library --il-offsets`, and `library --heap` options are removed completely.
-They have no compatibility aliases, forwarding, or specialized diagnostics.
+IL-coordinate files. The former `library coordinate`,
+`library --il-offset`, `library --il-offsets`, and `library --heap` spellings
+are removed completely. They have no compatibility aliases, forwarding, or
+specialized diagnostics.
 
 This document owns command placement and request-shape boundaries. It does not
 redefine Library identity or acquisition, metadata roots, IL-coordinate
@@ -35,11 +37,12 @@ Related documents:
 
 ## Claim
 
-> A coordinate child command establishes the closed grammar for a required
-> subordinate coordinate family within one already selected subject. Its exact
-> mode admits one point; a bounded population mode is a multi-coordinate
-> operation over that same family. No section, predicate, lens, or renderer is
-> responsible for supplying the coordinate input.
+> An address child command establishes the closed grammar for a required
+> physical or document-local address within one already selected subject. Its
+> exact mode admits one address; a bounded population mode evaluates an
+> owner-defined population of addresses without changing the parent subject.
+> No section, predicate, lens, or renderer is responsible for supplying the
+> address input.
 
 The parent command continues to identify and acquire the subject. The child
 does not create another subject domain or another implementation architecture.
@@ -52,16 +55,16 @@ This yields four distinct CLI roles:
 | --- | --- |
 | Subject command | Independently navigable subject and source context |
 | Operation child | A distinct operation over that subject |
-| Coordinate child | A required subordinate address within that subject |
+| Address child | A required physical or document-local address within that subject |
 | Section or lens | Evidence or representation at the established request |
 
-`package query` is an operation child. `library coordinate` is a coordinate
-child. Top-level `diff` is an operation command, and `member -S IL` remains a
+`package query` is an operation child. `library address` is an address child.
+Top-level `diff` is an operation command, and `member -S IL` remains a
 representation lens.
 
 ## Admission rule
 
-A subordinate selector should become a coordinate child when all of these are
+A subordinate selector should become an address child when all of these are
 true:
 
 1. The parent subject and its owner-issued identity remain unchanged.
@@ -83,10 +86,10 @@ qualifies because resolving the address is itself the coordinate result.
 Implementation size is not evidence: complex production work may remain behind
 an ordinary section when the request shape is unchanged.
 
-The child owns exact-coordinate admission. A population gesture beneath it is
-admitted only as an explicit multi-coordinate operation mode with an
+The child owns exact-address admission. A population gesture beneath it is
+admitted only as an explicit multi-address operation mode with an
 owner-declared bound, acquisition plan, result Document, ordering, and
-coordinate-local failure topology. Sections own observations after successful
+address-local failure topology. Sections own observations after successful
 exact admission. Output options continue to own projection of completed
 content.
 
@@ -95,25 +98,25 @@ content.
 The shape is:
 
 ```console
-dotnet-inspect library coordinate 0x06000042+0x2f --library ./My.dll
-dotnet-inspect library coordinate "#Strings:0x1a4" --library ./My.dll
-dotnet-inspect library coordinate --file coordinates.txt --library ./My.dll
+dotnet-inspect library address 0x06000042+0x2f --library ./My.dll
+dotnet-inspect library address "#Strings:0x1a4" --library ./My.dll
+dotnet-inspect library address --file coordinates.txt --library ./My.dll
 ```
 
-The examples lock the `library coordinate` placement and the distinction
-between one positional coordinate and one coordinate file. The first positional
-value after `coordinate` is always the point to resolve, matching the
+The examples lock the `library address` placement and the distinction
+between one positional address and one address file. The first positional
+value after `address` is always the point to resolve, matching the
 focus-first grammar of `type <Type> --library <source>` and
 `member <Type> <Member> --library <source>`. It is never the Library location.
 
 Library acquisition uses named source options:
 
 ```console
-dotnet-inspect library coordinate 0x06000042+0x2f --library ./My.dll
-dotnet-inspect library coordinate 0x06000042+0x2f \
+dotnet-inspect library address 0x06000042+0x2f --library ./My.dll
+dotnet-inspect library address 0x06000042+0x2f \
   --package System.Text.Json@10.0.0 \
   --library lib/net10.0/System.Text.Json.dll
-dotnet-inspect library coordinate 0x06000042+0x2f \
+dotnet-inspect library address 0x06000042+0x2f \
   --platform System.Private.CoreLib
 ```
 
@@ -123,11 +126,11 @@ command may retain its historical positional source, but the child does not
 inherit that positional meaning: doing so would make its first value alternate
 between the coordinate being sought and the location in which to seek it.
 
-### Exact coordinate mode
+### Exact address mode
 
-One positional coordinate selects one typed subordinate address:
+One positional address selects one typed subordinate address:
 
-| Coordinate family | Example | Owning meaning |
+| Address family | Example | Owning meaning |
 | --- | --- | --- |
 | Method body | `0x06000042+0x2f` | MethodDef token plus IL offset in the selected Library generation |
 | Metadata heap | `#Strings:0x1a4` | Heap kind plus offset in the selected metadata root |
@@ -146,7 +149,7 @@ the selected root, heap, offset, and decoded value or typed failure. Explicit
 sections narrow those defaults to requested peer observations:
 
 ```console
-dotnet-inspect library coordinate 0x06000042+0x2f --library ./My.dll \
+dotnet-inspect library address 0x06000042+0x2f --library ./My.dll \
   -S "Context: Instruction" -S "Context: Callsite"
 ```
 
@@ -154,17 +157,17 @@ The existing context section contracts remain authoritative. Adoption may
 simplify names only through their owning section design; moving them under the
 child does not silently rename or merge their evidence.
 
-### Coordinate-file mode
+### Address-file mode
 
 `--file` selects a bounded coordinate population rather than one exact point.
-It is a multi-coordinate operation mode beneath the Coordinate child, not
+It is a multi-address operation mode beneath the Address child, not
 unary Library inspection. The first adoption preserves optional labels,
 per-line malformed-input rows, partial useful output, and existing output
 capabilities within the admitted 1,024-significant-record population. It
 returns an ordered coordinate-explanation Document, not a scalar Library
 inspection with several incidental sections.
 
-`library coordinate --file` emits every valid or malformed row in source-file
+`library address --file` emits every valid or malformed row in source-file
 order; row windows apply after that ordering. This deliberately differs from
 the retired batch option, which grouped malformed rows before valid coordinate
 rows. A mixed valid/malformed Release fixture proves full order and head/tail
@@ -181,15 +184,16 @@ families, normalization, ordering, failures, and output schema remain with
 [IL coordinate workflows](il-coordinate-workflows.md) and its adopting query.
 That owner counts valid and malformed significant records together, rejects
 record 1,025 before Library acquisition without partial rows, and gates the
-boundary plus one. The coordinate child does not imply debugger, profiler,
+boundary plus one. The address child does not imply debugger, profiler,
 dump, or trace format parsers.
 
 ## Completed cutover and gates
 
 The intentionally breaking placement change is complete. Ordinary `library`
-help and parsing no longer expose the three parent options. Their former
-spellings are outside the command contract: no alias, forwarding, specialized
-diagnostic, or retired-input behavior is preserved or tested.
+help and parsing expose `address`, not `coordinate`, and no longer expose the
+three parent options. Their former spellings are outside the command contract:
+no alias, forwarding, specialized diagnostic, or retired-input behavior is
+preserved or tested.
 The parent action is reachable only after parser token ownership rejects an
 undeclared option-shaped token bound to the positional Library source before
 the `--` end-of-options marker. Declared ancestor options retain their normal
@@ -198,40 +202,40 @@ is a generic parser invariant, not recognition of any retired spelling.
 
 Release CLI gates cover:
 
-- `LibraryCoordinateCommand_ImplicitlySelectsSections` and
-  `LibraryCoordinateCommand_MemberSelectionAllowsNonInstructionBoundary` for
+- `LibraryAddressCommand_ImplicitlySelectsSections` and
+  `LibraryAddressCommand_MemberSelectionAllowsNonInstructionBoundary` for
   bounded exact IL defaults and section-specific validity;
 - the `LibraryCommand_IlOffset*` context tests, now driven through
-  `library coordinate`, for member, instruction, exception, callsite,
+  `library address`, for member, instruction, exception, callsite,
   return-address, source, projection, and count behavior;
 - `MetadataLens_HeapCoordinate_RendersTheValueAtThatAddress` and neighboring
   heap-coordinate tests for metadata-root binding, spellings, discovery,
   cache bypass, and typed failures;
-- `LibraryCoordinateCommand_FilePreservesSourceRecordOrder`,
-  `LibraryCoordinateCommand_FileWindowsSourceRecordOrder`, and
-  `LibraryCoordinateCommand_FileLimitFailsBeforeLibraryAcquisition` for
+- `LibraryAddressCommand_FilePreservesSourceRecordOrder`,
+  `LibraryAddressCommand_FileWindowsSourceRecordOrder`, and
+  `LibraryAddressCommand_FileLimitFailsBeforeLibraryAcquisition` for
   ordering, row windows, and the 1,024-record admission bound; and
-- `LibraryCoordinateCommand_HelpShowsFocusAndNamedSources` for complete
+- `LibraryAddressCommand_HelpShowsFocusAndNamedSources` for complete
   retirement from parent help and the current child surface; and
 - `Library_AttachedUnknownOptionFails` for strict generic parent parsing of
   attached unknown options;
 - `Library_EndOfOptionsAllowsLeadingDashSource` for the ordinary positional
   escape boundary; and
-- `LibraryCoordinateCommand_FileStructuralDiscoveryReadsNeitherInput` and
-  `LibraryCoordinateCommand_ExactStructuralDiscoveryReadsNoLibrary` for
+- `LibraryAddressCommand_FileStructuralDiscoveryReadsNeitherInput` and
+  `LibraryAddressCommand_ExactStructuralDiscoveryReadsNoLibrary` for
   input-free structural discovery; and
-- `LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput` and
-  `LibraryCoordinateCommand_FileEffectiveDiscoveryRendersDiscovery` for the
+- `LibraryAddressCommand_FileEffectiveDiscoveryReadsCoordinateInput` and
+  `LibraryAddressCommand_FileEffectiveDiscoveryRendersDiscovery` for the
   materializing effective-discovery boundary and discovery-shaped result; and
-- `LibraryCoordinateCommand_FileEffectiveDiscoveryPreservesFailureDetails` for
+- `LibraryAddressCommand_FileEffectiveDiscoveryPreservesFailureDetails` for
   retaining producer-owned failure diagnostics through population context; and
-- `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence`
+- `LibraryAddressCommand_FileEffectiveDiscoveryUnionsPopulationEvidence`
   for population-wide evidence availability; and
-- `LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields` and
-  `LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersListFields` and
-  `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsScalarFields` for
+- `LibraryAddressCommand_FileEffectiveDiscoveryFiltersNonMemberFields` and
+  `LibraryAddressCommand_FileEffectiveDiscoveryFiltersListFields` and
+  `LibraryAddressCommand_FileEffectiveDiscoveryUnionsScalarFields` for
   population-wide field presence across list and scalar contexts; and
-- `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence`
+- `LibraryAddressCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence`
   for preserving section evidence when a coordinate is not an instruction
   boundary; and
 - `MetadataLens_StringHeapListing_MarksItselfReferencedOnly` and
@@ -240,14 +244,14 @@ Release CLI gates cover:
 
 ## Other candidate surfaces
 
-The coordinate rule is intentionally narrow:
+The address rule is intentionally narrow:
 
 | Current or possible surface | Disposition | Reason |
 | --- | --- | --- |
-| Retired `library --il-offset` | Replaced by `library coordinate` | One required point enables several peer method-body observations. |
-| Retired `library --il-offsets` | Replaced by `library coordinate --file` | A bounded coordinate operation has its own ordered document, acquisition plan, and partial-failure semantics. |
-| Retired `library --heap` | Replaced by `library coordinate` | One required metadata point enables a coordinate value bound to the selected metadata root. |
-| Future `member coordinate` | Valid future adopter, not initial scope | A member-relative IL offset could reuse the same method-body query once a useful peer coordinate view and bare result are defined. |
+| Retired `library --il-offset` | Replaced by `library address` | One required point enables several peer method-body observations. |
+| Retired `library --il-offsets` | Replaced by `library address --file` | A bounded coordinate operation has its own ordered document, acquisition plan, and partial-failure semantics. |
+| Retired `library --heap` | Replaced by `library address` | One required metadata point enables a coordinate value bound to the selected metadata root. |
+| Future `member address` | Valid future adopter, not initial scope | A member-relative IL offset could reuse the same method-body query once a useful peer address view and bare result are defined. |
 | `library --metadata-root` | Keep as a selector | It chooses the metadata image in which all metadata sections and coordinates are interpreted; it does not identify one subordinate point. |
 | Body Shapes `Kind=...` | Keep as a predicate | It narrows one observation producer and does not establish a reusable coordinate. |
 | `--row`, `--value`, `--print`, `--urls`, `--paths`, `--out` | Keep as projections | They select or transfer completed content and do not authorize a new inspection address. |
@@ -256,8 +260,8 @@ The coordinate rule is intentionally narrow:
 
 ### Resource extraction
 
-`library --extract-resources` is a strong **operation-child** candidate, not a
-coordinate child. It writes files, has destination and overwrite policy,
+`library --extract-resources` is a strong **operation-child** candidate, not an
+address child. It writes files, has destination and overwrite policy,
 reports an extraction outcome, and is incompatible with ordinary section
 rendering. A focused adoption should consider a resource-owned child such as
 `library resources` or `library extract`, but this document does not choose its
@@ -269,7 +273,7 @@ This contract does not:
 
 - introduce a universal coordinate CLR type;
 - combine IL and metadata coordinate semantics;
-- make every required section option into a child command;
+- make every required section option into an address child command;
 - turn output row positions into inspected coordinates;
 - move ordinary member inspection beneath Library;
 - define resource extraction; or
