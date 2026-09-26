@@ -1005,6 +1005,20 @@ roster retention, relationship containment, visible invalid selections, and
 participant isolation. `ImplementationProfileFamilyInspectionOperationTests`
 gate completed envelope Share, diagnostic, and failure behavior.
 
+`AssemblyContextTypeImplementationHeatQuery` is the Type-scoped sibling used for
+Inspect Web member-list heat. For one metadata Type definition identity it
+selects every eligible overload family (at least two public overloads, all of
+member kind `method`), adds every same-name method the Type declares regardless
+of accessibility, and measures all of them in one Analysis execution. It issues
+a compact record per family: each method's size (logical body plus attributed
+generated bodies), trivial and complete flags, same-name call relationships, and
+scoped coverage, plus the execution's receipt. Raw metrics stay with the family
+query. `TypeImplementationHeatInspectionOperation` hands it to hosts as an
+`InspectionEnvelope` with a non-projectable Share result; the normative owner is
+`docs/design/inspect-web-implementation-profiles.md`, and
+`AssemblyContextTypeImplementationHeatQueryTests` gate it on fixture,
+System.Text.Json, and Dapper assets.
+
 `AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
 two explicitly selected assembly participants while both immutable snapshots
 remain borrowed. Its input names the seed and candidate groups and

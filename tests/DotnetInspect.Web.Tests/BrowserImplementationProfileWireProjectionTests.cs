@@ -290,6 +290,119 @@ public sealed class BrowserImplementationProfileWireProjectionTests
                 unavailable.Failure).Kind);
     }
 
+    [Fact]
+    public async Task TypeHeatProjectionPreservesFamiliesAndEnvelope()
+    {
+        byte[] content = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, content);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        string typeDefinitionId = Selection(
+            group,
+            participant,
+            "ImplementationProfileHiddenImplementationSample",
+            "Parse").TypeDefinitionId;
+
+        InspectionEnvelope<
+            AssemblyContextEntry<AssemblyTypeImplementationHeatInspection>>
+                inspection = TypeImplementationHeatInspectionOperation.Execute(
+                    group,
+                    participant,
+                    typeDefinitionId);
+        AssemblyTypeImplementationHeatInspection expected =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyTypeImplementationHeatInspection>.Available>(
+                        inspection.Content)
+                .Value;
+        BrowserTypeImplementationHeat browser =
+            BrowserImplementationProfileWireProjection.ProjectTypeHeat(
+                inspection,
+                s_compileLibrary);
+
+        Assert.Equal(1, browser.SchemaVersion);
+        Assert.Equal("available", browser.Outcome);
+        Assert.Null(browser.Failure);
+        Assert.Equal(inspection.Diagnostics.Length, browser.Diagnostics.Length);
+        BrowserTypeImplementationHeatContent projected =
+            Assert.IsType<BrowserTypeImplementationHeatContent>(
+                browser.Content);
+        Assert.Equal(typeDefinitionId, projected.TypeDefinitionId);
+        Assert.Equal(
+            expected.Families.Select(family => family.Member),
+            projected.Families.Select(family => family.Member));
+        foreach ((ImplementationHeatFamily family, BrowserImplementationHeatFamily wire)
+            in expected.Families.Zip(projected.Families))
+        {
+            Assert.Equal(
+                family.Roster.Select(member =>
+                    (member.TypeDefinitionId, member.StableSelector, member.MetadataToken)),
+                wire.Roster.Select(member =>
+                    (member.TypeDefinitionId, member.StableSelector, member.MetadataToken)));
+            Assert.Equal(
+                family.Methods.Select(method =>
+                    (method.MetadataToken, method.IsRosterMember, method.HasBody,
+                        method.Size, method.IsTrivial, method.IsComplete)),
+                wire.Methods.Select(method =>
+                    (method.MetadataToken, method.IsRosterMember, method.HasBody,
+                        method.Size, method.IsTrivial, method.IsComplete)));
+            Assert.Equal(
+                family.Relationships.Select(relationship =>
+                    (relationship.CallerToken, relationship.CalleeToken)),
+                wire.Relationships.Select(relationship =>
+                    (relationship.CallerToken, relationship.CalleeToken)));
+            Assert.Equal(family.UnavailableBodies.Length, wire.UnavailableBodies.Length);
+            Assert.Equal(family.Diagnostics.Length, wire.AnalysisDiagnostics.Length);
+        }
+
+        string json = JsonSerializer.Serialize(
+            browser,
+            BrowserAnalysisJsonContext.Default.BrowserTypeImplementationHeat);
+        BrowserTypeImplementationHeat roundTrip =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserAnalysisJsonContext.Default
+                    .BrowserTypeImplementationHeat)
+            ?? throw new InvalidOperationException(
+                "Type implementation-heat wire round trip returned null.");
+        Assert.Equal(
+            JsonSerializer.Serialize(
+                browser.Content,
+                BrowserAnalysisJsonContext.Default
+                    .BrowserTypeImplementationHeat.Options),
+            JsonSerializer.Serialize(
+                roundTrip.Content,
+                BrowserAnalysisJsonContext.Default
+                    .BrowserTypeImplementationHeat.Options));
+    }
+
+    [Fact]
+    public async Task TypeHeatProjectionKeepsFailureVisible()
+    {
+        byte[] content = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, content);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        BrowserTypeImplementationHeat browser =
+            BrowserImplementationProfileWireProjection.ProjectTypeHeat(
+                TypeImplementationHeatInspectionOperation.Execute(
+                    group,
+                    participant,
+                    "Missing.Type"),
+                s_compileLibrary);
+
+        Assert.Equal("failed", browser.Outcome);
+        Assert.Null(browser.Content);
+        Assert.NotNull(browser.Failure);
+        Assert.Contains("was not found", browser.Failure.Detail, StringComparison.Ordinal);
+        Assert.NotEmpty(browser.Diagnostics);
+    }
+
     static AssemblyContextGroup Group(
         InspectionWorkspace workspace,
         byte[] content,
