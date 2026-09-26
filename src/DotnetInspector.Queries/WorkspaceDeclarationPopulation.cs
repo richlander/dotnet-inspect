@@ -293,15 +293,18 @@ public sealed class WorkspaceDeclarationPopulation
         member = Receipt.Members.FirstOrDefault(candidate =>
             ReferenceEquals(candidate.Occurrence, occurrence));
         if (member is null
-            || !_access.TryGetValue(occurrence, out var access))
+            || !_access.TryGetValue(occurrence, out var access)
+            || access
+                is not WorkspaceDeclarationMemberAccess.AssemblyContext
+                    assemblyContext)
         {
             group = null;
             assembly = null;
             return false;
         }
 
-        group = access.Group;
-        assembly = access.Assembly;
+        group = assemblyContext.Group;
+        assembly = assemblyContext.Assembly;
         return true;
     }
 
@@ -314,12 +317,15 @@ public sealed class WorkspaceDeclarationPopulation
         {
             if (_access.TryGetValue(
                     member.Occurrence,
-                    out var access))
+                    out var access)
+                && access
+                    is WorkspaceDeclarationMemberAccess.AssemblyContext
+                        assemblyContext)
             {
                 yield return (
                     member,
-                    access.Group,
-                    access.Assembly);
+                    assemblyContext.Group,
+                    assemblyContext.Assembly);
             }
         }
     }
