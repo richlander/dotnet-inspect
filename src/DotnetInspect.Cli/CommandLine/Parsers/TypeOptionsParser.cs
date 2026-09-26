@@ -52,8 +52,8 @@ public static class TypeOptionsParser
         if (error is not null)
             return true;
         bool hasProjectSource =
-            !string.IsNullOrWhiteSpace(
-                parseResult.GetValue(args.ProjectOption));
+            parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false };
         error =
             SharedParsers.GetStructuralPositionalVersionError(
                 sourceInputs,
@@ -183,8 +183,8 @@ public static class TypeOptionsParser
                 args.AssemblyOption,
                 args.PlatformOption);
         bool hasProjectSource =
-            !string.IsNullOrWhiteSpace(
-                parseResult.GetValue(args.ProjectOption));
+            parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false };
         if (!sourceInputs.HasExplicitSource && !hasProjectSource)
             return false;
 
