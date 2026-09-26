@@ -36,11 +36,13 @@ internal abstract class CliPlatformTypeLocatorOutcome
         internal Completed(
             PlatformTypeCatalogRouteTarget target,
             ImmutableArray<PlatformTypeCatalogRouteRequest> typeRequests,
+            ImmutableArray<string> compatibilityTypePatterns,
             InspectionEnvelope<TypeDeclarationLocatorSectionResult> envelope,
             PlatformHouseReceipt houseReceipt)
         {
             Target = target;
             TypeRequests = typeRequests;
+            CompatibilityTypePatterns = compatibilityTypePatterns;
             Envelope = envelope;
             HouseReceipt = houseReceipt;
         }
@@ -48,6 +50,8 @@ internal abstract class CliPlatformTypeLocatorOutcome
         internal PlatformTypeCatalogRouteTarget Target { get; }
         internal ImmutableArray<PlatformTypeCatalogRouteRequest> TypeRequests
         { get; }
+        internal ImmutableArray<string> CompatibilityTypePatterns { get; }
+        internal int NamespaceAnswerIndex => TypeRequests.Length;
         internal InspectionEnvelope<TypeDeclarationLocatorSectionResult>
             Envelope
         { get; }
@@ -198,8 +202,25 @@ internal static class PlatformTypeLocatorRouting
 
             (
                 ImmutableArray<PlatformTypeCatalogRouteRequest> typeRequests,
+                ImmutableArray<string> compatibilityTypePatterns,
                 ImmutableArray<TypeDeclarationLocatorRequest> requests) =
-                    BuildRequests(target, cancellationToken);
+                    BuildRequests(
+                        target,
+                        [
+                            .. completed.Population.Value.Members
+                                .Select(
+                                    static member =>
+                                        member.Library.ApiAssembly
+                                            .AssemblyIdentity)
+                                .OfType<
+                                    ManagedMetadataIdentity.Assembly>()
+                                .Select(
+                                    static identity =>
+                                        identity.Identity.Name)
+                                .Distinct(
+                                    StringComparer.OrdinalIgnoreCase),
+                        ],
+                        cancellationToken);
             InspectionEnvelope<TypeDeclarationLocatorSectionResult> envelope =
                 await TypeDeclarationLocatorInspection.ExecuteAsync(
                         workspace,
@@ -260,6 +281,7 @@ internal static class PlatformTypeLocatorRouting
                     populationTarget.TargetFramework.ToString(),
                     populationTarget.Version.Value),
                 typeRequests,
+                compatibilityTypePatterns,
                 envelope,
                 completed.Population.Receipt.HouseReceipt);
         }
@@ -331,13 +353,14 @@ internal static class PlatformTypeLocatorRouting
             string @namespace,
             CancellationToken cancellationToken)
     {
+        string normalizedNamespace = @namespace.Trim();
         TypeDeclarationLocatorSectionResult.Evaluated evaluated =
             AssertEvaluated(completed.Envelope);
         TypeDeclarationLocatorSectionAnswer answer =
-            evaluated.Answers[completed.TypeRequests.Length];
+            evaluated.Answers[completed.NamespaceAnswerIndex];
         ImmutableArray<string> namesakeLibraries =
             LibraryNamespaceDiscovery.NamesakeLibraryCandidates(
-                @namespace);
+                normalizedNamespace);
         var ranks = new Dictionary<string, int>(
             namesakeLibraries.Length,
             StringComparer.OrdinalIgnoreCase);
@@ -373,7 +396,7 @@ internal static class PlatformTypeLocatorRouting
             {
                 builder = new(
                     candidate.Observation.AssemblyIdentity.Name,
-                    @namespace,
+                    normalizedNamespace,
                     completed.Target,
                     role switch
                     {
@@ -410,7 +433,8 @@ internal static class PlatformTypeLocatorRouting
             }
         }
 
-        var request = new PlatformNamespaceDiscoveryRequest(@namespace);
+        var request =
+            new PlatformNamespaceDiscoveryRequest(normalizedNamespace);
         PlatformNamespaceDiscoveryOutcome outcome = hits.Count == 0
             ? new PlatformNamespaceDiscoveryOutcome.Missing(
                 request,
@@ -426,28 +450,86 @@ internal static class PlatformTypeLocatorRouting
                     + "canonical Workspace Share projection."));
     }
 
+    internal static PlatformTypeCatalogRouteOutcome?
+        ResolveCompatibilityType(
+            CliPlatformTypeLocatorOutcome.Completed completed,
+            string pattern,
+            CancellationToken cancellationToken)
+    {
+        int patternIndex = -1;
+        for (int index = 0;
+            index < completed.CompatibilityTypePatterns.Length;
+            index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (string.Equals(
+                    completed.CompatibilityTypePatterns[index],
+                    pattern,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                patternIndex = index;
+                break;
+            }
+        }
+        if (patternIndex < 0)
+            return null;
+
+        TypeDeclarationLocatorSectionResult.Evaluated evaluated =
+            AssertEvaluated(completed.Envelope);
+        int answerIndex =
+            completed.NamespaceAnswerIndex + 1 + patternIndex;
+        ImmutableArray<TypeDeclarationLocatorSectionCandidate> preferred =
+            PreferCandidates(
+                evaluated.Answers[answerIndex].Candidates,
+                pattern,
+                cancellationToken);
+        var request = new PlatformTypeCatalogRouteRequest(
+            pattern,
+            pattern,
+            memberSelector: null);
+        if (preferred.IsDefaultOrEmpty)
+        {
+            return new PlatformTypeCatalogRouteOutcome.Missing(
+                request,
+                completed.Target);
+        }
+
+        return preferred.Length == 1
+            ? new PlatformTypeCatalogRouteOutcome.Resolved(
+                request,
+                completed.Target,
+                Snapshot(preferred[0]))
+            : new PlatformTypeCatalogRouteOutcome.Ambiguous(
+                request,
+                completed.Target,
+                [.. preferred.Select(Snapshot)]);
+    }
+
     private static (
         ImmutableArray<PlatformTypeCatalogRouteRequest> TypeRequests,
+        ImmutableArray<string> CompatibilityTypePatterns,
         ImmutableArray<TypeDeclarationLocatorRequest> Requests)
         BuildRequests(
             string target,
+            ImmutableArray<string> platformAssemblyNames,
             CancellationToken cancellationToken)
     {
+        string discoveryTarget = target.Trim();
         var typeRequests =
             ImmutableArray.CreateBuilder<
                 PlatformTypeCatalogRouteRequest>();
         var requests =
             ImmutableArray.CreateBuilder<TypeDeclarationLocatorRequest>();
 
-        AddTypeRequest(target, memberSelector: null);
+        AddTypeRequest(discoveryTarget, memberSelector: null);
         int probes = 0;
         int genericDepth = 0;
-        for (int index = target.Length - 1;
+        for (int index = discoveryTarget.Length - 1;
             index > 0 && probes < MaxTypeMemberBoundaryProbes;
             index--)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            switch (target[index])
+            switch (discoveryTarget[index])
             {
                 case '>':
                     genericDepth++;
@@ -456,7 +538,7 @@ internal static class PlatformTypeLocatorRouting
                     genericDepth--;
                     continue;
                 case '.' when genericDepth == 0
-                    && index < target.Length - 1:
+                    && index < discoveryTarget.Length - 1:
                     break;
                 default:
                     continue;
@@ -464,15 +546,46 @@ internal static class PlatformTypeLocatorRouting
 
             probes++;
             AddTypeRequest(
-                target[..index],
-                target[(index + 1)..]);
+                discoveryTarget[..index],
+                discoveryTarget[(index + 1)..]);
         }
         requests.Add(
             new TypeDeclarationLocatorRequest.Namespace(
-                target,
+                discoveryTarget,
                 MetadataNamespaceMatch.Exact));
+        var compatibilityTypePatterns =
+            ImmutableArray.CreateBuilder<string>();
+        var seenCompatibilityPatterns =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (PlatformTypeCatalogRouteRequest request
+            in typeRequests)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string? assemblyName = platformAssemblyNames
+                .Where(
+                    candidate =>
+                        request.TypePattern.Length > candidate.Length
+                        && request.TypePattern[candidate.Length] == '.'
+                        && request.TypePattern.StartsWith(
+                            candidate,
+                            StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(static candidate => candidate.Length)
+                .FirstOrDefault();
+            if (assemblyName is null)
+                continue;
+
+            string pattern =
+                request.TypePattern[(assemblyName.Length + 1)..];
+            if (seenCompatibilityPatterns.Add(pattern))
+            {
+                compatibilityTypePatterns.Add(pattern);
+                requests.Add(
+                    new TypeDeclarationLocatorRequest.Pattern(pattern));
+            }
+        }
         return (
             typeRequests.ToImmutable(),
+            compatibilityTypePatterns.ToImmutable(),
             requests.ToImmutable());
 
         void AddTypeRequest(

@@ -88,6 +88,7 @@ public static class SourceResolver
         => TryProbeLocalQualifiedName(
             name,
             _ => sourceKeys,
+            allowRuntimeTypeFallback: true,
             reportPlatformLookupFailure);
 
     internal static LocalProbeResult? TryProbeLocalQualifiedName(
@@ -97,11 +98,13 @@ public static class SourceResolver
         => TryProbeLocalQualifiedName(
             name,
             candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
+            allowRuntimeTypeFallback: true,
             reportPlatformLookupFailure);
 
     private static LocalProbeResult? TryProbeLocalQualifiedName(
         string name,
         Func<string, IReadOnlyList<string>> sourceKeysForPackage,
+        bool allowRuntimeTypeFallback,
         Action<string>? reportPlatformLookupFailure)
     {
         // Require at least 2 dots (e.g., System.Text.Json.JsonSerializer).
@@ -157,8 +160,11 @@ public static class SourceResolver
         // Fallback: a platform library matched but the type wasn't in it.
         // Scan all runtime ref assemblies for the type (e.g., INumber<T> is in
         // System.Runtime, not System.Numerics).
-        if (platformCandidate != null)
+        if (platformCandidate != null && allowRuntimeTypeFallback)
         {
+            RouterDecisionLog.Record(
+                "platform-runtime-reverse-fallback",
+                name);
             PlatformTypeLookupOutcome lookup =
                 PlatformResolver.LookupType(name);
             if (lookup is PlatformTypeLookupOutcome.Missing)
@@ -202,34 +208,40 @@ public static class SourceResolver
         string name,
         IReadOnlyList<string> sourceKeys,
         bool allowPlatformPrefixFallback,
-        Action<string>? reportPlatformLookupFailure = null)
+        Action<string>? reportPlatformLookupFailure = null,
+        bool allowRuntimeTypeFallback = true)
         => TryResolveQualifiedTypeName(
             name,
             _ => sourceKeys,
             allowPlatformPrefixFallback,
-            reportPlatformLookupFailure);
+            reportPlatformLookupFailure,
+            allowRuntimeTypeFallback);
 
     internal static LocalProbeResult? TryResolveQualifiedTypeName(
         string name,
         NuGetSourceOptions? sourceOptions,
         bool allowPlatformPrefixFallback,
-        Action<string>? reportPlatformLookupFailure = null)
+        Action<string>? reportPlatformLookupFailure = null,
+        bool allowRuntimeTypeFallback = true)
         => TryResolveQualifiedTypeName(
             name,
             candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
             allowPlatformPrefixFallback,
-            reportPlatformLookupFailure);
+            reportPlatformLookupFailure,
+            allowRuntimeTypeFallback);
 
     private static LocalProbeResult? TryResolveQualifiedTypeName(
         string name,
         Func<string, IReadOnlyList<string>> sourceKeysForPackage,
         bool allowPlatformPrefixFallback,
-        Action<string>? reportPlatformLookupFailure)
+        Action<string>? reportPlatformLookupFailure,
+        bool allowRuntimeTypeFallback = true)
     {
         bool platformLookupFailed = false;
         var probe = TryProbeLocalQualifiedName(
             name,
             sourceKeysForPackage,
+            allowRuntimeTypeFallback,
             message =>
             {
                 platformLookupFailed = true;

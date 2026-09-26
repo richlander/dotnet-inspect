@@ -143,6 +143,12 @@ discovery remains shared; exact-name preference, explicit generic-arity
 behavior, top-level preference, definition preference, and ambiguity are
 Router-owned policy.
 
+The same envelope also carries compatibility suffix requests derived from the
+realized population's assembly names. The Router consults those answers only
+after direct assembly-prefix classification cannot prove an exact Type. This
+preserves resolved and ambiguous qualified-name behavior without reopening the
+runtime catalog or repeating a reverse declaration scan.
+
 The locator projects all declarations for Type/member parity with the replaced
 catalog. Namespace routing applies Metadata's `IsPublicSurface` fact before
 namesake-Library selection, matching the prior namespace contract without

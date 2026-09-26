@@ -120,6 +120,42 @@ public sealed class PlatformTypeLocatorRoutingTests
 
     [Fact]
     public async Task
+        InstalledPopulationPreservesAmbiguousMemberTypeBoundary()
+    {
+        string dotnetRoot = Assert.IsType<string>(
+            PlatformTypeCatalogRouting.FindActiveDotnetRoot());
+        using var client = new HttpClient();
+        var context = new CommandContext(
+            verbose: false,
+            client,
+            () => throw new InvalidOperationException(
+                "Installed routing must not activate Package Source."));
+
+        CliPlatformTypeLocatorOutcome.Completed completed =
+            Assert.IsType<CliPlatformTypeLocatorOutcome.Completed>(
+                await PlatformTypeLocatorRouting.LocateAsync(
+                    dotnetRoot,
+                    context,
+                    new NuGetSourceOptions(),
+                    "System.Numerics.Enumerator.X",
+                    TestContext.Current.CancellationToken));
+
+        PlatformTypeCatalogRouteOutcome? route =
+            PlatformTypeLocatorRouting.ResolveCompatibilityType(
+                completed,
+                "Enumerator",
+                TestContext.Current.CancellationToken);
+        var ambiguous =
+            Assert.IsType<PlatformTypeCatalogRouteOutcome.Ambiguous>(
+                route);
+        Assert.Equal(
+            "Enumerator",
+            ambiguous.Request.TypePattern);
+        Assert.Null(ambiguous.Request.MemberSelector);
+    }
+
+    [Fact]
+    public async Task
         InstalledPopulationRoutesExactNamespaceThroughLocatorEnvelope()
     {
         string dotnetRoot = Assert.IsType<string>(
@@ -172,7 +208,7 @@ public sealed class PlatformTypeLocatorRoutingTests
                 static item => item.rank,
                 StringComparer.OrdinalIgnoreCase);
         var expectedHitOrder =
-            evaluated.Answers[^1].Candidates
+            evaluated.Answers[completed.NamespaceAnswerIndex].Candidates
                 .Where(
                     candidate =>
                         candidate.IsPublicSurface
