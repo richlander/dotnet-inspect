@@ -1259,6 +1259,8 @@ public static class TypeCommand
         }
 
         ExactTypeRelationsInspectionOutcome outcome;
+        bool appliesSemanticRowSelection =
+            options.TypeRelationsRowSelection is not null;
         try
         {
             outcome = await ExactTypeRelationsInspectionOperation
@@ -1272,12 +1274,16 @@ public static class TypeCommand
                         },
                     accepted.Plan,
                     count: options.Count
+                        && !appliesSemanticRowSelection
                         ? new SubjectRelationPopulationCountRequest()
                         : null,
                     rows: options.Count
+                        && !appliesSemanticRowSelection
                         ? null
                         : new SubjectRelationPopulationRowsRequest(
-                            options.Limit ?? int.MaxValue),
+                            appliesSemanticRowSelection
+                                ? int.MaxValue
+                                : options.Limit ?? int.MaxValue),
                     includeNonPublic: options.IncludeAll,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
@@ -1296,21 +1302,52 @@ public static class TypeCommand
             return 1;
         }
 
+        IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates =
+            available.Relations.Candidates;
+        if (appliesSemanticRowSelection)
+        {
+            if (available.Relations.Population.Rows
+                    is not SubjectRelationPopulationRowsOutcome.Read
+                || !TrySelectTypeRelationCandidates(
+                    options,
+                    candidates,
+                    implementers,
+                    derivedTypes,
+                    out candidates))
+            {
+                if (available.Relations.Population.Rows
+                    is not SubjectRelationPopulationRowsOutcome.Read)
+                {
+                    CommandError.Write(
+                        "Subject Relations rows are unavailable.");
+                }
+                return 1;
+            }
+        }
+
         if (options.Count)
         {
+            if (appliesSemanticRowSelection)
+            {
+                if (!available.Relations.Relations.Evidence.IsComplete)
+                {
+                    CommandError.Write(
+                        "The exact Subject Relations count is incomplete "
+                            + "because one or more candidate assemblies "
+                            + "could not be inspected or resolved.");
+                    return 1;
+                }
+                CountOutput.WriteCount(
+                    candidates.Count,
+                    outputPath: null);
+                return 0;
+            }
+
             if (available.Relations.Population.Count
                 is SubjectRelationPopulationCountOutcome.Counted counted)
             {
-                int count = options.Limit is int limit
-                    ? Math.Min(counted.Value, limit)
-                    : counted.Value;
-                if (options.Rows is { IsUnlimited: false } rows)
-                {
-                    (int start, int end) = rows.Resolve(count);
-                    count = end - start;
-                }
                 CountOutput.WriteCount(
-                    count,
+                    counted.Value,
                     outputPath: null);
                 return 0;
             }
@@ -1323,7 +1360,7 @@ public static class TypeCommand
         }
 
         if (available.Relations.Population.Rows
-            is not SubjectRelationPopulationRowsOutcome.Read read)
+            is not SubjectRelationPopulationRowsOutcome.Read)
         {
             CommandError.Write(
                 "Subject Relations rows are unavailable.");
@@ -1331,9 +1368,9 @@ public static class TypeCommand
         }
         List<TypeRelationResult> results =
         [
-            .. read.Items.Select(row =>
+            .. candidates.Select(candidate =>
                 ToTypeRelationResult(
-                    row,
+                    candidate,
                     available.Relations.Relations,
                     request)),
         ];
@@ -1407,6 +1444,56 @@ public static class TypeCommand
         return available.Relations.Relations.Evidence.HasUsableRows
             ? 0
             : 1;
+    }
+
+    private static bool TrySelectTypeRelationCandidates(
+        TypeOptions options,
+        IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates,
+        bool implementers,
+        bool derivedTypes,
+        out IReadOnlyList<WorkspaceTypeRelationCandidateRow> selected)
+    {
+        var results = new List<WorkspaceTypeRelationCandidateRow>();
+        foreach ((SubjectRelationForm Form, string Name) section in
+            new[]
+            {
+                (SubjectRelationForm.Interface, SectionNames.Implementers),
+                (SubjectRelationForm.BaseType, SectionNames.DerivedTypes),
+            })
+        {
+            if (section.Form == SubjectRelationForm.Interface
+                    ? !implementers
+                    : !derivedTypes)
+            {
+                continue;
+            }
+
+            WorkspaceTypeRelationCandidateRow[] sectionRows =
+            [
+                .. candidates.Where(row => row.Form == section.Form),
+            ];
+            if (!CliSemanticRowSelection.TrySelect(
+                    options.TypeRelationsRowSelection,
+                    sectionRows,
+                    section.Name,
+                    failure =>
+                        $"Type relation row selection stage "
+                        + $"{failure.Failure.StageNumber} for "
+                        + $"'{failure.Identity}' requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} candidate rows "
+                        + "are available.",
+                    out IReadOnlyList<
+                        WorkspaceTypeRelationCandidateRow> selectedRows))
+            {
+                selected = [];
+                return false;
+            }
+            results.AddRange(selectedRows);
+        }
+
+        selected = results;
+        return true;
     }
 
     private sealed record CliTypeRelationsRequest(
@@ -1667,21 +1754,21 @@ public static class TypeCommand
     }
 
     private static TypeRelationResult ToTypeRelationResult(
-        SubjectRelationRow row,
+        WorkspaceTypeRelationCandidateRow candidate,
         WorkspaceTypeHierarchyRelationsResult relations,
         CliTypeRelationsRequest request)
     {
         var sourceType =
             (InspectionGraphTypeIdentity.AcquiredDefinition)
-                ((InspectionGraphSubject.TypeSubject)row.Source).Identity;
+                candidate.Candidate.Identity;
         WorkspaceTypeHierarchyRelationSource source =
-            relations.Sources.Single(candidate =>
+            relations.Sources.Single(sourceCandidate =>
                 ReferenceEquals(
-                    candidate.Registration,
+                    sourceCandidate.Registration,
                     sourceType.Registration));
         return new(
             MetadataTypeNameFormatter.FormatFullName(sourceType.Type),
-            row.Form == SubjectRelationForm.Interface
+            candidate.Form == SubjectRelationForm.Interface
                 ? "interface"
                 : "base type",
             source.Assembly.Name,

@@ -126,6 +126,11 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Single(
             Assert.IsType<SubjectRelationPopulationRowsOutcome.Read>(
                 available.Relations.Population.Rows).Items);
+        WorkspaceTypeRelationCandidateRow candidate =
+            Assert.Single(available.Relations.Candidates);
+        Assert.Equal(
+            type == "Relations.IGeneric`1" ? 2 : 1,
+            candidate.Evidence.Length);
     }
 
     static byte[] BuildHierarchyAssembly()
@@ -215,6 +220,19 @@ public sealed partial class ExactTypeInspectionOperationTests
         metadata.AddInterfaceImplementation(
             genericImplementation,
             constructedContract);
+        var secondGenericSignature = new BlobBuilder();
+        secondGenericSignature.WriteByte(0x15);
+        secondGenericSignature.WriteByte(0x12);
+        secondGenericSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(genericContract) << 2);
+        secondGenericSignature.WriteCompressedInteger(1);
+        secondGenericSignature.WriteByte(0x0E);
+        TypeSpecificationHandle secondConstructedContract =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(secondGenericSignature));
+        metadata.AddInterfaceImplementation(
+            genericImplementation,
+            secondConstructedContract);
         TypeDefinitionHandle baseType =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public | TypeAttributes.Abstract,

@@ -129,7 +129,7 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
-    public async Task CountAndRowsApplyToCanonicalRelationRows()
+    public async Task CountAndRowsApplyToTypeCandidates()
     {
         string assembly = typeof(TypeRelationsCommandTests).Assembly.Location;
         string type = typeof(IWorkspaceImplementationMarker).FullName!;
@@ -165,6 +165,96 @@ public sealed class TypeRelationsCommandTests
                 typeof(WorkspaceImplementationB).FullName!,
             ],
             ReadJsonTypes(rows.Output));
+    }
+
+    [Fact]
+    public async Task GenericConstructionsProjectToDistinctTypeCandidates()
+    {
+        string assembly = typeof(TypeRelationsCommandTests).Assembly.Location;
+        string type = typeof(IWorkspaceGenericMarker<>).FullName!;
+        var count = await ExecuteAsync(
+            "type",
+            type,
+            "--library",
+            assembly,
+            "-S",
+            "Implementers",
+            "--count");
+        var rows = await ExecuteAsync(
+            "type",
+            type,
+            "--library",
+            assembly,
+            "-S",
+            "Implementers",
+            "--json");
+
+        Assert.Equal(0, count.ExitCode);
+        Assert.Empty(count.Error);
+        Assert.Equal("2", count.Output.Trim());
+        Assert.Equal(0, rows.ExitCode);
+        Assert.Empty(rows.Error);
+        Assert.Equal(
+            [
+                typeof(WorkspaceGenericImplementation).FullName!,
+                typeof(WorkspaceGenericImplementationB).FullName!,
+            ],
+            ReadJsonTypes(rows.Output));
+    }
+
+    [Fact]
+    public async Task SemanticLimitAppliesBeforeCountAndJson()
+    {
+        string assembly = typeof(TypeRelationsCommandTests).Assembly.Location;
+        string type = typeof(IWorkspaceImplementationMarker).FullName!;
+        var count = await ExecuteAsync(
+            "type",
+            type,
+            "--library",
+            assembly,
+            "-S",
+            "Implementers",
+            "-n",
+            "1",
+            "--count");
+        var rows = await ExecuteAsync(
+            "type",
+            type,
+            "--library",
+            assembly,
+            "-S",
+            "Implementers",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(0, count.ExitCode);
+        Assert.Empty(count.Error);
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Equal(0, rows.ExitCode);
+        Assert.Empty(rows.Error);
+        Assert.Single(ReadJsonTypes(rows.Output));
+    }
+
+    [Fact]
+    public async Task UnsatisfiedSemanticWindowFailsBeforeCount()
+    {
+        var result = await ExecuteAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            typeof(TypeRelationsCommandTests).Assembly.Location,
+            "-S",
+            "Implementers",
+            "--rows",
+            "1..10",
+            "--count");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires row 10, but only 4 candidate rows are available",
+            result.Error);
     }
 
     [Theory]
@@ -297,6 +387,17 @@ public sealed class WorkspaceImplementationB :
 
 public sealed class WorkspaceImplementationC :
     IWorkspaceImplementationMarker;
+
+public interface IWorkspaceGenericMarker<T>;
+
+public sealed class WorkspaceGenericImplementation :
+    IWorkspaceGenericMarker<int>,
+    IWorkspaceGenericMarker<string>;
+
+public sealed class WorkspaceGenericImplementationB :
+    IWorkspaceGenericMarker<int>,
+    IWorkspaceGenericMarker<string>,
+    IWorkspaceGenericMarker<Guid>;
 
 public abstract class WorkspaceBase;
 

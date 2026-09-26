@@ -243,15 +243,14 @@ public static partial class MetadataExports
         }
 
         static string[] Names(
-            IEnumerable<SubjectRelationRow> source) =>
+            IEnumerable<WorkspaceTypeRelationCandidateRow> source) =>
         [
             .. source
                 .Select(row =>
                     (InspectionGraphTypeIdentity.AcquiredDefinition)
-                        ((InspectionGraphSubject.TypeSubject)row.Source)
+                        row.Candidate
                             .Identity)
                 .Select(identity => identity.Type.ToEscapedFullName())
-                .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal),
         ];
         string[] failures =
@@ -262,9 +261,9 @@ public static partial class MetadataExports
                     "Subject Relations: hierarchy evidence is incomplete.",
                 ];
         return (
-            Names(rows.Items.Where(row =>
+            Names(available.Relations.Candidates.Where(row =>
                 row.Form == SubjectRelationForm.Interface)),
-            Names(rows.Items.Where(row =>
+            Names(available.Relations.Candidates.Where(row =>
                 row.Form == SubjectRelationForm.BaseType)),
             failures);
     }
