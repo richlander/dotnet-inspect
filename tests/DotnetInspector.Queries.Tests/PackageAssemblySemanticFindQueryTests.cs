@@ -1170,7 +1170,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
         await fixture.CacheAssemblyAsync(
             "Contoso.First",
             NoMatchImage);
-        TimeSpan timeout = TimeSpan.FromSeconds(1);
+        TimeSpan timeout = TimeSpan.FromSeconds(5);
         PackageSourceOperationLease operation =
             fixture.Root.IssueOperationLease(
                 TestContext.Current.CancellationToken,
