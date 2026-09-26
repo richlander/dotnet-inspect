@@ -48,12 +48,14 @@ public sealed class WorkDescription
 {
     internal WorkDescription(
         ImmutableArray<ProducerDeclaration> producers,
+        ImmutableArray<ProducerDeclaration> completionOrder,
         ImmutableDictionary<ProducerDeclaration, ProducerTerminal> terminals,
         ImmutableDictionary<ProducerDeclaration, int> visitPasses,
         ImmutableDictionary<ProducerDeclaration, int> completionPasses,
         ImmutableHashSet<ProducerDeclaration> requested)
     {
         Producers = producers;
+        CompletionOrder = completionOrder;
         _terminals = terminals;
         _visitPasses = visitPasses;
         _completionPasses = completionPasses;
@@ -68,8 +70,17 @@ public sealed class WorkDescription
         _completionPasses;
     readonly ImmutableHashSet<ProducerDeclaration> _requested;
 
-    /// <summary>Every planned producer, in dependency order with identity ties.</summary>
+    /// <summary>
+    /// Every planned producer, in visit order: consistent with every
+    /// dependency a visit has, with identity ties.
+    /// </summary>
     public ImmutableArray<ProducerDeclaration> Producers { get; }
+
+    /// <summary>
+    /// Every planned producer, in completion order: consistent with every
+    /// dependency a completion has. It may differ from the visit order.
+    /// </summary>
+    public ImmutableArray<ProducerDeclaration> CompletionOrder { get; }
 
     public int PassCount { get; }
 
@@ -157,57 +168,22 @@ public static class ProducerPlanner
                 Distinct(rejections));
         }
 
-        ImmutableArray<ProducerDeclaration> ordered =
-            Order(closure, rejections);
+        StageSchedule schedule = Schedule(closure, rejections);
         if (rejections.Count > 0)
         {
             return new ProducerPlanResult.Rejected(
                 Distinct(rejections));
         }
 
-        var visitPasses = new Dictionary<ProducerDeclaration, int>(
-            ReferenceEqualityComparer.Instance);
-        var completionPasses = new Dictionary<ProducerDeclaration, int>(
-            ReferenceEqualityComparer.Instance);
-        foreach (ProducerDeclaration producer in ordered)
-        {
-            int visitPass = 1;
-            foreach (ProducerDependency dependency in producer.Dependencies)
-            {
-                visitPass = dependency.Kind switch
-                {
-                    ProducerDependencyKind.VisitNeedsVisit =>
-                        Math.Max(visitPass, visitPasses[dependency.Producer]),
-                    ProducerDependencyKind.VisitNeedsResult =>
-                        Math.Max(
-                            visitPass,
-                            completionPasses[dependency.Producer] + 1),
-                    _ => visitPass,
-                };
-            }
-
-            int completionPass = visitPass;
-            foreach (ProducerDependency dependency in producer.Dependencies)
-            {
-                completionPass = Math.Max(
-                    completionPass,
-                    dependency.Kind == ProducerDependencyKind.VisitNeedsVisit
-                        ? visitPasses[dependency.Producer]
-                        : completionPasses[dependency.Producer]);
-            }
-
-            visitPasses[producer] = visitPass;
-            completionPasses[producer] = completionPass;
-        }
-
         return new ProducerPlanResult.Accepted(
             new WorkDescription(
-                ordered,
+                schedule.VisitOrder,
+                schedule.CompletionOrder,
                 terminals.ToImmutableDictionary<ProducerDeclaration, ProducerTerminal>(
                     ReferenceEqualityComparer.Instance),
-                visitPasses.ToImmutableDictionary<ProducerDeclaration, int>(
+                schedule.VisitPasses.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance),
-                completionPasses.ToImmutableDictionary<ProducerDeclaration, int>(
+                schedule.CompletionPasses.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance),
                 requested.ToImmutableHashSet<ProducerDeclaration>(
                     ReferenceEqualityComparer.Instance)));
@@ -254,48 +230,138 @@ public static class ProducerPlanner
         }
     }
 
-    static ImmutableArray<ProducerDeclaration> Order(
+    sealed record StageSchedule(
+        ImmutableArray<ProducerDeclaration> VisitOrder,
+        ImmutableArray<ProducerDeclaration> CompletionOrder,
+        Dictionary<ProducerDeclaration, int> VisitPasses,
+        Dictionary<ProducerDeclaration, int> CompletionPasses);
+
+    /// <summary>
+    /// Orders the stage graph: one visit node and one completion node per
+    /// producer. A completion follows its own visits; a visit follows the
+    /// visits it reads and the completions it reads; a completion follows the
+    /// completions it reads. Cycles are detected on this graph, so a
+    /// producer-level loop through different stages is not a cycle.
+    /// </summary>
+    static StageSchedule Schedule(
         IReadOnlyList<ProducerDeclaration> closure,
         ImmutableArray<ProducerRejection>.Builder rejections)
     {
-        var ordered = ImmutableArray.CreateBuilder<ProducerDeclaration>(
-            closure.Count);
-        var state = new Dictionary<ProducerDeclaration, int>(
-            ReferenceEqualityComparer.Instance);
+        var order = new List<(ProducerDeclaration Producer, bool Completion)>();
+        var state = new Dictionary<(ProducerDeclaration, bool), int>(
+            new StageComparer());
         foreach (ProducerDeclaration producer in closure.OrderBy(
                      static producer => producer.Identity,
                      StringComparer.Ordinal))
         {
-            Visit(producer);
+            Visit((producer, false));
+            Visit((producer, true));
         }
 
-        return ordered.ToImmutable();
+        var visitPasses = new Dictionary<ProducerDeclaration, int>(
+            ReferenceEqualityComparer.Instance);
+        var completionPasses = new Dictionary<ProducerDeclaration, int>(
+            ReferenceEqualityComparer.Instance);
+        if (rejections.Count > 0)
+            return new([], [], visitPasses, completionPasses);
 
-        void Visit(ProducerDeclaration producer)
+        foreach ((ProducerDeclaration producer, bool completion) in order)
         {
-            if (state.TryGetValue(producer, out int mark))
+            if (!completion)
+            {
+                int pass = 1;
+                foreach (ProducerDependency dependency in producer.Dependencies)
+                {
+                    pass = dependency.Kind switch
+                    {
+                        ProducerDependencyKind.VisitNeedsVisit =>
+                            Math.Max(pass, visitPasses[dependency.Producer]),
+                        ProducerDependencyKind.VisitNeedsResult =>
+                            Math.Max(pass, completionPasses[dependency.Producer] + 1),
+                        _ => pass,
+                    };
+                }
+
+                visitPasses[producer] = pass;
+            }
+            else
+            {
+                int pass = visitPasses[producer];
+                foreach (ProducerDependency dependency in producer.Dependencies)
+                {
+                    if (dependency.Kind == ProducerDependencyKind.CompletionNeedsResult)
+                        pass = Math.Max(pass, completionPasses[dependency.Producer]);
+                }
+
+                completionPasses[producer] = pass;
+            }
+        }
+
+        return new(
+            [.. order.Where(static node => !node.Completion).Select(static node => node.Producer)],
+            [.. order.Where(static node => node.Completion).Select(static node => node.Producer)],
+            visitPasses,
+            completionPasses);
+
+        void Visit((ProducerDeclaration Producer, bool Completion) node)
+        {
+            if (state.TryGetValue(node, out int mark))
             {
                 if (mark == 1)
                 {
                     rejections.Add(new(
-                        producer.Identity,
+                        node.Producer.Identity,
                         ProducerRejectionReason.DependencyCycle));
                 }
                 return;
             }
 
-            state[producer] = 1;
-            foreach (ProducerDependency dependency in producer.Dependencies
-                         .OrderBy(
-                             static dependency => dependency.Producer.Identity,
-                             StringComparer.Ordinal))
+            state[node] = 1;
+            foreach ((ProducerDeclaration Producer, bool Completion) predecessor
+                     in Predecessors(node)
+                         .OrderBy(static next => next.Producer.Identity, StringComparer.Ordinal)
+                         .ThenBy(static next => next.Completion))
             {
-                Visit(dependency.Producer);
+                Visit(predecessor);
             }
 
-            state[producer] = 2;
-            ordered.Add(producer);
+            state[node] = 2;
+            order.Add(node);
         }
+
+        static IEnumerable<(ProducerDeclaration Producer, bool Completion)> Predecessors(
+            (ProducerDeclaration Producer, bool Completion) node)
+        {
+            if (node.Completion)
+                yield return (node.Producer, false);
+            foreach (ProducerDependency dependency in node.Producer.Dependencies)
+            {
+                switch (dependency.Kind)
+                {
+                    case ProducerDependencyKind.VisitNeedsVisit when !node.Completion:
+                        yield return (dependency.Producer, false);
+                        break;
+                    case ProducerDependencyKind.VisitNeedsResult when !node.Completion:
+                    case ProducerDependencyKind.CompletionNeedsResult when node.Completion:
+                        yield return (dependency.Producer, true);
+                        break;
+                }
+            }
+        }
+    }
+
+    sealed class StageComparer
+        : IEqualityComparer<(ProducerDeclaration Producer, bool Completion)>
+    {
+        public bool Equals(
+            (ProducerDeclaration Producer, bool Completion) x,
+            (ProducerDeclaration Producer, bool Completion) y) =>
+            ReferenceEquals(x.Producer, y.Producer) && x.Completion == y.Completion;
+
+        public int GetHashCode((ProducerDeclaration Producer, bool Completion) node) =>
+            HashCode.Combine(
+                System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(node.Producer),
+                node.Completion);
     }
 
     static ImmutableArray<ProducerRejection> Distinct(

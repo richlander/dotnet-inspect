@@ -92,7 +92,7 @@ public sealed class MethodDefinitionExecution
                 unitsVisited = Math.Max(unitsVisited, passUnits);
             }
 
-            foreach (ProducerDeclaration producer in description.Producers
+            foreach (ProducerDeclaration producer in description.CompletionOrder
                          .Where(producer =>
                              description.CompletionPassOf(producer) == pass))
             {
@@ -204,8 +204,14 @@ public sealed class MethodDefinitionExecution
 
     void FailIfPrerequisiteFailed(ProducerState state)
     {
-        if (state.Outcome is not null)
+        // A producer whose visits stopped at a settled terminal still needs
+        // its completion prerequisites, so only a final outcome is skipped.
+        if (state.Outcome is ProducerOutcome.Complete
+            or ProducerOutcome.Failed
+            or ProducerOutcome.PrerequisiteFailed)
+        {
             return;
+        }
         foreach (ProducerDependency dependency in state.Run.Producer.Dependencies)
         {
             ProducerState target = _states[dependency.Producer];
@@ -252,7 +258,7 @@ public sealed class MethodDefinitionExecution
 
     void CompleteWithoutUnits()
     {
-        foreach (ProducerDeclaration producer in _description.Producers)
+        foreach (ProducerDeclaration producer in _description.CompletionOrder)
             CompleteProducer(_states[producer]);
         Receipt = CreateReceipt(0);
     }

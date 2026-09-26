@@ -344,6 +344,78 @@ public sealed class ProducerPlanningTests
             ("Same", ProducerRejectionReason.DuplicateDeclaration));
     }
 
+    [Fact]
+    public void FailureContainment_StoppedDependentStillNeedsItsCompletionPrerequisite()
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"));
+        var prerequisite = new CompletionFailingProducer("Prerequisite");
+        var dependent = new SettlingProducer(
+            "Dependent",
+            () => [new ProducerDependency(prerequisite, ProducerDependencyKind.CompletionNeedsResult)]);
+
+        MethodDefinitionExecution execution = Run(
+            image,
+            Plan(new ProducerRequest(dependent, ProducerTerminal.Exists)));
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            execution.ResultOf(prerequisite).Outcome);
+        ProducerResult<int> blocked = execution.ResultOf(dependent);
+        Assert.Equal(ProducerOutcome.PrerequisiteFailed, blocked.Outcome);
+        Assert.False(blocked.HasValue);
+        Assert.Equal("Prerequisite", blocked.FailedPrerequisite);
+    }
+
+    [Fact]
+    public void Planner_OrdersStagesNotProducers()
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"));
+        RowsWithResultProducer? first = null;
+        var second = new RowReadingProducer(
+            "Second",
+            () => [new ProducerDependency(first!, ProducerDependencyKind.VisitNeedsVisit)],
+            () => first!);
+        first = new RowsWithResultProducer(
+            "First",
+            () => [new ProducerDependency(second, ProducerDependencyKind.CompletionNeedsResult)],
+            second);
+
+        WorkDescription description = Plan(new ProducerRequest(first));
+        Assert.Equal(1, description.PassCount);
+        Assert.Equal(["First", "Second"], description.Producers.Select(p => p.Identity));
+        Assert.Equal(["Second", "First"], description.CompletionOrder.Select(p => p.Identity));
+
+        MethodDefinitionExecution execution = Run(image, description);
+        Assert.Equal("1,2", execution.ResultOf(second).Value);
+        Assert.Equal("rows=2;second=1,2", execution.ResultOf(first).Value);
+    }
+
+    [Fact]
+    public void Planner_RejectsAGenuineStageCycle()
+    {
+        RowReadingProducer? first = null;
+        RowReadingProducer? second = null;
+        first = new RowReadingProducer(
+            "LoopA",
+            () => [new ProducerDependency(second!, ProducerDependencyKind.VisitNeedsVisit)],
+            () => second!);
+        second = new RowReadingProducer(
+            "LoopB",
+            () => [new ProducerDependency(first, ProducerDependencyKind.VisitNeedsVisit)],
+            () => first);
+
+        ProducerPlanResult.Rejected rejected =
+            Assert.IsType<ProducerPlanResult.Rejected>(
+                ProducerPlanner.Plan([new(first)]));
+        Assert.Contains(
+            rejected.Reasons,
+            reason => reason.Reason == ProducerRejectionReason.DependencyCycle);
+    }
+
     static WorkDescription Plan(params ProducerRequest[] requests) =>
         Assert.IsType<ProducerPlanResult.Accepted>(
             ProducerPlanner.Plan(requests)).Description;
@@ -480,6 +552,72 @@ public sealed class ProducerPlanningTests
             IReadOnlyList<int> facts,
             MethodDefinitionCompletionView completion) =>
             throw new BadImageFormatException("injected completion failure");
+    }
+
+    /// <summary>Settles an Exists terminal on its first unit.</summary>
+    sealed class SettlingProducer(
+        string identity,
+        Func<IReadOnlyList<ProducerDependency>> dependencies)
+        : MethodDefinitionProducer<int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            dependencies)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) => 1;
+
+        internal override int Complete(
+            IReadOnlyList<int> facts,
+            MethodDefinitionCompletionView completion) =>
+            facts.Sum();
+
+        internal override bool Settles(int fact) => true;
+    }
+
+    /// <summary>Reads a row-producing dependency's same-unit fact.</summary>
+    sealed class RowReadingProducer(
+        string identity,
+        Func<IReadOnlyList<ProducerDependency>> dependencies,
+        Func<MethodDefinitionProducer<int, string>> source)
+        : MethodDefinitionProducer<int, string>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            dependencies)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.FactOf(source());
+
+        internal override string Complete(
+            IReadOnlyList<int> facts,
+            MethodDefinitionCompletionView completion) =>
+            string.Join(",", facts);
+    }
+
+    /// <summary>
+    /// Publishes row numbers per unit, and in its completion reads another
+    /// producer's completed result.
+    /// </summary>
+    sealed class RowsWithResultProducer(
+        string identity,
+        Func<IReadOnlyList<ProducerDependency>> dependencies,
+        RowReadingProducer reader)
+        : MethodDefinitionProducer<int, string>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            dependencies)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override string Complete(
+            IReadOnlyList<int> facts,
+            MethodDefinitionCompletionView completion) =>
+            $"rows={facts.Count};second={completion.ResultOf(reader).Value}";
     }
 
     /// <summary>Declares only the declaration layer, then asks for the body.</summary>
