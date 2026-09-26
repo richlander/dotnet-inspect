@@ -394,12 +394,54 @@ public sealed record BrowserPerformanceOpportunity(
     string? Finding,
     string Provenance);
 
+public sealed record BrowserTypeImplementationHeat(
+    int SchemaVersion,
+    string Outcome,
+    BrowserImplementationProfileSubject? Subject,
+    BrowserTypeImplementationHeatContent? Content,
+    BrowserImplementationProfileFailure? Failure,
+    BrowserAnalysisInspectionShare? Share,
+    BrowserAnalysisInspectionDiagnostic[] Diagnostics,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserTypeImplementationHeatContent(
+    string TypeDefinitionId,
+    BrowserImplementationHeatFamily[] Families,
+    BrowserImplementationProfileAnalysisDiagnostic[] AnalysisDiagnostics,
+    BrowserImplementationProfileApiSurfaceFailure[] ApiSurfaceInspectionFailures);
+
+public sealed record BrowserImplementationHeatFamily(
+    string Member,
+    BrowserImplementationHeatRosterMember[] Roster,
+    BrowserImplementationHeatMethod[] Methods,
+    BrowserImplementationHeatRelationship[] Relationships,
+    BrowserImplementationProfileUnavailableBody[] UnavailableBodies,
+    BrowserImplementationProfileAnalysisDiagnostic[] AnalysisDiagnostics);
+
+public sealed record BrowserImplementationHeatRosterMember(
+    string TypeDefinitionId,
+    string StableSelector,
+    int MetadataToken);
+
+public sealed record BrowserImplementationHeatMethod(
+    int MetadataToken,
+    bool IsRosterMember,
+    bool HasBody,
+    int? Size,
+    bool IsTrivial,
+    bool IsComplete);
+
+public sealed record BrowserImplementationHeatRelationship(
+    int CallerToken,
+    int CalleeToken);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
 [JsonSerializable(typeof(BrowserImplementationProfiles))]
+[JsonSerializable(typeof(BrowserTypeImplementationHeat))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserCloneCandidateRequest))]
