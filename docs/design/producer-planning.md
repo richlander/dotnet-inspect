@@ -72,6 +72,19 @@ that terminal is settled. Level 2 may stop the remaining work at the next unit
 boundary. Producers cut off by the stop report that they stopped because the
 request was satisfied, not that they completed.
 
+**Early exit happens at every level.** Whether an assembly uses runtime
+async is an Exists question over method definitions at declaration depth
+only: the runtime-async implementation flag is declaration metadata, so no
+body is ever requested. The first runtime-async definition settles the
+question, and no later definition is visited for it. The same holds at each
+level: a producer stops within a unit once its question for that unit is
+answered, a declaration finding means an optional body layer is never
+acquired, and level 2 stops visiting units for a request once its terminal is
+settled. Today the product answers runtime async inside a Metadata presence
+scan that computes several presence flags in one pass. When several Exists
+questions share one pass, each stops being charged as soon as it is settled,
+and the pass ends when the last one is settled.
+
 **A guard gates the work.** This example shows how protection could be
 orchestrated; it is not how the repository contains untrusted text.
 InertString containment remains construction-time, at the point data enters
@@ -379,6 +392,22 @@ on link order and spelling. Research's string-keyed producers show the axis
 that [Assembly Inspection Query](assembly-inspection-query.md#prior-art-the-research-producer-registry)
 already flagged.
 
+### Discovery lists catalog analyses, not producers
+
+**Rule.** Producer declarations are not capability registrations. `explain`,
+capability search, and `-D` list catalog analyses and routes registered
+through [capability modules](inspection-capability-composition.md), and a
+catalog analysis binds to the declarations that produce it. No declaration,
+work description, or receipt becomes a discovery identity. A host may show a
+work description or receipt as execution evidence, and an explanation of a
+catalog analysis may describe the work its bound declarations imply. Neither
+adds a discoverable name.
+
+*Lesson:* discovery names are compatibility surfaces. If internal producers
+were discoverable, splitting or merging a producer would break what users
+and manifests can name, which is the coupling the catalog/producer identity
+split exists to prevent.
+
 ## Requirements on the lower levels
 
 This level relies on the following. Each requirement names what the work
@@ -454,6 +483,7 @@ decided when the second tier adopts it.
 | --- | --- |
 | [Library body Analysis service](library-body-analysis-service.md) | First adopter. Its producer coordination, features, and fixed result slots become declarations and a work description; its focused result types are unchanged. |
 | [Analysis catalog and operation participation](analysis-surfaces-and-universes.md#operation-participation) | Selects manifest-grade analyses and binds each to declarations. It owns cost, defaults, and discovery. |
+| [Inspection capability composition](inspection-capability-composition.md) | Registers catalog analyses and routes for `explain`, capability search, and `-D`. Producer declarations are not registered there. |
 | [Assembly image lifetime](assembly-image-lifetime.md) and [resource ownership](resource-ownership-and-borrowing.md) | Level 1. Supplies and tracks the borrowed subject. |
 | [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Level 2. Owns request meaning, collapse, and completion evidence, and plans reads against sources. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requests in a work description. |
