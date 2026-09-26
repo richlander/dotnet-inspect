@@ -90,7 +90,7 @@ interface ImplementationProfileOverloadRow {
  * Member-list evidence for one public overload: family-relative size (heat)
  * and whether it is a hub that sibling methods call.
  */
-export interface OverloadHeat {
+interface OverloadHeat {
   readonly stableSelector: string;
   readonly size: number | null;
   /** Tint strength in (0, 1]; null when the row is untinted. */
@@ -105,7 +105,7 @@ export interface OverloadHeat {
  * meaningful. `unknown-maximum` means an analyzed body was unavailable or
  * incomplete; `suppressed` means comparison would add noise.
  */
-export type FamilyHeatStatus = "shown" | "suppressed" | "unknown-maximum";
+type FamilyHeatStatus = "shown" | "suppressed" | "unknown-maximum";
 
 export interface FamilyHeat {
   readonly status: FamilyHeatStatus;
@@ -115,7 +115,7 @@ export interface FamilyHeat {
 }
 
 /** Overloads at or above this share of the family maximum are tinted. */
-export const heatThreshold = 0.5;
+const heatThreshold = 0.5;
 
 interface ImplementationProfileFamilyProjection {
   readonly display: string;
