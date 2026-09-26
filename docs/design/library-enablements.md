@@ -187,7 +187,8 @@ slice.
 
 Badges and chips show only Enabled. Not enabled and Unavailable are silent in
 those presentations, so a badge is never a guess. Structured output and the
-Signals rows retain every state and reason.
+Signals rows retain every state and reason. The CLI `Library Info` row that
+lists them is labeled `Enabled`, for example `Enabled: AOT · Runtime Async`.
 
 ## Evidence
 
