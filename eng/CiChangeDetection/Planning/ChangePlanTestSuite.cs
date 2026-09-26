@@ -269,10 +269,10 @@ internal static class ChangePlanTestSuite
             "inspect-web/scripts/verify-multi-facade-canary.ts",
             "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
             "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
-            "inspect-web/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
-            "inspect-web/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
-            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",
-            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkRegistration.cs",
+            "src/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
+            "src/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
+            "src/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",
+            "src/DotnetInspect.Web.Core/BrowserManagedEpochWorkRegistration.cs",
         })
         {
             RoutingSelections actual = policy.Route(Evidence(path));
