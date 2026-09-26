@@ -310,6 +310,32 @@ signatures, and attributes can create dependencies this methodology does not
 admit, so an issued absence never says "no dependency" without the word
 "call".
 
+## Shape and amplitude
+
+This document issues the graph's **shape**: which nodes exist, how they
+connect, and where the cycles and levels fall. A narrative also needs
+**amplitude**, meaning how much weight each node carries. That is the third
+dimension over the two-dimensional shape. Amplitude comes from other owners
+and is joined onto this shape by exact identity. It is never computed here.
+
+| Amplitude | Owner | Grain and qualification |
+| --- | --- | --- |
+| Implementation volume and complexity | [Library Metrics](library-structural-report.md) type summaries | Per type, over complete physical profiles |
+| Leverage (distinct callers, fan-out, depth, loops) | Analysis `LibraryLeverageAnalysisResult` | Per method; currently a bounded top-N ranking, so an overlay must disclose that it is partial |
+| Communities | [#8406](https://github.com/richlander/dotnet-inspect/issues/8406) over this graph | Grouping, not weight; it colors the shape |
+
+This owner's single obligation to amplitude is **join currency**:
+
+- A type node's identity is the same exact metadata type key that Library
+  Metrics issues.
+- Every type node and edge can be reached from Analysis method identities
+  through their declaring type.
+
+No host joins by display name. A composed "three-dimensional" view is a
+consumer of this document and of each amplitude owner. It is not a new field
+here. Any amplitude that requires a complete population (for example leverage
+on every node) is that owner's focused effort.
+
 ## Interpretation boundary
 
 The document can say:
