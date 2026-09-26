@@ -791,7 +791,7 @@ This design does not claim:
 - complete value catalogs embedded in facet explanations;
 - JSON Schema embedded in every envelope;
 - resolved-plan explanation in the first implementation;
-- a rename of `library coordinate`.
+- the rename from `library coordinate` to `library address`.
 
 ## Rejected alternatives
 
