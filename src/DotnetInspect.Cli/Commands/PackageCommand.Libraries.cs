@@ -876,6 +876,10 @@ public partial class PackageCommand
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
             TypeFilter = options.TypeFilter,
+            CoordinateRequest =
+                options.LibraryCoordinateRequest,
+            CoordinateRowSelection =
+                options.LibraryCoordinateRowSelection,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,
             EnvelopeOutput = options.EnvelopeOutput,

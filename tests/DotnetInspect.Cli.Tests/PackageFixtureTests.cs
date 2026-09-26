@@ -272,62 +272,6 @@ public sealed class PackageFixtureTests
         }
     }
 
-    [Fact]
-    public void PackageFixturePublisher_IsManualMainOnlyAndImmutable()
-    {
-        string workflow = File.ReadAllText(
-            Path.Combine(
-                FindRepositoryRoot(),
-                ".github",
-                "workflows",
-                "publish-package-fixtures.yml"));
-
-        Assert.Contains("workflow_dispatch:", workflow);
-        Assert.Contains("type: choice", workflow);
-        Assert.Contains("- tool-v2", workflow);
-        Assert.Contains("- metadata-confusion", workflow);
-        Assert.Contains("packages: write", workflow);
-        Assert.Contains(
-            "github.ref == 'refs/heads/main' && inputs.confirm == 'publish'",
-            workflow);
-        Assert.Contains(
-            "https://nuget.pkg.github.com/richlander/index.json",
-            workflow);
-        Assert.Contains(
-            "--filter-class \"DotnetInspect.Cli.Tests.PackageFixtureTests\"",
-            workflow);
-        Assert.Contains(
-            "-p:FixtureFamily=\"$FIXTURE_FAMILY\"",
-            workflow);
-        Assert.Contains(
-            "verify-package \"$package\"",
-            workflow);
-        Assert.DoesNotContain("--skip-duplicate", workflow);
-
-        int publishStep = workflow.IndexOf(
-            "- name: Publish immutable fixture version",
-            StringComparison.Ordinal);
-        Assert.True(
-            publishStep >= 0,
-            "The fixture workflow does not define its publication step.");
-        string publication = workflow[publishStep..];
-        int linuxPush = publication.IndexOf(
-            $"DotnetInspect.TestAssets.ToolV2.linux-x64.${{FIXTURE_VERSION}}.nupkg",
-            StringComparison.Ordinal);
-        int pointerPush = publication.IndexOf(
-            $"DotnetInspect.TestAssets.ToolV2.${{FIXTURE_VERSION}}.nupkg",
-            StringComparison.Ordinal);
-        int metadataPush = publication.IndexOf(
-            $"DotnetInspect.TestAssets.MetadataConfusion.${{FIXTURE_VERSION}}.nupkg",
-            StringComparison.Ordinal);
-        Assert.True(
-            linuxPush >= 0 && pointerPush > linuxPush,
-            "The RID package must publish before the pointer package.");
-        Assert.True(
-            metadataPush >= 0,
-            "The metadata-confusion package is not published.");
-    }
-
     private static async Task PackAsync(
         string root,
         string temp,

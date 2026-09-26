@@ -585,6 +585,43 @@ public static class NavigationTransitions
                 action));
     }
 
+    /// <summary>
+    /// Retires exact retained-Type actions that are no longer selectable.
+    /// Already-consumed actions remain available to their admitted operations.
+    /// </summary>
+    public static NavigationTransition RetireRetainedTypeActions(
+        NavigationState state,
+        ImmutableArray<NavigationAction> actions)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (actions.IsDefault)
+            throw new ArgumentException("Actions must be initialized.", nameof(actions));
+
+        ImmutableDictionary<string, NavigationActionTarget> retained =
+            state.Data.Actions;
+        foreach (NavigationAction action in actions)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+            if (action.Session != state.Id
+                || action.Kind != NavigationOperationKind.RetainedType
+                || !retained.TryGetValue(
+                    action.Id,
+                    out NavigationActionTarget? target)
+                || target.Action != action)
+            {
+                continue;
+            }
+
+            retained = retained.Remove(action.Id);
+        }
+
+        return new(
+            state,
+            retained == state.Data.Actions
+                ? state.Data
+                : state.Data with { Actions = retained });
+    }
+
     static NavigationStateData BeginExplicit(NavigationStateData state) =>
         state with
         {

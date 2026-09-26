@@ -120,6 +120,9 @@ public partial class LibraryCommand
                 PackageLibraryTarget.Exact exact => exact.Library,
                 _ => null,
             },
+            LibraryCoordinateRequest = options.CoordinateRequest,
+            LibraryCoordinateRowSelection =
+                options.CoordinateRowSelection,
             Tfm = options.Tfm,
             IncludePrerelease = options.IncludePrerelease,
             ShowDependencies = options.IncludeDependencies,

@@ -47,7 +47,7 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
 The rule is enforced by the compiler, not by a convention.
-`DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
+`src/DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
 factories, and the group's image and retained-descriptor accessors in this
 project, and `Directory.Build.targets` already escalates `RS0030` to an error
@@ -409,7 +409,7 @@ assemblies that receive a .NET platform lookup on click.
 | `DotnetInspect.Web.Interop.Source` | source, annotated-source, method-body, and source-comparison exports and wire contracts |
 | `DotnetInspect.Web.Interop.CallGraph` | package and platform call-graph exports and wire contracts |
 | `DotnetInspect.Web.Interop.Catalog` | vocabulary, home-demo, and workspace-share exports and wire contracts |
-| `DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
+| `tests/DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -782,8 +782,8 @@ fall back to decompilation.
 
 MSDL's redirect omits CORS headers, so the Browser host rewrites only the exact
 MSDL symbol-request shape to the current site's absolute `/api/msdl/...` URL.
-Each Free Static Web App deploys the small anonymous managed Function in
-`msdl-proxy`; the fixed upstream host and independent path-segment validator
+Each Free Static Web App deploys the small anonymous managed Function from
+`src/MsdlProxy`; the fixed upstream host and independent path-segment validator
 keep it from becoming a caller-directed proxy. The function enforces the same
 8 MiB portable-PDB ceiling as the Browser consumer.
 
@@ -1305,8 +1305,9 @@ managed runtime.
 After a Release publish, run the native binding gate:
 
 ```bash
-dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
-  -c Release --output artifacts/inspect-web-publish
+dotnet publish src/DotnetInspect.Web/DotnetInspect.Web.csproj \
+  -c Release --output artifacts/inspect-web-publish \
+  -p:InspectWebIncludeFrontend=true
 cd inspect-web
 INSPECT_WEB_WORKER_SOURCE_DLL=\
 ../artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll \
@@ -1342,8 +1343,10 @@ activation. Lifecycle composition, production Source activation, and direct
 page-runtime retirement remain focused follow-on slices under #5418, #5987,
 and #5420.
 
-The purpose-built `multi-facade-canary` proves that this lifecycle composes
-across independently generated modules. Its Alpha and Beta assemblies
+The purpose-built `multi-facade-canary` pairs managed consumer projects under
+`tests/InspectWeb.MultiFacadeCanary` with frontend assets under
+`inspect-web/multi-facade-canary`. It proves that this lifecycle composes across
+independently generated modules. Its Alpha and Beta assemblies
 deliberately use the same namespace, declaring-type names, method names,
 overload shapes, record name, and enum name. Each checked-in facade is generated
 from only its own assembly and acquires only that assembly's export root. A
@@ -1376,10 +1379,13 @@ check and one Mono runtime execution. The complete mutation set and both
 runtimes run daily in the Deep Inspect `inspect-web` lane and on PRs that
 change the generator or canary owners.
 
-The purpose-built `managed-operation-bridge-canary` directly drives the product
-`BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
-controlled feature bodies expose synchronous progress, keyed cancellation, and
-terminal release without reproducing lifecycle logic in the harness.
+The purpose-built `managed-operation-bridge-canary` pairs managed consumer
+projects under `tests/InspectWeb.ManagedOperationBridgeCanary` with frontend
+assets under `inspect-web/managed-operation-bridge-canary`. It directly drives
+the product `BrowserManagedOperationBridge` through a generated `[JSExport]`
+facade. Its controlled feature bodies expose synchronous progress, keyed
+cancellation, and terminal release without reproducing lifecycle logic in the
+harness.
 `eng/test-inspect-web-managed-operation-bridge-canary.sh` publishes and runs the
 host under both Mono and CoreCLR Browser/Wasm. It proves distinct-operation
 cancellation routing, all six normalized reasons, concrete fulfilled result
@@ -1656,7 +1662,8 @@ do diverge — an authored `src/bin/probe.html`, say — the set comparison fail
 loudly rather than passing quietly. The `bin` and `obj` entries matter only once
 the engine project has been built, which is why they went unnoticed locally and
 surfaced on CI: without them html-validate was linting
-`DotnetInspect.Web/bin/**` and `DotnetInspect.Web/obj/**` — MSBuild
+`../artifacts/bin/DotnetInspect.Web/**` and
+`../artifacts/obj/DotnetInspect.Web/**` — MSBuild
 static-web-asset placeholders and copied `wwwroot` output that no one authored
 and no one can fix.
 
@@ -1769,7 +1776,8 @@ because the site is deployed from that copy rather than from the source file.
 The word "static" there is a real boundary, not hedging. Azure Static Web Apps
 does not apply `globalHeaders` to responses produced by the managed functions
 under `/api/*`, which carry whatever headers the function sets for itself. The
-MSDL proxy sets its own [response headers](msdl-proxy/README.md#response-security)
+MSDL proxy sets its own
+[response headers](../src/MsdlProxy/README.md#response-security)
 for function-produced responses, with a separate gate in `MsdlProxyFunctionTests`.
 
 Prism is delivered through the same npm/Vite pipeline as mermaid, marked, and
@@ -1976,7 +1984,7 @@ npm test
 npx playwright install firefox
 npm run test:browser
 cd ..
-dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
@@ -2013,15 +2021,16 @@ The shared product paths are gated by:
   from a path-less, stream-backed assembly reference, and supplying the
   whole-assembly analysis context that path-keyed resolution cannot provide.
 
-`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` gates the layering
+`BrowserEngineLayeringTests` in `tests/DotnetInspect.Web.Tests` gates the layering
 rule described above on every browser-engine CI run.
 
-Pull requests that change Inspect Web, its shared annotated-source
-viewer, product dependencies, or repository build inputs run the `inspect-web`
-CI job. That job installs the locked Node dependencies, checks and bundles the
-TypeScript/JavaScript frontend, rejects unused authored files, exports, and
-dependencies, compiles the platform-index generator, publishes the Release Wasm
-bundle, runs the browser-engine tests, and runs both frontend test suites.
+Pull requests that change Inspect Web, its shared annotated-source viewer,
+product dependencies, or repository build inputs run the `inspect-web` CI
+fan-out. The managed test job runs from the normal solution graph without Node
+or the WebAssembly workload. Separate frontend jobs install the locked Node
+dependencies, check and bundle the TypeScript/JavaScript frontend, reject unused
+authored files, exports, and dependencies, publish the Release Wasm bundle, and
+run the frontend and browser suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
