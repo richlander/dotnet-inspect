@@ -569,6 +569,60 @@ public sealed class InspectionGraphFocusProjectionTests
     }
 
     [Fact]
+    public void
+        SeededFrontier_RetainsReachableInsideDiagnosticConnector()
+    {
+        InspectionGraphDocument source = Source(
+            ["Focus", "Local", "FailedLocal", "Unrelated"],
+            [
+                ("Focus", "Local"),
+                ("Local", "FailedLocal"),
+                ("Focus", "Unrelated"),
+            ],
+            seed: "Focus",
+            limits:
+            [
+                new(
+                    CallGraphInspectionGraphCatalog
+                        .TraversalIncomplete,
+                    InspectionGraphTarget.Node(2)),
+            ],
+            failures:
+            [
+                new(
+                    CallGraphInspectionGraphCatalog.AnalysisIncomplete,
+                    InspectionGraphTarget.Node(2)),
+            ]);
+
+        InspectionGraphDocument result = Project(
+            source,
+            InspectionGraphTraversalDirection.Outgoing,
+            ["Focus", "Local", "FailedLocal", "Unrelated"],
+            []);
+
+        Assert.Equal(
+            ["Focus->Local", "Local->FailedLocal"],
+            Edges(result));
+        Assert.All(
+            result.Edges,
+            edge => Assert.Equal(
+                InspectionGraphFocusCatalog.ConnectorRole,
+                Role(
+                    result,
+                    InspectionGraphTarget.Edge(edge.Id))));
+        Assert.DoesNotContain(
+            result.Nodes,
+            node => Name(node) == "Unrelated");
+        InspectionGraphNode failed = Node(result, "FailedLocal");
+        Assert.Equal(
+            InspectionGraphTarget.Node(failed.Id),
+            Assert.Single(result.Limits).Target);
+        Assert.Equal(
+            InspectionGraphTarget.Node(failed.Id),
+            Assert.Single(result.Failures).Target);
+    }
+
+    [Fact]
     public void RequestRejectsConflictingForeignOrUnknownOrigins()
     {
         InspectionGraphDocument source = Source(

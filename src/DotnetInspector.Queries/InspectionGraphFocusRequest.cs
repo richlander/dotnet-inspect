@@ -293,6 +293,13 @@ public static class InspectionGraphFocusProjection
             }
         }
 
+        HashSet<int> diagnosticNodeIds =
+            RetainReachableNodeDiagnostics(
+                source,
+                membership,
+                outgoingPaths,
+                incomingPaths,
+                connectorEdgeIds);
         HashSet<int> retainedEdgeIds =
         [
             .. exitEdgeIds,
@@ -308,6 +315,7 @@ public static class InspectionGraphFocusProjection
                     source.Edges[id].ToNodeId,
                 }),
             .. origins,
+            .. diagnosticNodeIds,
         ];
         HashSet<int> retainedOccurrenceIds =
         [
@@ -483,6 +491,69 @@ public static class InspectionGraphFocusProjection
             seeds,
             limits,
             failures);
+    }
+
+    static HashSet<int> RetainReachableNodeDiagnostics(
+        InspectionGraphDocument source,
+        IReadOnlyDictionary<
+            InspectionGraphSubject,
+            InspectionGraphScopeMembership> membership,
+        IReadOnlyDictionary<int, ImmutableArray<int>> outgoingPaths,
+        IReadOnlyDictionary<int, ImmutableArray<int>> incomingPaths,
+        HashSet<int> connectorEdgeIds)
+    {
+        var retainedNodeIds = new HashSet<int>();
+        IEnumerable<InspectionGraphTarget?> targets =
+            source.Limits.Select(static limit => limit.Target)
+                .Concat(source.Failures.Select(
+                    static failure => failure.Target));
+        foreach (InspectionGraphTarget? target in targets)
+        {
+            if (target is not
+                {
+                    Kind: InspectionGraphTargetKind.Node,
+                } nodeTarget
+                || Membership(
+                    source.Nodes[nodeTarget.Id].Subject,
+                    membership)
+                    != InspectionGraphScopeMembership.Inside)
+            {
+                continue;
+            }
+
+            if (source.ModeRequest.Mode
+                == InspectionGraphMode.InducedSet)
+            {
+                retainedNodeIds.Add(nodeTarget.Id);
+                continue;
+            }
+
+            ImmutableArray<int>? connector = null;
+            if (outgoingPaths.TryGetValue(
+                    nodeTarget.Id,
+                    out ImmutableArray<int> outgoing))
+            {
+                connector = outgoing;
+            }
+            if (incomingPaths.TryGetValue(
+                    nodeTarget.Id,
+                    out ImmutableArray<int> incoming)
+                && (connector is null
+                    || incoming.Length < connector.Value.Length
+                    || (incoming.Length == connector.Value.Length
+                        && CompareSequences(
+                            incoming,
+                            connector.Value) < 0)))
+            {
+                connector = incoming;
+            }
+            if (connector is null)
+                continue;
+
+            connectorEdgeIds.UnionWith(connector.Value);
+            retainedNodeIds.Add(nodeTarget.Id);
+        }
+        return retainedNodeIds;
     }
 
     static void RetainExplicitInputSubjects(

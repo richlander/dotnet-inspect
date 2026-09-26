@@ -454,6 +454,12 @@ is an expected frontier, but a depth-limited internal connector, unresolved
 dispatch, missing dependency participant, or incomplete occurrence population
 remains a source limitation.
 
+A reachable inside-scope node targeted by a source limit or producer failure
+remains represented with one deterministic shortest inside-only connector from
+an applicable origin. This preserves the diagnostic and enough topology to
+interpret it even when that branch yields no discovered exit. It does not turn
+the branch into an exit or retain unrelated inside topology.
+
 ## Output and rendering
 
 The shared result remains a host-neutral typed Inspection Graph document or an
@@ -556,8 +562,8 @@ The #8444 exit-frontier adoption names these Release gates:
 - `InspectionGraphFocusProjectionTests` covers induced and seeded frontiers,
   direction, deterministic connectors, cycles, unknown scope, request
   validation, disconnected explicit inputs and group parents, additive roles,
-  physical receipts, and propagation of global and retained-target limits and
-  failures;
+  physical receipts, and propagation of global, retained-target, and reachable
+  inside-branch limits and failures;
 - `MemberCallGraphSessionTests` and
   `PackageRoleMemberCallGraphQueryTests` cover exact assembly/package
   classification joins plus source diagnostics; and
