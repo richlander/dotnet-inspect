@@ -533,7 +533,7 @@ jobs:
           fi
 
       - name: Test Inspect Web managed API
-        run: dotnet run --project inspect-web/msdl-proxy.Tests -c Release
+        run: dotnet run --project tests/MsdlProxy.Tests -c Release
 
   inspect-web-browser:
     name: inspect-web browser (${{ matrix.shard }}/2)
@@ -719,7 +719,7 @@ jobs:
       - name: Publish Inspect Web managed API
         run: >
           dotnet publish
-          inspect-web/msdl-proxy/MsdlProxy.csproj
+          src/MsdlProxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-api
 
