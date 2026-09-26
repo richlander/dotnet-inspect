@@ -250,7 +250,8 @@ public static partial class MetadataExports
                     (InspectionGraphTypeIdentity.AcquiredDefinition)
                         row.Candidate
                             .Identity)
-                .Select(identity => identity.Type.ToEscapedFullName())
+                .Select(identity =>
+                    MetadataTypeNameFormatter.FormatFullName(identity.Type))
                 .Order(StringComparer.Ordinal),
         ];
         string[] failures =

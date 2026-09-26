@@ -241,6 +241,53 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
+    public async Task SemanticSelectionUsesDisplayedTypeOrder()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"ordered-relations-{Guid.NewGuid():N}.dll");
+        await File.WriteAllBytesAsync(
+            path,
+            BuildOrderedHierarchyAssembly(),
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var first = await ExecuteAsync(
+                "type",
+                "Probe.IContract",
+                "--library",
+                path,
+                "-S",
+                "Implementers",
+                "--rows",
+                "1..1",
+                "--json");
+            var last = await ExecuteAsync(
+                "type",
+                "Probe.IContract",
+                "--library",
+                path,
+                "-S",
+                "Implementers",
+                "-n",
+                "1",
+                "--tail",
+                "--json");
+
+            Assert.Equal(0, first.ExitCode);
+            Assert.Empty(first.Error);
+            Assert.Equal(["Probe.Alpha"], ReadJsonTypes(first.Output));
+            Assert.Equal(0, last.ExitCode);
+            Assert.Empty(last.Error);
+            Assert.Equal(["Probe.Zulu"], ReadJsonTypes(last.Output));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task UnsatisfiedSemanticWindowFailsBeforeCount()
     {
         var result = await ExecuteAsync(
@@ -537,6 +584,56 @@ public sealed class TypeRelationsCommandTests
         metadata.AddInterfaceImplementation(
             AddType("Bad", TypeAttributes.Public),
             malformed);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static byte[] BuildOrderedHierarchyAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Ordered.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Ordered"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        TypeDefinitionHandle AddType(
+            string name,
+            TypeAttributes attributes) =>
+            metadata.AddTypeDefinition(
+                attributes,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString(name),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        AddType("<Module>", default);
+        TypeDefinitionHandle contract = AddType(
+            "IContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        metadata.AddInterfaceImplementation(
+            AddType("Zulu", TypeAttributes.Public),
+            contract);
+        metadata.AddInterfaceImplementation(
+            AddType("Alpha", TypeAttributes.Public),
+            contract);
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

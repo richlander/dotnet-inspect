@@ -99,6 +99,44 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_UsesNestedTypeQueryIdentity()
+    {
+        const string packageId = "Browser.NestedTypeRelations";
+        const string interfaceName =
+            "Browser.NestedTypeRelations.IService";
+        const string outerName =
+            "Browser.NestedTypeRelations.Container";
+        const string nestedName = "Service";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildNestedInterfaceImplementationImage(
+                    packageId,
+                    interfaceName,
+                    outerName,
+                    nestedName),
+                $"lib/net11.0/{packageId}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{packageId}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            [$"{outerName}.{nestedName}"],
+            metadata.Implementers);
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_ExpandsDependenciesAcrossWorkspacePackages()
     {
         const string rootPackageId =
@@ -994,6 +1032,37 @@ public sealed partial class BrowserEngineBoundaryTests
             TypeAttributes.Public | TypeAttributes.Class);
         implementer.AddInterfaceImplementation(interfaceType);
         implementer.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildNestedInterfaceImplementationImage(
+        string assemblyName,
+        string interfaceName,
+        string outerName,
+        string nestedName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = contract.CreateType();
+        TypeBuilder outer = module.DefineType(
+            outerName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            nestedName,
+            TypeAttributes.NestedPublic | TypeAttributes.Class);
+        nested.AddInterfaceImplementation(interfaceType);
+        nested.CreateType();
+        outer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

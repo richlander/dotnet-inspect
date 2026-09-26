@@ -1528,7 +1528,11 @@ public static class TypeCommand
 
             WorkspaceTypeRelationCandidateRow[] sectionRows =
             [
-                .. candidates.Where(row => row.Form == section.Form),
+                .. candidates
+                    .Where(row => row.Form == section.Form)
+                    .OrderBy(
+                        TypeRelationCandidateName,
+                        StringComparer.Ordinal),
             ];
             if (!CliSemanticRowSelection.TrySelect(
                     options.TypeRelationsRowSelection,
@@ -1825,7 +1829,7 @@ public static class TypeCommand
                     sourceCandidate.Registration,
                     sourceType.Registration));
         return new(
-            MetadataTypeNameFormatter.FormatFullName(sourceType.Type),
+            TypeRelationCandidateName(candidate),
             candidate.Form == SubjectRelationForm.Interface
                 ? "interface"
                 : "base type",
@@ -1833,6 +1837,12 @@ public static class TypeCommand
             request.Source,
             request.SourceVersion);
     }
+
+    private static string TypeRelationCandidateName(
+        WorkspaceTypeRelationCandidateRow candidate) =>
+        MetadataTypeNameFormatter.FormatFullName(
+            ((InspectionGraphTypeIdentity.AcquiredDefinition)
+                candidate.Candidate.Identity).Type);
 
     private static TypeRelationsResultView BuildTypeRelationsView(
         string targetType,
