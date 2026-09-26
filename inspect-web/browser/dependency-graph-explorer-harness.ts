@@ -71,6 +71,7 @@ function key() {
 function target() {
   return {
     key: key(),
+    role: "dependency" as const,
     kind: "Dependency graph",
     subject: packageCoordinateLabel(pkg),
     context: `Target framework ${pkg.activeFramework}`,

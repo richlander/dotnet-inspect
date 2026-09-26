@@ -7,6 +7,8 @@ resolution ladder. It is tracked by
 [#6288](https://github.com/richlander/dotnet-inspect/issues/6288) as effort 11
 of the non-normative platform-first tracker
 [#6228](https://github.com/richlander/dotnet-inspect/issues/6228).
+The focused intrinsic CoreLib extension is tracked by
+[#8582](https://github.com/richlander/dotnet-inspect/issues/8582).
 
 The first production consumer is progressive call-graph construction in both
 the CLI and Inspect Web. The ladder is shared substrate; it is not a
@@ -18,11 +20,12 @@ Package-backed framework-route formation for Browser/Wasm is tracked by
 
 **Assembly Reference Resolution Ladder** owns:
 
-> Given one exact `AssemblyRef`, its referencing assembly-context origin, one
-> revision-bound owner-issued route plan, and finite operation work, evaluate
-> the referencing context first, then lazily form and evaluate the complete
-> applicable-platform and package-dependency route set, and return one typed
-> resolved target or one visible terminal non-success outcome.
+> Given one exact Metadata binding target -- an `AssemblyRef` or the intrinsic
+> CoreLib target -- its referencing assembly-context origin, one revision-bound
+> owner-issued route plan, and finite operation work, evaluate the referencing
+> context first, then lazily form and evaluate the complete eligible external
+> route set, and return one typed resolved target or one visible terminal
+> non-success outcome.
 
 The exact claim is composition, not discovery by convention. The ladder
 consumes:
@@ -100,10 +103,19 @@ ladder may issue `NoNameOwner` only after every eligible rung returns that
 disposition. An omitted, unexamined, failed, or bounded rung prevents that
 absence claim.
 
+Metadata permits name-ownership misses only for an ordinary `AssemblyRef`.
+An intrinsic CoreLib target has no requested assembly name and accepts only a
+selected, ambiguous, unavailable, or rejected binding result. The ladder does
+not reinterpret `Unavailable(UnsupportedScope)` as a miss. Instead, its route
+plan may state that a context does not participate in intrinsic resolution
+when the issuing owner proves that every participant's acquisition role is
+ineligible to mint CoreLib identity. That ladder-owned applicability decision
+occurs before policy invocation and is recorded in the rung trace.
+
 ## Contract shape
 
 ```text
-exact AssemblyRef + exact referencing origin
+exact binding target + exact referencing origin
   + Workspace revision and focal-scope receipt
   + owner-issued route plan
   + finite operation ledger and cancellation
@@ -123,7 +135,7 @@ Assembly Reference Resolution Ladder
         v
 one closed result
   - resolved target
-  - unbound binding with exact miss disposition
+  - unbound binding with exact miss disposition (ordinary AssemblyRef only)
   - ambiguous
   - unavailable
   - rejected
@@ -138,8 +150,11 @@ or query mutates a sealed `AssemblyContextGroup`.
 `AssemblyReferenceResolutionRequest` is conceptual vocabulary for one
 immutable request. It carries:
 
-- the complete `AssemblyReferenceIdentity` decoded from one exact
-  `AssemblyRef`;
+- one exact Metadata-owned binding target:
+  - the complete `AssemblyReferenceIdentity` decoded from one exact
+    `AssemblyRef`; or
+  - `AssemblyBindingTarget.IntrinsicCoreLibrary`, retained directly rather
+    than reconstructed from a display assembly name;
 - the exact Metadata-owned `AssemblyBindingRequest`, including its binding
   target, seed-or-continuation origin, resolver lineage, and scope;
 - the requesting `AssemblyBindingOccurrence`, referencing
@@ -156,6 +171,9 @@ The binding origin is semantic. Reconstructing a continuation from a package
 name, assembly simple name, acquisition registration, path, currently selected
 UI subject, or graph node label is invalid. The ladder preserves the exact
 requesting occurrence and resolver lineage through delegated selection.
+The string `corelib` is likewise only Analysis display vocabulary. It cannot
+construct an intrinsic request, select a Platform Library, or establish
+equality with `System.Private.CoreLib`, `mscorlib`, or a facade.
 
 The focal-scope receipt is also semantic. It states which source routes this
 operation may consider under the selected call-graph focal length or another
@@ -167,25 +185,51 @@ derive focal-length meaning.
 `AssemblyReferenceResolutionRoutePlan` is an immutable, revision-bound receipt
 issued for the exact referencing origin and operation scope. It contains:
 
-- the required referencing-context rung;
-- one deferred owner capability for forming external routes after a context
-  miss;
+- the referencing-context rung and whether that exact context participates in
+  resolution of the request's binding target, evaluated over only the
+  participants admitted by the focal-scope receipt;
+- one deferred owner capability for forming external routes after context
+  advancement;
 - identities for every contributing owner snapshot available before external
   work; and
 - the operation and Workspace identities to which the plan belongs.
 
 The ladder evaluates the context rung before invoking the deferred capability.
-A context selection, ambiguity, owned miss, unavailable result, or rejection
-performs no platform catalog, pruning, package candidate, package traversal,
-asset, source, or acquisition work for this request.
+For an ordinary `AssemblyRef`, the context participates and only
+`NoNameOwner` permits advancement. For an intrinsic CoreLib request, an
+owner-attested non-participating context advances without invoking a policy
+that cannot answer that target. A context selection, ambiguity, owned miss,
+unavailable result, rejection, or invalid applicability receipt performs no
+platform catalog, pruning, package candidate, package traversal, asset, source,
+or acquisition work for this request.
 
-Only after the context returns `NoNameOwner` does the deferred owner form
+For an intrinsic CoreLib request, the external route set is specialized:
+
+- it contains zero package routes, because package acquisition cannot grant
+  CoreLib identity;
+- it may contain one applicable-platform route for the exact target and family
+  composition; and
+- when it contains no Platform route, it carries the exact typed reason that
+  route formation could not supply one; and
+- its completed no-package-route evidence follows from the acquisition roles
+  of the eligible populations, not from package names, assembly names, public
+  keys, or an enumerated package catalog.
+
+This is not the ordinary package-overlap absence claim below. A package or
+uploaded assembly may declare a familiar framework name and key, but it remains
+ineligible for the intrinsic target. An entitled designated or Platform
+participant already present in the referencing context is decided by rung 1
+only when the operation's focal-scope receipt admits it.
+
+Only after an ordinary context returns `NoNameOwner`, or an intrinsic context
+is owner-attested as non-participating, does the deferred owner form
 `AssemblyReferenceExternalRouteSet`. That immutable set contains:
 
 - zero or one applicable-platform rung;
 - an ordered finite collection of root-relative package route occurrences;
-- one owner-issued platform/package overlap-applicability receipt for the exact
-  request;
+- one owner-issued route-applicability outcome for the exact request: an
+  ordinary platform/package overlap receipt or one intrinsic CoreLib route
+  decision;
 - exact external-route and package-reachability completion;
 - identities for every contributing owner snapshot; and
 - the operation and Workspace identities to which the set belongs.
@@ -195,19 +239,22 @@ first-match precedence. Platform is a single rung even when its realization
 contains several framework families or packs.
 
 An external route set is **complete** only when its issuing owners establish
-that every route eligible for this exact origin and focal scope is represented,
-including every package node reachable under the selected root-relative
-dependency traversal. A provider may instead issue typed incomplete evidence
-with the routes it could establish. The completed context miss remains usable,
-but the ladder cannot advance through an incomplete boundary and later claim
-resolution or absence if an unrepresented route could change the result.
+that every route eligible for this exact origin and focal scope is represented.
+For an ordinary `AssemblyRef`, that includes every package node reachable under
+the selected root-relative dependency traversal. For an intrinsic CoreLib
+target, completeness instead requires the entitlement evidence that makes all
+package routes ineligible. A provider may issue typed incomplete evidence with
+the routes it could establish. The completed context-advancement evidence
+remains usable, but the ladder cannot advance through an incomplete boundary
+and later claim resolution or absence if an unrepresented route could change
+the result.
 
 Equal display fields do not establish route correspondence. Equality and
 validation use owner-issued revision, origin, declaration, candidate,
 platform-target, realization, and generation identities.
 
-The overlap-applicability receipt is complete before a platform rung can
-select. It states one of:
+For an ordinary `AssemblyRef`, the overlap-applicability receipt is complete
+before a platform rung can select. It states one of:
 
 - **Platform independent** — the exact platform library is applicable and the
   issuer proves that no request-eligible non-subsumed package route is
@@ -247,6 +294,42 @@ immutable result. It is valid only for:
 
 Equal field values do not transfer the receipt to another occurrence,
 generation, target, or owner snapshot.
+
+### Intrinsic CoreLib route applicability
+
+`IntrinsicCoreLibraryRouteApplicabilityReceipt` is conceptual vocabulary for
+the immutable result. It is valid only for:
+
+- the exact intrinsic target and referencing occurrence;
+- the referencing origin and owner-attested context non-participation;
+- one Workspace revision, context generation, and focal-scope receipt;
+- one exact Platform target and family composition;
+- the Platform catalog and acquisition-role snapshots used to prove that the
+  selected population is eligible; and
+- the owner-issued CoreLib entitlement contract proving that package
+  populations are ineligible.
+
+It contains no package route, package correspondence, package-reachability, or
+pruning receipt. Equal names, keys, target frameworks, or display identities
+cannot create or transfer it.
+
+`IntrinsicCoreLibraryRouteDecision` is the closed external-route decision:
+
+- **Applicable** — carries one
+  `IntrinsicCoreLibraryRouteApplicabilityReceipt` and one exact Platform rung;
+- **OutsideOperationScope** — carries the exact focal-scope receipt proving
+  that Platform is not eligible, forms no route, and returns `Incomplete` with
+  that configured-scope evidence;
+- **Unavailable** — carries the owner-issued target, catalog, source, or
+  realization failure that prevented an eligible Platform route;
+- **Incomplete** — carries the bounded or incomplete evidence prefix that
+  prevented a conclusive applicability decision; or
+- **Rejected** — carries invalid target, snapshot, entitlement, route-plan, or
+  correspondence evidence.
+
+None of the zero-route arms becomes `Unbound`, `NoNameOwner`, or package
+fallback. The ladder returns the corresponding typed terminal outcome without
+invoking a Platform binding policy.
 
 #### Independent associations
 
@@ -396,10 +479,12 @@ to delegate; one retained or undetermined edge prevents it.
 
 ## Rung 1: referencing context
 
-The first rung is the exact binding-consistent context containing the
-referencing assembly. It consumes that group's
-`SourceRelativeAssemblyGroupBindingPolicy` or an equivalent completed
-Workspace policy.
+The first rung is the operation-eligible projection of the exact
+binding-consistent context containing the referencing assembly. It consumes a
+completed Workspace policy that preserves the group's binding rules while
+exposing only participants admitted by the request's focal-scope receipt. The
+ladder cannot invoke an unfiltered group policy when that group also contains
+out-of-scope participants.
 
 The rung evaluates the exact request before any source, package, platform, or
 replacement work:
@@ -414,6 +499,16 @@ The containing package's selected asset group normally enters here, not as a
 later package edge. Package realization retains all selected role participants
 and their exact surface-to-implementation correspondence, so an intra-package
 reference does not rediscover its own package through NuGet.
+
+For an intrinsic CoreLib target, a complete operation-eligible projection whose
+participants are all in acquisition roles that cannot mint CoreLib identity is
+non-participating. Out-of-scope participants do not affect that decision merely
+because they are admitted to the same Workspace context. The ladder records the
+route-plan fact and does not invoke its binding policy. An eligible entitled
+participant, an eligible unclassified acquisition role, or incomplete eligible
+participant evidence requires context participation; any
+`Unavailable(UnsupportedScope)` result is then terminal rather than rewritten
+as advancement.
 
 A same-named package or platform candidate cannot override this rung merely
 because it has a newer version, a preferred source, or a more familiar label.
@@ -438,7 +533,7 @@ One route carries:
 - when the route substitutes for a package edge, the exact pruning receipt and
   package-declaration association that authorize that substitution.
 
-There are two ordinary ways to issue the route:
+There are two ordinary ways to issue an `AssemblyRef` route:
 
 1. the platform catalog and exact target establish a platform library, and the
    overlap-applicability issuer proves that no request-eligible package route
@@ -447,6 +542,14 @@ There are two ordinary ways to issue the route:
    `Subsumed` by
    [Platform/Package Pruning](platform-package-pruning.md), and the composition
    owner retains every edge as visible delegated-to-platform evidence.
+
+An intrinsic CoreLib route instead requires
+`IntrinsicCoreLibraryRouteApplicabilityReceipt`. The exact Platform target and
+selected family composition establish the eligible Platform population, while
+the CoreLib acquisition-entitlement contract proves that no package route can
+own the target. The ordinary overlap-applicability receipt cannot authorize
+this route. If the intrinsic route decision is not `Applicable`, this rung is
+not entered and its typed terminal outcome is preserved.
 
 `NotSubsumed` does not create a platform substitution. A package version above
 the target's prune watermark remains a package route even when the platform
@@ -471,11 +574,24 @@ Once issued, the platform rung owns its complete name decision:
 - unavailable, rejected, or bounded realization: the corresponding terminal
   result.
 
+For an intrinsic request, the same rung instead delegates the unchanged
+`AssemblyBindingTarget.IntrinsicCoreLibrary` to the Platform binding owner. A
+unique entitled CoreLib participant is selected according to that exact
+Platform population. Zero entitled participants produce the binding owner's
+typed unavailable or rejected result; multiple entitled participants produce
+`Ambiguous`; and unavailable, rejected, or bounded population evidence remains
+the corresponding terminal result. The ladder never substitutes a hard-coded
+assembly name.
+
 Missing Platform is not rewritten to a package fallback. If the exact scope
 requires an applicable platform route but its target, catalog, source,
 realization, or acquisition evidence is unavailable, the result says so.
 
 ## Rung 3: package dependency routes
+
+An intrinsic CoreLib request never enters this rung. Its complete
+`IntrinsicCoreLibraryRouteApplicabilityReceipt` proves that package acquisition
+cannot own the target.
 
 The package rung considers only owner-issued package nodes reachable from the
 referencing origin under a complete root-relative package dependency
@@ -699,11 +815,13 @@ revision into the route-eligibility receipt:
 Exact-library and package-prefix registrations can contribute populations
 without proving that one package dependency edge satisfies one `AssemblyRef`.
 The ladder still requires origin-bound platform or package route evidence.
+The same receipt also constrains rung 1: Workspace admission alone does not make
+a participant eligible for a narrower operation.
 
 Registration remains inert. Forming the external route set may perform bounded
 catalog or dependency-evidence work only after an operation selects that
-population and the context rung returns `NoNameOwner`; it does not mutate
-registrations or admit Roots.
+population and the context rung supplies valid advancement evidence; it does
+not mutate registrations or admit Roots.
 
 ## Pathological cases
 
@@ -733,6 +851,33 @@ If two associated routes straddle the watermark, the retained edge dominates
 the subsumed edge and no platform route may select on their behalf.
 
 No comparison between assembly version and package version occurs.
+
+### Intrinsic CoreLib from a package context
+
+`System.Text.Json.JsonDocument.Dispose` in
+`System.Text.Json@11.0.0-preview.7.26381.103`, `netstandard2.0`, reaches
+`System.Threading.Interlocked` and `System.Threading.Volatile` through
+Metadata's intrinsic CoreLib target.
+
+The package context contains no CoreLib-entitled participant, so its exact
+route plan marks the context non-participating. External route formation does
+not inspect the dependency graph for a package named `corelib`,
+`System.Private.CoreLib`, `System.Runtime`, or `System.Threading`: package
+acquisition cannot authorize the intrinsic target. The exact selected Platform
+population is the only external candidate domain.
+
+On modern .NET that population normally selects `System.Private.CoreLib`; on a
+different target it may select `mscorlib` or another owner-authorized CoreLib
+participant. The result retains that exact participant and Platform
+generation. The semantic display name `corelib` remains unchanged and is never
+used as the lookup key.
+
+If the selected call-graph focal scope is `Self`, Platform is outside the
+operation scope. The external-route decision is `OutsideOperationScope`, the
+ladder returns `Incomplete` with that exact scope evidence, and no Platform
+catalog or acquisition work begins. A Platform participant already admitted to
+the same Workspace context remains outside this request's rung-1 projection and
+cannot satisfy the intrinsic target.
 
 ### Dependency evidence does not prove assembly correspondence
 
@@ -866,6 +1011,7 @@ name nor platform overlap chose a package or erased the exact pruning result.
 | Participating owner | Responsibility retained |
 | --- | --- |
 | [Structured Type-Forwarding Resolution](type-forwarding-resolution.md) | Assembly identity, binding request and result algebra, policy versions, name ownership, candidate domains, and fixed-chain composition rules |
+| [Untrusted-data threat model](untrusted-data-threat-model.md#core-library-identity-is-granted-by-acquisition-not-by-self-declaration) | CoreLib acquisition entitlement and the rule that self-declared identity cannot mint it |
 | Workspace and [Artifact Acquisition](artifact-acquisition-and-workspaces.md) | Revision and operation authorization, context realization, complete route-map adoption, immutable generation publication, replacement, and retirement |
 | [Platform Composition and Overlays](platform-composition-and-overlays.md) | Exact platform realization, platform/designated role policy, identity eligibility, precedence, and shadows |
 | [Platform/Package Pruning](platform-package-pruning.md) | Exact target/package subsumption fact and version comparison |
@@ -880,13 +1026,15 @@ There are eight counted production-adoption stages:
 
 1. Lock this owner contract in #6288.
 2. Add the host-neutral request, deferred route-plan, external-route,
-   rung-trace, result, and finite-work currencies without adding package or
-   host dependencies to Metadata.
+   rung-trace, result, and finite-work currencies for ordinary AssemblyRef and
+   intrinsic CoreLib targets without adding package or host dependencies to
+   Metadata.
 3. Add owner-issued root-relative package-route projection and exact
    focal-scope eligibility receipts over Package Dependency Traversal and
    authoritative restored graphs.
 4. Add the applicable-platform route adapter over exact target, catalog,
-   pruning, acquisition, and realization evidence.
+   pruning, acquisition, and realization evidence, including the
+   package-ineligible intrinsic CoreLib form.
 5. Add the package route adapter in `DotnetInspector.PackageQueries` over
    Package Dependency Candidate Query, payload acquisition, asset selection,
    and package-role realization.
@@ -918,6 +1066,22 @@ result specified here. Browser adoption follows only after the shared
 continuation loop can publish the replacement generation; the Browser host
 does not implement a parallel association or pruning policy.
 
+The intrinsic CoreLib route does not depend on those two package-backed
+prerequisites. Its focused adoption sequence is:
+
+1. lock the intrinsic target and route contract in #8582;
+2. have the package-role context owner expose complete acquisition-role
+   eligibility evidence for the intrinsic binding domain;
+3. have the route-plan and applicable-platform owners issue context
+   non-participation and exact Platform applicability from that evidence;
+4. have the Workspace owner realize and publish the exact selected Platform
+   population; and
+5. adopt the shared result in CLI and Inspect Web call graphs, preserving the
+   production `JsonDocument.Dispose` case.
+
+Each step remains an owner-sized change. This document does not authorize one
+implementation PR spanning those owners.
+
 ## Acceptance and evidence
 
 Required future Release gates:
@@ -926,6 +1090,12 @@ Required future Release gates:
 | --- | --- |
 | Exact in-context match with lower same-name candidates | Context selection is terminal and performs no lower-rung acquisition |
 | Same-name in-context identity mismatch | `NameOwnedNoMatch` remains terminal |
+| Intrinsic CoreLib in a complete package-only context | The route plan records owner-attested non-participation; no invalid name miss or package route is formed |
+| Intrinsic CoreLib on an exact modern .NET Platform | The uniquely entitled `System.Private.CoreLib` participant is selected without interpreting `corelib` |
+| Intrinsic CoreLib when Platform is outside the selected focal scope | `OutsideOperationScope` returns `Incomplete` with the exact scope receipt and performs no Platform work |
+| `Self` over a package member in a mixed package/Platform context | The rung-1 projection excludes the admitted Platform participant and cannot select it |
+| Intrinsic CoreLib with zero or multiple entitled Platform participants | The binding owner's typed unavailable/rejected result or `Ambiguous` remains visible; no package fallback occurs |
+| Package or uploaded content declares a CoreLib-like name or key | It remains ineligible for the intrinsic target |
 | Context miss and exact platform match | Platform selection retains exact target and realization correspondence |
 | Framework reference without platform Library membership | No platform route is issued |
 | Equal package, assembly, and platform Library names without owner correspondence | No association is inferred |
@@ -974,6 +1144,10 @@ This design does not define:
   selection, source authorization, package payload acquisition, target
   framework compatibility, asset selection, or role realization;
 - package identity inferred from assembly or namespace text;
+- a global equality between Analysis display identity `corelib` and any
+  physical assembly name;
+- CoreLib entitlement for package, uploaded, embedded, or discovered loose
+  content;
 - a global NuGet, SDK, runtime, or filesystem search;
 - operation-budget defaults, host cache partitioning, or admission capacity;
 - compiler reference discovery or retirement of the legacy desktop tools

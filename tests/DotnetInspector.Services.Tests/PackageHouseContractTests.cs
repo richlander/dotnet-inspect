@@ -35,12 +35,49 @@ public sealed class PackageHouseContractTests
         Assert.Equal("linux-x64", request.TargetContext.RuntimeIdentifier);
         Assert.Same(association, request.Association);
         Assert.Equal(
+            PackageHouseEvidenceDemand.None,
+            request.EvidenceDemand);
+        Assert.Equal(
             ["Candidate", "Exact", "Selecting"],
             typeof(PackageHouseDemand)
                 .GetNestedTypes(BindingFlags.Public)
                 .Select(type => type.Name)
                 .Order(StringComparer.Ordinal)
                 .ToArray());
+    }
+
+    [Fact]
+    public void FrameworkReferenceDemandRequiresCompileRealization()
+    {
+        var demand = new PackageHouseDemand.Exact(Coordinate);
+        var operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+
+        var request = new PackageHouseRequest(
+            demand,
+            operation,
+            PackageHouseTargetContext.Exact("net10.0"),
+            PackageHouseAssetSelectionKind.Compile,
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences);
+
+        Assert.Equal(
+            PackageHouseEvidenceDemand.FrameworkReferences,
+            request.EvidenceDemand);
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
+            demand,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences));
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
+            demand,
+            operation,
+            PackageHouseTargetContext.Exact("net10.0"),
+            PackageHouseAssetSelectionKind.Runtime,
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences));
     }
 
     [Fact]

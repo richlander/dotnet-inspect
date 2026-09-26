@@ -45,15 +45,18 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
                 QueryComparisonPopulationSealer.Execute(
                     new ImplementationComparisonPopulationRequest(
                         (before ?? Enumerable.Range(0, Nodes.Length).ToArray()).Select(Binding).ToArray(),
-                        (after ?? []).Select(Binding).ToArray(), null, null))).Population);
+                        (after ?? []).Select(Binding).ToArray(), null))).Population);
     }
 
     internal ImplementationComparisonBinding Binding(int index)
     {
         ImageNode node = Nodes[index];
-        var body = LibraryBodyIndex.OpenFromPrefetchedImage(
-            node.Assembly.Identity.Name + ".dll", [.. node.Image],
-            LibraryBodyAnalysisFeatures.MethodEvidence);
+        var body = LibraryBodyAnalysisService.ExecuteImage(
+                node.Assembly.Identity.Name + ".dll",
+                [.. node.Image],
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence))
+            .CallGraph;
         return new(node.Assembly, new NoAcquisitionResolver(), body);
     }
 

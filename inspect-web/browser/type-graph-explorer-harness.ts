@@ -136,6 +136,7 @@ function target() {
   return owner && content && invoker
     ? {
         key: owner,
+        role: "type" as const,
         kind: "Type relationships",
         subject: item.id,
         context: packageCoordinateLabel(pkg),

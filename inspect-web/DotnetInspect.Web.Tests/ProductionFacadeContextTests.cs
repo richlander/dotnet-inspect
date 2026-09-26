@@ -492,22 +492,45 @@ public sealed class ProductionFacadeContextTests
 
     static readonly Dictionary<string, string> BrowserProjectPaths = new(StringComparer.Ordinal)
     {
-        [HostAssembly] = Path.Combine("DotnetInspect.Web", "DotnetInspect.Web.csproj"),
-        [CoreAssembly] = Path.Combine("DotnetInspect.Web.Core", "DotnetInspect.Web.Core.csproj"),
+        [HostAssembly] =
+            Path.Combine("inspect-web", "DotnetInspect.Web", "DotnetInspect.Web.csproj"),
+        [CoreAssembly] =
+            Path.Combine("src", "DotnetInspect.Web.Core", "DotnetInspect.Web.Core.csproj"),
         [PackageAssembly] =
-            Path.Combine("DotnetInspect.Web.Interop.Package", "DotnetInspect.Web.Interop.Package.csproj"),
+            Path.Combine(
+                "src",
+                "DotnetInspect.Web.Interop.Package",
+                "DotnetInspect.Web.Interop.Package.csproj"),
         [LibraryAssembly] =
-            Path.Combine("DotnetInspect.Web.Interop.Library", "DotnetInspect.Web.Interop.Library.csproj"),
+            Path.Combine(
+                "src",
+                "DotnetInspect.Web.Interop.Library",
+                "DotnetInspect.Web.Interop.Library.csproj"),
         [MetadataAssembly] =
-            Path.Combine("DotnetInspect.Web.Interop.Metadata", "DotnetInspect.Web.Interop.Metadata.csproj"),
+            Path.Combine(
+                "src",
+                "DotnetInspect.Web.Interop.Metadata",
+                "DotnetInspect.Web.Interop.Metadata.csproj"),
         [AnalysisAssembly] =
-            Path.Combine("DotnetInspect.Web.Interop.Analysis", "DotnetInspect.Web.Interop.Analysis.csproj"),
+            Path.Combine(
+                "src",
+                "DotnetInspect.Web.Interop.Analysis",
+                "DotnetInspect.Web.Interop.Analysis.csproj"),
         [SourceAssembly] =
-            Path.Combine("DotnetInspect.Web.Interop.Source", "DotnetInspect.Web.Interop.Source.csproj"),
+            Path.Combine(
+                "src",
+                "DotnetInspect.Web.Interop.Source",
+                "DotnetInspect.Web.Interop.Source.csproj"),
         [CallGraphAssembly] =
-            Path.Combine("DotnetInspect.Web.Interop.CallGraph", "DotnetInspect.Web.Interop.CallGraph.csproj"),
+            Path.Combine(
+                "src",
+                "DotnetInspect.Web.Interop.CallGraph",
+                "DotnetInspect.Web.Interop.CallGraph.csproj"),
         [CatalogAssembly] =
-            Path.Combine("DotnetInspect.Web.Interop.Catalog", "DotnetInspect.Web.Interop.Catalog.csproj"),
+            Path.Combine(
+                "src",
+                "DotnetInspect.Web.Interop.Catalog",
+                "DotnetInspect.Web.Interop.Catalog.csproj"),
     };
 
     /// <summary>
@@ -516,7 +539,7 @@ public sealed class ProductionFacadeContextTests
     /// </summary>
     static string[] BrowserProjectReferences(string assembly)
     {
-        string project = Path.Combine(InspectWebRoot(), BrowserProjectPaths[assembly]);
+        string project = Path.Combine(RepositoryRoot(), BrowserProjectPaths[assembly]);
         Assert.True(File.Exists(project), $"Missing browser project '{project}'.");
         return
         [
@@ -532,14 +555,17 @@ public sealed class ProductionFacadeContextTests
         ];
     }
 
-    static string InspectWebRoot()
+    static string InspectWebRoot() =>
+        Path.Combine(RepositoryRoot(), "inspect-web");
+
+    static string RepositoryRoot()
     {
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
             directory is not null;
             directory = directory.Parent)
         {
             if (File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
-                return Path.Combine(directory.FullName, "inspect-web");
+                return directory.FullName;
         }
 
         throw new DirectoryNotFoundException(

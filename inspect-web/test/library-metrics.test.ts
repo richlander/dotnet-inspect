@@ -124,6 +124,35 @@ test("treemap cells expose exact type activation and evidence semantics", () => 
   assert.match(html, /data-metrics-treemap-evidence/);
 });
 
+test("treemap omits relationship-only zero-body summaries", () => {
+  const html = render({
+    data: {
+      ...data,
+      typeSummaries: [
+        ...data.typeSummaries,
+        {
+          ...data.typeSummaries[0]!,
+          typeKey: "Example.Core.Contract",
+          typeDisplay: "Example.Core.Contract",
+          name: "Contract",
+          bodyCount: 0,
+          instructionCount: 0,
+          complexityTotal: 0,
+          loopCount: 0,
+          directCallCount: 0,
+          allocationCount: 0,
+        },
+      ],
+    },
+  });
+
+  assert.doesNotMatch(
+    html,
+    /data-metrics-type-key="Example\.Core\.Contract"/,
+  );
+  assert.match(html, />1 types · Scroll the page/);
+});
+
 test("the grouped Other types cell is evidence-only", () => {
   const typeSummaries = Array.from({ length: 74 }, (_, index) => ({
     ...data.typeSummaries[0]!,

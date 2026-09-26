@@ -35,9 +35,11 @@ package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
 carried forward.
 
-`DotnetInspect.Web` remains the executable Browser/Wasm host and the owner of
-all current exports and wire DTOs. `DotnetInspect.Web.Core` is its one-way,
-implementation-only dependency for shared package/platform workspaces,
+`DotnetInspect.Web` remains the executable Browser/Wasm host under this website
+workspace and the owner of all current exports and wire DTOs. The managed Core
+and interop production libraries live under `src/`, where the normal solution
+build covers them without invoking Node. `DotnetInspect.Web.Core` is the host's
+one-way, implementation-only dependency for shared package/platform workspaces,
 operation lifetimes, browser host policy, and typed internal results. Engine
 maps those results to its wire DTOs; Core contains no `[JSExport]` method or
 generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
@@ -1720,8 +1722,9 @@ rather than by enumerating one more placement.
 
 Nineteen elements carry scoped `html-validate-disable-next` directives. The
 Wasm preload is genuinely incomplete until the .NET publish step injects its
-runtime `href`; three workflows plus `PromotionWorkflowContract.cs` pin it by
-id. The nine same-origin stylesheet and nine module references are Vite source
+runtime `href`; three workflows plus
+`InspectWebDeploymentWorkflowContract.cs` pin it by id. The nine same-origin
+stylesheet and nine module references are Vite source
 inputs whose final asset names and bytes do not exist until build. Each
 directive names one rule on the immediately following element.
 
@@ -2622,17 +2625,20 @@ download that artifact by ID with digest mismatch configured as an error and
 deploy it to the public staging site at `https://dotnet-inspect.ca`. The upload
 includes the managed API's hidden `.azurefunctions` dependencies and overwrites
 the same-name artifact on a rerun, so a cancelled attempt can be retried without
-leaving multiple artifacts that promotion rejects.
-`PromotionWorkflowContract` gates both properties. The post-download gate
-requires the extension loader before deployment. Candidate build code never
-runs in the staging deployment job. The separate
+leaving multiple retained copies.
+`InspectWebDeploymentWorkflowContract` gates both properties. The
+post-download gate requires the extension loader before deployment. Candidate
+build code never runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-`.github/workflows/deploy-inspect-web-runtime-sites.yml` runs nightly at
-00:47 UTC from one exact green `main` commit. It calls the controlled runtime
-cohort to build Mono, CoreCLR IL, and non-composite CoreCLR ReadyToRun with one
-shared frontend, then publishes the exact accepted CoreCLR artifacts to:
+`.github/workflows/deploy-inspect-web-runtime-sites.yml` runs automatically
+after each completed nightly release candidate. It validates that exact
+candidate run and attempt, passes the candidate SHA through every controlled
+runtime-cohort checkout, and records the run, attempt, and SHA in retained
+evidence and each deployment receipt. The cohort builds Mono, CoreCLR IL, and
+non-composite CoreCLR ReadyToRun with one shared frontend, then publishes the
+exact accepted CoreCLR artifacts to:
 
 | Site | Runtime artifact | GitHub environment |
 | --- | --- | --- |
@@ -2719,23 +2725,18 @@ deployment job.
 The cohort gates both expected-lowering properties, exact facade domains,
 browser invocations, graph receipts, and transferred evidence.
 
-`.github/workflows/promote-inspect-web.yml` intentionally promotes one
-successful staging run to production at `https://dotnet-inspect.net`. The
-operator supplies the staging run ID and types `promote`; the workflow verifies
-that the run was a successful `main` build through the staging workflow, that
-its `Publish staging` job succeeded, and that it produced one unexpired,
-nonempty `inspect-web-site` artifact. Main-push staging is the default. An
-operator-dispatched staging run is accepted only when the promotion dispatch
-explicitly enables `allow_manual_staging`; the validator rejects it otherwise.
-After production approval the workflow revalidates that same override, run
-attempt, commit, artifact identity, and digest, downloads the exact artifact ID
-with digest mismatch configured as an error, and deploys the archived staging
-files. `validate-inspect-web-promotion.cs --self-test`, run by inspect-web CI,
-gates the default rejection, explicit exception, and other close negative cases;
-the CI change-detection workflow contract gate keeps the Mono deployment jobs
-free of candidate code, keeps
-production revalidation on the trusted dispatch revision, and orders each
-artifact download before only verification and deployment.
+`.github/workflows/release.yml` deploys the production site only as part of one
+operator-authorized publication of an immutable nightly release candidate. The
+operator supplies the candidate run ID and exact attempt and types `publish`.
+The workflow validates the run, exact-SHA CI, same-attempt asset and Deep
+Inspect jobs, final artifact ID and digest, and any explicit certification
+concern acceptance. After package and GitHub release publication succeeds, the
+production job revalidates those identities, downloads the exact artifact ID
+with digest mismatch configured as an error, recomputes the receipt and every
+site checksum, and deploys the retained `site` files without rebuilding them.
+`validate-release-candidate.cs --self-test` and the CI change-detection
+workflow contract gate cover the identity, same-attempt, concern, ordering,
+download, and no-rebuild boundaries.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
