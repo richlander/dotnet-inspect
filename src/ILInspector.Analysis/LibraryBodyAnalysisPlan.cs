@@ -94,8 +94,6 @@ internal sealed record LibraryBodyAnalysisPlan(
         {
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }
-        if ((features & LibraryBodyAnalysisFeatures.OwnershipFlow) != 0)
-            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features
                 & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
                     | LibraryBodyAnalysisFeatures.LocalThrows
@@ -106,13 +104,6 @@ internal sealed record LibraryBodyAnalysisPlan(
         }
         if (resourceEffects is not null)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
-            && (methodScope is not null || typeScope is not null))
-        {
-            throw new ArgumentException(
-                "Leak Triage requires a full assembly body census.");
-        }
-
         return new(
             features,
             requestedFeatures,

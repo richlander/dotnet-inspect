@@ -3,8 +3,8 @@ using System.Globalization;
 
 // Dynamic leak / memory-growth signal for a long-running process, consuming a
 // dotnet-counters `System.Runtime` timeseries (CSV). This is the complement to the
-// static ArrayPool leak-triage in ILInspector.Analysis: static analysis sees a
-// managed-heap-visible IL shape; this sees the runtime accounting that separates
+// static Resource Triage analysis: static analysis sees an exceptional-cleanup
+// risk in IL; this sees the runtime accounting that separates
 // three very different growth causes that look alike from the outside:
 //
 //   * managed retention   — the live GC heap grows and a gen2 collection does NOT
@@ -196,7 +196,7 @@ static class LeakWatchAnalyzer
         {
             verdict = LeakWatchVerdict.ManagedRetention;
             headline = $"Managed retention: the live GC heap is holding {Fmt(liveHeapRetained)} at steady state — {Fmt(managedRetained)} above its {Fmt(liveHeapBase)} baseline — and a collection did not return it, so it is a managed leak. Capture a gcdump and inspect the top retained types.";
-            notes.Add("The growth is on the managed heap and survives collection: this is the class the static ArrayPool leak-triage targets, and a gcdump will name the retained roots.");
+            notes.Add("The growth is on the managed heap and survives collection: this is the class static Resource Triage helps identify, and a gcdump will name the retained roots.");
         }
         else if (highChurn && heapReclaimedByGen2)
         {

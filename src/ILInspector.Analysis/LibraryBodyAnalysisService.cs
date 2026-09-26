@@ -233,8 +233,6 @@ public static class LibraryBodyAnalysisService
         || plan.Includes(
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
         || plan.Includes(
-            LibraryBodyAnalysisFeatures.OwnershipFlow)
-        || plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
 
     private static void RequireCompatibilityRequest(

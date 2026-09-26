@@ -27,12 +27,6 @@ public enum LibraryBodyAnalysisFeatures
     /// Produce optimization opportunities; implies <see cref="Allocations"/>.
     /// </summary>
     OptimizationOpportunities = 1 << 2,
-    /// <summary>Produce the whole-assembly ArrayPool lifecycle census.</summary>
-    LeakTriage = 1 << 3,
-    /// <summary>
-    /// Produce compact body-scoped ArrayPool ownership-flow summaries.
-    /// </summary>
-    OwnershipFlow = 1 << 4,
     /// <summary>
     /// Produce sync-call-in-async opportunities; implies
     /// <see cref="MethodEvidence"/>.
@@ -62,8 +56,6 @@ public enum LibraryBodyAnalysisFeatures
         | AsyncSiblingOpportunities,
     /// <summary>All available body-analysis producers.</summary>
     All = Default
-        | LeakTriage
-        | OwnershipFlow
         | JsonWireContractFlow
         | LocalThrows
         | ImplementationProfiles,
@@ -143,8 +135,6 @@ public sealed class LibraryBodyIndex
         _unsafetyOccurrences = analysis.Safety.Occurrences;
         Features = features;
         HasFullMethodEvidenceScope = hasFullScope;
-        _leakTriage = analysis.Resources.LeakTriage;
-        ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
     }
 
     public string Path { get; }
@@ -229,28 +219,6 @@ public sealed class LibraryBodyIndex
     /// reported separately through <see cref="Diagnostics"/>.
     /// </summary>
     public bool HasFullMethodEvidenceScope { get; }
-
-    /// <summary>
-    /// Compact per-method ArrayPool ownership summaries produced during the
-    /// body walk. No IL or control-flow state is retained.
-    /// </summary>
-    public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
-        ArrayPoolOwnership
-    { get; }
-
-    readonly LeakTriageResult? _leakTriage;
-
-    /// <summary>
-    /// Gets the whole-assembly lifecycle census produced when
-    /// <see cref="LibraryBodyAnalysisFeatures.LeakTriage"/> was requested.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// The Leak Triage producer was not requested.
-    /// </exception>
-    public LeakTriageResult LeakTriage
-        => _leakTriage
-            ?? throw new InvalidOperationException(
-                "Leak Triage was not requested for this body index.");
 
     readonly LibraryOptimizationAnalysisResult _optimization;
     readonly LibraryCallGraphAnalysisResult _callGraph;
@@ -654,8 +622,6 @@ public sealed class LibraryBodyIndex
                         new HashSet<int>(),
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
-                OwnershipFlow: new(Methods: []),
-                Resources: new(LeakTriage: null),
                 Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
             features: LibraryBodyAnalysisFeatures.MethodEvidence
                 | (allocationOccurrences is null

@@ -86,16 +86,6 @@ public sealed record MemberCallGraphView(
         [];
 
     /// <summary>
-    /// Compact ownership evidence retained from the same focused results that
-    /// produced this graph layer.
-    /// </summary>
-    public ImmutableArray<Analysis.ArrayPoolOwnershipMethodEvidence>
-        OwnershipEvidence { get; init; } = [];
-
-    /// <summary>Whether ownership-flow production was requested.</summary>
-    public bool OwnershipFlowAvailable { get; init; }
-
-    /// <summary>
     /// Generic Resource Ownership summaries retained from the same focused
     /// results that produced this graph layer.
     /// </summary>
@@ -143,11 +133,6 @@ public sealed record MemberCallGraphOptions
         {
             throw new ArgumentException(
                 "Progressive call graphs require method evidence.");
-        }
-        if ((Features & Analysis.LibraryBodyAnalysisFeatures.LeakTriage) != 0)
-        {
-            throw new ArgumentException(
-                "Progressive call graphs do not support Leak Triage because their first tier is body-scoped.");
         }
     }
 }
@@ -599,16 +584,6 @@ public sealed class MemberCallGraphSession : IDisposable
                     .OrderBy(call => call.ILOffset)
                     .ThenBy(call => call.OperandToken),
             ],
-            OwnershipEvidence =
-            [
-                .. evidenceSources
-                    .SelectMany(item =>
-                        item.CallGraph.OwnershipEvidence),
-            ],
-            OwnershipFlowAvailable =
-                (_options.Features
-                    & Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow)
-                != 0,
             ResourceOwnershipSummaries =
             [
                 .. evidenceSources

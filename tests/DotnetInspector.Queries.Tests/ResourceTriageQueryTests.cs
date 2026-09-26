@@ -77,59 +77,6 @@ public sealed class ResourceTriageQueryTests
                 boundary.Kind
                     == ResourceTriageBoundaryKind.ExternalInput);
 
-        var legacyInspection =
-            Assert.IsType<
-                FindingInspection<ResourceLifecycleOccurrence>.Complete>(
-                ResourceLifecycleAnalysis.InspectAssembly(
-                    path,
-                    new FindingSubject(
-                        "query-tests",
-                        "query-tests")).Value);
-        ResourceTriageAssessment legacy = Assert.Single(
-            ResourceTriageAnalysis.Assess(legacyInspection),
-            candidate =>
-                candidate.Source.Payload.Method.Name
-                    == ReadBeforeReturn);
-        Assert.Equal(legacy.Source.Key, assessment.Source.Key);
-        Assert.Equal(legacy.Source.Payload, assessment.Source.Payload);
-        Assert.Equal(
-            legacy.Source.Descriptor,
-            assessment.Source.Descriptor);
-        Assert.Equal(legacy.Source.Detail, assessment.Source.Detail);
-        Assert.Equal(legacy.CandidateId, assessment.CandidateId);
-
-        ResourceTriageAssessment[] genericPopulation =
-        [
-            .. available.Assessments.OrderBy(AssessmentKey),
-        ];
-        ResourceTriageAssessment[] legacyPopulation =
-        [
-            .. ResourceTriageAnalysis.Assess(legacyInspection)
-                .OrderBy(AssessmentKey),
-        ];
-        string[] expectedKeys =
-            [.. legacyPopulation.Select(AssessmentKey)];
-        string[] actualKeys =
-            [.. genericPopulation.Select(AssessmentKey)];
-        Assert.True(
-            expectedKeys.SequenceEqual(actualKeys),
-            $"Expected: {string.Join(", ", legacyPopulation.Select(Summary))}"
-            + Environment.NewLine
-            + $"Actual: {string.Join(", ", genericPopulation.Select(Summary))}");
-        for (int index = 0; index < legacyPopulation.Length; index++)
-        {
-            ResourceTriageAssessment expected =
-                legacyPopulation[index];
-            ResourceTriageAssessment actual =
-                genericPopulation[index];
-            Assert.Equal(expected.Source.Key, actual.Source.Key);
-            Assert.Equal(expected.Source.Payload, actual.Source.Payload);
-            Assert.Equal(
-                expected.Source.Descriptor,
-                actual.Source.Descriptor);
-            Assert.Equal(expected.Source.Detail, actual.Source.Detail);
-            Assert.Equal(expected.CandidateId, actual.CandidateId);
-        }
     }
 
     [Fact]
@@ -174,16 +121,4 @@ public sealed class ResourceTriageQueryTests
                 new FindingSubject("query-tests", "query-tests")));
     }
 
-    static string AssessmentKey(ResourceTriageAssessment assessment) =>
-        $"{assessment.Source.Payload.Method.MetadataToken:X8}:"
-        + $"{assessment.Source.Payload.AcquireOffset:X8}";
-
-    static string Summary(ResourceTriageAssessment assessment) =>
-        $"{AssessmentKey(assessment)}="
-        + $"{assessment.Source.Payload.Method.Name}["
-        + string.Join(
-            ",",
-            assessment.Source.Payload.Boundaries.Select(
-                boundary => boundary.Operation.Name))
-        + "]";
 }

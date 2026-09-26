@@ -557,9 +557,10 @@ numbers alone.
 
 The production annotated-document consumer selects the ArrayPool resource kind
 as Research query policy. Analysis does not encode ArrayPool identity in the
-generic summary. The earlier `ArrayPoolOwnershipPathFindings` path remains
-independently executable as a fidelity oracle; it is not an input, adapter, or
-fallback for generic composition.
+generic summary. The earlier `ArrayPoolOwnershipPathFindings` implementation
+served only as an independent fidelity oracle and was retired after the
+generic path reached zero classified defects; it was never an input, adapter,
+or fallback for generic composition.
 
 Ownership completeness remains separate from positive Findings:
 `NotRequested`, `TraversalBoundary`, `IncompleteCorrespondence`,

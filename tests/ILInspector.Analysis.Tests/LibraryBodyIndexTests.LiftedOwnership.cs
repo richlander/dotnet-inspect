@@ -1907,12 +1907,6 @@ public partial class LibraryBodyIndexTests
                     == method.MetadataToken
                 && opportunity.Shape
                     == "capturing-delegate");
-        Assert.Contains(
-            index.ArrayPoolOwnership,
-            ownership => ownership.Method.MetadataToken
-                    == method.MetadataToken
-                && ownership.Rents.Length == 1
-                && ownership.IsComplete);
         Assert.True(signals.Throws >= 1);
         Assert.True(signals.Catches >= 1);
         Assert.True(signals.Finallys >= 1);
