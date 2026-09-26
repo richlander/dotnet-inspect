@@ -72,11 +72,13 @@ that terminal is settled. Level 2 may stop the remaining work at the next unit
 boundary. Producers cut off by the stop report that they stopped because the
 request was satisfied, not that they completed.
 
-**Early exit happens at every level.** Whether an assembly uses runtime
-async is an Exists question over method definitions at declaration depth
-only: the runtime-async implementation flag is declaration metadata, so no
-body is ever requested. The first runtime-async definition settles the
-question, and no later definition is visited for it. The same holds at each
+**Early exit happens at every level.** Library discovery asks whether an
+assembly exposes a public runtime-async method: a public, non-accessor method
+on a type that is not compiler-generated, carrying the runtime-async
+implementation flag. That is an Exists question over method definitions at
+declaration depth only. The population predicate and the flag are both
+declaration metadata, so no body is ever requested. The first matching
+definition settles the question, and no later definition is visited for it. The same holds at each
 level: a producer stops within a unit once its question for that unit is
 answered, a declaration finding means an optional body layer is never
 acquired, and level 2 stops visiting units for a request once its terminal is
