@@ -73,6 +73,7 @@
     <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1/InspectWeb.SourceComparisonFixtures.V1.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2/InspectWeb.SourceComparisonFixtures.V2.csproj" />
+    <Project Path="fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures/ILInspector.JsExportSurface.DirectionalJsonValueFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures/ILInspector.JsExportSurface.MemberConverterFixtures.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures/ILInspector.JsExportSurface.NestedContextConstructorFixtures.csproj" />
@@ -131,6 +132,14 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" />
+    <Project Path="src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj" />
+    <Project Path="src/DotnetInspect.Web.Interop.Analysis/DotnetInspect.Web.Interop.Analysis.csproj" />
+    <Project Path="src/DotnetInspect.Web.Interop.CallGraph/DotnetInspect.Web.Interop.CallGraph.csproj" />
+    <Project Path="src/DotnetInspect.Web.Interop.Catalog/DotnetInspect.Web.Interop.Catalog.csproj" />
+    <Project Path="src/DotnetInspect.Web.Interop.Library/DotnetInspect.Web.Interop.Library.csproj" />
+    <Project Path="src/DotnetInspect.Web.Interop.Metadata/DotnetInspect.Web.Interop.Metadata.csproj" />
+    <Project Path="src/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj" />
+    <Project Path="src/DotnetInspect.Web.Interop.Source/DotnetInspect.Web.Interop.Source.csproj" />
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <Project Path="src/DotnetInspector.Cache/DotnetInspector.Cache.csproj" />
@@ -278,5 +287,6 @@
     <Project Path="tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj" />
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
+    <Project Path="tools/SourceCorpusCensus/SourceCorpusCensus.csproj" />
   </Folder>
 </Solution>

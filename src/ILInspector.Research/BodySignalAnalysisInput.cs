@@ -53,6 +53,7 @@ public sealed class BodySignalAnalysisInput
         }
 
         Receipt = allocations.Receipt;
+        MethodPopulation = callGraph;
         Methods = callGraph.Methods;
         GeneratedFrameworkTypes =
             optimization.GeneratedFrameworkTypes;
@@ -67,6 +68,7 @@ public sealed class BodySignalAnalysisInput
 
     internal BodySignalAnalysisInput(
         LibraryBodyAnalysisReceipt receipt,
+        LibraryCallGraphAnalysisResult methodPopulation,
         ImmutableArray<MethodIdentity> methods,
         IReadOnlySet<TypeRef> generatedFrameworkTypes,
         IReadOnlyDictionary<int, MethodSignals> methodSignals,
@@ -89,6 +91,7 @@ public sealed class BodySignalAnalysisInput
         ImmutableArray<OptimizationOpportunity> opportunities)
     {
         Receipt = receipt;
+        MethodPopulation = methodPopulation;
         Methods = methods;
         GeneratedFrameworkTypes = generatedFrameworkTypes;
         MethodSignals = methodSignals;
@@ -100,6 +103,16 @@ public sealed class BodySignalAnalysisInput
     }
 
     public LibraryBodyAnalysisReceipt Receipt { get; }
+
+    /// <summary>
+    /// The Analysis method population these focused results were built from,
+    /// carried for now by the call-graph result.
+    /// </summary>
+    /// <remarks>
+    /// This is an interim carrier. Research reads only its declared methods,
+    /// module identity, diagnostics, and source name.
+    /// </remarks>
+    public LibraryCallGraphAnalysisResult MethodPopulation { get; }
 
     internal ImmutableArray<MethodIdentity> Methods { get; }
 

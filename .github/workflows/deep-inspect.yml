@@ -1,6 +1,12 @@
 name: Deep Inspect
 
 on:
+  workflow_call:
+    inputs:
+      lane:
+        description: 'Which opt-in lane to run'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       lane:
@@ -15,12 +21,10 @@ on:
           - authored-corpus
           - platform-test
           - inspect-web
+          - release-candidate
           - nightly
           - all
   schedule:
-    # Daily release certification: full slow tests, the decompiler corpus, and
-    # Windows/macOS/latest-Ubuntu compatibility.
-    - cron: '0 6 * * *'
     # Daily authored-corpus regression detection, separate from certification.
     - cron: '0 9 * * *'
     # Weekly discovery: current packages.
@@ -101,13 +105,14 @@ jobs:
           name: deep-inspect-package-sweep
           path: artifacts/package-sweep/
           if-no-files-found: warn
+          overwrite: true
 
   test:
     name: Test lane
     # Runs daily to certify a releasable main commit, and on manual dispatch.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
       inputs.lane == 'test' ||
+      inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
@@ -178,9 +183,9 @@ jobs:
     # PluginDiscoveryTests. Slow decompiler gates, the corpus sensor, IL
     # round-trip, and packaging remain with their owning daily or release jobs.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
       inputs.lane == 'test' ||
       inputs.lane == 'platform-test' ||
+      inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
     strategy:
       fail-fast: false
@@ -278,6 +283,7 @@ jobs:
           name: custom-attribute-d3-${{ matrix.rid }}
           path: artifacts/custom-attribute-d3/result.json
           if-no-files-found: error
+          overwrite: true
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -310,8 +316,8 @@ jobs:
     # slow gates (which previously pushed the combined job past its timeout).
     # Runs alongside the test lane for daily and on-demand certification.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
       inputs.lane == 'test' ||
+      inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
@@ -342,8 +348,8 @@ jobs:
     if: >-
       always() &&
       (
-        (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
         inputs.lane == 'test' ||
+        inputs.lane == 'release-candidate' ||
         inputs.lane == 'all'
       )
     runs-on: ubuntu-24.04
@@ -371,8 +377,8 @@ jobs:
     # Ordinary PRs retain fast boundary coverage; direct changes to these
     # harnesses or their owners select the same comprehensive modes in CI.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
       inputs.lane == 'inspect-web' ||
+      inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
@@ -411,8 +417,8 @@ jobs:
   census:
     name: Census lane
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
       inputs.lane == 'census' ||
+      inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
@@ -570,6 +576,7 @@ jobs:
             artifacts/assertion-scan/
             artifacts/analysis-census/
           if-no-files-found: warn
+          overwrite: true
 
   nightly:
     name: Nightly SDK lane
@@ -739,6 +746,7 @@ jobs:
           name: deep-inspect-opt-in-corpus
           path: artifacts/opt-in-corpus/
           if-no-files-found: warn
+          overwrite: true
 
   authored-corpus-ratchet:
     name: Authored-corpus ratchet lane
@@ -838,6 +846,7 @@ jobs:
             artifacts/deep-inspect/authored-corpus-run.json
             artifacts/deep-inspect/source-oracle-run.json
           if-no-files-found: warn
+          overwrite: true
 
   report-scheduled-failure:
     name: Report scheduled failure

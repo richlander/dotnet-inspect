@@ -360,6 +360,17 @@ public static class CommandLineBuilder
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
             tailLines: null);
+        // Every command invocation, including each router rewrite, passes through here, so a
+        // valueless section selector is reported once with its guidance rather than as
+        // System.CommandLine's generic missing argument or an unrelated validator error.
+        if (SharedOptions.TryGetMissingSelectorError(
+                parseResult,
+                out string? missingSelectorError))
+        {
+            CommandError.Write(missingSelectorError!);
+            return 1;
+        }
+
         if (rawArgs is not null
             && parseResult.CommandResult.Command.Name == "router"
             && TryGetCommandlessPackageVersionError(
@@ -1064,6 +1075,9 @@ public static class CommandLineBuilder
 
     internal static string FormatParseError(string message)
     {
+        if (SharedOptions.TryFormatMissingSelectorParseError(message, out string? selectorError))
+            return selectorError!;
+
         if (message.StartsWith("Cannot parse argument '", StringComparison.Ordinal)
             && TryParseCannotParseArgument(
                 message,

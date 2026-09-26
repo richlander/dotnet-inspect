@@ -35,13 +35,28 @@ family.
   members present on both sides. A disagreement is retained as a per-member
   `Failed` diagnostic; it does not abort healthy members in the same diff.
 
-### Legacy body-index association
+### Analysis method-population association
 
-The retained assembly-comparison paths consume Analysis-issued
-`LibraryBodyIndex.ModuleIdentity`, not a sampled method or a display path.
-`ImplementationDiff.Compare` requires each supplied index to match its opened
+Research takes each input's analyzed methods from the Analysis-issued
+`LibraryCallGraphAnalysisResult` of one `LibraryBodyAnalysisService` execution:
+its declared-method population, its receipt's module identity, and its
+receipt's diagnostics. Research does not accept `LibraryBodyIndex`, which
+remains an Analysis compatibility adapter for consumers outside Research
+tracked by [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
+
+`LibraryCallGraphAnalysisResult` is the interim carrier of that method
+population, not the population's contract. Research inputs name the concept
+(`MethodPopulation`), and Research reads only the declared methods, module
+identity, diagnostics, and source name from it. Later Research steps must not
+depend on call-graph-specific members. When
+[Producer planning](https://github.com/richlander/dotnet-inspect/issues/8569)
+declares a population-shaped Analysis result, only the carrier type changes.
+
+The retained assembly-comparison paths consume that result's
+`ModuleIdentity`, not a sampled method or a display path.
+`ImplementationDiff.Compare` requires each supplied result to match its opened
 image's complete assembly-definition identity and MVID, including when the
-index is methodless or a selected capability produced no method rows.
+population is methodless or a selected capability produced no method rows.
 Metadata's `AssemblyReferenceIdentity.EquivalentComparer` defines assembly
 identity equivalence; Analysis owns the identity's image-derived issuance.
 
@@ -54,17 +69,17 @@ remain rejected, not silently coalesced. This legacy rule is not the richer
 workspace correspondence-domain contract below.
 
 A standalone managed module has no assembly-definition identity, so it cannot
-acquire an assembly pairing key from its filename. Body-index assembly
-comparison rejects that unsupported association visibly. API-only netmodule
-comparison remains supported; this does not change Metadata or Analysis
-module inspection.
+acquire an assembly pairing key from its filename. Assembly comparison over a
+method population rejects that unsupported association visibly. API-only
+netmodule comparison remains supported; this does not change Metadata or
+Analysis module inspection.
 
-`ResearchDiffTests.BodyIndexIdentity_*` gates full identity and MVID mismatch,
-matching and mismatched capability-limited or methodless inputs, label-independent
-pairing and union construction, and preserved cross-version comparison in
-Release. The existing API netmodule case gates that separate supported path.
-This retires the heuristics tracked by #5125, not the live legacy comparison
-APIs or their native C#/IL producers.
+`ResearchDiffTests.MethodPopulationIdentity_*` gates full identity and MVID
+mismatch, matching and mismatched capability-limited or methodless inputs,
+label-independent pairing and union construction, and preserved cross-version
+comparison in Release. The existing API netmodule case gates that separate
+supported path. This retires the heuristics tracked by #5125, not the live
+legacy comparison APIs or their native C#/IL producers.
 
 ### Structural body comparison
 
@@ -465,7 +480,11 @@ and Research body aliases into one `HashSet<string>`.
 `ResearchDiffOptions` pass that untyped set through to mechanism-specific
 filters. This loses the selection occurrence, side, admitted input, resolution
 attempt, typed diagnostic, accessor role, and proof that a one-sided target is
-absent rather than unavailable.
+absent rather than unavailable. For generic members, the rebuilt text also
+fails to match the method side's own identity, so the member is silently
+dropped ([#8570](https://github.com/richlander/dotnet-inspect/issues/8570)).
+Body-signal targeting has left this path. Implementation, complexity, and the
+IL and C# Finding routes remain on it until they migrate.
 
 The body paths then disagree about missing evidence. Semantic IL comparison
 intersects method keys and can omit a one-sided member; retained IL Finding
@@ -526,8 +545,8 @@ operation, question, and input population or exposes none of it.
 Admission copies all caller-owned collections, and the admitted population
 retains its occurrence-to-identity association as a frozen private copy keyed
 by occurrence reference identity rather than a mutable dictionary. It may
-borrow the exact profile-specific assembly descriptor, resolver, body index,
-and typed selection intent while target resolution is active, but those values
+borrow the exact profile-specific assembly descriptor, resolver, Analysis
+method population, and typed selection intent while target resolution is active, but those values
 are evidence rather than identity. Invalid profile input produces a typed
 Research admission rejection that exposes no identity and no partial
 population. No target request can be minted from this slice at all, because it
@@ -535,9 +554,10 @@ contains no target path.
 
 Null contracts split by where the value enters. A direct occurrence, question,
 or request constructor argument is validated at construction, so
-`BodySignalComparisonInputOccurrence` rejects a null `LibraryBodyIndex` there,
+`BodySignalComparisonInputOccurrence` rejects a null
+`LibraryCallGraphAnalysisResult` there,
 `ImplementationComparisonInputOccurrence` rejects a null assembly descriptor,
-resolver, or body index passed to its three-argument constructor, and neither
+resolver, or method population passed to its three-argument constructor, and neither
 can report missing evidence later. Nested borrowed evidence supplied as an
 already-constructed `ImplementationAssemblyInput`, and null collection
 elements, are deliberately retained instead: an incomplete input or a null
@@ -546,22 +566,46 @@ partial population, rather than a construction-time exception.
 
 Admission borrows its inputs without reading them. It calls no member of
 `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, or
-`LibraryBodyIndex`, so it never opens an assembly, reads a path, resolves a
-reference, or inspects body-index content.
+`LibraryCallGraphAnalysisResult`, so it never opens an assembly, reads a path,
+resolves a reference, or inspects method-population content.
 `ResearchAdmission_DoesNotOpenOrInspectBorrowedInputs` gates this both
 behaviorally, with borrowed capabilities that throw when used, and structurally,
 with an IL call-reference walk over every admission-reachable product method for
 both rank-1 profiles.
 
-The identity and atomic-association contract applies to both rank-1 profiles.
-The target-resolution path in this design initially applies only to the
-implementation-comparison profile, whose admitted assembly content can supply
-Metadata-owned target evidence. The body-signal profile admits only
-`LibraryBodyIndex` today. Research does not open `LibraryBodyIndex.Path`,
-manufacture an `ApiType`, or reimplement Metadata selection over Analysis
-identity. Queries prerequisite #4777 must add exact typed Metadata target
-evidence to that profile before body-signal target requests migrate from the
-string-keyed compatibility path.
+The identity and atomic-association contract applies to both rank-1 profiles,
+and so does target resolution. Its exact claim for the body-signal profile is:
+
+> The body-signal profile admits each Analysis execution together with the
+> acquisition-owned assembly descriptor and resolver it was produced from, and
+> Research selects body-signal members only from `ResearchTargetResolver`
+> correspondence outcomes, so a resolved target that selects no Analysis method
+> is a typed failure, never an empty comparison.
+
+Both profiles supply the same Metadata-owned target evidence: an admitted
+descriptor and resolver that Research opens, validates against the Analysis
+module identity, and resolves through Metadata's `MemberTargetResolver`. They
+also supply the Analysis method population from which Research issues the
+`ResearchTargetBodyIdentity`. A body-signal occurrence additionally carries
+the focused Analysis results its producer compares. Research does not
+reimplement Metadata selection over Analysis identity, and it does not derive
+body-signal member identity from display or canonical-signature text.
+
+For a targeted request, cross-version pairing comes from the correspondence
+key, not from a body-signal method key. A `Paired` outcome selects exactly the
+endpoint method on each side by its resolved address. An untargeted
+whole-assembly comparison makes no target request and keeps its existing
+method pairing. One-sided, absent,
+counterpart-unavailable, and blocked outcomes keep their typed meaning. A
+resolved endpoint whose address selects no method in that side's Analysis
+population is a typed body-signal failure. The body-signal producer
+classifies inspection topology over those endpoints under
+[Finding inspection topology](finding-nomenclature.md#typed-inspection-topology).
+
+The body-signal path is host-neutral. The CLI `diff` Finding Transitions and
+Analysis Diff routes adopt it first. Browser/Wasm adopts the same query
+through the website Implementation Diff track, with no second targeting
+path.
 
 ### Side-local requests and attempts
 
@@ -632,7 +676,7 @@ module coordinate that acquisition does not supply. The key allows two
 versions of one assembly to share a domain without letting a same-named
 assembly with different signing identity or another scope correspond. Domain
 evidence comes from admitted `ResolvedAssemblyReference` values, not formatted
-assembly names or body-index paths.
+assembly names or method-population source names.
 
 The admitted question is the authority that asks its Before and After input
 sets to correspond. Within that question, one domain key may contain at most
@@ -671,7 +715,7 @@ request retains:
   exact-address request.
 
 It retains no `ResearchAdmittedInput`, selection occurrence, acquisition
-descriptor, reference resolver, or body index.
+descriptor, reference resolver, or method population.
 
 Side participates in request identity. A carried selector has no resolved
 relationship role before Metadata selection and does not borrow one from the
@@ -978,7 +1022,7 @@ its already-exposed operation, question, and input identities while minting
 fresh scope, domain, request, and attempt identities. Only a new admission
 mints a fresh operation. There is no resource cleanup or competing
 terminal-primary policy in this boundary because all readers, snapshots, and
-body indexes are borrowed for the resolution call and remain owned by their
+method populations are borrowed for the resolution call and remain owned by their
 admitting component.
 
 ### Target-resolution migration and gates
@@ -996,10 +1040,9 @@ Migration preserves owner and dependency direction:
    proof. No producer is invoked and no inspection topology is classified.
    This step has landed.
 4. The ResearchQueries companion consumes the admission API and constructs its
-   Queries-owned receipt for both profiles. Body-signal target resolution
-   remains on its compatibility path until Queries prerequisite #4777 supplies
-   exact Metadata target evidence; Research does not compensate for that
-   missing input.
+   Queries-owned receipt for both profiles. The body-signal profile carries
+   the same descriptor and resolver target evidence as the implementation
+   profile, which closes #4777.
 5. The Findings topology and focused native-producer migrations have landed.
    Rank 4 under
    [#5441](https://github.com/richlander/dotnet-inspect/issues/5441)
@@ -1007,9 +1050,10 @@ Migration preserves owner and dependency direction:
    design is specified below, but its Research implementation remains
    unimplemented. Producer adapters classify endpoint topology and retain their
    native typed results; Research adds no generic body disposition.
-6. Rank 6 later migrates the implementation-comparison public path from string
-   target identities and publishes the outer result. Body-signal migration
-   follows #4777 independently.
+6. Body-signal targeting migrates to the typed target path, and its
+   string-keyed identity bag is removed. Rank 6 later migrates the
+   implementation-comparison public path, and the IL and C# Finding routes,
+   from string target identities and publishes the outer result.
 
 The admission, scope, domain, request, and attempt gates have landed and are
 listed under
@@ -1067,10 +1111,17 @@ inspection state or generic body disposition. A cross-module address fixture
 must become a blocking attempt before any key or correspondence is exposed. The
 string-key gate inspects the new target-path public and internal signatures
 rather than only exercising a successful fixture; explicit compatibility
-adapters remain until the dependent migration removes them. Purpose-built
-profile fixtures also prove that a body-signal admission cannot enter the
-target path without the typed prerequisite from
-[#4777](https://github.com/richlander/dotnet-inspect/issues/4777).
+adapters remain until the dependent migration removes them.
+
+The body-signal target path adds these gates:
+
+- `ResearchTargetResolver_ResolvesBodySignalProfileThroughAdmittedEvidence`
+- `BodySignalComparison_SelectsMembersOnlyFromCorrespondence`
+- `BodySignalComparison_ResolvedTargetWithoutAnalysisMethodIsTypedFailure`
+- `ResearchBodySignalTargetPath_HasNoStringKeyedIdentityBag`
+- `BodySignalComparisonQuery_PairsGenericSystemTextJsonMember`, over
+  System.Text.Json 9.0.0 and 10.0.0 `JsonSerializer.Serialize:1` and a
+  non-generic neighbor
 
 ### Target-resolution non-goals
 
@@ -1080,7 +1131,6 @@ This boundary does not define:
   shape;
 - Metadata selector parsing, single-surface resolution, anchor/address
   construction, or diagnostic semantics;
-- the Queries-owned body-signal target-evidence prerequisite tracked by #4777;
 - package acquisition, role planning, workspace composition, resource cleanup,
   or budgets;
 - Finding inspection-state definition or producer-specific applicability and
@@ -1184,7 +1234,7 @@ not a one-sided comparison and cannot authorize `SubjectAbsent`.
 
 Admission opens no content and adds no resource lifetime. The pair retains
 only the existing inert resolution evidence, not the admitted population or
-its borrowed descriptors, resolvers, or body indexes. A pair is admissible
+its borrowed descriptors, resolvers, or method populations. A pair is admissible
 input to a session, not evidence that later input access or native inspection
 will succeed. The session still validates exact input access under
 [its existing contract](#input-access-limits-and-cleanup).
@@ -1506,15 +1556,15 @@ issues own the gates proving pair-algorithm suppression.
 ### Input access, limits, and cleanup
 
 The session may borrow admitted assembly descriptors, resolvers, and Analysis
-body indexes only while it runs. Its closed owned-resource inventory contains
+method populations only while it runs. Its closed owned-resource inventory contains
 one Research-opened input stage for each admitted implementation input needed
 by a healthy work item. An input stage owns the metadata/PE reader stack opened
 from that exact descriptor and resolver; the borrowed descriptor, resolver,
-and body index do not become owned resources. Research acquires no content
+and method population do not become owned resources. Research acquires no content
 outside the admitted population.
 
 Before an input stage can serve an item, Research revalidates its
-assembly/module identity and body-index association against the exact admitted
+assembly/module identity and method-population association against the exact admitted
 input and resolved target evidence. A reopened or changed input that no longer
 matches cannot serve a producer. Stage acquisition either transfers one
 complete owned stage or releases its partial internals before returning typed
@@ -1578,7 +1628,7 @@ identities, the exact inert target correspondence or designated-pair evidence,
 Research input-access diagnostics, successful cleanup outcomes, and native producer
 result values that their owners permit beyond execution. Failure and
 cancellation may retain their bounded Research diagnostic and complete cleanup
-outcomes. No arm retains an assembly descriptor, resolver, body index, metadata
+outcomes. No arm retains an assembly descriptor, resolver, method population, metadata
 or PE reader, stream, callback, producer, delegate, service provider, scratch
 collection, lease, cleanup authority, raw exception, display-only row, or
 mutable caller collection. Native typed display evidence already owned by a
@@ -1631,9 +1681,8 @@ Implementation proceeds in focused owner order:
    adoption.
 4. Source remains outside the local catalog; its
    [authored-source composition](#research-authored-source-comparison) owns
-   its prerequisites. Body-signal target migration follows
-   [#4777](https://github.com/richlander/dotnet-inspect/issues/4777)
-   independently.
+   its prerequisites. Body-signal targeting uses the same resolution but is
+   compared by its own producer outside this catalog.
 
 ### Producer-session non-goals
 
@@ -2213,7 +2262,8 @@ columns. `Difference` contains the IL body outcome for IL rows and is empty for
 C# rows, keeping mechanism, result, edit kind, and evidence as separate
 dimensions.
 The section binds `ImplementationComparisonQuery`, whose input carries retained
-assembly descriptors, reference resolvers, and body indexes. The query opens
+assembly descriptors, reference resolvers, and Analysis method populations.
+The query opens
 those descriptors for the offline C# and IL producers and returns
 `ImplementationDiffResult`; the CLI adapter's current path-backed descriptors
 are an acquisition boundary, not part of the query contract.

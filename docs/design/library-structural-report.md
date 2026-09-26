@@ -177,7 +177,9 @@ severity, priority, or defect label.
 summed instruction, normal-flow complexity, loop, direct-call, and allocation
 counts. It is a population summary over physical evidence; it does not merge
 compiler-generated bodies into one logical owner or infer authored-source
-ownership.
+ownership. A selected relationship endpoint with no complete physical profile
+is retained as a zero-body summary so every relationship endpoint resolves to
+one typed node without inventing body evidence.
 
 When call-graph evidence is supplied, `EntangledRelationships` retains
 cross-type direct-call evidence whose caller body is complete, whose callee
@@ -244,13 +246,15 @@ renders a `Complexity Explorer` treemap
 from type summaries plus a `Relationship Crossing` view from the bounded
 relationship projection, without recomputing any report fact. Area represents
 instruction volume, treemap color represents average normal-flow complexity, and
-relationship stroke width represents retained call-site count. These visuals
-render every endpoint and edge in Research's bounded relationship projection;
-the Browser performs no second topology selection. A treemap cell discloses its
-type summary on pointer hover or keyboard focus and activates the exact
-metadata type key to continue the settled Library-to-Type-to-Member journey.
-The synthetic `Other types` aggregate discloses its combined summary but is not
-a Type navigation target. These visuals are structural evidence; they do not
+relationship stroke width represents retained call-site count. Complexity
+Explorer omits zero-body relationship-only summaries because they carry no
+implementation volume. Relationship Crossing renders every endpoint and edge
+in Research's bounded relationship projection; the Browser performs no second
+topology selection. A treemap cell discloses its type summary on pointer hover
+or keyboard focus and activates the exact metadata type key to continue the
+settled Library-to-Type-to-Member journey. The synthetic `Other types`
+aggregate discloses its combined summary but is not a Type navigation target.
+These visuals are structural evidence; they do not
 add a quality score, Compare surface, complete graph, or a second report model.
 
 ## Real-library probe
@@ -323,7 +327,10 @@ hosts:
    it. Implemented as `LibraryMetricsQuery`.
 4. The CLI adopts an explicit `Library Metrics` section. It is exact-name-only
    and outside default `-v:m` output; the existing `Member Metrics` inventory
-   remains the detail surface.
+   remains the detail surface. Exact singleton `--json` emits the complete
+   Research document directly, while `--envelope` wraps identical Content with
+   Share and diagnostics; Markout remains the Markdown/table/TSV/JSONL
+   projection path.
 5. Browser/Wasm adopts the same document through its settled Library detail
    path. Its managed Analysis facade runs the host-neutral
    `AssemblyContextLibraryMetricsQuery` over the exact implementation

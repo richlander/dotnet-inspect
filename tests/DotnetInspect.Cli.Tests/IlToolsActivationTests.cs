@@ -609,7 +609,7 @@ public class IlToolsActivationTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void ReleaseCertificationValidator_SelfTest()
+    public void ReleaseCandidateValidator_SelfTest()
     {
         var info = new ProcessStartInfo("dotnet")
         {
@@ -619,7 +619,7 @@ public class IlToolsActivationTests
             WorkingDirectory = RepoRoot,
         };
         info.ArgumentList.Add("run");
-        info.ArgumentList.Add(Path.Combine("eng", "validate-release-certification.cs"));
+        info.ArgumentList.Add(Path.Combine("eng", "validate-release-candidate.cs"));
         info.ArgumentList.Add("--");
         info.ArgumentList.Add("--self-test");
 
@@ -630,7 +630,33 @@ public class IlToolsActivationTests
 
         Assert.True(
             process.ExitCode == 0,
-            $"Certification validator self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+            $"Candidate validator self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        Assert.Contains("self-test passed", stdout);
+    }
+
+    [Fact]
+    public void NuGetRetryPackageVerifier_SelfTest()
+    {
+        var info = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = RepoRoot,
+        };
+        info.ArgumentList.Add("run");
+        info.ArgumentList.Add(Path.Combine("eng", "verify-nuget-retry-package.cs"));
+        info.ArgumentList.Add("--");
+        info.ArgumentList.Add("--self-test");
+
+        using var process = Process.Start(info)!;
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.True(
+            process.ExitCode == 0,
+            $"NuGet retry verifier self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
         Assert.Contains("self-test passed", stdout);
     }
 

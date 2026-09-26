@@ -173,6 +173,73 @@ internal sealed record ImplementationMetricAnalysisPlan(
     ImplementationMetricWorkLimits Limits,
     ImplementationMetricRequestOrigin Origin)
 {
+    internal bool UsesFocusedExecution =>
+        (EffectiveEvidence & ~FocusedEvidence)
+            == ImplementationMetricEvidenceKind.None;
+
+    internal bool IncludesHeaderEvidence =>
+        (EffectiveEvidence & HeaderEvidence)
+            != ImplementationMetricEvidenceKind.None;
+
+    internal bool IncludesLocalEvidence =>
+        EffectiveEvidence.HasFlag(
+            ImplementationMetricEvidenceKind.Locals);
+
+    internal bool IncludesInstructionShapeEvidence =>
+        EffectiveEvidence.HasFlag(
+            ImplementationMetricEvidenceKind.InstructionShape);
+
+    internal bool IncludesControlFlowEvidence =>
+        EffectiveEvidence.HasFlag(
+            ImplementationMetricEvidenceKind.ControlFlow);
+
+    internal bool IncludesFocusedContextEvidence =>
+        (EffectiveEvidence & FocusedContextEvidence)
+            != ImplementationMetricEvidenceKind.None;
+
+    internal bool RequiresLocalSignatureDecode =>
+        WorkStages.HasFlag(
+            ImplementationMetricWorkStage.LocalSignatureDecode);
+
+    internal ImplementationMetricEvidenceKind EvidenceCausesFor(
+        ImplementationMetricWorkStage stage)
+    {
+        ImplementationMetricEvidenceKind causes =
+            stage switch
+            {
+                ImplementationMetricWorkStage.SourceAttribution
+                    or ImplementationMetricWorkStage
+                        .SourceAttributionBodyProbe =>
+                    ImplementationMetricEvidenceKind.All,
+                ImplementationMetricWorkStage.ManagedBodyAcquisition =>
+                    BodyEvidence,
+                ImplementationMetricWorkStage.LocalSignatureDecode =>
+                    ContextEvidence
+                    | ImplementationMetricEvidenceKind.Locals,
+                ImplementationMetricWorkStage.CanonicalMethodContext =>
+                    ContextEvidence,
+                ImplementationMetricWorkStage.DirectCallCollection =>
+                    CallEvidence,
+                ImplementationMetricWorkStage
+                    .AllocationSignalCollection =>
+                    ImplementationMetricEvidenceKind.AllocationCount,
+                ImplementationMetricWorkStage
+                    .AllocationOccurrenceCollection =>
+                    ImplementationMetricEvidenceKind
+                        .AllocationOccurrences,
+                ImplementationMetricWorkStage.BodySignalCollection =>
+                    ImplementationMetricEvidenceKind.ThrowCount,
+                ImplementationMetricWorkStage.SafetyCollection =>
+                    ImplementationMetricEvidenceKind.UnsafePresence,
+                ImplementationMetricWorkStage
+                    .SiblingRelationshipProjection =>
+                    ImplementationMetricEvidenceKind
+                        .SiblingOverloadRelationships,
+                _ => ImplementationMetricEvidenceKind.None,
+            };
+        return EffectiveEvidence & causes;
+    }
+
     internal static ImplementationMetricAnalysisPlan Create(
         ImplementationMetricAnalysisRequest request)
     {
@@ -290,9 +357,21 @@ internal sealed record ImplementationMetricAnalysisPlan(
         ImplementationMetricEvidenceKind.All
         & ~ImplementationMetricEvidenceKind.Async;
 
-    const ImplementationMetricEvidenceKind ContextEvidence =
+    const ImplementationMetricEvidenceKind HeaderEvidence =
+        ImplementationMetricEvidenceKind.BodySize
+        | ImplementationMetricEvidenceKind.ExceptionRegions;
+
+    const ImplementationMetricEvidenceKind FocusedEvidence =
+        HeaderEvidence
+        | ImplementationMetricEvidenceKind.Locals
+        | FocusedContextEvidence;
+
+    const ImplementationMetricEvidenceKind FocusedContextEvidence =
         ImplementationMetricEvidenceKind.InstructionShape
-        | ImplementationMetricEvidenceKind.ControlFlow
+        | ImplementationMetricEvidenceKind.ControlFlow;
+
+    const ImplementationMetricEvidenceKind ContextEvidence =
+        FocusedContextEvidence
         | ImplementationMetricEvidenceKind.DirectCalls
         | ImplementationMetricEvidenceKind.AllocationCount
         | ImplementationMetricEvidenceKind.AllocationOccurrences

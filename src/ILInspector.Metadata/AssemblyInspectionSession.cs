@@ -203,6 +203,40 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Executes request-driven Count and bounded Rows over this image's
+    /// canonical assembly-reference relation population.
+    /// </summary>
+    public MetadataAssemblyReferenceRelationPopulationOutcome
+        AssemblyReferenceRelations(
+            MetadataAssemblyReferenceRelationPopulationRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection
+            .ExecuteAssemblyReferencePopulation(
+                _image.PEReader,
+                request,
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes request-driven Count and bounded Rows over this image's
+    /// canonical extension relation population for one exact receiver Type.
+    /// </summary>
+    public MetadataExtensionRelationPopulationOutcome ExtensionRelations(
+        MetadataExtensionRelationPopulationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection.ExecuteExtensionPopulation(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
     /// <see cref="AssemblyInfo"/> when only reachability by name is needed: it decodes no
@@ -220,7 +254,8 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll,
-        bool typesOnly) =>
+        bool typesOnly,
+        bool includeCompilerGenerated) =>
         ApiSurface(
             source,
             catalog,
@@ -228,7 +263,8 @@ public sealed class AssemblyInspectionSession :
             includeAll
                 ? ApiSurfaceExtractionScope.IncludeAll
                 : ApiSurfaceExtractionScope.Public,
-            typesOnly);
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>
     /// Projects one explicit API scope with resolution-aware generic
@@ -239,14 +275,16 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        bool typesOnly = false) =>
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,
             catalog,
             bindingPolicy,
             scope,
-            typesOnly);
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>
     /// Reads a TypeDef's instance-field primitive after the durable address

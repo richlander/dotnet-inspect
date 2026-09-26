@@ -403,7 +403,7 @@ test("opens the real inspect-web project and preserves DOM overload provenance",
     const text = readFileSync(join(inspectWebRoot, "src", "shell-controls.ts"), "utf8");
     const nodes = nodesFor(session, shell);
     const firstQuerySelector =
-      text.indexOf('root.querySelector("#retry-notice")');
+      text.indexOf('root.querySelector("#dismiss-package-notice")');
     const property = nodes.find(node =>
       node.kind === NodeKind.PropertyAccessExpression
       && node.location.start === firstQuerySelector
@@ -427,7 +427,7 @@ test("opens the real inspect-web project and preserves DOM overload provenance",
       nodes,
       text,
       NodeKind.CallExpression,
-      'root.querySelector("#retry-notice")',
+      'root.querySelector("#dismiss-package-notice")',
     );
     const selected = expectResolved(session.getResolvedSignature(call.handle));
     assert.equal(selected.category, "Call");

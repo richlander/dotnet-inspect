@@ -489,6 +489,9 @@ public sealed partial class BrowserEngineBoundaryTests
     public async Task MemberFindingCensus_TransportsOneReceiptAcrossBothProjections()
     {
         const string PackageId = "Browser.Member.FindingCensus";
+        const string CallerCanonicalIdentity =
+            "M:DotnetInspect.Web.Tests.BrowserEngineBoundaryTests."
+            + "PerformanceBoxingProbe(System.Int32)";
         byte[] image = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
@@ -527,7 +530,7 @@ public sealed partial class BrowserEngineBoundaryTests
             type.GetProperty("definitionId").GetString()!,
             type.GetProperty("queryId").GetString()!,
             member.GetProperty("name").GetString()!,
-            member.GetProperty("signature").GetString()!,
+            CallerCanonicalIdentity,
             member.GetProperty("graphSelectorKey").GetString()!,
             member.GetProperty("metadataToken").GetInt32(),
             "[]");
@@ -563,6 +566,34 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(factKeys, sourceKeys);
 
         JsonElement annotatedSource = root.GetProperty("annotatedSource");
+        string declarationJson =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .QueryMemberDeclaration(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    type.GetProperty("assembly").GetString()!,
+                    type.GetProperty("definitionId").GetString()!,
+                    member.GetProperty("name").GetString()!,
+                    member.GetProperty("graphSelectorKey").GetString()!,
+                    member.GetProperty("metadataToken").GetInt32(),
+                    implementationMember: true);
+        using JsonDocument declarationDocument =
+            JsonDocument.Parse(declarationJson);
+        string declaration = declarationDocument.RootElement
+            .GetProperty("text")
+            .GetString()!;
+        Assert.Equal(
+            declaration,
+            annotatedSource.GetProperty("signature").GetString());
+        Assert.Contains(
+            "public static object PerformanceBoxingProbe(int value)",
+            declaration,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            CallerCanonicalIdentity,
+            annotatedSource.GetProperty("signature").GetString()!,
+            StringComparison.Ordinal);
         HashSet<int> documentFactIds =
         [
             .. annotatedSource

@@ -26,7 +26,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "Required argument missing for option",
+            $"{option} requires at least one name. Omit {option} for the default view",
             error,
             StringComparison.Ordinal);
     }
@@ -58,6 +58,35 @@ public partial class CommandExecutionTests
             "at DotnetInspect",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-S", "package", "System.Text.Json", "-S")]
+    [InlineData("--select", "package", "System.Text.Json", "--select")]
+    [InlineData("-s", "project", ".", "-s")]
+    [InlineData("--section", "library", "System.Text.Json", "--section")]
+    [InlineData("-S", "type", "System.Text.Json.JsonSerializer", "-S")]
+    [InlineData("-S", "diff", "System.Text.Json@9.0.0..10.0.0", "--envelope", "-S")]
+    [InlineData("-S", "System.Text.Json", "-S")]
+    public async Task SectionSelection_ValuelessSelectorNamesAlternativesWithoutStack(
+        string alias,
+        params string[] args)
+    {
+        var (exit, output, error) = await RunAppAsync(["--offline", .. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{alias} requires at least one name. Omit {alias} for the default view, "
+            + $"name a section or @category with {alias} <name>, or list them with -D.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Required argument missing", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(InvalidOperationException),
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("at DotnetInspect", error, StringComparison.Ordinal);
     }
 
     [Fact]

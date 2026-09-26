@@ -139,6 +139,7 @@ function annotatedResult(): AnnotatedSourceResult {
   validateAnnotatedSourceDocument(document);
   return {
     document,
+    signature: inertStringFixture("public void Sample()"),
     viewerCatalog: sampleViewerCatalog,
     findingEvidenceDocuments: [],
     findingEvidence: [],

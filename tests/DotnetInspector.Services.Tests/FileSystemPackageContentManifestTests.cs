@@ -45,6 +45,12 @@ public sealed class FileSystemPackageContentManifestTests
                 Assert.Single(
                     manifest.EnumerateEntriesWithLengths(),
                     entry => entry.Path == relativePath).Length);
+            using PackageContentEntryScanner scanner =
+                manifest.CreateEntryScanner();
+            Assert.True(scanner.MoveNext(out PackageContentEntry scanned));
+            Assert.Equal(relativePath, scanned.Path);
+            Assert.Equal(payload.LongLength, scanned.Length);
+            Assert.False(scanner.MoveNext(out _));
 
             // Over budget, bounded open throws an InvalidDataException that a
             // caller cannot distinguish from an unrelated read failure. The
