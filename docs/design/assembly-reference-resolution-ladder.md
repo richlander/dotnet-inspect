@@ -256,21 +256,23 @@ platform-target, realization, and generation identities.
 For an ordinary `AssemblyRef`, the overlap-applicability receipt is complete
 before a platform rung can select. It states one of:
 
-- **Platform applicable** — the exact platform Library is applicable, every
-  package edge has a terminal pruning disposition, and no retained package
-  route owns this exact `AssemblyRef`;
-- **Package edge retained** — one or more non-delegated package routes own the
-  requested assembly, so package precedence remains available;
+- **Package applicable** — one or more retained PackageRefs correlate with the
+  request and selected package content proves exact assembly ownership;
+- **Platform applicable** — no retained Package route owns the request and one
+  exact eligible Platform Library can supply it;
+- **No external supplier** — complete Package and Platform evidence establishes
+  no owner;
 - **No eligible platform** — framework and Workspace evidence admit no
-  Platform family for the request; or
-- **Undetermined** — available reachability, pruning, retained-package, target,
-  or Platform evidence cannot settle overlap.
+  Platform family after Package association finds no owner; or
+- **Undetermined** — available reachability, pruning, Package correlation,
+  selected-content, target, or Platform evidence cannot settle the supplier.
 
 Pruning is conclusive for package edges. A `Subsumed` edge is delegated before
 AssemblyRef route competition and needs no package-to-Platform-Library
-correspondence. Association is still owner-issued for retained package routes:
-selected package-role evidence, not equal package and assembly names,
-establishes whether a retained edge owns the requested assembly.
+correspondence. For retained edges, exact namesake and boundary-aligned
+package-family prefix matches are resource-free Package candidate evidence.
+Selected package-role content and decoded Metadata identity establish whether
+the candidate owns the requested assembly.
 
 ### Assembly-reference route association
 
@@ -330,27 +332,32 @@ None of the zero-route arms becomes `Unbound`, `NoNameOwner`, or package
 fallback. The ladder returns the corresponding typed terminal outcome without
 invoking a Platform binding policy.
 
-#### Independent stages
+#### Package route first, Platform specialization second
 
-Route formation settles three stages without translating one identity domain
-into another:
+Route formation settles ordinary Package supply before the Platform
+specialization:
 
-1. **Package-edge pruning** — the package processing owner evaluates each exact
-   package coordinate. `Subsumed` conclusively delegates that edge and removes
-   it from package acquisition; `NotSubsumed` and `NotComparable` retain it.
-2. **Platform membership** — the platform owner identifies whether the exact
-   target's selected family composition contains a Library capable of owning
-   the requested assembly identity. A framework reference makes that family
-   eligible; it does not establish Library membership, binding compatibility,
-   or precedence.
-3. **Retained-package name ownership** — for every remaining package route, an
-   owner establishes from selected package roles whether that exact route owns
-   the requested assembly identity.
+1. **Package-edge pruning** — independently evaluates each exact package
+   coordinate. `Subsumed` conclusively removes that Package supplier;
+   `NotSubsumed` and `NotComparable` retain it.
+2. **PackageRef correlation** — compares the unchanged `AssemblyRef` simple
+   name with actual reachable retained PackageRefs. Exact namesake and
+   boundary-aligned package-family prefix matches nominate Package candidates.
+3. **Selected-content correlation** — selected package-role filenames nominate
+   likely members, and decoded Metadata identity establishes Package
+   ownership.
+4. **Platform specialization** — only when no retained Package route owns the
+   request, owner-issued family eligibility and exact Platform Library
+   membership may nominate a Platform supplier.
 
-A package declaration, package ID, asset filename, or equal simple name does
-not establish retained-package name ownership. Conversely, a delegated edge
-does not need package-to-Platform-Library correspondence: its exact pruning
-receipt already authorizes skipping package acquisition.
+Package ID and selected-asset filename are useful correlation evidence; neither
+is binding authority. A same-named or prefix-related PackageRef without
+matching selected content does not own the request. A non-namesake package can
+participate when an owner-issued selected-role identity inventory proves that
+it supplies the requested assembly.
+
+A delegated edge does not need package-to-Platform-Library correspondence: its
+exact pruning receipt already authorizes skipping package acquisition.
 
 Repeated routes to one package candidate retain distinct edge and reachability
 occurrences. Coalesced acquisition does not coalesce pruning or selected-role
@@ -362,9 +369,12 @@ The evidence order is:
 2. evaluate pruning for every package edge;
 3. retain delegated edges as visible evidence but remove them from package
    acquisition and competition;
-4. settle exact Platform Library membership for the `AssemblyRef`;
-5. settle name ownership for every retained package route; and
-6. decide whether the applicable-platform rung or package rung may run.
+4. correlate the `AssemblyRef` with retained PackageRefs by exact namesake,
+   boundary-aligned prefix, or owner-issued selected-role inventory;
+5. settle Package ownership from selected content and decoded Metadata;
+6. when no retained Package owns the request, settle eligible Platform family
+   and exact Platform Library membership; and
+7. issue the applicable Package or Platform route.
 
 Candidate payload acquisition and package asset decoding are not steps for a
 delegated edge. They belong only to retained package routes whose existing
@@ -374,10 +384,11 @@ The ladder derives overlap applicability after every stage settles:
 
 | Complete evidence | Overlap applicability |
 | --- | --- |
-| Exact Platform membership and no retained package name owner | Platform applicable |
-| One or more retained package name owners | Package edge retained |
-| No framework or Workspace evidence admits a Platform family | No eligible platform |
-| Reachability, pruning, retained-package ownership, target, or Platform evidence is incomplete | Undetermined |
+| One or more retained Package routes own the request | Package applicable |
+| No retained Package route owns the request and exact Platform membership exists | Platform applicable |
+| No Package owner and no eligible Platform family | No eligible platform |
+| Complete Package and Platform evidence establish no owner | No external supplier |
+| Reachability, pruning, Package correlation, selected-content, target, or Platform evidence is incomplete | Undetermined |
 
 A retained package name owner dominates the same-request Platform proposal.
 `Undetermined` is terminal incomplete route formation; it is not permission to
@@ -416,18 +427,19 @@ completeness.
 
 #### Pathological overlap
 
-For a `net10.0` origin with an eligible .NET Runtime platform target and a
+For a `net10.0` origin with an eligible .NET Runtime Platform target and a
 `System.Text.Json` package edge:
 
 - `System.Text.Json@9.0.0` delegates conclusively after the exact edge is
   `Subsumed`; the independent `AssemblyRef` must still resolve against the
   exact Platform population;
 - `System.Text.Json@12.0.0` is `NotSubsumed`, retains the package route, and
-  selected package-role evidence determines whether it owns the request;
+  exact namesake plus selected `System.Text.Json.dll` content nominates the
+  ordinary Package supplier before Metadata binding confirms it;
 - an unresolved or otherwise incomparable version is `NotComparable` and
   likewise retains the package route; and
-- equal `System.Text.Json` package, assembly, and Library spellings are not
-  needed to delegate the edge or bind the independent `AssemblyRef`.
+- package and assembly name equality is Package candidate evidence, not
+  pruning evidence or final binding authority.
 
 The same contract applies when several edges converge on one package candidate
 or Platform Library. One retained name owner or undetermined edge prevents
@@ -435,9 +447,10 @@ Platform preference.
 
 When the origin contains a `System.Text.Json` `AssemblyRef` but no
 `System.Text.Json` package edge, pruning has no input for that identity. The
-exact AssemblyRef may resolve directly through the eligible .NET Runtime
-Platform family; implementation traversal then follows Platform view
-correspondence to the runtime pack.
+ordinary Package route has no namesake candidate, so the exact AssemblyRef may
+continue through the eligible .NET Runtime Platform specialization.
+Implementation traversal then follows Platform view correspondence to the
+runtime pack.
 
 ## Rung 1: referencing context
 
@@ -556,8 +569,10 @@ cannot own the target.
 
 The package rung considers only owner-issued package nodes reachable from the
 referencing origin under a complete root-relative package dependency
-projection. It never searches NuGet by assembly simple name, namespace,
-ecosystem, package prefix, or display text.
+projection. It never searches NuGet globally by assembly simple name,
+namespace, ecosystem, package prefix, or display text. Within that exact
+reachable set, the supplier-association owner may use exact namesake and
+boundary-aligned package-family prefix matches to nominate Package candidates.
 
 Each `PackageDependencyAssemblyRoute` carries:
 
@@ -565,6 +580,7 @@ Each `PackageDependencyAssemblyRoute` carries:
 - one owner-issued root-relative reachability path;
 - the exact declaring parent and dependency edge at the path's terminal step;
 - the selected target-framework and runtime intent owned by the input;
+- its owner-issued AssemblyRef-to-PackageRef correlation;
 - its package candidate capability and shared source operation context;
 - its route eligibility and optional ecosystem membership receipt; and
 - exact completion and identity for every contributing owner.
@@ -589,19 +605,28 @@ is request-eligible. Evaluation then composes existing owners:
 1. Package Dependency Traversal or an authoritative restored graph supplies
    root-relative reachability, exact edges, candidates, and completion without
    manufacturing a direct declaration.
-2. For a declaration-backed route, Package Dependency Candidate Query resolves
+2. Package-origin AssemblyRef supplier association compares the unchanged
+   request with actual reachable PackageRefs. Exact namesake and
+   boundary-aligned package-family prefix matches nominate ordinary Package
+   candidates; a selected-role identity inventory may nominate a non-namesake
+   package.
+3. For a declaration-backed route, Package Dependency Candidate Query resolves
    the normalized declaration to one exact `PackageAcquisitionCandidate`.
-3. For a restored-coordinate-backed route, Package Source Model authorizes the
+4. For a restored-coordinate-backed route, Package Source Model authorizes the
    owner-issued exact coordinate as a caller-pinned candidate without version
    discovery, declaration synthesis, or constraint re-selection. The route
    retains the produced relationship and requested-versus-resolved evidence.
-4. The package owner acquires the exact authorized payload.
-5. Package asset selection chooses the compile and implementation roles for
+5. The package owner acquires the exact authorized payload.
+6. Package asset selection chooses the compile and implementation roles for
    the exact target and runtime intent.
-6. Package role realization issues the selected asset set, assembly
-   identities, and surface-to-implementation correspondence.
-7. A package-rung binding policy evaluates the original `AssemblyRef` against
+7. An exact selected-role filename match nominates the likely member. Package
+   role realization issues the selected asset set, decoded assembly identities,
+   and surface-to-implementation correspondence.
+8. A package-rung binding policy evaluates the original `AssemblyRef` against
    that complete realized role.
+
+Package ID and filename correlation reduce ordinary acquisition and decoding
+work. They do not replace the final Metadata identity comparison.
 
 The ladder does not choose a package version, target framework, asset folder,
 reference-versus-implementation role, feed, or payload. It does not treat
@@ -617,9 +642,11 @@ falling back to a synthesized declaration.
 
 ### Complete package-rung decision
 
-Every request-eligible package route that could affect the binding decision
-must settle before the package rung publishes a conclusive result. This is the
-cost of making ambiguity and absence truthful:
+Every correlated or otherwise owner-nominated Package route that could affect
+the binding decision must settle before the package rung publishes a
+conclusive result. Complete absence additionally requires every reachable
+PackageRef to have a terminal correlation or selected-role-inventory result.
+This is the cost of making ambiguity and absence truthful:
 
 - zero complete eligible routes, or complete routes whose realized roles do
   not own the name, produce `NoNameOwner`;
@@ -640,18 +667,22 @@ supply another candidate. Repeated declarations and paths that resolve to one
 corresponding package candidate may share acquisition and realization work
 while retaining distinct edge and reachability occurrences.
 
-Package filename is neither package identity nor assembly-name ownership.
-`PackageCompileAsset.AssemblyName` is currently derived from the selected
-asset's filename and cannot exclude an asset from a complete binding domain.
+Package filename is member-correlation evidence, not package identity or final
+assembly-name ownership. `PackageCompileAsset.AssemblyName` is currently
+derived from the selected asset's filename. It can nominate an exact likely
+member but cannot by itself produce `Selected`, `NameOwnedNoMatch`, or
+`NoNameOwner`. The nominated member's decoded Metadata identity remains the
+binding input.
+
 A package route may avoid decoding unrelated selected assets only when a
-separate owner-issued inventory has validated their metadata assembly names.
-Otherwise every potentially contributing selected asset is identity-decoded
-before the rung can claim `NoNameOwner`, `NameOwnedNoMatch`, one selection, or
-ambiguity. A selected `Alias.dll` whose metadata identity is `Contoso.Real` is
-valid and participates under `Contoso.Real`; filename and metadata-name
-difference is not rejection. Rejection is reserved for malformed metadata,
-failed content or selected-asset correspondence, or disagreement with a
-separately owner-attested metadata identity.
+separate owner-issued inventory has validated their Metadata assembly names.
+Otherwise a complete absence claim still requires every potentially
+contributing selected asset to be identity-decoded. A selected `Alias.dll`
+whose Metadata identity is `Contoso.Real` is valid and participates under
+`Contoso.Real`; filename and metadata-name difference is not rejection.
+Rejection is reserved for malformed metadata, failed content or selected-asset
+correspondence, or disagreement with a separately owner-attested Metadata
+identity.
 
 ## Immutable generation realization
 
@@ -919,7 +950,35 @@ owner contracts named above.
 
 ## Demo
 
-An ordinary platform reference:
+An ordinary Package reference:
+
+```text
+request
+  origin: Contoso.App/lib/net11.0/Contoso.App.dll
+  AssemblyRef: System.Text.Json, Version=12.0.0.0
+  package edge: System.Text.Json [12.0.0]
+  platform prune watermark: 11.0.0
+  focal length: Everything
+
+ladder
+  context
+    NoNameOwner
+  package correlation
+    PackageRef: exact namesake
+    selected member: ref/net11.0/System.Text.Json.dll
+    Metadata identity: System.Text.Json, Version=12.0.0.0
+  platform specialization
+    not applicable: package edge is NotSubsumed
+  package
+    acquisition: realized in replacement generation 42
+
+result
+  Resolved
+  rung: package dependency
+  generation: 42
+```
+
+The Platform specialization when no PackageRef supplies the request:
 
 ```text
 request
@@ -930,43 +989,23 @@ request
 ladder
   context
     NoNameOwner
+  package correlation
+    no retained Package owner
   platform
     target: Microsoft.NETCore.App 11.0.x
-    selected: System.Runtime, Version=11.0.0.0
-    acquisition: realized in replacement generation 42
+    selected member: ref/net11.0/System.Runtime.dll
+    Metadata identity: System.Runtime, Version=11.0.0.0
+    acquisition: realized in replacement generation 43
 
 result
   Resolved
   rung: platform
-  generation: 42
+  generation: 43
 ```
 
-The overlapping newer-package neighbor:
-
-```text
-request
-  origin: Contoso.App/lib/net11.0/Contoso.App.dll
-  AssemblyRef: System.Text.Json, Version=12.0.0.0
-  package edge: System.Text.Json [12.0.0]
-  platform prune watermark: 11.0.0
-
-ladder
-  context
-    NoNameOwner
-  platform substitution
-    not applicable: package edge is NotSubsumed
-  package
-    candidate: System.Text.Json 12.0.0
-    selected role: ref/net11.0 + implementation correspondence
-    selected: System.Text.Json, Version=12.0.0.0
-
-result
-  Resolved
-  rung: package dependency
-```
-
-What to notice: broad scope permits the package route, but neither the assembly
-name nor platform overlap chose a package or erased the exact pruning result.
+What to notice: PackageRef and filename matches nominate the ordinary supplier,
+but Metadata identity completes binding. Platform uses the same
+candidate-member-identity shape after Package association finds no owner.
 
 ## Ownership and adoption
 
@@ -978,7 +1017,7 @@ name nor platform overlap chose a package or erased the exact pruning result.
 | [Platform Composition and Overlays](platform-composition-and-overlays.md) | Exact platform realization, platform/designated role policy, identity eligibility, precedence, and shadows |
 | [Platform/Package Pruning](platform-package-pruning.md) | Exact target/package subsumption fact and version comparison |
 | [Platform Package Supply Policy](platform-package-supply-policy.md) | Exact package-coordinate-to-prune-inventory correspondence and delegation result; no package-to-platform-Library association |
-| [Package-origin AssemblyRef Platform routing](package-origin-assemblyref-platform-routing.md) | Composition of family eligibility, terminal package pruning, retained-package name ownership, and one exact PlatformHouse request |
+| [Package-origin AssemblyRef supply routing](package-origin-assemblyref-supply-routing.md) | Ordinary PackageRef and selected-content correlation, Platform specialization, and orthogonal pruning composition |
 | [Package Dependency Evidence](package-dependency-evidence.md) | Normalized declarations, origin and edge identities, framework scope, produced relationships, and completion |
 | [Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md) | Declaration-to-exact-source-authorized-candidate result |
 | Package acquisition and asset owners | Payload authorization, content lifetime, target-framework and runtime selection, package roles, and surface/implementation correspondence |
@@ -1019,10 +1058,10 @@ before stages 3 through 6:
    the exact acquired compile settlement using bounded
    [package-manifest framework-reference
    facts](https://github.com/richlander/dotnet-inspect/issues/8513); and
-2. [package-origin AssemblyRef Platform
-   routing](package-origin-assemblyref-platform-routing.md) (#8503) composes
-   family eligibility, terminal package pruning, retained-package name
-   ownership, and the exact PlatformHouse request.
+2. [package-origin AssemblyRef supply
+   routing](package-origin-assemblyref-supply-routing.md) (#8503) composes
+   ordinary PackageRef and selected-content correlation, the Platform
+   specialization, and orthogonal package pruning.
 
 The first effort defines package-owned eligibility evidence. The second
 composes owner-issued results into the overlap-applicability result consumed by
@@ -1063,13 +1102,14 @@ Required future Release gates:
 | Context miss and exact platform match | Platform selection retains exact target and realization correspondence |
 | Framework reference without platform Library membership | No platform route is issued |
 | Runtime Library `AssemblyRef` without a same-named package edge | Exact Platform membership may issue the route; pruning does not synthesize an edge |
-| Equal package, assembly, and platform Library names | Pruning and Platform membership use their independent typed identities; no name join is required |
-| Incomplete package reachability, pruning, or retained-package ownership | Route formation is `Incomplete`; platform acquisition does not start |
+| Exact namesake PackageRef and selected filename | Package candidate is evaluated; decoded Metadata identity remains the binding gate |
+| Boundary-aligned PackageRef prefix and selected filename | Package-family candidate is evaluated without treating the prefix as ownership |
+| Incomplete package reachability, pruning, correlation, or selected-content evidence | Route formation is `Incomplete`; Platform acquisition does not start |
 | Subsumed package edge | Visible package-edge-to-platform delegation; no package payload acquisition |
 | Subsumed package edge whose name differs from every Platform Library | Delegation remains conclusive; each AssemblyRef independently requires Platform membership |
 | Package version above prune watermark | Platform substitution is absent and the exact package route remains |
 | Package version not comparable with prune watermark | Platform substitution is absent and the exact package evidence remains |
-| Package edges straddle the prune watermark | A retained package name owner dominates; delegated-edge evidence remains visible |
+| Package edges straddle the prune watermark | A retained Package owner dominates; delegated-edge evidence remains visible |
 | Package edge without assembly membership | Complete `NoNameOwner`, not an inferred match |
 | Restored transitive edge without normalized declaration | Exact coordinate authorization preserves restored relationship evidence and synthesizes no declaration |
 | Two packages with one exact identity each | Package rung returns `Ambiguous` independent of route and completion order |

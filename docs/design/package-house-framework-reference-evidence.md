@@ -338,10 +338,9 @@ seven owner-separated slices:
 3. #8504 adds the PackageHouse request demand and exact-settlement projection
    specified here.
 4. #8503 composes
-   [package-origin AssemblyRef Platform
-   routing](package-origin-assemblyref-platform-routing.md) from framework
-   eligibility, terminal pruning, retained-package name ownership, and exact
-   Platform membership.
+   [package-origin AssemblyRef supply
+   routing](package-origin-assemblyref-supply-routing.md) from ordinary Package
+   correlation, Platform specialization, and orthogonal pruning.
 5. the ladder consumes that route preparation and applies its ordinary rung
    precedence.
 6. Workspace publishes the selected platform closure as an immutable
