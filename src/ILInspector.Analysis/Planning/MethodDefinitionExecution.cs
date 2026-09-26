@@ -65,12 +65,19 @@ public sealed class MethodDefinitionExecution
         }
 
         MetadataReader reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyAnalysisBuilder(
-            sourceName,
+
+        // The module lookup is execution-scoped and costly to build, so it
+        // exists only when a planned producer declared it.
+        bool lookupDeclared = false;
+        foreach (ProducerState state in execution._states)
+            lookupDeclared |= state.HasLookupLayer;
+        using LibraryBodyAnalysisBuilder? builder = lookupDeclared
+            ? new LibraryBodyAnalysisBuilder(sourceName, reader, peReader)
+            : null;
+        var unit = new MethodDefinitionUnit(
             reader,
-            peReader);
-        var lookup = new LibraryMethodAnalysisRunner(builder);
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup);
+            peReader,
+            builder is null ? null : new LibraryMethodAnalysisRunner(builder));
         int unitsVisited = 0;
 
         foreach (PlannedPass pass in description.Passes)
