@@ -188,6 +188,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
+    queryDirectUseClusters: () => unexpected("queryDirectUseClusters"),
     expandPlatformCallGraph: () =>
       unexpected("expandPlatformCallGraph"),
   },
@@ -1476,6 +1477,7 @@ test("Platform graph transport preserves retained context selection and ordinary
           callers: node,
           callees: node,
           targets: [],
+          boundaries: [],
           scope: { packages: 0, assemblies: 3, callerAssemblies: 3, calleeScope: "Self" },
           diagnostics: {
             incompleteNodes: 0, incompleteEdges: 0, bindingIdentityConflicts: 0,
@@ -1955,6 +1957,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     ],
     callGraph: [
       "expandPlatformCallGraph",
+      "queryDirectUseClusters",
       "queryMemberCallGraph",
     ],
     catalog: [
@@ -1996,7 +1999,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 82);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 83);
 
   const state = fixture();
   const groups = [

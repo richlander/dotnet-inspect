@@ -199,6 +199,7 @@ internal static class BrowserPlatformCallGraph
                 resolution.Scope.Members.Select(candidate =>
                     candidate.Participant.Assembly.Identity),
                 resolution.Scope.PlatformPackForAssembly),
+            [],
             BrowserCallGraphProjection.Diagnostics(
                 view.Diagnostics,
                 projection.HasUnexploredTraversalBoundary,

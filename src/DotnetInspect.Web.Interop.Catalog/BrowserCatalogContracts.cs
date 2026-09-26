@@ -142,8 +142,20 @@ public sealed record BrowserCallGraph(
     BrowserCallGraphNode Callees,
     BrowserCallGraphScope Scope,
     BrowserCallGraphTarget[] Targets,
+    BrowserCallGraphBoundary[] Boundaries,
     BrowserCallGraphDiagnostics Diagnostics,
     bool NoBody = false);
+
+public sealed record BrowserCallGraphBoundary(
+    string Id,
+    string SourcePackageId,
+    string SourcePackageVersion,
+    string SourcePackageFramework,
+    string SourceAssembly,
+    string TargetPackageId,
+    string TargetPackageVersion,
+    string TargetPackageFramework,
+    string TargetAssembly);
 
 public sealed record BrowserCallGraphDiagnostics(
     int IncompleteNodes,

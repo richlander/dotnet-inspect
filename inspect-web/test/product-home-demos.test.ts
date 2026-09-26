@@ -294,6 +294,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
       load: async (request: MemberCallGraphRequest) => { loads.push(request); },
       drill: async (request: PlatformDrillRequest) => { drills.push(request); },
     },
+    directUseClusterInspection: { reset: () => {} },
     platformCatalogFramework: () => "net10.0",
     runtimePackPackage: () => pkg,
     runtimePackForFramework: () => pkg,

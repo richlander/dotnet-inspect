@@ -118,6 +118,7 @@ function demoCallGraph(
       calleeScope: "Workspace",
     },
     targets: [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,
