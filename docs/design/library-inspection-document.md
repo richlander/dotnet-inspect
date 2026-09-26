@@ -180,7 +180,7 @@ It describes only requested semantic work:
 
 ```text
 LibraryInspectionPlan
-  requested Library facts
+  requested Library fact groups: Image, Description, Enablements
   zero or more Library population requests
   finite aggregate work bounds
 ```
@@ -269,14 +269,62 @@ LibraryDocument
 ```
 
 The initial identity is the portable managed assembly identity plus non-empty
-MVID already defined by the overview implementation. The document may later
-adopt additional scalar facts only when their owner and shared consumer value
-are established. Source-specific path, package, Platform, filesystem, CLI, or
-Browser state does not enter the document merely because one host displays it.
+MVID already defined by the overview implementation. Requested scalar facts are
+defined in [Library facts](#library-facts). Source-specific path, package,
+Platform, filesystem, CLI, or Browser state does not enter the document merely
+because one host displays it.
 
 The document is sparse by construction. An omitted population means it was
 not requested, not that it was requested and empty. Every requested
 population has one explicit terminal outcome.
+
+## Library facts
+
+A Library fact is a scalar that the exact Library image determines by itself:
+equal bytes produce equal facts whether the Library was realized from
+nuget.org, a Platform pack, a direct file, or a Browser upload. Facts are
+requested in closed groups because their costs differ:
+
+- **Image** — image byte length, target framework attribute, compilation form
+  (IL or ReadyToRun), PE machine architecture, strong-name signed flag, and the
+  PE debug-directory reproducible flag.
+- **Description** — informational version, company, product, and copyright
+  attribute text, contained as inert field text.
+- **Enablements** — every enablement named by
+  [Library enablements](library-enablements.md), with that owner's states and
+  reasons.
+
+Identity is always present and is not a requestable group.
+
+A requested group appears in the document; an unrequested group is absent. A
+fact the image does not carry, such as a missing `Company` attribute, is
+absent from its requested group rather than empty text. A fact whose evidence
+cannot be decoded is reported unavailable with a reason and does not fail the
+document or another group.
+
+These related values are deliberately not Library facts:
+
+- **Source kind and coordinate** already belong to the `LibraryReference`
+  bound to the envelope. Hosts render them from that reference.
+- **Deterministic** combines the reproducible flag with PDB path
+  normalization, so it depends on companion or acquired symbol content. It
+  stays with the SourceLink and PDB owner until that owner adopts a document
+  shape.
+- **Ecosystem dependencies** recognize AssemblyRefs against an external
+  ecosystem catalog. They belong to the ecosystem-recognition owner, composed
+  over an AssemblyRef population.
+- **Population sizes**, such as Types, methods, resources, custom attributes,
+  or forwarders, are Count terminals of their populations, adopted population
+  by population.
+- **Local file modification time** describes the local copy, not the Library,
+  and is not reported.
+
+The real scenario is `System.Net.Sockets.dll` in
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`. Requesting
+Image, Description, and Enablements returns `.NETCoreApp,Version=v11.0`,
+ReadyToRun, signed, reproducible, the Microsoft description text, and AOT plus
+Runtime Async enabled. Inspecting the same bytes as a direct file returns
+equal facts.
 
 ## Population identity
 
@@ -624,7 +672,12 @@ Adoption is staged through focused slices:
 7. Adopt additional Library facts and populations owner by owner, then retire
    covered portions of the mutable CLI `LibraryInspection`, exact-API summary,
    and package-surface reconstruction only when positive production gates prove
-   their replacement.
+   their replacement. The first adoption is the Image, Description, and
+   Enablements fact groups: produce them in the operation, expose them to
+   Inspect Web through the Browser request, and render CLI `Library Info` from
+   the envelope plus `LibraryReference` provenance. Library Info counts whose
+   populations are not yet adopted stay on their legacy path until their own
+   slice.
 
 The exact-Library API and package-wide Browser surface remain independent
 operations until a focused adoption proves which facts or populations the new
@@ -665,6 +718,12 @@ The design and implementation slices require Release gates for:
   definition, or zero Member Count;
 - one request can return several requested Counts without executing
   unrequested Rows;
+- requested fact groups are present and unrequested groups are absent, and a
+  facts-only request executes no population work;
+- the same Library bytes realized from a package and as a direct file produce
+  equal fact groups;
+- an undecodable descriptive attribute is unavailable within its group while
+  other requested groups succeed;
 - Type rows carry requested Member Count without retaining Member rows;
 - omitted, empty, incomplete, failed, and unrequested populations remain
   distinguishable;
