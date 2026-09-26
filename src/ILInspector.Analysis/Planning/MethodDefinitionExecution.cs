@@ -100,6 +100,7 @@ public sealed class MethodDefinitionExecution
             }
         }
 
+        execution.PropagateFailures();
         execution.Receipt = execution.CreateReceipt(unitsVisited);
         return execution;
     }
@@ -226,6 +227,48 @@ public sealed class MethodDefinitionExecution
         }
     }
 
+    /// <summary>
+    /// A prerequisite can fail after a dependent has already completed, when
+    /// the stage order lets the dependent's completion run first. Before any
+    /// result or receipt is published, every producer with a failed
+    /// prerequisite of any dependency kind becomes prerequisite-failed,
+    /// transitively, so an outcome never depends on which other producers were
+    /// requested.
+    /// </summary>
+    void PropagateFailures()
+    {
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (ProducerDeclaration producer in _description.Producers)
+            {
+                ProducerState state = _states[producer];
+                if (state.Outcome is ProducerOutcome.Failed
+                    or ProducerOutcome.PrerequisiteFailed)
+                {
+                    continue;
+                }
+
+                foreach (ProducerDependency dependency in producer.Dependencies)
+                {
+                    ProducerState target = _states[dependency.Producer];
+                    if (target.Outcome is ProducerOutcome.Failed
+                        or ProducerOutcome.PrerequisiteFailed)
+                    {
+                        state.Outcome = ProducerOutcome.PrerequisiteFailed;
+                        state.FailedPrerequisite = target.Run.Producer.Identity;
+                        state.Result = null;
+                        state.IsActive = false;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        while (changed);
+    }
+
     void CompleteProducer(ProducerState state)
     {
         FailIfPrerequisiteFailed(state);
@@ -260,6 +303,7 @@ public sealed class MethodDefinitionExecution
     {
         foreach (ProducerDeclaration producer in _description.CompletionOrder)
             CompleteProducer(_states[producer]);
+        PropagateFailures();
         Receipt = CreateReceipt(0);
     }
 

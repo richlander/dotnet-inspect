@@ -416,6 +416,40 @@ public sealed class ProducerPlanningTests
             reason => reason.Reason == ProducerRejectionReason.DependencyCycle);
     }
 
+    [Fact]
+    public void FailureContainment_LateFailureRevokesAnAlreadyCompletedDependent()
+    {
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"));
+        var failure = new CompletionFailingRowProducer("MFailure");
+        var dependent = new RowReadingProducer(
+            "ZDependent",
+            () => [new ProducerDependency(failure, ProducerDependencyKind.VisitNeedsVisit)],
+            () => failure);
+        var consumer = new ResultConsumingProducer("AConsumer", dependent);
+
+        MethodDefinitionExecution alone = Run(
+            image,
+            Plan(new ProducerRequest(dependent)));
+        MethodDefinitionExecution withConsumer = Run(
+            image,
+            Plan(new ProducerRequest(dependent), new ProducerRequest(consumer)));
+
+        foreach (MethodDefinitionExecution execution in new[] { alone, withConsumer })
+        {
+            Assert.Equal(ProducerOutcome.Failed, execution.ResultOf(failure).Outcome);
+            ProducerResult<string> blocked = execution.ResultOf(dependent);
+            Assert.Equal(ProducerOutcome.PrerequisiteFailed, blocked.Outcome);
+            Assert.Equal("MFailure", blocked.FailedPrerequisite);
+            Assert.Equal(
+                ProducerOutcome.PrerequisiteFailed,
+                execution.Receipt.For(dependent).Outcome);
+        }
+
+        ProducerResult<int> cascaded = withConsumer.ResultOf(consumer);
+        Assert.Equal(ProducerOutcome.PrerequisiteFailed, cascaded.Outcome);
+        Assert.Equal("ZDependent", cascaded.FailedPrerequisite);
+    }
+
     static WorkDescription Plan(params ProducerRequest[] requests) =>
         Assert.IsType<ProducerPlanResult.Accepted>(
             ProducerPlanner.Plan(requests)).Description;
@@ -618,6 +652,42 @@ public sealed class ProducerPlanningTests
             IReadOnlyList<int> facts,
             MethodDefinitionCompletionView completion) =>
             $"rows={facts.Count};second={completion.ResultOf(reader).Value}";
+    }
+
+    /// <summary>Publishes row numbers per unit, then fails recoverably in its completion.</summary>
+    sealed class CompletionFailingRowProducer(string identity)
+        : MethodDefinitionProducer<int, string>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override string Complete(
+            IReadOnlyList<int> facts,
+            MethodDefinitionCompletionView completion) =>
+            throw new BadImageFormatException("injected completion failure");
+    }
+
+    /// <summary>Reads another producer's completed result in its completion.</summary>
+    sealed class ResultConsumingProducer(
+        string identity,
+        RowReadingProducer source)
+        : MethodDefinitionProducer<int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            () => [new ProducerDependency(source, ProducerDependencyKind.CompletionNeedsResult)])
+    {
+        internal override int Visit(scoped MethodDefinitionView view) => 0;
+
+        internal override int Complete(
+            IReadOnlyList<int> facts,
+            MethodDefinitionCompletionView completion) =>
+            completion.ResultOf(source).Value?.Length ?? -1;
     }
 
     /// <summary>Declares only the declaration layer, then asks for the body.</summary>
