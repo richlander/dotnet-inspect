@@ -178,9 +178,10 @@ jobs:
             -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output "$output" \
+            -p:InspectWebIncludeFrontend=true \
             -p:VersionPrefix="$version" \
             -p:SourceRevisionId="${{ inputs.source_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
@@ -189,7 +190,7 @@ jobs:
             -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
           eng/verify-inspect-web-async-deployment.sh \
             compiler \
-            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
             "$output/wwwroot" \
             "$output/async-lowering.json" \
             "$receipt_dir"
@@ -372,7 +373,7 @@ jobs:
           test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
 
           target_framework=$(dotnet msbuild \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -getProperty:TargetFramework \
             -nologo)
           test "$target_framework" = "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK"
@@ -502,10 +503,11 @@ jobs:
             ready_to_run_arguments+=("-p:PublishReadyToRunComposite=false")
           fi
           dotnet publish \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output "$output" \
             --configfile "$nuget_config" \
+            -p:InspectWebIncludeFrontend=true \
             -p:VersionPrefix="$version" \
             -p:SourceRevisionId="${{ inputs.source_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
@@ -527,13 +529,13 @@ jobs:
             node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
               --record \
               "$output/wwwroot" \
-              inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+              artifacts/obj/DotnetInspect.Web/release_browser-wasm/R2R \
               "$output/runtime-cohort"
           fi
           RestoreConfigFile="$nuget_config" \
             eng/verify-inspect-web-async-deployment.sh \
               runtime \
-              inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+              artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
               "$output/wwwroot" \
               "$output/async-lowering.json" \
               "$receipt_dir"

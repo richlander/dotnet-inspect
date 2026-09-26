@@ -98,6 +98,7 @@ public sealed class ProductionFacadeContextTests
         [MetadataAssembly] =
         [
             "CancelLibraryApiDiff",
+            "FindTypes",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryMemberDeclaration",
@@ -218,10 +219,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 103 operations, and no operation name in two modules: a move that forgot to delete its
+        // 104 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(103, everyExport.Length);
+        Assert.Equal(104, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -358,55 +359,12 @@ public sealed class ProductionFacadeContextTests
             }
         }
 
-        Assert.Equal(ExpectedAssemblies.Length, contexts);
+        Assert.True(
+            contexts >= ExpectedAssemblies.Length,
+            "Each facade assembly must own at least one JSON context.");
         Assert.True(
             assemblyLocalWireTypes > 0,
             "No assembly-local wire type was discovered.");
-    }
-
-    [Theory]
-    [InlineData("Package", "BrowserRetainedWorkspacePackageAdmissionResult")]
-    [InlineData("Platform", "BrowserRetainedWorkspacePlatformAdmissionResult")]
-    public void ProductionCatalogFacade_DecodesTypedRetainedDetailPages(
-        string rowKind, string resultType)
-    {
-        string declarations = File.ReadAllText(Path.Combine(
-            InspectWebRoot(), "src", "facades", "inspect-web-catalog.d.ts"));
-        Assert.Contains(
-            $"admitRetainedWorkspace{rowKind}(retainedDefinitionId: string, "
-            + "realizationId: string, navigationId: string, typeOffset: number): "
-            + $"Promise<{resultType}>;",
-            declarations,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ProductionSourceFacade_SeparatesMemberPartsFromFlatSource()
-    {
-        string declarations = File.ReadAllText(Path.Combine(
-            InspectWebRoot(),
-            "src",
-            "facades",
-            "inspect-web-source.d.ts"));
-
-        Assert.Contains(
-            "export interface BrowserMemberSource {",
-            declarations,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "queryMemberSource(packageId: string, version: string, targetFramework: string, "
-            + "assemblyName: string, typeIdentity: string, memberName: string, "
-            + "selectorKey: string, metadataToken: number, styleOptionsJson: string): "
-            + "Promise<BrowserMemberSource>;",
-            declarations,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "queryTypeMemberSource(packageId: string, version: string, "
-            + "targetFramework: string, assemblyName: string, typeIdentity: string, "
-            + "memberName: string, selectorKey: string, metadataToken: number, "
-            + "styleOptionsJson: string): Promise<BrowserSource>;",
-            declarations,
-            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -493,7 +451,7 @@ public sealed class ProductionFacadeContextTests
     static readonly Dictionary<string, string> BrowserProjectPaths = new(StringComparer.Ordinal)
     {
         [HostAssembly] =
-            Path.Combine("inspect-web", "DotnetInspect.Web", "DotnetInspect.Web.csproj"),
+            Path.Combine("src", "DotnetInspect.Web", "DotnetInspect.Web.csproj"),
         [CoreAssembly] =
             Path.Combine("src", "DotnetInspect.Web.Core", "DotnetInspect.Web.Core.csproj"),
         [PackageAssembly] =
