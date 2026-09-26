@@ -1,5 +1,8 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using ILInspector.Metadata.MemorySafetyFixtures;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata.Tests;
@@ -115,6 +118,102 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             posted.Evidence.Accessors
                 .Select(accessor => accessor.PhysicalRowNumber)
                 .ToArray());
+    }
+
+    [Fact]
+    public void Mdp004_CompilerProducedPropertyAndEventPostExactAccessors()
+    {
+        Type fixtureType = typeof(MemorySafetyDeclarationFixtures);
+        string path = fixtureType.Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type =
+            (TypeDefinitionHandle)MetadataTokens.EntityHandle(
+                fixtureType.MetadataToken);
+        PropertyDefinitionHandle property =
+            (PropertyDefinitionHandle)MetadataTokens.EntityHandle(
+                fixtureType.GetProperty(
+                    nameof(MemorySafetyDeclarationFixtures.Property))!
+                    .MetadataToken);
+        EventDefinitionHandle @event =
+            (EventDefinitionHandle)MetadataTokens.EntityHandle(
+                fixtureType.GetEvent(
+                    nameof(MemorySafetyDeclarationFixtures.CustomEvent))!
+                    .MetadataToken);
+        MetadataTypeDefinitionAddress typeAddress =
+            MetadataTypeDefinitionAddress.FromHandle(reader, type);
+        var propertyRequest = new MetadataAccessorDeclarationRequest(
+            typeAddress,
+            MetadataAccessorDeclarationAddress.Create(reader, property));
+        var eventRequest = new MetadataAccessorDeclarationRequest(
+            typeAddress,
+            MetadataAccessorDeclarationAddress.Create(reader, @event));
+
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declaration =
+            assembly.CreateDeclarationSession(operation);
+        var propertyPosted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                declaration.PostAccessorDeclaration(
+                    propertyRequest,
+                    TestContext.Current.CancellationToken));
+        var eventPosted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                declaration.PostAccessorDeclaration(
+                    eventRequest,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(typeAddress, propertyPosted.Evidence.Type);
+        Assert.Equal(typeAddress, eventPosted.Evidence.Type);
+        Assert.Equal(2, propertyPosted.Evidence.Accessors.Length);
+        Assert.Equal(2, eventPosted.Evidence.Accessors.Length);
+
+        Dictionary<MetadataAccessorSemanticsRole,
+            MetadataMethodDeclarationEvidence> propertyAccessors =
+            propertyPosted.Evidence.Accessors.ToDictionary(
+                accessor => accessor.Role,
+                accessor => accessor.Method);
+        Assert.Equal(
+            "get_Property",
+            propertyAccessors[MetadataAccessorSemanticsRole.Getter]
+                .Name.ToString());
+        Assert.Empty(
+            propertyAccessors[MetadataAccessorSemanticsRole.Getter]
+                .Signature.ParameterTypes);
+        Assert.Equal(
+            "set_Property",
+            propertyAccessors[MetadataAccessorSemanticsRole.Setter]
+                .Name.ToString());
+        Assert.Single(
+            propertyAccessors[MetadataAccessorSemanticsRole.Setter]
+                .Signature.ParameterTypes);
+
+        Dictionary<MetadataAccessorSemanticsRole,
+            MetadataMethodDeclarationEvidence> eventAccessors =
+            eventPosted.Evidence.Accessors.ToDictionary(
+                accessor => accessor.Role,
+                accessor => accessor.Method);
+        Assert.Equal(
+            "add_CustomEvent",
+            eventAccessors[MetadataAccessorSemanticsRole.AddOn]
+                .Name.ToString());
+        Assert.Equal(
+            "remove_CustomEvent",
+            eventAccessors[MetadataAccessorSemanticsRole.RemoveOn]
+                .Name.ToString());
+        Assert.All(
+            propertyAccessors.Values.Concat(eventAccessors.Values),
+            accessor =>
+            {
+                Assert.True(accessor.Attributes.HasFlag(
+                    MethodAttributes.SpecialName));
+                Assert.False(accessor.Attributes.HasFlag(
+                    MethodAttributes.Static));
+                Assert.False(accessor.OperatorCandidate);
+            });
     }
 
     [Theory]
