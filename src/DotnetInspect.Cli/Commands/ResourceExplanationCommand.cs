@@ -266,6 +266,14 @@ public static class ResourceExplanationCommand
                     or OutputFormat.Tsv
                     or OutputFormat.Jsonl)
                 {
+                    if (format == OutputFormat.Table
+                        && envelope.Content.MatchCount == 0)
+                    {
+                        output.WriteLine(
+                            CapabilityCatalogSearchView.NoMatchesStatus);
+                        return;
+                    }
+
                     MarkoutSerializer.Serialize(
                         CapabilityCatalogSearchTableView.Create(
                             envelope.Content),

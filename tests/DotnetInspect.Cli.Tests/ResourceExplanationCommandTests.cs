@@ -376,6 +376,21 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task NoMatchTable_PrintsVisibleStatus()
+    {
+        var result = await RunAsync(
+            "explain",
+            "zzzzzzzzzzzzzzzz",
+            "--table");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            $"No installed capabilities matched.{Environment.NewLine}",
+            result.Output);
+    }
+
+    [Fact]
     public async Task RegisteredSingleSegmentPath_RemainsExactExplanation()
     {
         var result = await RunAsync(

@@ -8,6 +8,9 @@ namespace DotnetInspect.Cli.Views;
     FieldLayout = FieldLayout.Inline)]
 public sealed class CapabilityCatalogSearchView
 {
+    internal const string NoMatchesStatus =
+        "No installed capabilities matched.";
+
     [MarkoutIgnore]
     public string Title
     {
@@ -43,7 +46,7 @@ public sealed class CapabilityCatalogSearchView
             CandidateResources = document.CandidateResourceCount,
             Matches = document.MatchCount,
             Status = document.MatchCount == 0
-                ? "No installed capabilities matched."
+                ? NoMatchesStatus
                 : document.IsTruncated
                     ? $"Showing {document.ReturnedCount} of "
                         + $"{document.MatchCount} matches."
