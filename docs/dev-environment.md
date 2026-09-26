@@ -115,7 +115,7 @@ Run the managed Browser/Wasm host suite and the frontend suite from their
 respective repository roots:
 
 ```bash
-dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 cd inspect-web
 npm test
 npm run lint
@@ -129,13 +129,14 @@ an incomplete site. The managed and WebAssembly modes use isolated restore and
 artifact paths: Release outputs are under `artifacts/*/DotnetInspect.Web/release`
 and `artifacts/*/DotnetInspect.Web/release_browser-wasm`, respectively.
 
-The managed suite is an xUnit Microsoft Testing Platform executable. Use
+The managed suite is part of the normal solution graph and requires neither
+Node nor the WebAssembly workload. It is an xUnit Microsoft Testing Platform
+executable. Use
 `--filter-class` and `--filter-method` after `--` for focused selections. It
 covers the `DotnetInspect.Web` host, shared Sections and Networking
 implementation, and domain-specific `DotnetInspect.Web.Interop.*` export
-assemblies. The frontend gates cover the generated public facade contracts and
-browser application
-without renaming the published `inspect-web-*` modules.
+assemblies. The frontend gates own the generated public facade contracts and
+browser application without renaming the published `inspect-web-*` modules.
 
 ### Network tests
 
