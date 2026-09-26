@@ -60,6 +60,21 @@ capacity, a result may be shorter than requested without implying exhaustion,
 and the next source position advances only across returned values. Unlike
 those byte APIs, this source returns semantic line rows.
 
+The `wordcount` experiments in
+[`richlander/convenience` at
+`9eca1355`](https://github.com/richlander/convenience/tree/9eca1355fd0d45275780d6dc34fa9bff932e39ad/wordcount/wordcount)
+provide analogous implementation evidence for using
+`SearchValues<char>` and `IndexOfAny` to skip non-boundary text. Only that
+platform search technique transfers. The experiments' byte decoder, buffer
+carry, whitespace/word semantics, and LF-only line count do not satisfy this
+owner's immutable-string, exact-terminator contract, and no code is copied.
+
+An observational local comparison over the pinned 87,069-UTF-16-unit
+`NpgsqlConnection.cs` asset produced identical boundary checksums across
+20,000 iterations; the `SearchValues<char>` scan used 35.3% of the scalar
+scan's elapsed time. That result selects the implementation strategy. It is
+not a production performance or cross-platform claim.
+
 The deliberate difference from an enumerable is an explicit, document-bound
 restart position. No iterator, stream, callback, or borrowed input buffer
 crosses a pull boundary. The position is source-local and repeatable; the

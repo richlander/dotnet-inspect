@@ -304,6 +304,9 @@ public sealed class DecodedTextBatch
 
 public sealed class DecodedTextDocument
 {
+    private static readonly SearchValues<char> s_lineTerminators =
+        SearchValues.Create("\r\n\u0085\u2028\u2029");
+
     private readonly string _text;
     private readonly object _identity = new();
 
@@ -408,17 +411,16 @@ public sealed class DecodedTextDocument
                 nameof(position));
         }
 
-        int index = lineStart;
+        int relativeTerminator =
+            _text.AsSpan(lineStart).IndexOfAny(s_lineTerminators);
+        int index =
+            relativeTerminator < 0
+                ? _text.Length
+                : checked(lineStart + relativeTerminator);
         DecodedTextLineTerminator terminator =
-            DecodedTextLineTerminator.None;
-        while (index < _text.Length)
-        {
-            terminator = DecodedTextTerminators.At(_text, index);
-            if (terminator != DecodedTextLineTerminator.None)
-                break;
-
-            index++;
-        }
+            relativeTerminator < 0
+                ? DecodedTextLineTerminator.None
+                : DecodedTextTerminators.At(_text, index);
 
         int terminatorLength =
             DecodedTextTerminators.Utf16Length(terminator);
