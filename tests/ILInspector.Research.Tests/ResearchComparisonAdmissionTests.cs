@@ -157,10 +157,13 @@ public class ResearchComparisonAdmissionTests
     }
 
     [Fact]
-    public void ResearchAdmission_BodySignalProfileBorrowsExactCallGraph()
+    public void ResearchAdmission_BodySignalProfileBorrowsExactTargetEvidence()
     {
-        LibraryCallGraphAnalysisResult borrowed = CallGraph();
-        BodySignalComparisonInputOccurrence occurrence = new(borrowed);
+        ResolvedAssemblyReference assembly = PathlessAssembly();
+        IAssemblyReferenceResolver resolver = new UnusedResolver();
+        BodySignalAnalysisInput analysis = BodySignalAnalysis();
+        BodySignalComparisonInputOccurrence occurrence =
+            new(assembly, resolver, analysis);
         ResearchAdmittedPopulation population = Admit(
             Request(
                 ResearchComparisonProfile.BodySignal,
@@ -169,7 +172,10 @@ public class ResearchComparisonAdmissionTests
         ResearchAdmittedInput input = Assert.Single(population.Inputs);
         var admitted = Assert.IsType<BodySignalComparisonInputOccurrence>(
             input.Occurrence);
-        Assert.Same(borrowed, admitted.MethodPopulation);
+        Assert.Same(assembly, admitted.Assembly);
+        Assert.Same(resolver, admitted.Resolver);
+        Assert.Same(analysis, admitted.Analysis);
+        Assert.Same(analysis.MethodPopulation, admitted.MethodPopulation);
     }
 
     [Fact]
@@ -453,12 +459,13 @@ public class ResearchComparisonAdmissionTests
     [Fact]
     public void ResearchAdmissionRequests_SeparateConstructionAndAdmissionNullContracts()
     {
-        LibraryCallGraphAnalysisResult callGraph = CallGraph();
-
         // A direct constructor argument is validated at construction, before
         // any admission and before any outcome exists.
         Assert.Throws<ArgumentNullException>(
-            () => new BodySignalComparisonInputOccurrence(null!));
+            () => new BodySignalComparisonInputOccurrence(
+                null!,
+                new UnusedResolver(),
+                BodySignalAnalysis()));
         Assert.Throws<ArgumentNullException>(
             () => new ImplementationComparisonInputOccurrence(
                 (ImplementationAssemblyInput)null!));
@@ -477,18 +484,27 @@ public class ResearchComparisonAdmissionTests
                 (ResearchComparisonProfile)(-1),
                 []));
 
-        // The body-signal profile borrows exactly one value, taken as a direct
-        // constructor argument, so that construction-time check is its whole
+        // The body-signal profile borrows three values, all taken as direct
+        // constructor arguments, so that construction-time check is its whole
         // null contract: a constructed occurrence can never report missing
         // evidence, and admission never rejects one for evidence.
-        BodySignalComparisonInputOccurrence bodySignal = new(callGraph);
-        Assert.Same(callGraph, bodySignal.MethodPopulation);
+        // ResearchAdmission_BodySignalOccurrenceValidatesEveryDirectArgument
+        // covers one null per parameter.
+        BodySignalComparisonInputOccurrence bodySignal = BodySignalOccurrence();
         Assert.Null(bodySignal.MissingEvidenceMember);
         Assert.IsType<ResearchAdmissionOutcome.Admitted>(
             ResearchComparisonAdmission.Admit(
                 Request(
                     ResearchComparisonProfile.BodySignal,
                     Question([bodySignal], []))));
+        Assert.Equal(
+            new HashSet<string?> { "assembly", "resolver", "analysis" },
+            typeof(BodySignalComparisonInputOccurrence)
+                .GetConstructors()
+                .Single()
+                .GetParameters()
+                .Select(parameter => parameter.Name)
+                .ToHashSet());
 
         // Every direct argument of the three-argument implementation
         // constructor is validated too.
@@ -552,6 +568,29 @@ public class ResearchComparisonAdmissionTests
                     assembly!,
                     resolver!,
                     callGraph!));
+        Assert.Equal(parameter, exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData("assembly")]
+    [InlineData("resolver")]
+    [InlineData("analysis")]
+    public void ResearchAdmission_BodySignalOccurrenceValidatesEveryDirectArgument(
+        string parameter)
+    {
+        ResolvedAssemblyReference? assembly =
+            parameter == "assembly" ? null : PathlessAssembly();
+        IAssemblyReferenceResolver? resolver =
+            parameter == "resolver" ? null : new UnusedResolver();
+        BodySignalAnalysisInput? analysis =
+            parameter == "analysis" ? null : BodySignalAnalysis();
+
+        ArgumentNullException exception =
+            Assert.Throws<ArgumentNullException>(
+                () => new BodySignalComparisonInputOccurrence(
+                    assembly!,
+                    resolver!,
+                    analysis!));
         Assert.Equal(parameter, exception.ParamName);
     }
 
@@ -832,22 +871,26 @@ public class ResearchComparisonAdmissionTests
                     AssemblyResolutionScope.Any));
         }
 
-        // The body-signal profile borrows an index whose content cannot be
-        // made to throw, so its evidence is the structural walk below plus the
-        // exact borrowed value surviving admission unread.
+        // The body-signal profile borrows the same throwing descriptor and
+        // resolver, plus Analysis results whose content cannot be made to
+        // throw; the structural walk below covers that content.
         AdmissionFixture bodySignal = AdmissionFixture.TwoQuestions(
             ResearchComparisonProfile.BodySignal);
         ResearchAdmittedPopulation signals = Admit(bodySignal.Request);
         Assert.Equal(bodySignal.Occurrences.Count, signals.Inputs.Length);
-        Assert.All(
-            signals.Inputs,
-            input => Assert.Same(
-                Assert.IsType<BodySignalComparisonInputOccurrence>(
-                        input.Occurrence)
-                    .MethodPopulation,
-                Assert.IsType<BodySignalComparisonInputOccurrence>(
-                        signals.GetInput(input.Occurrence).Occurrence)
-                    .MethodPopulation));
+        foreach (ResearchAdmittedInput input in signals.Inputs)
+        {
+            var occurrence = Assert.IsType<BodySignalComparisonInputOccurrence>(
+                input.Occurrence);
+            Assert.Same(occurrence, signals.GetInput(occurrence).Occurrence);
+            Assert.Null(occurrence.Assembly.Path);
+            Assert.Throws<InvalidOperationException>(
+                () => occurrence.Assembly.OpenRead());
+            Assert.Throws<InvalidOperationException>(
+                () => occurrence.Resolver.Resolve(
+                    new AssemblyReferenceIdentity("Probe", null, null, null),
+                    AssemblyResolutionScope.Any));
+        }
 
         // Structural evidence: no admission-reachable product method calls or
         // reads any borrowed-evidence member. The walk decodes real IL and
@@ -939,7 +982,12 @@ public class ResearchComparisonAdmissionTests
             .. PublicSurfaceClosure(typeof(ResearchComparisonAdmission))
                 .Concat(PublicSurfaceClosure(typeof(ResearchAdmissionOutcome)))
                 .Where(IsResearchOwned)
-                .Where(static type => !type.IsEnum),
+                .Where(static type => !type.IsEnum)
+                // The focused Analysis results are borrowed evidence that the
+                // body-signal occurrence only carries; their construction is
+                // the caller's work, not admission's. A Research-owned call
+                // into them from admission is still walked below.
+                .Where(static type => type != typeof(BodySignalAnalysisInput)),
         ];
         Assert.Contains(typeof(ImplementationComparisonInputOccurrence), seeds);
         Assert.Contains(typeof(BodySignalComparisonInputOccurrence), seeds);
@@ -1330,7 +1378,20 @@ public class ResearchComparisonAdmissionTests
                 callGraph ? CallGraph() : null!));
 
     static BodySignalComparisonInputOccurrence BodySignalOccurrence()
-        => new(CallGraph());
+        => new(PathlessAssembly(), new UnusedResolver(), BodySignalAnalysis());
+
+    static BodySignalAnalysisInput BodySignalAnalysis()
+        => BodySignalAnalysisTestInput.FromIndex(
+            LibraryBodyIndex.FromEvidence(
+                [],
+                [],
+                moduleIdentity: new(
+                    new AssemblyReferenceIdentity(
+                        "SyntheticAdmission",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    new Guid("f88df8d2-0474-4f48-811a-bf5cb2af203e"))));
 
     static ImplementationAssemblyInput ImplementationInput()
         => new(PathlessAssembly(), new UnusedResolver(), CallGraph());
@@ -1522,7 +1583,9 @@ public class ResearchComparisonAdmissionTests
                         implementation.Input),
                 BodySignalComparisonInputOccurrence bodySignal =>
                     new BodySignalComparisonInputOccurrence(
-                        bodySignal.MethodPopulation),
+                        bodySignal.Assembly,
+                        bodySignal.Resolver,
+                        bodySignal.Analysis),
                 _ => throw new ArgumentOutOfRangeException(nameof(occurrence)),
             };
     }

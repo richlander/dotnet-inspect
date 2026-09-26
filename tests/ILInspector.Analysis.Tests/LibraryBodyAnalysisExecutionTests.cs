@@ -100,6 +100,69 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void CompleteProfileRequest_ReusesFocusedStructuralMeasurements()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.Analyze),
+                BindingFlags.Public | BindingFlags.Static,
+                [typeof(int), typeof(int)])!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(
+                        new HashSet<int> { token }));
+
+        MethodImplementationProfile profile =
+            Assert.Single(
+                execution.ImplementationProfiles.Profiles,
+                profile =>
+                    profile.EvidenceMethod.MetadataToken == token);
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies,
+                body => body.EvidenceMethod.MetadataToken == token);
+        ImplementationMetricInstructionShape shape =
+            Assert.IsType<ImplementationMetricInstructionShape>(
+                body.InstructionShape);
+        Assert.Equal(
+            profile.InstructionCount,
+            shape.InstructionCount);
+        Assert.Equal(
+            profile.DistinctOpcodeCount,
+            shape.DistinctOpcodeCount);
+        ImplementationMetricControlFlow controlFlow =
+            Assert.IsType<ImplementationMetricControlFlow>(
+                body.ControlFlow);
+        Assert.Equal(
+            profile.BasicBlockCount,
+            controlFlow.BasicBlockCount);
+        Assert.Equal(
+            profile.BranchCount,
+            controlFlow.BranchCount);
+        Assert.Equal(
+            profile.ConditionalBranchCount,
+            controlFlow.ConditionalBranchCount);
+        Assert.Equal(
+            profile.SwitchCount,
+            controlFlow.SwitchCount);
+        Assert.Equal(
+            profile.SwitchTargetCount,
+            controlFlow.SwitchTargetCount);
+        Assert.Equal(
+            profile.LoopCount,
+            controlFlow.LoopCount);
+        Assert.Equal(
+            profile.NormalFlowCyclomaticComplexity,
+            controlFlow.NormalFlowCyclomaticComplexity);
+    }
+
+    [Fact]
     public void LegacyProfileFeature_NormalizesToMetricPlan()
     {
         LibraryBodyAnalysisRequest request =
@@ -238,7 +301,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             ImplementationMetricEvidenceKind.Locals,
             plan.EffectiveEvidence);
-        Assert.True(plan.UsesPreContextExecution);
+        Assert.True(plan.UsesFocusedExecution);
         Assert.True(plan.IncludesLocalEvidence);
         Assert.True(
             plan.WorkStages.HasFlag(
@@ -252,6 +315,51 @@ public sealed class LibraryBodyAnalysisExecutionTests
             plan.WorkStages.HasFlag(
                 ImplementationMetricWorkStage
                     .CanonicalMethodContext));
+    }
+
+    [Fact]
+    public void
+        MetricPlan_InstructionShapeUsesContextWithoutTopicProducers()
+    {
+        var request = new ImplementationMetricAnalysisRequest(
+            ImplementationMetricEvidenceKind.InstructionShape,
+            MetricLimits(),
+            ImplementationMetricRequestOrigin.Explicit);
+
+        ImplementationMetricAnalysisPlan plan =
+            ImplementationMetricAnalysisPlan.Create(request);
+
+        Assert.True(plan.UsesFocusedExecution);
+        Assert.True(plan.IncludesInstructionShapeEvidence);
+        Assert.False(plan.IncludesControlFlowEvidence);
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .ManagedBodyAcquisition));
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .LocalSignatureDecode));
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .CanonicalMethodContext));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallCollection));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .AllocationSignalCollection));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .BodySignalCollection));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .SafetyCollection));
     }
 
     [Fact]
@@ -476,6 +584,135 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        MetricExecution_InstructionShapeStopsAfterCanonicalContext()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.Other),
+                BindingFlags.Public | BindingFlags.Static)!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind
+                            .InstructionShape,
+                        MetricLimits(),
+                        new HashSet<int> { token }));
+
+        Assert.False(
+            execution.Receipt.Features.HasFlag(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+        Assert.False(
+            execution.ImplementationProfiles.WasRequested);
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies,
+                body => body.EvidenceMethod.MetadataToken == token);
+        Assert.Null(body.ILBytes);
+        Assert.Null(body.ExceptionRegions);
+        Assert.Null(body.Locals);
+        ImplementationMetricInstructionShape shape =
+            Assert.IsType<ImplementationMetricInstructionShape>(
+                body.InstructionShape);
+        Assert.True(shape.InstructionCount > 0);
+        Assert.True(shape.DistinctOpcodeCount > 0);
+        Assert.Null(body.ControlFlow);
+        ImplementationMetricParticipationReceipt receipt =
+            Assert.IsType<ImplementationMetricParticipationReceipt>(
+                execution.ImplementationMetrics.Participation);
+        ImplementationMetricStageParticipation context =
+            Assert.Single(
+                receipt.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .CanonicalMethodContext);
+        Assert.Equal(
+            ImplementationMetricEvidenceKind.InstructionShape,
+            context.EvidenceCauses);
+        Assert.Equal(1, context.AttemptedBodies);
+        Assert.Equal(1, context.CompletedBodies);
+        Assert.Equal(0, context.FailedBodies);
+        Assert.DoesNotContain(
+            receipt.ActualStages,
+            stage => stage.Stage
+                is ImplementationMetricWorkStage
+                    .DirectCallCollection
+                    or ImplementationMetricWorkStage
+                        .AllocationSignalCollection
+                    or ImplementationMetricWorkStage
+                        .AllocationOccurrenceCollection
+                    or ImplementationMetricWorkStage
+                        .BodySignalCollection
+                    or ImplementationMetricWorkStage
+                        .SafetyCollection
+                    or ImplementationMetricWorkStage
+                        .SiblingRelationshipProjection);
+        Assert.True(receipt.HasCompleteStageParticipation);
+    }
+
+    [Fact]
+    public void
+        MetricExecution_StructuralEvidenceSharesOneCanonicalContext()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.Analyze),
+                BindingFlags.Public | BindingFlags.Static,
+                [typeof(int), typeof(int)])!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.BodySize
+                            | ImplementationMetricEvidenceKind
+                                .InstructionShape
+                            | ImplementationMetricEvidenceKind
+                                .ControlFlow,
+                        MetricLimits(),
+                        new HashSet<int> { token }));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies,
+                body => body.EvidenceMethod.MetadataToken == token);
+        Assert.True(body.ILBytes > 0);
+        Assert.NotNull(body.InstructionShape);
+        ImplementationMetricControlFlow controlFlow =
+            Assert.IsType<ImplementationMetricControlFlow>(
+                body.ControlFlow);
+        Assert.True(controlFlow.BasicBlockCount > 1);
+        Assert.True(controlFlow.BranchCount > 0);
+        Assert.True(controlFlow.ConditionalBranchCount > 0);
+        Assert.True(controlFlow.LoopCount > 0);
+        Assert.True(
+            controlFlow.NormalFlowCyclomaticComplexity > 1);
+        ImplementationMetricStageParticipation context =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .CanonicalMethodContext);
+        Assert.Equal(
+            ImplementationMetricEvidenceKind.InstructionShape
+                | ImplementationMetricEvidenceKind.ControlFlow,
+            context.EvidenceCauses);
+        Assert.Equal(1, context.AttemptedBodies);
+        Assert.Equal(1, context.CompletedBodies);
+    }
+
+    [Fact]
     public void MetricExecution_BodylessMethodDoesNotStartBodyStages()
     {
         string path =
@@ -593,6 +830,50 @@ public sealed class LibraryBodyAnalysisExecutionTests
                         .CanonicalMethodContext);
         Assert.Equal(
             ImplementationMetricEvidenceKind.None,
+            context.EvidenceCauses);
+        Assert.True(
+            context.FeatureCauses.HasFlag(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+    }
+
+    [Fact]
+    public void
+        MetricExecution_CoRunningMethodEvidenceStillPublishesInstructionShape()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int token = typeof(ImplementationProfileSample)
+            .GetMethod(
+                nameof(ImplementationProfileSample.Other),
+                BindingFlags.Public | BindingFlags.Static)!
+            .MetadataToken;
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind
+                            .InstructionShape,
+                        MetricLimits(),
+                        new HashSet<int> { token },
+                        LibraryBodyAnalysisFeatures.MethodEvidence));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies,
+                body => body.EvidenceMethod.MetadataToken == token);
+        Assert.NotNull(body.InstructionShape);
+        Assert.Null(body.ControlFlow);
+        ImplementationMetricStageParticipation context =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .CanonicalMethodContext);
+        Assert.Equal(
+            ImplementationMetricEvidenceKind.InstructionShape,
             context.EvidenceCauses);
         Assert.True(
             context.FeatureCauses.HasFlag(
@@ -914,6 +1195,44 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(1, decode.AttemptedBodies);
         Assert.Equal(1, decode.CompletedBodies);
         Assert.Equal(0, decode.FailedBodies);
+    }
+
+    [Fact]
+    public void MetricWorkBounds_ExhaustionStopsLaterContextConstruction()
+    {
+        string path =
+            typeof(ImplementationProfileSample).Assembly.Location;
+        int[] tokens = ManagedMethodTokens(path)
+            .Take(2)
+            .ToArray();
+        Assert.Equal(2, tokens.Length);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: int.MaxValue,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind
+                            .InstructionShape,
+                        limits,
+                        tokens.ToHashSet()));
+
+        Assert.Single(execution.ImplementationMetrics.Bodies);
+        ImplementationMetricStageParticipation context =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .CanonicalMethodContext);
+        Assert.Equal(1, context.AttemptedBodies);
+        Assert.Equal(1, context.CompletedBodies);
+        Assert.Equal(0, context.FailedBodies);
     }
 
     [Fact]

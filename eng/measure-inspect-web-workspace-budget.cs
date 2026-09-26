@@ -3,7 +3,7 @@
 #:project ../src/DotnetInspector.Networking/DotnetInspector.Networking.csproj
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Queries/DotnetInspector.Queries.csproj
-#:project ../inspect-web/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj
+#:project ../src/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj
 
 using System.Text;
 using System.Text.Json;

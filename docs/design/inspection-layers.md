@@ -513,12 +513,11 @@ Queries-owned and does not change this population-sealing contract.
 ### Legacy query execution seam
 
 `ImplementationComparisonInput` currently accepts independent old/new
-collections of Research-owned `ImplementationAssemblyInput` values.
-`BodySignalComparisonInput` accepts independent old/new
-`BodySignalAnalysisInput` collections. Both query adapters pass those collections
-directly to Research. Neither adapter has a query-owned operation identity,
+collections of Research-owned `ImplementationAssemblyInput` values and passes
+them directly to Research. That adapter has no query-owned operation identity,
 sealed population, or receipt proving which query inputs became which Research
-admission values.
+admission values. `BodySignalComparisonQuery` has left this seam: it seals a
+body-signal population before Research admission.
 
 `AssemblyContextGroup` already seals participant registration and
 binding-policy consistency for one live workspace group. That remains a
@@ -578,19 +577,21 @@ id kinds. The sealer does not deduplicate borrowed values, and it does not open
 content, hash bytes, read an MVID, compare paths, or use list position as the
 resulting identity.
 
-The implemented boundary has one typed profile used by the direct-member query:
+The implemented boundary has two typed profiles. Queries owns each profile
+value and population sealing. The body-signal binding borrows a Research-owned
+Analysis input, so it lives in the ResearchQueries companion, which alone may
+reference Research, and seals through the internal Queries sealer.
 
 | Profile | Query-owned input binding | Borrowed owner values |
 | --- | --- | --- |
 | Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and Analysis `LibraryCallGraphAnalysisResult` |
+| Body signal | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and Analysis `BodySignalAnalysisInput` |
 
 The separate whole-assembly execution migration must replace the Research-owned
 `ImplementationAssemblyInput` at its public L1 input seam with a query-owned
-idless binding. A body-signal adoption must supply its required Metadata target
-evidence and an actual public execution consumer together; the unused
-index-only population request, sealer overload, and projection are not retained
-as placeholders for that future work. Research's own supported profiles and the
-existing `BodySignalComparisonQuery` are unchanged by this Queries contraction.
+idless binding. The body-signal profile supplies its Metadata target evidence,
+the same descriptor and resolver as the implementation profile, together with
+its public execution consumer, `BodySignalComparisonQuery`.
 
 The sealer copies caller-owned collections and selection sets into immutable
 storage before returning. Subsequent caller mutation cannot change the
@@ -1704,11 +1705,13 @@ above preserve the real-asset observation.
   both their Finding correspondence and Metadata-owned compatibility
   classification. The `diff` command keeps endpoint acquisition and member
   filtering host-owned.
-- `BodySignalComparisonQuery` consumes old/new `BodySignalAnalysisInput`
-  collections composed from focused Analysis results of one execution per
-  assembly, and returns the Research-owned `ResearchComparison`. The diff
-  adapter executes Analysis only under selected Analysis query demand; path
-  acquisition remains an explicit host-owned migration boundary.
+- `BodySignalComparisonQuery` consumes old/new body-signal bindings, each with
+  an assembly descriptor, a resolver, and a `BodySignalAnalysisInput` composed
+  from focused Analysis results of one execution. It also consumes optional
+  typed member selections, and returns the Research-owned `ResearchComparison`
+  or a typed target failure. The diff adapter executes Analysis only under
+  selected Analysis query demand; path acquisition remains an explicit
+  host-owned migration boundary.
 - `ImplementationComparisonQuery` consumes old/new retained assembly
   descriptors, reference resolvers, and Analysis
   `LibraryCallGraphAnalysisResult` values and returns

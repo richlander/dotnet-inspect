@@ -2573,11 +2573,6 @@ public class ResearchTargetResolverTests
         Dictionary<ResearchTargetPlanningRejectionKind,
             ResearchTargetPlanningRequest> shapes = new()
         {
-            [ResearchTargetPlanningRejectionKind.UnsupportedProfile] =
-                new ResearchTargetPlanningRequest(
-                    BodySignalPopulation(),
-                    [],
-                    [fixture.Carried(0, SampleType, "Method")]),
             [ResearchTargetPlanningRejectionKind.MissingSelections] =
                 new ResearchTargetPlanningRequest(
                     fixture.Population,
@@ -2895,23 +2890,6 @@ public class ResearchTargetResolverTests
 
     static bool IsResearchOwned(Type type)
         => type.Assembly == typeof(ResearchTargetResolution).Assembly;
-
-    static ResearchAdmittedPopulation BodySignalPopulation()
-        => Assert.IsType<ResearchAdmissionOutcome.Admitted>(
-            ResearchComparisonAdmission.Admit(
-                new ResearchComparisonAdmissionRequest(
-                    ResearchComparisonProfile.BodySignal,
-                    [
-                        new ResearchComparisonAdmissionQuestion(
-                            [
-                                new BodySignalComparisonInputOccurrence(
-                                    LibraryBodyIndex.Open(
-                                        FixtureCatalog.ResearchTargetSample
-                                            .AssemblyPath())
-                                        .CallGraphAnalysis),
-                            ],
-                            []),
-                    ]))).Population;
 
     // ------------------------------------------------------ occurrence builders
 

@@ -47,7 +47,7 @@ internal sealed record ResearchAssemblyContent(
     MetadataSource Source,
     LibraryCallGraphAnalysisResult MethodPopulation);
 
-public static class ResearchDiff
+public static partial class ResearchDiff
 {
     public static string ToChangeIdPart(string value)
         => ToKebabCase(value);
@@ -257,12 +257,21 @@ public static class ResearchDiff
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.BodySignals))
         {
+            if (options.MemberTargetIdentities is { Count: > 0 })
+            {
+                throw new ArgumentException(
+                    "Body-signal member targeting is resolved only through "
+                        + "BodySignalTargetComparison over Research "
+                        + "correspondence outcomes; a whole-assembly "
+                        + "body-signal comparison takes no member identities.",
+                    nameof(options));
+            }
+
             AddBodySignalDiff(
                 builder,
                 oldInput,
                 newInput,
                 options.TypeFilters,
-                options.MemberTargetIdentities,
                 options.RetainedComparisonDescriptorIds);
         }
 
@@ -417,466 +426,6 @@ public static class ResearchDiff
             + $"Culture={identity.Culture ?? "neutral"}, "
             + "PublicKeyToken="
             + $"{identity.PublicKeyToken ?? "null"}";
-
-    static void AddBodySignalDiff(
-        ResultBuilder builder,
-        ResearchDiffInput oldInput,
-        ResearchDiffInput newInput,
-        IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string>? memberTargetIdentities,
-        IReadOnlySet<string> retainedComparisonDescriptorIds)
-    {
-        ArgumentNullException.ThrowIfNull(retainedComparisonDescriptorIds);
-        foreach (var (oldAnalysis, newAnalysis)
-            in PairedBodySignalAnalyses(oldInput, newInput))
-        {
-            AddAnalysisSignalDiff(
-                builder,
-                oldAnalysis,
-                newAnalysis,
-                typeFilters,
-                memberTargetIdentities,
-                retainedComparisonDescriptorIds);
-
-            var methods = MethodSubjectsByBodySignalKey(
-                oldAnalysis,
-                newAnalysis);
-            foreach (var change in UnsafetyFindingDiff.Compare(
-                oldAnalysis,
-                newAnalysis,
-                BodySignalMethodKey))
-            {
-                if (!methods.TryGetValue(change.MemberKey, out var subject))
-                    continue;
-                if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
-                    continue;
-                if (!MatchesMemberTargets(subject, memberTargetIdentities))
-                    continue;
-                var kind = change.Kind == UnsafetyFindingChangeKind.Added
-                    ? ResearchChangeKind.Added
-                    : ResearchChangeKind.Removed;
-                var suffix = kind == ResearchChangeKind.Added ? "added" : "removed";
-                string descriptorId =
-                    $"unsafe.{NormalizeChangePart(change.Signal)}.{suffix}";
-                builder.Add(new ResearchChange(
-                    subject,
-                    ResearchChangeMechanism.BodySignals,
-                    Descriptor(descriptorId, change.Signal),
-                    kind,
-                    oldIlOffset: kind == ResearchChangeKind.Removed
-                        ? change.ILOffset
-                        : null,
-                    newIlOffset: kind == ResearchChangeKind.Added
-                        ? change.ILOffset
-                        : null,
-                    detail: $"{change.Operation}: {change.Evidence}",
-                    category: ResearchChangeCategory.BodySignal,
-                    signal: change.Signal));
-            }
-        }
-
-        static void AddAnalysisSignalDiff(
-            ResultBuilder builder,
-            BodySignalAnalysisInput oldAnalysis,
-            BodySignalAnalysisInput newAnalysis,
-            IReadOnlySet<string>? typeFilters,
-            IReadOnlySet<string>? memberTargetIdentities,
-            IReadOnlySet<string> retainedComparisonDescriptorIds)
-        {
-            bool retainAllocations = retainedComparisonDescriptorIds.Contains(
-                AnalysisFindings.AllocationDescriptor.Id);
-            bool retainCallSites = retainedComparisonDescriptorIds.Contains(
-                AnalysisFindings.CallSiteDescriptor.Id);
-            bool retainUnsafety = retainedComparisonDescriptorIds.Contains(
-                AnalysisFindings.UnsafetyDescriptor.Id);
-            var oldSnapshot = BuildAnalysisSnapshot(
-                oldAnalysis,
-                typeFilters,
-                memberTargetIdentities,
-                retainCallSites,
-                retainUnsafety);
-            var newSnapshot = BuildAnalysisSnapshot(
-                newAnalysis,
-                typeFilters,
-                memberTargetIdentities,
-                retainCallSites,
-                retainUnsafety);
-            foreach (var key in oldSnapshot.Keys.Union(newSnapshot.Keys, StringComparer.Ordinal))
-            {
-                oldSnapshot.TryGetValue(key, out var oldMethod);
-                newSnapshot.TryGetValue(key, out var newMethod);
-                var subject = newMethod?.Subject ?? oldMethod?.Subject ?? UnknownMemberSubject(key);
-                var inBoth = oldMethod is not null && newMethod is not null;
-                AddAllocationRow(
-                    builder,
-                    subject,
-                    inBoth,
-                    oldMethod?.Allocations ?? [],
-                    newMethod?.Allocations ?? [],
-                    Evidence(oldMethod?.Signals, newMethod?.Signals),
-                    retainAllocations);
-                if (retainCallSites)
-                {
-                    AddRetainedComparison(
-                        builder,
-                        subject,
-                        AnalysisFindings.CallSiteDescriptor,
-                        AnalysisFindings.CompareCallSites(
-                            oldMethod?.CallSites ?? [],
-                            newMethod?.CallSites ?? [],
-                            new FindingSubject(subject.Id, subject.Display)));
-                }
-                if (retainUnsafety)
-                {
-                    AddRetainedComparison(
-                        builder,
-                        subject,
-                        AnalysisFindings.UnsafetyDescriptor,
-                        AnalysisFindings.CompareUnsafety(
-                            oldMethod?.Unsafety ?? [],
-                            newMethod?.Unsafety ?? [],
-                            new FindingSubject(subject.Id, subject.Display)));
-                }
-                AddCountRows(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
-                AddExceptionRow(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
-                AddOptimizationRows(builder, subject, inBoth, oldMethod?.Opportunities, newMethod?.Opportunities);
-            }
-        }
-
-        static Dictionary<string, ResearchAnalysisMethod> BuildAnalysisSnapshot(
-            BodySignalAnalysisInput analysis,
-            IReadOnlySet<string>? typeFilters,
-            IReadOnlySet<string>? memberTargetIdentities,
-            bool includeCallSites,
-            bool includeUnsafety)
-        {
-            var methods = new Dictionary<string, ResearchAnalysisMethod>(StringComparer.Ordinal);
-            var generatedFrameworkTypes =
-                analysis.GeneratedFrameworkTypes;
-            var signalsByToken = analysis.MethodSignals;
-            var allocationsByToken =
-                analysis.AllocationOccurrences;
-            IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
-                callsByToken = includeCallSites
-                    ? analysis.CallsByEvidenceMethod
-                    : null;
-            var unsafetyByToken = includeUnsafety
-                ? analysis.UnsafetyOccurrences
-                : null;
-            foreach (var method in analysis.Methods)
-            {
-                if (IsGeneratedMethod(method, generatedFrameworkTypes))
-                    continue;
-                if (!MatchesTypeFilters(method.DeclaringType.ToQualifiedDisplayString(), typeFilters))
-                    continue;
-                var subject = SubjectFromMethod(method);
-                if (!MatchesMemberTargets(subject, memberTargetIdentities))
-                    continue;
-                signalsByToken.TryGetValue(method.MetadataToken, out var signals);
-                allocationsByToken.TryGetValue(method.MetadataToken, out var allocations);
-                ImmutableArray<DirectCall> callSites = [];
-                if (callsByToken is not null
-                    && callsByToken.TryGetValue(method.MetadataToken, out var retainedCallSites))
-                {
-                    callSites = retainedCallSites;
-                }
-                ImmutableArray<UnsafetyOccurrence> unsafety = [];
-                if (unsafetyByToken is not null
-                    && unsafetyByToken.TryGetValue(method.MetadataToken, out var retainedUnsafety))
-                {
-                    unsafety = retainedUnsafety;
-                }
-                var key = BodySignalMethodKey(method);
-                if (!methods.TryGetValue(key, out var entry))
-                {
-                    entry = new ResearchAnalysisMethod(
-                        subject,
-                        signals ?? MethodSignals.None,
-                        allocations.IsDefault ? [] : allocations,
-                        callSites,
-                        unsafety,
-                        []);
-                    methods[key] = entry;
-                }
-                else
-                {
-                    methods[key] = entry with
-                    {
-                        Signals = signals ?? MethodSignals.None,
-                        Allocations = allocations.IsDefault ? [] : allocations,
-                        CallSites = callSites,
-                        Unsafety = unsafety,
-                    };
-                }
-            }
-
-            foreach (var opportunity in analysis.Opportunities)
-            {
-                if (IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes))
-                    continue;
-                if (!MatchesTypeFilters(opportunity.Method.DeclaringType.ToQualifiedDisplayString(), typeFilters))
-                    continue;
-                var subject = SubjectFromMethod(opportunity.Method);
-                if (!MatchesMemberTargets(subject, memberTargetIdentities))
-                    continue;
-                var key = BodySignalMethodKey(opportunity.Method);
-                if (!methods.TryGetValue(key, out var entry))
-                {
-                    entry = new ResearchAnalysisMethod(
-                        subject,
-                        MethodSignals.None,
-                        [],
-                        [],
-                        [],
-                        []);
-                    methods[key] = entry;
-                }
-                entry.Opportunities.Add(opportunity);
-            }
-
-            return methods;
-        }
-
-        static void AddCountRows(ResultBuilder builder, ResearchSubjectKey subject, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
-        {
-            AddCountRow(builder, subject, inBoth, "copies", oldSignals?.Copies ?? 0, newSignals?.Copies ?? 0, Evidence(oldSignals, newSignals));
-            AddCountRow(builder, subject, inBoth, "reflection", oldSignals?.Reflection ?? 0, newSignals?.Reflection ?? 0, Evidence(oldSignals, newSignals));
-            AddCountRow(builder, subject, inBoth, "throws", oldSignals?.Throws ?? 0, newSignals?.Throws ?? 0, Evidence(oldSignals, newSignals));
-            AddCountRow(builder, subject, inBoth, "catches", oldSignals?.Catches ?? 0, newSignals?.Catches ?? 0, Evidence(oldSignals, newSignals));
-            AddCountRow(builder, subject, inBoth, "finallys", oldSignals?.Finallys ?? 0, newSignals?.Finallys ?? 0, Evidence(oldSignals, newSignals));
-            AddCountRow(builder, subject, inBoth, "unsafe", oldSignals?.Unsafe == true ? 1 : 0, newSignals?.Unsafe == true ? 1 : 0, Evidence(oldSignals, newSignals));
-        }
-
-        static void AddAllocationRow(
-            ResultBuilder builder,
-            ResearchSubjectKey subject,
-            bool inBoth,
-            ImmutableArray<AllocationOccurrence> oldOccurrences,
-            ImmutableArray<AllocationOccurrence> newOccurrences,
-            string? evidence,
-            bool retainComparison)
-        {
-            var comparison = AnalysisFindings.CompareAllocations(
-                oldOccurrences,
-                newOccurrences,
-                new FindingSubject(subject.Id, subject.Display));
-            if (retainComparison)
-            {
-                AddRetainedComparison(
-                    builder,
-                    subject,
-                    AnalysisFindings.AllocationDescriptor,
-                    comparison);
-            }
-            var complete = comparison switch
-            {
-                FindingComparison<AllocationOccurrence>.Complete value => value,
-                FindingComparison<AllocationOccurrence>.Failed failed =>
-                    throw new InvalidOperationException(
-                        $"A comparison of total allocation censuses cannot fail: {failed.Failure}"),
-            };
-            if (complete.IsExact)
-                return;
-
-            int oldValue = oldOccurrences.Count(static occurrence => occurrence.CountsAsHeapAllocation);
-            int newValue = newOccurrences.Count(static occurrence => occurrence.CountsAsHeapAllocation);
-            bool oldInLoop = oldOccurrences.Any(IsHotAllocation);
-            bool newInLoop = newOccurrences.Any(IsHotAllocation);
-            int delta = newValue - oldValue;
-            string deltaText;
-            string? shape = null;
-            int magnitude;
-            int directionScore;
-            bool inLoop;
-
-            if (delta != 0)
-            {
-                deltaText = FormatDelta(delta);
-                magnitude = Math.Abs(delta);
-                directionScore = Math.Sign(delta);
-                inLoop = delta > 0 ? newInLoop : oldInLoop;
-                shape = inLoop ? "in-loop" : null;
-            }
-            else if (newValue > 0 && oldInLoop != newInLoop)
-            {
-                bool becameHot = newInLoop;
-                deltaText = becameHot ? "hot" : "cold";
-                shape = "in-loop";
-                magnitude = 1;
-                directionScore = becameHot ? 1 : -1;
-                inLoop = true;
-            }
-            else
-            {
-                deltaText = "changed";
-                magnitude = complete.Pairs.Count(static pair =>
-                    pair.Kind != PairKind.Present
-                    || pair.Difference != FindingDifferenceKind.None);
-                directionScore = 0;
-                inLoop = oldOccurrences.Any(static occurrence => occurrence.InLoop)
-                    || newOccurrences.Any(static occurrence => occurrence.InLoop);
-            }
-
-            builder.Add(new ResearchChange(
-                subject,
-                ResearchChangeMechanism.BodySignals,
-                AnalysisFindings.AllocationDescriptor,
-                ResearchChangeKind.Changed,
-                oldValue.ToString(),
-                newValue.ToString(),
-                delta: deltaText,
-                detail: evidence,
-                category: ResearchChangeCategory.BodySignal,
-                signal: "allocations",
-                shape: shape,
-                magnitude: magnitude,
-                directionScore: directionScore,
-                subjectInBoth: inBoth,
-                inLoop: inLoop,
-                allocationComparison: comparison));
-        }
-
-        static void AddRetainedComparison<T>(
-            ResultBuilder builder,
-            ResearchSubjectKey subject,
-            FindingDescriptor descriptor,
-            FindingComparison<T> comparison)
-            where T : notnull
-            => builder.Add(new RetainedFindingComparison<T>(
-                subject,
-                descriptor,
-                comparison));
-
-        static bool IsHotAllocation(AllocationOccurrence occurrence)
-            => occurrence.CountsAsHeapAllocation
-                && occurrence.InLoop
-                && occurrence.Escape != AllocationEscape.ThrowPath;
-
-        static void AddCountRow(ResultBuilder builder, ResearchSubjectKey subject, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool oldAllocInLoop = false, bool newAllocInLoop = false)
-        {
-            var delta = newValue - oldValue;
-            if (delta == 0)
-            {
-                if (newValue > 0 && oldAllocInLoop != newAllocInLoop)
-                {
-                    bool becameHot = newAllocInLoop;
-                    AddAnalysisEvidence(
-                        builder,
-                        subject,
-                        $"analysis.signal.{signal}",
-                        signal,
-                        oldValue.ToString(),
-                        newValue.ToString(),
-                        becameHot ? "hot" : "cold",
-                        "in-loop",
-                        evidence,
-                        magnitude: 1,
-                        directionScore: becameHot ? 1 : -1,
-                        inBoth,
-                        inLoop: true);
-                }
-                return;
-            }
-
-            var inLoop = delta > 0 ? newAllocInLoop : oldAllocInLoop;
-            AddAnalysisEvidence(
-                builder,
-                subject,
-                $"analysis.signal.{signal}",
-                signal,
-                oldValue.ToString(),
-                newValue.ToString(),
-                FormatDelta(delta),
-                inLoop ? "in-loop" : null,
-                evidence,
-                Math.Abs(delta),
-                Math.Sign(delta),
-                inBoth,
-                inLoop);
-        }
-
-        static void AddExceptionRow(ResultBuilder builder, ResearchSubjectKey subject, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
-        {
-            var oldTypes = oldSignals?.ExceptionTypes ?? [];
-            var newTypes = newSignals?.ExceptionTypes ?? [];
-            if (oldTypes.SequenceEqual(newTypes))
-                return;
-            var delta = newTypes.Length - oldTypes.Length;
-            AddAnalysisEvidence(
-                builder,
-                subject,
-                "analysis.signal.constructed-exceptions",
-                "constructed-exceptions",
-                FormatList(oldTypes),
-                FormatList(newTypes),
-                "changed",
-                shape: null,
-                Evidence(oldSignals, newSignals),
-                Math.Max(1, Math.Abs(delta)),
-                Math.Sign(delta),
-                inBoth,
-                inLoop: false);
-        }
-
-        static void AddOptimizationRows(ResultBuilder builder, ResearchSubjectKey subject, bool inBoth, List<OptimizationOpportunity>? oldOps, List<OptimizationOpportunity>? newOps)
-        {
-            var oldCounts = CountShapes(oldOps);
-            var newCounts = CountShapes(newOps);
-            foreach (var shape in oldCounts.Keys.Union(newCounts.Keys).OrderBy(shape => shape, StringComparer.Ordinal))
-            {
-                var oldValue = oldCounts.GetValueOrDefault(shape);
-                var newValue = newCounts.GetValueOrDefault(shape);
-                if (oldValue == newValue)
-                    continue;
-                var delta = newValue - oldValue;
-                AddAnalysisEvidence(
-                    builder,
-                    subject,
-                    $"analysis.optimization.{shape}",
-                    "optimization",
-                    oldValue.ToString(),
-                    newValue.ToString(),
-                    FormatDelta(delta),
-                    shape,
-                    FormatOptimizationEvidence(oldOps, newOps, shape),
-                    Math.Abs(delta),
-                    Math.Sign(delta),
-                    inBoth,
-                    inLoop: false);
-            }
-        }
-
-        static void AddAnalysisEvidence(
-            ResultBuilder builder,
-            ResearchSubjectKey subject,
-            string changeId,
-            string signal,
-            string oldValue,
-            string newValue,
-            string delta,
-            string? shape,
-            string? detail,
-            int magnitude,
-            int directionScore,
-            bool inBoth,
-            bool inLoop)
-            => builder.Add(new ResearchChange(
-                subject,
-                ResearchChangeMechanism.BodySignals,
-                Descriptor(changeId, signal),
-                ResearchChangeKind.Changed,
-                oldValue,
-                newValue,
-                delta: delta,
-                detail: detail,
-                category: ResearchChangeCategory.BodySignal,
-                signal: signal,
-                shape: shape,
-                magnitude: magnitude,
-                directionScore: directionScore,
-                subjectInBoth: inBoth,
-                inLoop: inLoop));
-    }
 
     static void AddIlBodyDiff(
         ResultBuilder builder,
@@ -1608,64 +1157,6 @@ public static class ResearchDiff
         }
     }
 
-    static IEnumerable<(
-        BodySignalAnalysisInput Old,
-        BodySignalAnalysisInput New)> PairedBodySignalAnalyses(
-        ResearchDiffInput oldInput,
-        ResearchDiffInput newInput)
-    {
-        var oldAnalyses = BodySignalAnalysisEntries(oldInput)
-            .ToDictionary(
-                analysis => AssemblyKey(analysis.Receipt),
-                StringComparer.Ordinal);
-        var newAnalyses = BodySignalAnalysisEntries(newInput)
-            .ToDictionary(
-                analysis => AssemblyKey(analysis.Receipt),
-                StringComparer.Ordinal);
-        foreach (string key in oldAnalyses.Keys
-            .Intersect(newAnalyses.Keys, StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal))
-        {
-            yield return (oldAnalyses[key], newAnalyses[key]);
-        }
-    }
-
-    static IEnumerable<BodySignalAnalysisInput>
-        BodySignalAnalysisEntries(ResearchDiffInput input)
-    {
-        if (input.BodySignalAnalyses is { } analyses)
-        {
-            foreach (BodySignalAnalysisInput analysis in analyses)
-                yield return analysis;
-            yield break;
-        }
-
-        if (input.AssemblyPaths.Count == 0)
-        {
-            throw new ArgumentException(
-                "Body-signal comparison requires focused Analysis inputs "
-                    + "or assembly paths.",
-                nameof(input));
-        }
-
-        const LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.MethodEvidence
-            | LibraryBodyAnalysisFeatures.Allocations
-            | LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        foreach (string path in input.AssemblyPaths)
-        {
-            LibraryBodyAnalysisExecution execution =
-                LibraryBodyAnalysisService.ExecutePath(
-                    path,
-                    LibraryBodyAnalysisRequest.Create(features));
-            yield return new BodySignalAnalysisInput(
-                execution.Allocations,
-                execution.Safety,
-                execution.CallGraph,
-                execution.Optimization);
-        }
-    }
-
     static IEnumerable<(MethodPopulationEntry Old, MethodPopulationEntry New)> PairedMethodPopulationEntries(ResearchDiffInput oldInput, ResearchDiffInput newInput)
     {
         var oldIndexes = MethodPopulationEntries(oldInput).ToDictionary(entry => entry.Key, StringComparer.Ordinal);
@@ -1736,27 +1227,6 @@ public static class ResearchDiff
                 path,
                 methodPopulation);
         }
-    }
-
-    static Dictionary<string, ResearchSubjectKey> MethodSubjectsByBodySignalKey(
-        BodySignalAnalysisInput oldAnalysis,
-        BodySignalAnalysisInput newAnalysis,
-        IReadOnlySet<string>? memberTargetIdentities = null)
-    {
-        var oldGeneratedFrameworkTypes =
-            oldAnalysis.GeneratedFrameworkTypes;
-        var newGeneratedFrameworkTypes =
-            newAnalysis.GeneratedFrameworkTypes;
-        return oldAnalysis.Methods
-            .Where(method => !IsGeneratedMethod(method, oldGeneratedFrameworkTypes))
-            .Concat(newAnalysis.Methods.Where(method =>
-                !IsGeneratedMethod(
-                    method,
-                    newGeneratedFrameworkTypes)))
-            .Select(method => (Key: BodySignalMethodKey(method), Subject: SubjectFromMethod(method)))
-            .Where(entry => MatchesMemberTargets(entry.Subject, memberTargetIdentities))
-            .GroupBy(entry => entry.Key, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.Last().Subject, StringComparer.Ordinal);
     }
 
     static bool MatchesMemberTargets(ResearchSubjectKey subject, IReadOnlySet<string>? memberTargetIdentities)
@@ -1897,10 +1367,10 @@ public static class ResearchDiff
         => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static Dictionary<string, MethodIdentity> DeclaredMethodLookup(
-        LibraryCallGraphAnalysisResult callGraph)
+        LibraryCallGraphAnalysisResult methodPopulation)
     {
         var methods = new Dictionary<string, MethodIdentity>(StringComparer.Ordinal);
-        foreach (var method in callGraph.DeclaredMethods)
+        foreach (var method in methodPopulation.DeclaredMethods)
             methods.TryAdd(MethodMatchKey(method), method);
         return methods;
     }
@@ -1978,12 +1448,12 @@ public static class ResearchDiff
            && type.ElementType is { } definition
            && definition.Equals(TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"));
 
-    static string AssemblyKey(LibraryCallGraphAnalysisResult callGraph)
-        => callGraph.ModuleIdentity.AssemblyIdentity?.Name
+    static string AssemblyKey(LibraryCallGraphAnalysisResult methodPopulation)
+        => methodPopulation.ModuleIdentity.AssemblyIdentity?.Name
             ?? throw new ArgumentException(
                 "Method-population assembly comparison requires an assembly "
                 + "identity; a standalone module has no assembly pairing key.",
-                nameof(callGraph));
+                nameof(methodPopulation));
 
     static string AssemblyKey(LibraryBodyAnalysisReceipt receipt)
         => receipt.ModuleIdentity.AssemblyIdentity?.Name

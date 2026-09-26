@@ -3019,7 +3019,7 @@ implementation.
 
 Inspect Web invokes the same managed codec and transposer through the
 `CatalogExports` JS-export adapter in
-`inspect-web/DotnetInspect.Web.Interop.Catalog/WorkspaceShareExports.cs`.
+`src/DotnetInspect.Web.Interop.Catalog/WorkspaceShareExports.cs`.
 Generated TypeScript bindings and TypeScript tests gate Browser transport and
 state integration across that adapter; TypeScript never interprets or emits
 the compact `f`, `t`, `g`, `r`, `a`, `x`, `q`, or `v` packet grammar itself.

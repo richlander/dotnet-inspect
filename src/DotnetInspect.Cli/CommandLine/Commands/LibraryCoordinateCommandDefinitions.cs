@@ -306,6 +306,8 @@ internal static class LibraryCoordinateCommandDefinitions
                     opts.IsTableExplicitlySet(parseResult),
                 FormatExplicitlySet =
                     opts.IsFormatExplicitlySet(parseResult),
+                FormatFlagExplicitlySet =
+                    opts.IsFormatFlagExplicitlySet(parseResult),
                 Format = format,
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Trace = parseResult.GetValue(opts.Trace),

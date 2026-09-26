@@ -441,33 +441,19 @@ public sealed class BrowserEngineLayeringTests
                 .GetFields(BindingFlags.Public | BindingFlags.Static),
             field => field.IsLiteral);
 
-        string inspectWebRoot = Path.Combine(
-            RepositoryRoot(),
-            "inspect-web");
+        string repositoryRoot = RepositoryRoot();
         string ecosystemsProject = Path.Combine(
-            RepositoryRoot(),
+            repositoryRoot,
             "src",
             "DotnetInspector.Ecosystems",
             "DotnetInspector.Ecosystems.csproj");
         string[] productionProjects =
         [
+            EngineProjectPath,
             .. Directory.EnumerateFiles(
-                    inspectWebRoot,
-                    "*.csproj",
+                    Path.Combine(repositoryRoot, "src"),
+                    "DotnetInspect.Web*.csproj",
                     SearchOption.AllDirectories)
-                .Where(project =>
-                    !project.Contains(
-                        $"{Path.DirectorySeparatorChar}DotnetInspect.Web.Tests"
-                        + $"{Path.DirectorySeparatorChar}",
-                        StringComparison.OrdinalIgnoreCase)
-                    && !project.Contains(
-                        $"{Path.DirectorySeparatorChar}msdl-proxy.Tests"
-                        + $"{Path.DirectorySeparatorChar}",
-                        StringComparison.OrdinalIgnoreCase)
-                    && !project.Contains(
-                        $"{Path.DirectorySeparatorChar}multi-facade-canary"
-                        + $"{Path.DirectorySeparatorChar}",
-                        StringComparison.OrdinalIgnoreCase))
                 .Order(StringComparer.Ordinal),
         ];
         Assert.Contains(
@@ -568,7 +554,7 @@ public sealed class BrowserEngineLayeringTests
         }
             .Select(project => Path.Combine(
                 RepositoryRoot(),
-                "inspect-web",
+                "src",
                 project.Item1,
                 project.Item2)),
     ];
@@ -708,19 +694,19 @@ public sealed class BrowserEngineLayeringTests
 
     static string CoreProjectPath => Path.Combine(
         RepositoryRoot(),
-        "inspect-web",
+        "src",
         "DotnetInspect.Web.Core",
         "DotnetInspect.Web.Core.csproj");
 
     static string CatalogProjectPath => Path.Combine(
         RepositoryRoot(),
-        "inspect-web",
+        "src",
         "DotnetInspect.Web.Interop.Catalog",
         "DotnetInspect.Web.Interop.Catalog.csproj");
 
     static string PackageProjectPath => Path.Combine(
         RepositoryRoot(),
-        "inspect-web",
+        "src",
         "DotnetInspect.Web.Interop.Package",
         "DotnetInspect.Web.Interop.Package.csproj");
 
