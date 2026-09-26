@@ -1158,6 +1158,24 @@ internal sealed class LibraryMethodAnalysisRunner(
                 && !collectOwnershipDerivedOpportunities;
             try
             {
+                bool publishDirectCallMetrics =
+                    implementationMetricPlan
+                        ?.IncludesDirectCallEvidence == true
+                    && metricBodyAdmitted;
+                if (publishDirectCallMetrics)
+                {
+                    result.ImplementationMetrics =
+                        MarkDirectCallCollection(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            complete: false);
+                }
+                using ImplementationMetricExecutionRecorder.StageAttempt?
+                    directCallCollection = StartMetricStage(
+                        plan,
+                        ImplementationMetricWorkStage
+                            .DirectCallCollection);
                 MethodCallAnalysis.Collect(
                     context,
                     _infrastructure.CreateCallResolver(
@@ -1183,6 +1201,16 @@ internal sealed class LibraryMethodAnalysisRunner(
                     localThrows: isReferenceAssembly ? null : localThrowSites,
                     qualifyExceptionType: localExceptionTypes is null
                         ? null : localExceptionTypes.Qualify);
+                directCallCollection?.Complete();
+                if (publishDirectCallMetrics)
+                {
+                    result.ImplementationMetrics =
+                        MarkDirectCallCollection(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            complete: true);
+                }
                 if (localThrowSites is not null && !isReferenceAssembly)
                 {
                     result.LocalThrows = new MethodLocalThrowEvidence.Inspected(
@@ -1636,7 +1664,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         caller,
                         localTypes);
             }
-            if (metricPlan.IncludesFocusedContextEvidence)
+            MethodBodyAnalysisContext? context = null;
+            if (metricPlan.RequiresCanonicalContext)
             {
                 try
                 {
@@ -1645,7 +1674,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             plan,
                             ImplementationMetricWorkStage
                                 .CanonicalMethodContext);
-                    MethodBodyAnalysisContext context =
+                    context =
                         MethodBodyAnalysisContext.Create(
                             caller,
                             metadataBody,
@@ -1653,6 +1682,30 @@ internal sealed class LibraryMethodAnalysisRunner(
                             localTypes.DeclaredCount,
                             localTypes.IncompleteReason);
                     contextConstruction?.Complete();
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic =
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+            }
+            if (context is not null
+                && metricPlan.IncludesFocusedContextEvidence)
+            {
+                try
+                {
                     MethodImplementationContextMeasurements measurements =
                         MethodImplementationProfileAnalysis
                             .MeasureContext(
@@ -1671,7 +1724,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 catch (Exception ex)
                     when (IsRecoverableMethodFailure(ex))
                 {
-                    result.ImplementationMetricDiagnostic =
+                    result.ImplementationMetricDiagnostic ??=
                         new AnalysisDiagnostic(
                             caller.MetadataToken,
                             MethodLabel(
@@ -1684,6 +1737,60 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 caller.DeclaringType,
                             SourceDeclaringType:
                                 result.DeclaredSource?.DeclaringType);
+                }
+            }
+            if (context is not null
+                && metricPlan.IncludesDirectCallEvidence)
+            {
+                var calls =
+                    ImmutableArray.CreateBuilder<DirectCall>();
+                result.ImplementationMetrics =
+                    MarkDirectCallCollection(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        complete: false);
+                try
+                {
+                    using ImplementationMetricExecutionRecorder.StageAttempt?
+                        directCallCollection = StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .DirectCallCollection);
+                    MethodCallAnalysis.CollectDirectCalls(
+                        context,
+                        _infrastructure.CreateCallResolver(
+                            scope,
+                            caller),
+                        calls);
+                    directCallCollection?.Complete();
+                    result.ImplementationMetrics =
+                        MarkDirectCallCollection(
+                            result.ImplementationMetrics,
+                            result.DeclaredMethod ?? caller,
+                            caller,
+                            complete: true);
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.ImplementationMetricDiagnostic ??=
+                        new AnalysisDiagnostic(
+                            caller.MetadataToken,
+                            MethodLabel(
+                                typeHandle,
+                                methodHandle),
+                            $"{ex.GetType().Name}: {ex.Message}",
+                            SourceMethodToken:
+                                result.DeclaredSource?.MetadataToken,
+                            DeclaringType:
+                                caller.DeclaringType,
+                            SourceDeclaringType:
+                                result.DeclaredSource?.DeclaringType);
+                }
+                finally
+                {
+                    result.Calls = calls.ToImmutable();
                 }
             }
         }
@@ -1765,6 +1872,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             exceptionRegions,
             null,
             null,
+            null,
             null);
     }
 
@@ -1786,6 +1894,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 null,
                 evidence,
                 null,
+                null,
                 null)
             : existing with { Locals = evidence };
     }
@@ -1804,12 +1913,37 @@ internal sealed class LibraryMethodAnalysisRunner(
                 null,
                 null,
                 measurements.InstructionShape,
-                measurements.ControlFlow)
+                measurements.ControlFlow,
+                null)
             : existing with
             {
                 InstructionShape = measurements.InstructionShape,
                 ControlFlow = measurements.ControlFlow,
             };
+    }
+
+    static MethodImplementationMetricEvidence MarkDirectCallCollection(
+        MethodImplementationMetricEvidence? existing,
+        MethodIdentity method,
+        MethodIdentity evidenceMethod,
+        bool complete)
+    {
+        MethodImplementationMetricEvidence evidence =
+            existing
+            ?? new(
+                method,
+                evidenceMethod,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        return evidence with
+        {
+            DirectCallCollectionAttempted = true,
+            DirectCallCollectionComplete = complete,
+        };
     }
 
     LibraryMethodAnalysisResult AnalyzeLeakTriageMethod(

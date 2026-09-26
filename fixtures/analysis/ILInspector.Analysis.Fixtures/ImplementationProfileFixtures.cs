@@ -50,6 +50,13 @@ public static class ImplementationProfileSample
     public static int Other(int value)
         => value + 1;
 
+    public static int CallHiddenTwice(int value)
+        => Hidden(value) + Hidden(value);
+
+    public static int CallUnsafe(int value)
+        => System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+
     private static int Hidden(int value)
         => value * 2;
 

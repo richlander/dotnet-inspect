@@ -216,6 +216,7 @@ public sealed class LibraryBodyAnalysisExecution
             CreateImplementationMetricResult(
                 Receipt,
                 analysis,
+                CallGraph,
                 plan);
         Optimization = new(
             Receipt,
@@ -316,6 +317,7 @@ public sealed class LibraryBodyAnalysisExecution
         CreateImplementationMetricResult(
             LibraryBodyAnalysisReceipt receipt,
             LibraryBodyAnalysisResult analysis,
+            LibraryCallGraphAnalysisResult callGraph,
             LibraryBodyAnalysisPlan plan)
     {
         ImmutableArray<AnalysisDiagnostic> metricDiagnostics =
@@ -335,6 +337,16 @@ public sealed class LibraryBodyAnalysisExecution
                 metricDiagnostics);
         }
 
+        ImmutableArray<MethodImplementationMetricEvidence> bodies =
+            analysis.Methods.ImplementationMetrics;
+        if (metricPlan.IncludesDirectCallEvidence)
+        {
+            bodies = PublishDirectCallMetrics(
+                bodies,
+                callGraph,
+                metricDiagnostics);
+        }
+
         return new(
             receipt,
             WasRequested: true,
@@ -350,8 +362,64 @@ public sealed class LibraryBodyAnalysisExecution
                 analysis.ImplementationMetricWork),
             analysis.Methods.DeclaredMethods,
             analysis.Methods.Methods,
-            analysis.Methods.ImplementationMetrics,
+            bodies,
             metricDiagnostics);
+    }
+
+    static ImmutableArray<MethodImplementationMetricEvidence>
+        PublishDirectCallMetrics(
+            ImmutableArray<MethodImplementationMetricEvidence> bodies,
+            LibraryCallGraphAnalysisResult callGraph,
+            ImmutableArray<AnalysisDiagnostic> diagnostics)
+    {
+        Dictionary<int, DirectCall[]> callsByEvidenceMethod =
+            callGraph.DirectCalls
+                .GroupBy(static call =>
+                    call.EvidenceMethod.MetadataToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.ToArray());
+        Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+            diagnostics
+                .GroupBy(static diagnostic =>
+                    diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+
+        return
+        [
+            .. bodies.Select(body =>
+            {
+                if (!body.DirectCallCollectionAttempted)
+                    return body;
+
+                callsByEvidenceMethod.TryGetValue(
+                    body.EvidenceMethod.MetadataToken,
+                    out DirectCall[]? calls);
+                calls ??= [];
+                string? incompleteReason = null;
+                if (!body.DirectCallCollectionComplete)
+                {
+                    incompleteReason =
+                        diagnosticsByToken.TryGetValue(
+                            body.EvidenceMethod.MetadataToken,
+                            out AnalysisDiagnostic? diagnostic)
+                            ? diagnostic.Message
+                            : "Direct-call collection did not complete.";
+                }
+
+                return body with
+                {
+                    DirectCalls =
+                        MethodImplementationProfileAnalysis
+                            .MeasureDirectCalls(
+                                calls,
+                                callGraph.DeclaredMethodMap,
+                                incompleteReason),
+                };
+            }),
+        ];
     }
 
     private static LibraryImplementationProfileAnalysisResult
