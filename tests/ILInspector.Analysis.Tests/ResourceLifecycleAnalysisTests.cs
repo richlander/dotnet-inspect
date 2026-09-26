@@ -239,6 +239,43 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Theory]
+    [InlineData("RentAcrossCatchAllCleanup")]
+    [InlineData("RentAcrossCatchExceptionCleanup")]
+    public void LifecycleRequest_CreditsCatchAllCleanup(
+        string methodName)
+    {
+        ResourceLifecycleRootResult root = Root(
+            Analyze(),
+            methodName);
+
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                == ResourceLifecycleOutcomeKind
+                    .ExceptionalCleanupMissing);
+    }
+
+    [Theory]
+    [InlineData("RentAcrossTypedCatchCleanup")]
+    [InlineData("RentAcrossSiblingTypedThenCatchAllCleanup")]
+    [InlineData("RentAcrossNestedTypedThenCatchAllCleanup")]
+    public void LifecycleRequest_DoesNotCreditInterceptedCatchCleanup(
+        string methodName)
+    {
+        ResourceLifecycleRootResult root = Root(
+            Analyze(),
+            methodName);
+
+        Assert.Contains(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                == ResourceLifecycleOutcomeKind
+                    .ExceptionalCleanupMissing);
+    }
+
+    [Theory]
     [InlineData(
         "RentAcrossUnprotectedBoundaryWithUnrelatedMethodGroup",
         "ObserveResource")]

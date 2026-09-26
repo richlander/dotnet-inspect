@@ -660,6 +660,92 @@ public static class Entry
         }
     }
 
+    public static void RentAcrossCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossCatchExceptionCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (Exception)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossTypedCatchCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossSiblingTypedThenCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossNestedTypedThenCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                ObserveResource(buffer);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
     public static void RentAndReleaseAsyncUnobserved()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
