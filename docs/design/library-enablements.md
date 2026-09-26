@@ -84,19 +84,40 @@ Every requested enablement has one state:
   in.
 - **Not enabled** — the image was read completely and does not carry that
   evidence.
-- **Unavailable** — the evidence exists but cannot support a unique judgment.
-  The reason is typed and preserved; it never collapses to Not enabled.
+- **Unavailable** — the evidence cannot be read, cannot support a unique
+  judgment, or is absent by construction for this kind of image. The reason is
+  typed and preserved; it never collapses to Not enabled.
+
+### Reference assemblies
+
+A reference assembly, identified by the assembly-level
+`ReferenceAssemblyAttribute`, keeps declarations and strips implementation
+details. The declarations enablements read survive: `IsAotCompatible` is
+present in `Microsoft.NETCore.App.Ref` 11.0.0-rc.1.26425.128, and the
+reference assembly the SDK produces for the memory-safety-updated fixture still
+carries `MemorySafetyRulesAttribute(2)`. AOT and Memory Safety v2 are therefore
+decided normally for reference assemblies.
+
+Method implementation flags do not survive. `System.Net.Sockets.dll` and
+`System.Net.Http.dll` in that reference pack carry no `Async` MethodDef rows,
+while the same Libraries in the runtime pack carry 9 and 119. A reference
+assembly reports Runtime Async as Unavailable with the reason
+`ReferenceAssembly`, never Not enabled.
 
 ### AOT
 
 `AssemblyMetadataAttribute` rows on the assembly with key `IsAotCompatible`
 decide the state:
 
-- Enabled when at least one row exists and every row's value parses as the
-  Boolean `true`.
-- Not enabled when no row exists, or every row parses as `false`.
-- Unavailable when any value does not parse as a Boolean, or decoded values
-  disagree.
+- Enabled when at least one row exists and every row's value is `true`.
+- Not enabled when no row exists, or every row's value is `false`.
+- Unavailable when any value is neither, decoded values disagree, or any
+  assembly `AssemblyMetadataAttribute` blob cannot be decoded, because the
+  undecoded row might carry the key.
+
+Values compare case-insensitively after trimming surrounding whitespace, the
+grammar MSBuild's `True` and `False` spellings satisfy. `AssemblyMetadata` on
+modules, Types, or members is not evidence.
 
 The marker is the author's MSBuild declaration, which enables the trim, AOT,
 and single-file analyzers at build. Enabled reports that declaration; it does
@@ -106,7 +127,8 @@ not claim the Library was exercised under Native AOT.
 
 Enabled when at least one MethodDef row carries the `Async` implementation
 flag, regardless of accessibility, declaring Type, or whether the declaring
-Type is compiler-generated. Otherwise Not enabled.
+Type is compiler-generated. Otherwise Not enabled, except for reference
+assemblies as described above.
 
 Runtime-async compilation still emits state machines where the language
 requires them, such as async iterators and methods using a custom async method
@@ -138,6 +160,15 @@ MethodDef implementation flags. They do not read method bodies, construct a
 content, or use the network. The work is bounded by the image's existing
 Metadata admission.
 
+## Consumers
+
+Every consumer reads enablements from this owner. The Signals audit rows for
+`IsAotCompatible`, async kind, and memory-safety model keep their raw evidence
+columns, but where they answer an enablement question they consume this
+derivation. The current Signals AOT reading, which also scans module, Type, and
+member attributes and lets the last value win, retires in the CLI adoption
+slice.
+
 ## Evidence
 
 Release gates in `ILInspector.Metadata` tests, using the real assets above:
@@ -154,6 +185,12 @@ Pathological fixtures:
 - an image whose only runtime-async method is internal and declared on a
   compiler-generated Type is Enabled;
 - a Library with no async methods is Not enabled;
+- `System.Net.Sockets.dll` from `Microsoft.NETCore.App.Ref`
+  11.0.0-rc.1.26425.128 is AOT Enabled and Runtime Async Unavailable with
+  reason `ReferenceAssembly`, and the memory-safety fixture's SDK-produced
+  reference assembly is Memory Safety v2 Enabled;
+- an undecodable assembly `AssemblyMetadataAttribute` blob makes AOT
+  Unavailable;
 - `IsAotCompatible` values `True` and `False` together, and the value `yes`,
   are each Unavailable with distinct reasons;
 - conflicting and unsupported memory-safety markers are Unavailable with the
@@ -164,6 +201,7 @@ Pathological fixtures:
 This owner does not define:
 
 - package, Platform, or multi-Library aggregation of enablements;
+- choosing an implementation assembly to answer for a reference assembly;
 - chip, badge, color, or icon presentation;
 - whether an enablement is requested by default in any host;
 - Native AOT execution, trimming, or warning-free build verification;
