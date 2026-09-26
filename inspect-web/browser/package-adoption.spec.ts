@@ -2784,7 +2784,15 @@ test.describe("deterministic two-host Workspace demo", () => {
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
 
-    await page.evaluate(() => history.back());
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="activity"]').click();
+    await expect(page).toHaveURL(/\/activity$/);
+    await page.evaluate(() => {
+      window.addEventListener("popstate", () => {
+        queueMicrotask(() => history.back());
+      }, { once: true });
+      history.back();
+    });
     await expect.poll(() => page.url()).toBe(compatibilityUrl);
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(1, { timeout: 180_000 });
@@ -2795,6 +2803,10 @@ test.describe("deterministic two-host Workspace demo", () => {
     await expect(page.locator(".toast"))
       .toContainText("That retained Workspace is no longer available.");
     await expect.poll(() => page.url()).toBe(compatibilityUrl);
+    await page.evaluate(() => new Promise<void>(complete => {
+      requestAnimationFrame(() => requestAnimationFrame(() => complete()));
+    }));
+    await expect(productNavigationButton).not.toBeFocused();
   });
 });
 

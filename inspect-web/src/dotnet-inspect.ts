@@ -22026,6 +22026,11 @@ installStaleDeploymentDetection(window);
 
 window.addEventListener("popstate", () => {
   void (async () => {
+  if (!state.packageActivityOpen
+    && state.packageActivityReturnFocusPending) {
+    state.packageActivityReturnFocus = null;
+    state.packageActivityReturnFocusPending = false;
+  }
   if (!isDiagnosticsPath(location.pathname)
     && document.querySelector(".diagnostics-view")) {
     diagnosticsDestinationFocusPending = true;
