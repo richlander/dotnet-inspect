@@ -643,11 +643,13 @@ falling back to a synthesized declaration.
 
 ### Complete package-rung decision
 
-Every correlated or otherwise owner-nominated Package route that could affect
-the binding decision must settle before the package rung publishes a
-conclusive result. Complete absence additionally requires every reachable
-PackageRef to have a terminal correlation or selected-role-inventory result.
-This is the cost of making ambiguity and absence truthful:
+Every retained PackageRef that could affect the binding decision must settle
+before Package selection, Package absence, or Platform applicability can be
+conclusive. A resource-free `No name affinity` correlation does not settle that
+PackageRef. Each retained PackageRef must instead have complete owner-issued
+selected-role evidence that either excludes the request or nominates members
+whose decoded identities are fully evaluated. This is the cost of making
+selection, ambiguity, and absence truthful:
 
 - zero complete eligible routes, or complete routes whose realized roles do
   not own the name, produce `NoNameOwner`;

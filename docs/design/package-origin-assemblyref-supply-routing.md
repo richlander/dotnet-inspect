@@ -356,7 +356,8 @@ The supplier-association input retains:
 - the complete reachable PackageRef snapshot;
 - one terminal `PlatformSupplyReceipt` for every edge to which pruning
   applies;
-- every retained PackageRef and its exact or prefix correlation result;
+- every retained PackageRef and its exact, prefix, or no-affinity correlation
+  result;
 - selected package-role filename and decoded identity evidence when available;
 - owner-issued Platform-family eligibility when the specialization is
   evaluated;
@@ -374,11 +375,13 @@ The composition validates:
 4. every Package candidate is an actual reachable PackageRef;
 5. package-ID and filename correlation remain candidate evidence until decoded
    Metadata identity settles ownership;
-6. Platform-family eligibility comes from owner-issued framework or Workspace
+6. a no-affinity correlation remains unsettled until complete owner-issued
+   selected-role evidence excludes or nominates the requested assembly;
+7. Platform-family eligibility comes from owner-issued framework or Workspace
    evidence;
-7. Platform membership and source evidence correspond to the selected family
+8. Platform membership and source evidence correspond to the selected family
    and target; and
-8. every final supplier evaluation carries the unchanged Metadata request.
+9. every final supplier evaluation carries the unchanged Metadata request.
 
 ## Closed association outcomes
 
