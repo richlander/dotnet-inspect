@@ -68,11 +68,22 @@ platform search technique transfers. The experiments' byte decoder, buffer
 carry, whitespace/word semantics, and LF-only line count do not satisfy this
 owner's immutable-string, exact-terminator contract, and no code is copied.
 
-An observational local comparison over the pinned 87,069-UTF-16-unit
-`NpgsqlConnection.cs` asset produced identical boundary checksums across
-20,000 iterations; the `SearchValues<char>` scan used 35.3% of the scalar
-scan's elapsed time. That result selects the implementation strategy. It is
-not a production performance or cross-platform claim.
+A fresh-process local comparison used 31 median samples per cell and exercised
+actual `DecodedTextDocument` construction and `Pull`, without benchmark
+warmup. For one complete pull of the pinned 87,069-UTF-16-unit
+`NpgsqlConnection.cs` asset, the `SearchValues<char>` implementation used
+90.2% of the scalar implementation's CoreCLR time and 87.6% of its NativeAOT
+time. For one future-policy 256-row segment, it used 102.6% on CoreCLR and
+92.0% on NativeAOT. A short 16-line, 40-character-per-line document used
+105.4% on CoreCLR and 98.8% on NativeAOT. At ten pulls, the search
+implementation led both Npgsql shapes on both runtimes; short CoreCLR remained
+2.4% slower.
+
+Publishing the actual NativeAOT CLI with each implementation produced
+identically sized 127,086,680-byte executables and identical section sizes
+because existing product paths already root the platform implementation. These
+local results select the line-search strategy for the measured Source path
+without claiming a universal latency win or Browser/Wasm performance.
 
 The deliberate difference from an enumerable is an explicit, document-bound
 restart position. No iterator, stream, callback, or borrowed input buffer
