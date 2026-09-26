@@ -22,10 +22,14 @@ public sealed class ResourceOccurrenceAnalysisTests
         new("test.resource-occurrence.mixed-target");
     static readonly ResourceEffectModelIdentity AuthorityTargetModel =
         new("test.resource-occurrence.authority-target");
+    static readonly ResourceEffectModelIdentity UnrelatedReleaseModel =
+        new("test.resource-occurrence.unrelated-release");
     static readonly ResourceKindIdentity FirstKind =
         new("test.resource-occurrence.first");
     static readonly ResourceKindIdentity SecondKind =
         new("test.resource-occurrence.second");
+    static readonly ResourceKindIdentity UnrelatedReleaseKind =
+        new("test.resource-occurrence.unrelated");
 
     [Fact]
     public void ExecutePath_PublishesRootBoundArrayPoolOccurrences()
@@ -221,6 +225,72 @@ public sealed class ResourceOccurrenceAnalysisTests
             kind =>
                 kind.Identity
                     == ArrayPoolResourceEffectModel.BufferKind);
+        Assert.False(parameter.IsComplete);
+        Assert.False(summary.IsComplete);
+    }
+
+    [Fact]
+    public void
+        ExecutePath_OwnershipKeepsRootlessParameterReleaseDomainDistinct()
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    ArrayPoolWithUnrelatedReleaseAdmission()),
+                resolver);
+        ResourceOccurrenceAnalysisResult occurrences =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                method =>
+                    method.Method.Name
+                    == "ReturnConditionallyReplacedAfterOtherRelease");
+        ResourceOccurrenceRoot.IncomingArgument incoming =
+            Assert.Single(
+                occurrences.Roots
+                    .OfType<ResourceOccurrenceRoot.IncomingArgument>());
+        Assert.Contains(
+            incoming.ResourceKinds,
+            kind => kind.Identity == UnrelatedReleaseKind);
+        ResourceOccurrenceLimitation limitation =
+            Assert.Single(
+                occurrences.Limitations,
+                candidate =>
+                    candidate.Effect is ResourceEffect.Release
+                    && candidate.Root is null);
+        Assert.Contains(
+            limitation.ResourceKinds,
+            kind =>
+                kind.Identity
+                    == ArrayPoolResourceEffectModel.BufferKind);
+
+        ResourceOwnershipMethodSummary summary =
+            Assert.Single(
+                execution.ResourceOwnership.Methods,
+                method =>
+                    method.Method.Name
+                    == "ReturnConditionallyReplacedAfterOtherRelease");
+        ResourceOwnershipParameterFlow parameter =
+            Assert.Single(
+                summary.Parameters,
+                candidate => candidate.ParameterIndex == 0);
+        Assert.Equal(
+            [
+                ArrayPoolResourceEffectModel.BufferKind,
+                UnrelatedReleaseKind,
+            ],
+            parameter.Uses
+                .Where(use =>
+                    use.Kind == ResourceOwnershipUseKind.Released)
+                .SelectMany(static use => use.ResourceKinds)
+                .Select(static kind => kind.Identity)
+                .OrderBy(static identity => identity.Value)
+                .ToArray());
         Assert.False(parameter.IsComplete);
         Assert.False(summary.IsComplete);
     }
@@ -928,6 +998,47 @@ public sealed class ResourceOccurrenceAnalysisTests
             ]);
         ResourceEffectAdmissionOutcome outcome =
             ResourceEffectAdmissionBuilder.Admit([definition]);
+        return Assert.IsType<
+            ResourceEffectAdmissionOutcome.Admitted>(outcome).Admission;
+    }
+
+    static ResourceEffectAdmission ArrayPoolWithUnrelatedReleaseAdmission()
+    {
+        ResourceTypeExpression byteArray =
+            new ResourceTypeExpression.SzArray(CoreType("Byte"));
+        var resource =
+            new ResourceKindReference(UnrelatedReleaseKind, []);
+        var definition = new ResourceEffectModelDefinition(
+            ResourceEffectLanguageIdentity.Version1,
+            UnrelatedReleaseModel,
+            [
+                new ResourceKindDefinition(
+                    UnrelatedReleaseKind,
+                    arity: 0,
+                    [Provenance(UnrelatedReleaseModel, 0)]),
+            ],
+            [],
+            [
+                Declaration(
+                    UnrelatedReleaseModel,
+                    FixtureEntryType(),
+                    "ReleaseOtherResource",
+                    [byteArray],
+                    CoreType("Void"),
+                    new ResourceEffect.Release(
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        resource,
+                        Correspondence: null,
+                        Observation: null),
+                    1),
+            ]);
+        ResourceEffectAdmissionOutcome outcome =
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    ArrayPoolResourceEffectModel.Definition(),
+                    definition,
+                ]);
         return Assert.IsType<
             ResourceEffectAdmissionOutcome.Admitted>(outcome).Admission;
     }

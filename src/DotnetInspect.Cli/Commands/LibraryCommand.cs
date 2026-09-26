@@ -630,7 +630,15 @@ public partial class LibraryCommand
                 : [],
         };
 
-        if (!IsAllTfmPackageSelection(options)
+        // Coordinate file mode renders resolved coordinate rows rather than Library sections.
+        // Discovery likewise renders its own rows, while still allowing -S to narrow discovery.
+        bool rendersOwnPayload =
+            options.CoordinateRequest
+                is LibraryCoordinateRequest.FilePopulation
+            || options.Discover is not null;
+
+        if (!rendersOwnPayload
+            && !IsAllTfmPackageSelection(options)
             && LibrarySectionCardinality.ValidateExactTerminals(
                 options.Select,
                 options.SelectDefault,
@@ -808,16 +816,6 @@ public partial class LibraryCommand
                 + $"-S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
-
-        // Coordinate file mode counts resolved coordinate rows, not section rows, so it does not
-        // need a section filter to make --count meaningful.
-        var ilOffsetsBatchMode =
-            options.CoordinateRequest
-                is LibraryCoordinateRequest.FilePopulation;
-
-        // Discovery renders its own rows, so a section requirement describes a filter it does
-        // not use. -S still narrows effective discovery, so it stays permitted.
-        var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
 
         if (!rendersOwnPayload && options.Count)
         {

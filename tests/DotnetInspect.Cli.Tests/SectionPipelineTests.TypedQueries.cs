@@ -2376,20 +2376,20 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost()
+    public void TypedQuery_CannotTakeBodyAnalysisWithoutDeclaringItsTransitiveCost()
     {
         var cheap = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
         var cheapRegistry = LibrarySections.CreateQueryRegistry()
             .Add(cheap, ctx =>
             {
-                ctx.BodyIndex();
+                ctx.BodyAnalysis();
                 return 0;
             });
 
         var refused = Assert.Throws<QueryCostDeclarationException>(
             () => cheapRegistry.Run([cheap], NullQueryContext()));
         Assert.Contains("Query 'cheap'", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("body index", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("body analysis", refused.Message, StringComparison.Ordinal);
         Assert.Contains("NetworkFree", refused.Message, StringComparison.Ordinal);
 
         var unboundedPrerequisite = new InspectionQuery<int>(
@@ -2404,7 +2404,7 @@ public partial class SectionPipelineTests
                 transitivelyUnbounded,
                 ctx =>
                 {
-                    ctx.BodyIndex();
+                    ctx.BodyAnalysis();
                     return 0;
                 },
                 unboundedPrerequisite);
@@ -2453,7 +2453,7 @@ public partial class SectionPipelineTests
 
         registry.Run([query], context);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
+        var ex = Assert.Throws<InvalidOperationException>(() => context.BodyAnalysis());
         Assert.Contains("metadata context", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("NetworkFree", ex.Message, StringComparison.Ordinal);
     }

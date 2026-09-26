@@ -493,7 +493,7 @@ public sealed class ProductionFacadeContextTests
     static readonly Dictionary<string, string> BrowserProjectPaths = new(StringComparer.Ordinal)
     {
         [HostAssembly] =
-            Path.Combine("inspect-web", "DotnetInspect.Web", "DotnetInspect.Web.csproj"),
+            Path.Combine("src", "DotnetInspect.Web", "DotnetInspect.Web.csproj"),
         [CoreAssembly] =
             Path.Combine("src", "DotnetInspect.Web.Core", "DotnetInspect.Web.Core.csproj"),
         [PackageAssembly] =
