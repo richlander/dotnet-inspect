@@ -1330,6 +1330,7 @@ public sealed class InspectionGraphDocument
             modeRequest,
             neighborhoodRequest: null,
             inducedSetRequest: null,
+            focusRequest: null,
             nodes,
             groups,
             edges,
@@ -1359,6 +1360,7 @@ public sealed class InspectionGraphDocument
                     nameof(neighborhoodRequest)),
             neighborhoodRequest,
             inducedSetRequest: null,
+            focusRequest: null,
             nodes,
             groups,
             edges,
@@ -1388,6 +1390,36 @@ public sealed class InspectionGraphDocument
                     nameof(inducedSetRequest)),
             neighborhoodRequest: null,
             inducedSetRequest,
+            focusRequest: null,
+            nodes,
+            groups,
+            edges,
+            occurrences,
+            characteristics,
+            seeds,
+            limits,
+            failures)
+    {
+    }
+
+    internal InspectionGraphDocument(
+        InspectionGraphDocument source,
+        InspectionGraphFocusRequest focusRequest,
+        IEnumerable<InspectionGraphNode> nodes,
+        IEnumerable<InspectionGraphGroup> groups,
+        IEnumerable<InspectionGraphEdge> edges,
+        IEnumerable<InspectionGraphOccurrence> occurrences,
+        IEnumerable<InspectionGraphCharacteristic> characteristics,
+        IEnumerable<InspectionGraphSeed> seeds,
+        IEnumerable<InspectionGraphLimit> limits,
+        IEnumerable<InspectionGraphFailure> failures)
+        : this(
+            source?.Scope
+                ?? throw new ArgumentNullException(nameof(source)),
+            source.ModeRequest,
+            source.NeighborhoodRequest,
+            source.InducedSetRequest,
+            focusRequest,
             nodes,
             groups,
             edges,
@@ -1404,6 +1436,7 @@ public sealed class InspectionGraphDocument
         InspectionGraphModeRequest modeRequest,
         InspectionGraphNeighborhoodRequest? neighborhoodRequest,
         InspectionGraphInducedSetRequest? inducedSetRequest,
+        InspectionGraphFocusRequest? focusRequest,
         IEnumerable<InspectionGraphNode> nodes,
         IEnumerable<InspectionGraphGroup> groups,
         IEnumerable<InspectionGraphEdge> edges,
@@ -1419,6 +1452,7 @@ public sealed class InspectionGraphDocument
         ModeRequest = modeRequest;
         NeighborhoodRequest = neighborhoodRequest;
         InducedSetRequest = inducedSetRequest;
+        FocusRequest = focusRequest;
         if (neighborhoodRequest is not null
             && !ReferenceEquals(
                 neighborhoodRequest.ModeRequest,
@@ -1436,6 +1470,15 @@ public sealed class InspectionGraphDocument
             throw new ArgumentException(
                 "An induced-set request must own the document mode request.",
                 nameof(inducedSetRequest));
+        }
+        if (focusRequest is not null
+            && !ReferenceEquals(
+                focusRequest.ModeRequest,
+                modeRequest))
+        {
+            throw new ArgumentException(
+                "A focus request must use the document mode request.",
+                nameof(focusRequest));
         }
         if (modeRequest.InducedSetRule
                 == InspectionGraphInducedSetRule.ExplicitSubjects
@@ -1511,6 +1554,7 @@ public sealed class InspectionGraphDocument
     public InspectionGraphModeRequest ModeRequest { get; }
     public InspectionGraphNeighborhoodRequest? NeighborhoodRequest { get; }
     public InspectionGraphInducedSetRequest? InducedSetRequest { get; }
+    public InspectionGraphFocusRequest? FocusRequest { get; }
     public ImmutableArray<InspectionGraphNode> Nodes { get; }
     public ImmutableArray<InspectionGraphGroup> Groups { get; }
     public ImmutableArray<InspectionGraphEdge> Edges { get; }
