@@ -204,6 +204,8 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.JsExportSurface/*",
             "src/ILInspector.TypeScriptGeneration/*",
             "src/ts-jsexport/*",
+            "tests/InspectWeb.MultiFacadeCanary/*",
+            "tests/InspectWeb.ManagedOperationBridgeCanary/*",
             "inspect-web/multi-facade-canary/*",
             "inspect-web/managed-operation-bridge-canary/*",
             "inspect-web/scripts/compile-engine-facades.ts",
@@ -230,6 +232,11 @@ internal sealed class ChangeRoutingPolicy
         else if (BytePattern.MatchesAny(
             path,
             "tests/DotnetInspect.Web.Tests/*",
+            "tests/InspectWeb.ManagedOperationBridgeCanary/*",
+            "tests/InspectWeb.MultiFacadeCanary/*",
+            "tests/MsdlProxy.Tests/*",
+            "tools/InspectWeb.AsyncLoweringVerifier/*",
+            "tools/InspectWeb.PlatformIndexGenerator/*",
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*",
             "tests/Inspector.Artifacts.Local.PlatformProbe/*",
             "fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/*",
@@ -634,9 +641,10 @@ internal sealed class ChangeRoutingPolicy
     }
 
     private bool IsWebProjectPath(ReadOnlySpan<byte> path) =>
-        webProjects is null
+        BytePattern.Matches(path, "src/MsdlProxy/*")
+        || (webProjects is null
             ? BytePattern.Matches(path, "src/*")
-            : webProjects.Covers(path);
+            : webProjects.Covers(path));
 
     private bool SkipsDecompilerProject(ReadOnlySpan<byte> path) =>
         decompilerSkipProjects is not null
