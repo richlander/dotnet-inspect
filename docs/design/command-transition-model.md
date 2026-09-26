@@ -173,13 +173,15 @@ that scope.
 
 The governing cardinality rule is:
 
-> Every command declares how many location coordinates one invocation admits,
-> which semantic result identity families it can return, and whether each
-> selected result mode is scalar or vector. These are independent dimensions.
-> Unary Package, Library, Type, and Member inspection admits one location
-> coordinate; Workspace owns multi-location top-level inventory; search and
-> query operations admit multiple coordinates only when their operation
-> contract says so.
+> Every command mode declares how many location coordinates one invocation
+> admits, which semantic result identity families it can return, and whether
+> each selected result mode is scalar or vector. These are independent
+> dimensions.
+> Focused inspection, inventory, or analysis evaluates one selected subject
+> coordinate within a declared population context. Discovery ranges over
+> declared populations to produce coordinates or typed relations.
+> Operation-specific comparison, correlation, and traversal evaluate the
+> coordinate set or sequence their own contract defines.
 
 A **location coordinate** is one hierarchical address from a source root to
 the subject scope needed by the request. Depending on the command, its fields
@@ -202,12 +204,45 @@ an operation plan may evaluate:
 - a **multi-coordinate** operation may evaluate an operation-owned population
   of exact coordinates.
 
+An **inspection population** is an owner-defined address space from which
+coordinates may be selected. Its varying dimension may be Package identity,
+Package version, Library, project, platform, API identity, or another typed
+axis. Population count, source-root count, and coordinate count are therefore
+not interchangeable. A Diff over one Package version range names one Package
+lineage but evaluates multiple Package-version coordinates; its breadth lies
+along the version axis rather than across Package identities.
+
 This is a plan capability, not an observed count. A repeated exact-source
 gesture and a bounded population selector can both produce a multi-coordinate
 plan even when resolution later yields one or zero candidates. Conversely, a
 range plus an exact `--at` selection is single-coordinate because the operation
 may evaluate only the selected address. Expansion order, bounds, resolution,
 deduplication, and acquisition remain with the operation and source owners.
+
+### Operation shapes
+
+The cardinality contract follows the selected operation shape, not a fixed
+catalogue of command names:
+
+- **Focused inspection, inventory, or analysis** selects one focal subject
+  coordinate within a declared population context. It may return the subject,
+  an inventory of owned children or attached facets, or many analysis
+  observations without becoming a multi-subject operation.
+- **Coordinate or relation discovery** searches one or more declared
+  populations and returns typed coordinates or typed relations. Discovering a
+  coordinate does not imply inspecting that coordinate, and discovering a
+  relation does not turn its endpoints into independent focal inspections.
+- **Operation-owned set or sequence evaluation** lets a comparison,
+  correlation, traversal, or similar operation define the exact coordinates it
+  consumes, their ordering, and their arity. The coordinates may come from one
+  population declaration or several; the operation's breadth is determined by
+  the independently evaluated coordinates, not by how many Package names or
+  source roots appear in the request.
+
+These shapes are planning invariants rather than a strict command taxonomy. A
+command may expose modes with different shapes, but it selects the mode and its
+coordinate contract before acquisition. Repeating syntax adds coordinates only
+when that selected mode declares repetition as population breadth.
 
 Workspace is the aggregate owner for portable top-level location **inputs**,
 including inert population declarations that are not yet coordinates. The
@@ -348,25 +383,20 @@ rewrite the semantic contract. The content owner separately decides whether
 the completed value is a Result, Document, or owner-specific Outcome under
 [Host-observable content kinds](host-observable-content-kinds.md).
 
-### Target command classification
+### Operation shape determines breadth
 
-The target primary result contracts are:
+Focused Package, Library, Type, and Member inspection illustrates the first
+shape: one selected coordinate may yield a scalar subject, a vector inventory,
+or a multi-section analysis Document. Package files and versions, Library
+dependencies, Type members, and attached Findings do not create additional
+focal subjects merely because they render rows.
 
-| Operation | Location coordinates | Primary result identity | Result cardinality |
-| --- | ---: | --- | --- |
-| `package` inspection | One | Package | Scalar |
-| `library` inspection | One | Library | Scalar |
-| `type` inspection | One | Type | Scalar or vector, selected by gesture |
-| `member` inspection | One | Member | Scalar or vector, selected by gesture |
-| `find` | Multiple | Type or Member, selected by mode | Vector |
-| `find --literal` | Multiple | Assembly-semantic occurrence | Vector |
-| `package query` | Multiple | Package | Vector |
-| `workspace` definition | Multiple top-level inputs; no implied evaluation | Workspace definition | Scalar |
-
-The table classifies the command's primary semantic answer. Observations below
-that focus may contain other typed populations. Package files and versions,
-Library dependencies, Type members, and attached Findings do not change the
-primary identity merely because they render rows.
+Find and Package Query illustrate discovery: they search declared populations
+and return one typed result family without treating each match as an implicit
+inspection. Diff and timeline operations illustrate operation-owned sets or
+sequences: exact endpoints, a pair, or a version series are coordinates chosen
+under that operation's arity and ordering contract. These examples explain the
+shapes; they are not an exhaustive command matrix.
 
 Workspace inventory is one optional observation below the Workspace-definition
 result. Its closed entry union and vector cardinality describe that observation,
