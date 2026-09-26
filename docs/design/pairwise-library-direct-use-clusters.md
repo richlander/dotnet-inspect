@@ -291,7 +291,7 @@ dotnet-inspect graph cluster 3 \
 The second command exposes exact source and target members and tokens, call
 kind, evidence method and token, and IL offset. Source and target identities
 hand off to ordinary `member` inspection. The evidence token and IL offset hand
-off to `library coordinate`, because compiler-generated physical evidence
+off to `library address`, because compiler-generated physical evidence
 bodies can differ from attributed source methods. Cluster selection does not
 add a parallel source, decompilation, or call-graph host.
 

@@ -44,11 +44,26 @@ public static class LibraryInspectionOperation
                         SourceRows(request.Plan.Types, rows)),
                     lease,
                     cancellationToken);
-            return Project(
+            InspectionEnvelope<LibraryInspectionOutcome> envelope = Project(
                 outcome,
                 request,
                 rows,
                 cancellationToken);
+            return request.Plan.Enablements is null
+                || envelope.Content
+                    is not LibraryInspectionOutcome.Available available
+                ? envelope
+                : new(
+                    new LibraryInspectionOutcome.Available(
+                        available.Document with
+                        {
+                            Enablements = LibraryEnablementsInspection.Execute(
+                                request.Library,
+                                lease,
+                                cancellationToken),
+                        }),
+                    envelope.Share,
+                    envelope.Diagnostics);
         }
         finally
         {
