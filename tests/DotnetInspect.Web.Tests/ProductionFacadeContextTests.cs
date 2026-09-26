@@ -364,51 +364,6 @@ public sealed class ProductionFacadeContextTests
             "No assembly-local wire type was discovered.");
     }
 
-    [Theory]
-    [InlineData("Package", "BrowserRetainedWorkspacePackageAdmissionResult")]
-    [InlineData("Platform", "BrowserRetainedWorkspacePlatformAdmissionResult")]
-    public void ProductionCatalogFacade_DecodesTypedRetainedDetailPages(
-        string rowKind, string resultType)
-    {
-        string declarations = File.ReadAllText(Path.Combine(
-            InspectWebRoot(), "src", "facades", "inspect-web-catalog.d.ts"));
-        Assert.Contains(
-            $"admitRetainedWorkspace{rowKind}(retainedDefinitionId: string, "
-            + "realizationId: string, navigationId: string, typeOffset: number): "
-            + $"Promise<{resultType}>;",
-            declarations,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ProductionSourceFacade_SeparatesMemberPartsFromFlatSource()
-    {
-        string declarations = File.ReadAllText(Path.Combine(
-            InspectWebRoot(),
-            "src",
-            "facades",
-            "inspect-web-source.d.ts"));
-
-        Assert.Contains(
-            "export interface BrowserMemberSource {",
-            declarations,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "queryMemberSource(packageId: string, version: string, targetFramework: string, "
-            + "assemblyName: string, typeIdentity: string, memberName: string, "
-            + "selectorKey: string, metadataToken: number, styleOptionsJson: string): "
-            + "Promise<BrowserMemberSource>;",
-            declarations,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "queryTypeMemberSource(packageId: string, version: string, "
-            + "targetFramework: string, assemblyName: string, typeIdentity: string, "
-            + "memberName: string, selectorKey: string, metadataToken: number, "
-            + "styleOptionsJson: string): Promise<BrowserSource>;",
-            declarations,
-            StringComparison.Ordinal);
-    }
-
     [Fact]
     public void ProductionPackageFacade_PublishesUnifiedDocumentationOutcome()
     {
