@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
@@ -7,7 +9,7 @@ namespace DotnetInspect.Web.Interop.Analysis;
 
 internal static class BrowserImplementationProfileWireProjection
 {
-    const int SchemaVersion = 2;
+    const int SchemaVersion = 3;
 
     internal static BrowserImplementationProfiles Project(
         InspectionEnvelope<
@@ -107,14 +109,7 @@ internal static class BrowserImplementationProfileWireProjection
             ],
             Project(inspection.Coverage),
             [
-                .. inspection.OverloadRelationships.Select(
-                    static relationship =>
-                        new BrowserImplementationProfileRelationship(
-                            MethodKey(relationship.Caller),
-                            MethodKey(relationship.Callee),
-                            MethodKey(relationship.EvidenceMethod),
-                            relationship.ILOffset,
-                            relationship.Kind.ToString())),
+                .. inspection.OverloadRelationships.Select(Project),
             ],
             [
                 .. inspection.GeneratedFrameworkTypes
@@ -126,48 +121,89 @@ internal static class BrowserImplementationProfileWireProjection
             ],
             [
                 .. inspection.ApiSurfaceInspectionFailures.Select(Project),
-            ]);
+            ],
+            Project(inspection.AnalyzedFamily));
     }
+
+    static BrowserImplementationProfileAnalyzedFamily Project(
+        ImplementationProfileAnalyzedFamily family) =>
+        new(
+            [
+                .. family.Methods.Select(static method =>
+                    new BrowserImplementationProfileAnalyzedMethod(
+                        method.MetadataToken,
+                        method.HasBody,
+                        method.PublicMember is { } publicMember
+                            ? Project(publicMember)
+                            : null)),
+            ],
+            [
+                .. family.Profiles.Select(member => Project(member)),
+            ],
+            Project(family.Coverage),
+            [
+                .. family.OverloadRelationships.Select(Project),
+            ],
+            [
+                .. family.Diagnostics.Select(Project),
+            ]);
+
+    static BrowserImplementationProfileRelationship Project(
+        OverloadCallRelationship relationship) =>
+        new(
+            MethodKey(relationship.Caller),
+            MethodKey(relationship.Callee),
+            MethodKey(relationship.EvidenceMethod),
+            relationship.ILOffset,
+            relationship.Kind.ToString());
 
     static Dictionary<string, MethodIdentity> CollectMethods(
         AssemblyImplementationProfileFamilyInspection inspection)
     {
         var methods = new Dictionary<string, MethodIdentity>(
             StringComparer.Ordinal);
+        CollectMethods(
+            methods,
+            inspection.Profiles,
+            inspection.Coverage,
+            inspection.OverloadRelationships);
+        CollectMethods(
+            methods,
+            inspection.AnalyzedFamily.Profiles,
+            inspection.AnalyzedFamily.Coverage,
+            inspection.AnalyzedFamily.OverloadRelationships);
+        return methods;
+    }
 
-        foreach (AssemblyImplementationProfileMember member
-            in inspection.Profiles)
+    static void CollectMethods(
+        Dictionary<string, MethodIdentity> methods,
+        ImmutableArray<AssemblyImplementationProfileMember> profiles,
+        ImplementationProfilePopulationCoverageReceipt coverage,
+        ImmutableArray<OverloadCallRelationship> relationships)
+    {
+        foreach (AssemblyImplementationProfileMember member in profiles)
         {
             Add(methods, member.Profile.Method);
             Add(methods, member.Profile.EvidenceMethod);
         }
-        foreach (MethodIdentity method in inspection.Coverage.DeclaredMethods)
+        foreach (MethodIdentity method in coverage.DeclaredMethods)
             Add(methods, method);
-        foreach (MethodIdentity method
-            in inspection.Coverage.ManagedMethodBodies)
-        {
+        foreach (MethodIdentity method in coverage.ManagedMethodBodies)
             Add(methods, method);
-        }
-        foreach (MethodIdentity method
-            in inspection.Coverage.ProfiledEvidenceBodies)
-        {
+        foreach (MethodIdentity method in coverage.ProfiledEvidenceBodies)
             Add(methods, method);
-        }
         foreach (ImplementationProfileUnavailableBody body
-            in inspection.Coverage.UnavailableBodies)
+            in coverage.UnavailableBodies)
         {
             if (body.EvidenceMethod is { } method)
                 Add(methods, method);
         }
-        foreach (OverloadCallRelationship relationship
-            in inspection.OverloadRelationships)
+        foreach (OverloadCallRelationship relationship in relationships)
         {
             Add(methods, relationship.Caller);
             Add(methods, relationship.Callee);
             Add(methods, relationship.EvidenceMethod);
         }
-
-        return methods;
     }
 
     static BrowserImplementationProfilePublicMember Project(

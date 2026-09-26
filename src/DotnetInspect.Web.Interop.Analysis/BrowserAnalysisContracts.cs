@@ -95,7 +95,20 @@ public sealed record BrowserImplementationProfileContent(
     BrowserImplementationProfileRelationship[] OverloadRelationships,
     string[] GeneratedFrameworkTypes,
     BrowserImplementationProfileAnalysisDiagnostic[] AnalysisDiagnostics,
-    BrowserImplementationProfileApiSurfaceFailure[] ApiSurfaceInspectionFailures);
+    BrowserImplementationProfileApiSurfaceFailure[] ApiSurfaceInspectionFailures,
+    BrowserImplementationProfileAnalyzedFamily AnalyzedFamily);
+
+public sealed record BrowserImplementationProfileAnalyzedFamily(
+    BrowserImplementationProfileAnalyzedMethod[] Methods,
+    BrowserImplementationProfile[] Profiles,
+    BrowserImplementationProfileCoverage Coverage,
+    BrowserImplementationProfileRelationship[] OverloadRelationships,
+    BrowserImplementationProfileAnalysisDiagnostic[] AnalysisDiagnostics);
+
+public sealed record BrowserImplementationProfileAnalyzedMethod(
+    int MetadataToken,
+    bool HasBody,
+    BrowserImplementationProfilePublicMember? PublicMember);
 
 public sealed record BrowserImplementationProfileMethod(
     string Key,

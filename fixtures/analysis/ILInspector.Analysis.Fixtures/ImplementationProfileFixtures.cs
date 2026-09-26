@@ -57,6 +57,53 @@ public static class ImplementationProfileSample
         => Changed?.Invoke();
 }
 
+// Public overloads that forward into a non-public same-name implementation
+// (the JsonDocument.Parse shape), and a public hub that a non-public
+// overload also calls (the JsonConvert.ToString shape).
+public static class ImplementationProfileHiddenImplementationSample
+{
+    public static int Parse(string text)
+        => Parse(text.AsSpan(), strict: false);
+
+    public static int Parse(char[] text)
+        => Parse(text.AsSpan(), strict: true);
+
+    static int Parse(ReadOnlySpan<char> text, bool strict)
+    {
+        int total = 0;
+        foreach (char character in text)
+        {
+            if (character is >= '0' and <= '9')
+                total = (total * 10) + (character - '0');
+            else if (strict)
+                throw new FormatException(text.ToString());
+            else if (character == ',')
+                continue;
+            else
+                break;
+        }
+        return total;
+    }
+
+    public static string Describe(int value)
+    {
+        if (value < 0)
+            return "negative " + (-value).ToString();
+        return value switch
+        {
+            0 => "zero",
+            1 => "one",
+            _ => value.ToString(),
+        };
+    }
+
+    public static string Describe(string value)
+        => Describe(value.Length);
+
+    internal static string Describe(TimeSpan value)
+        => Describe((int)value.TotalSeconds);
+}
+
 public sealed class GenericOverloadSample<T>
 {
     public int Route()

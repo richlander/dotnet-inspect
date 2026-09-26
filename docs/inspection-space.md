@@ -992,7 +992,12 @@ scope expansion and every implementation measurement. Its completed result
 preserves the public overload roster, including bodyless members, and only the
 selected family's physical profiles, body-token attribution, sibling-overload
 relationships, scoped population coverage, generated framework Types,
-diagnostics, and API-surface failures. `ImplementationProfileFamilyInspectionOperation`
+diagnostics, and API-surface failures. It also carries a separate
+analyzed-family record: profiles, sibling-overload relationships, coverage, and
+diagnostics for every same-name method declared on the Type regardless of
+accessibility, measured in its own Analysis scope so non-public callers never
+enter the roster profiles' counts.
+`ImplementationProfileFamilyInspectionOperation`
 hands that participant outcome to hosts as an `InspectionEnvelope` with an
 explicit non-projectable Share result. This seam does not replace or narrow the
 whole-assembly query; it is the proportional production handoff for focused

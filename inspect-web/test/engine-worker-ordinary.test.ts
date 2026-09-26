@@ -787,7 +787,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let implementationProfileArguments: readonly unknown[] = [];
   let platformImplementationProfileArguments: readonly unknown[] = [];
   const implementationProfiles = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     outcome: "available",
     subject: null,
     content: {

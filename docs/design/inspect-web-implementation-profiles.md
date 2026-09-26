@@ -150,9 +150,10 @@ whole-Library analysis. The wire result preserves the completed envelope:
 
 - Content outcome: available, participant rejected, or participant failed;
 - available Content: subject identity, the complete public overload roster,
-  profiles for the analyzed family, public Member anchors, scoped coverage,
-  contained overload relationships, generated framework Types, Analysis
-  diagnostics, and API-surface failures;
+  roster profiles, public Member anchors, scoped coverage, contained overload
+  relationships, generated framework Types, Analysis diagnostics, and
+  API-surface failures, plus the separate analyzed-family record described
+  under Adjacent owners;
 - Share outcome; and
 - ordered inspection diagnostics.
 
@@ -412,7 +413,7 @@ The following gates enforce this design:
 1. Family-query tests prove that the analyzed-family record for
    `JsonDocument.Parse` includes its non-public same-name methods with
    profiles, relationships, and coverage, and that the existing result is
-   unchanged. Newtonsoft.Json 13.0.3 `JsonConvert.ToString` pins the counts:
+   unchanged. Newtonsoft.Json 13.0.4 `JsonConvert.ToString` pins the counts:
    `ToString(string, char)` keeps `Incoming Overloads = 1` in the existing
    result while two internal overloads call it in the analyzed-family record.
    The existing CLI `Member Metrics` gates continue to pass unchanged.

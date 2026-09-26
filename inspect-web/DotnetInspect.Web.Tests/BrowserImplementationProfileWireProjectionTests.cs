@@ -23,6 +23,82 @@ public sealed class BrowserImplementationProfileWireProjectionTests
             null);
 
     [Fact]
+    public async Task AvailableInspectionCarriesAnalyzedFamilySeparately()
+    {
+        byte[] content = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, content);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "ImplementationProfileHiddenImplementationSample",
+                "Parse");
+
+        InspectionEnvelope<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>>
+                inspection =
+                    ImplementationProfileFamilyInspectionOperation.Execute(
+                        group,
+                        participant,
+                        selection);
+        AssemblyImplementationProfileFamilyInspection expected =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyImplementationProfileFamilyInspection>.Available>(
+                        inspection.Content)
+                .Value;
+        BrowserImplementationProfileContent projected =
+            Assert.IsType<BrowserImplementationProfileContent>(
+                BrowserImplementationProfileWireProjection.Project(
+                    inspection,
+                    s_compileLibrary).Content);
+
+        Assert.Equal(expected.Profiles.Length, projected.Profiles.Length);
+        BrowserImplementationProfileAnalyzedFamily analyzed =
+            projected.AnalyzedFamily;
+        Assert.Equal(
+            expected.AnalyzedFamily.Methods.Select(method =>
+                (method.MetadataToken,
+                    method.HasBody,
+                    method.PublicMember?.StableSelector)),
+            analyzed.Methods.Select(method =>
+                (method.MetadataToken,
+                    method.HasBody,
+                    method.PublicMember?.StableSelector)));
+        Assert.Equal(
+            expected.AnalyzedFamily.Profiles.Length,
+            analyzed.Profiles.Length);
+        Assert.Equal(
+            expected.AnalyzedFamily.OverloadRelationships.Length,
+            analyzed.OverloadRelationships.Length);
+        Assert.Single(
+            analyzed.Methods,
+            method => method.PublicMember is null);
+
+        HashSet<string> methodKeys =
+            [.. projected.Methods.Select(method => method.Key)];
+        Assert.All(
+            analyzed.Profiles,
+            profile =>
+            {
+                Assert.Contains(profile.MethodKey, methodKeys);
+                Assert.Contains(profile.EvidenceMethodKey, methodKeys);
+            });
+        Assert.All(
+            analyzed.OverloadRelationships,
+            relationship =>
+            {
+                Assert.Contains(relationship.CallerKey, methodKeys);
+                Assert.Contains(relationship.CalleeKey, methodKeys);
+            });
+    }
+
+    [Fact]
     public async Task AvailableInspectionPreservesProfilesAndEnvelope()
     {
         byte[] content = File.ReadAllBytes(
@@ -52,7 +128,7 @@ public sealed class BrowserImplementationProfileWireProjectionTests
                 inspection,
                 s_compileLibrary);
 
-        Assert.Equal(2, browser.SchemaVersion);
+        Assert.Equal(3, browser.SchemaVersion);
         Assert.Equal("available", browser.Outcome);
         Assert.Null(browser.Failure);
         Assert.NotNull(browser.Subject);
