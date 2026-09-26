@@ -703,7 +703,7 @@ test("render invalidates focus ownership before replacing content-frame DOM", ()
 
   assert.match(
     source,
-    /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;\s*contentFrameReplacementAuthority = null;[\s\S]*app\.innerHTML = `/);
+    /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;\s*contentFrameReplacementAuthority = null;[\s\S]*replaceChildrenPreservingRenderedInteractions\(app, `/);
 });
 
 test("content-frame focus ownership clears after focus settles outside both panes", () => {
@@ -1194,7 +1194,8 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /createPackageChangesController\([\s\S]*if \(!state\.packageActivityOpen\) return;\s*schedulePackageActivityStreamRender\(\)/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*const renderedInteractions = captureRenderedInteractions\(app\);\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*renderedInteractions\.restore\(app\);\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+  assert.doesNotMatch(appSource, /\bapp\.innerHTML\s*=/);
   assert.match(
     stylesSource,
     /@media \(max-width: 860px\) \{\s*body\.package-query-route,\s*body\.package-activity-route \{ min-width: 0; \}/);
@@ -1214,7 +1215,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*packageQueryRender\.renderFull\(\);\s*}\s*function replacePackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*app\.innerHTML = renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
+    /function renderPackageQueryPage\(\) \{\s*packageQueryRender\.renderFull\(\);\s*}\s*function replacePackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*replaceChildrenPreservingRenderedInteractions\(app, renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
   const streamPatch =
     appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";

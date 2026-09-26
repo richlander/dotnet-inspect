@@ -729,7 +729,14 @@ outcomes.
 14. Press a rendered package result, publish an ordinary asynchronous package
     search update before release, and confirm that a surviving exact result
     retains the same DOM node and activates exactly that package once.
-15. Repeat while removing the pressed result identity and confirm that release
+15. Focus a rendered package result, press Space, publish an ordinary
+    asynchronous package search update before release, and confirm that the
+    surviving exact result retains focus and activates exactly that package
+    once on release.
+16. Focus a rendered package result, replace the whole application shell, and
+    confirm that the surviving exact result retains the same DOM node and
+    browser focus.
+17. Repeat while removing the pressed result identity and confirm that release
     does not activate the result that inherited its former array position.
 
 ### Local Open
