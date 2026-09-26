@@ -54,7 +54,6 @@ public sealed class InspectionQueryContext : IDisposable
     { get; init; }
 
     private MethodBodyInspectionSession? _bodySession;
-    private bool _bodyIndexRecorded;
     private AssemblyInspectionSession? _session;
     private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
@@ -260,31 +259,6 @@ public sealed class InspectionQueryContext : IDisposable
 
         OpenBodySession("body analysis");
         return _bodySession!.AnalysisExecution;
-    }
-
-    /// <summary>
-    /// Compatibility index for consumers not yet migrated to focused Analysis
-    /// results. It adapts the same shared execution returned by
-    /// <see cref="BodyAnalysis"/>.
-    /// </summary>
-    public Analysis.LibraryBodyIndex BodyIndex()
-    {
-        RequireUnboundedDeclaration("body index");
-        if (_bodySession is null)
-        {
-            OpenBodySession("body index");
-            _bodyIndexRecorded = true;
-        }
-        else if (!_bodyIndexRecorded)
-        {
-            Trace?.RecordResource(
-                "body index",
-                new InertString(
-                    TextPolicy.Field,
-                    "adapted from the shared body analysis"));
-            _bodyIndexRecorded = true;
-        }
-        return _bodySession!.BodyIndex;
     }
 
     private void OpenBodySession(string resource)
