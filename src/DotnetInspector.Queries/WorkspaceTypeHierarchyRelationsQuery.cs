@@ -325,16 +325,21 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 {
                     unavailable++;
                 }
-                else if (!CouldReferenceFocus(
-                    participant.Assembly,
+                else if (!TryGetDefinitionName(
                     named,
-                    focus.Assembly))
+                    out MetadataTypeDefinitionName? targetType)
+                    || targetType is null)
+                {
+                    unavailable++;
+                }
+                else if (targetType != focus.Type)
                 {
                     examined++;
                 }
                 else if (TryCreateResolutionRequest(
                     participant.Assembly,
                     named,
+                    targetType,
                     out TypeResolutionRequest? request)
                     && request is not null)
                 {
@@ -397,25 +402,16 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     private static bool TryCreateResolutionRequest(
         ResolvedAssemblyReference source,
         MetadataNamedTypeIdentity named,
+        MetadataTypeDefinitionName type,
         out TypeResolutionRequest? request)
     {
-        if (MetadataTypeDefinitionName.Create(
-                named.Namespace.ToString(),
-                [.. named.Segments.Select(static segment =>
-                    segment.ToString())])
-            is not MetadataTypeDefinitionNameResult.Valid valid)
-        {
-            request = null;
-            return false;
-        }
-
         request = named.Scope.Kind switch
         {
             MetadataTypeScopeKind.CurrentModule =>
                 TypeResolutionRequest.FromAssembly(
                     source,
                     AssemblyResolutionScope.Any,
-                    valid.Name),
+                    type),
             MetadataTypeScopeKind.AssemblyReference
                 when named.Scope.Assembly is { } assembly =>
                 TypeResolutionRequest.FromReference(
@@ -426,16 +422,34 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         EmptyToNull(assembly.PublicKeyToken)),
                     AssemblyBindingOrigin.FromAssembly(source),
                     AssemblyResolutionScope.Any,
-                    valid.Name),
+                    type),
             MetadataTypeScopeKind.ModuleReference
                 when named.Scope.ModuleName is { } module =>
                 TypeResolutionRequest.FromModule(
                     source,
                     module.ToString(),
-                    valid.Name),
+                    type),
             _ => null,
         };
         return request is not null;
+    }
+
+    private static bool TryGetDefinitionName(
+        MetadataNamedTypeIdentity named,
+        out MetadataTypeDefinitionName? type)
+    {
+        if (MetadataTypeDefinitionName.Create(
+                named.Namespace.ToString(),
+                [.. named.Segments.Select(static segment =>
+                    segment.ToString())])
+            is MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            type = valid.Name;
+            return true;
+        }
+
+        type = null;
+        return false;
     }
 
     private static MetadataNamedTypeIdentity? NamedDefinition(
@@ -445,27 +459,6 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             MetadataTypeIdentity.Named value => value.Definition,
             MetadataTypeIdentity.GenericInstance value => value.Definition,
             _ => null,
-        };
-
-    private static bool CouldReferenceFocus(
-        ResolvedAssemblyReference source,
-        MetadataNamedTypeIdentity target,
-        AssemblyReferenceIdentity focusAssembly) =>
-        target.Scope.Kind switch
-        {
-            MetadataTypeScopeKind.CurrentModule =>
-                source.Identity.IsEquivalentTo(focusAssembly),
-            MetadataTypeScopeKind.AssemblyReference
-                when target.Scope.Assembly is { } assembly =>
-                focusAssembly.IsEquivalentTo(
-                    new AssemblyReferenceIdentity(
-                        assembly.Name.ToString(),
-                        assembly.Version,
-                        EmptyToNull(assembly.Culture),
-                        EmptyToNull(assembly.PublicKeyToken))),
-            MetadataTypeScopeKind.ModuleReference =>
-                source.Identity.IsEquivalentTo(focusAssembly),
-            _ => false,
         };
 
     private static string? EmptyToNull(InertText.InertString? value) =>

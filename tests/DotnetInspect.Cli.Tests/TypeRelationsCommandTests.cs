@@ -379,6 +379,53 @@ public sealed class TypeRelationsCommandTests
     }
 
     [Fact]
+    public async Task OrdinaryRelationDiscoveryRemainsStructural()
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-relations-{Guid.NewGuid():N}.dll");
+        var section = await ExecuteAsync(
+            "type",
+            "Probe.IContract",
+            "--library",
+            missingLibrary,
+            "-D",
+            "Implementers");
+        var category = await ExecuteAsync(
+            "type",
+            "Probe.IContract",
+            "--library",
+            missingLibrary,
+            "-D",
+            "@Relations");
+        var selected = await ExecuteAsync(
+            "type",
+            "Probe.IContract",
+            "--library",
+            missingLibrary,
+            "-S",
+            "Implementers",
+            "-D",
+            "--json");
+
+        Assert.Equal(0, section.ExitCode);
+        Assert.Empty(section.Error);
+        Assert.Contains("Relationship", section.Output);
+        Assert.Equal(0, category.ExitCode);
+        Assert.Empty(category.Error);
+        Assert.Contains("Implementers", category.Output);
+        Assert.Contains("Derived Types", category.Output);
+        Assert.Equal(0, selected.ExitCode);
+        Assert.Empty(selected.Error);
+        using JsonDocument document = JsonDocument.Parse(selected.Output);
+        Assert.Equal(
+            ["@Relations"],
+            document.RootElement
+                .EnumerateArray()
+                .Select(row => row.GetProperty("name").GetString()));
+    }
+
+    [Fact]
     public async Task InvalidLocalLibraryFailsVisibly()
     {
         string path = Path.GetTempFileName();

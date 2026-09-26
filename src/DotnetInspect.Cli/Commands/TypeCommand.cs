@@ -187,14 +187,16 @@ public static class TypeCommand
             return 1;
         }
 
-        if (SelectsTypeRelations(options, plan))
+        if (DiscoversTypeRelations(options)
+            && !string.IsNullOrWhiteSpace(options.TypeName)
+            && !TypeMatcher.IsTypeGlobPattern(options.TypeName)
+            && string.IsNullOrWhiteSpace(options.TypeFilter))
         {
-            return await ExecuteTypeRelationsAsync(
-                options,
-                plan,
-                exactTypeCapabilities
-                    ?? CreateWorkspaceContextLoadOptions(options),
-                cancellationToken).ConfigureAwait(false);
+            return StructuralViewRegistry.Execute(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Type,
+                    InspectionCatalogIdentity.ApiMember),
+                StructuralDiscoveryRequest.From(options));
         }
 
         if (resolvedSource is null
@@ -221,6 +223,16 @@ public static class TypeCommand
         options = (TypeOptions)preamble.Options;
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
+
+        if (SelectsTypeRelations(options, plan))
+        {
+            return await ExecuteTypeRelationsAsync(
+                options,
+                plan,
+                exactTypeCapabilities
+                    ?? CreateWorkspaceContextLoadOptions(options),
+                cancellationToken).ConfigureAwait(false);
+        }
 
         if (resolvedSource is null
             && loadedSurface is null
@@ -1172,6 +1184,17 @@ public static class TypeCommand
                     SectionCategoryNames.Relations,
                     StringComparison.OrdinalIgnoreCase)) is true)
         && plan.Selection.ResolvedSections.Any(IsTypeRelationSection);
+
+    private static bool DiscoversTypeRelations(TypeOptions options) =>
+        options.Discover is not null
+        && (options.Discover.Any(IsTypeRelationSelector)
+            || options.Select?.Any(IsTypeRelationSelector) is true);
+
+    private static bool IsTypeRelationSelector(string selector) =>
+        IsTypeRelationSection(selector)
+        || selector.Equals(
+            SectionCategoryNames.Relations,
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsTypeRelationSection(string section) =>
         section.Equals(

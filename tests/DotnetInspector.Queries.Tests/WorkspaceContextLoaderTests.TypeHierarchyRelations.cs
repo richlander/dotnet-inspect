@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -188,5 +191,99 @@ public sealed partial class WorkspaceContextLoaderTests
             "ILInspector.Metadata.MethodImplFixtures.ExternalImplementation",
             source.Type.ToMetadataFullName());
         Assert.True(result.Evidence.IsComplete);
+    }
+
+    [Fact]
+    public async Task TypeHierarchyRelations_ResolveForwardedInterface()
+    {
+        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+        const string TerminalAssembly = "Forwarded.Terminal";
+        const string FacadeAssembly = "Forwarded.Facade";
+        byte[] terminal = LocatorImage(
+            TerminalAssembly,
+            metadata => LocatorDefinition(
+                metadata,
+                "N",
+                "IContract",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract));
+        byte[] facade = LocatorImage(
+            FacadeAssembly,
+            metadata =>
+            {
+                AssemblyReferenceHandle terminalReference =
+                    AddAssemblyReference(metadata, TerminalAssembly);
+                metadata.AddExportedType(
+                    Forwarder,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("IContract"),
+                    terminalReference,
+                    typeDefinitionId: 0);
+            });
+        byte[] candidate = LocatorImage(
+            "Forwarded.Candidate",
+            metadata =>
+            {
+                AssemblyReferenceHandle facadeReference =
+                    AddAssemblyReference(metadata, FacadeAssembly);
+                TypeReferenceHandle contract =
+                    metadata.AddTypeReference(
+                        facadeReference,
+                        metadata.GetOrAddString("N"),
+                        metadata.GetOrAddString("IContract"));
+                TypeDefinitionHandle implementation =
+                    LocatorDefinition(metadata, "N", "Implementation");
+                metadata.AddInterfaceImplementation(
+                    implementation,
+                    contract);
+            });
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(
+                workspace,
+                await LocatorContext(
+                    workspace,
+                    terminal,
+                    facade,
+                    candidate));
+        WorkspaceDeclarationMember terminalMember = Assert.Single(
+            population.Receipt.Members,
+            member => member.AssemblyIdentity.Name == TerminalAssembly);
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    terminalMember.AssemblyIdentity,
+                    terminalMember.Occurrence,
+                    LocatorName("N", "IContract")),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        SubjectRelationRow row = Assert.Single(result.Rows);
+        Assert.Equal(
+            MetadataRelationGraphCatalog.Interface,
+            row.Relationship);
+        var source = Assert.IsType<
+            InspectionGraphTypeIdentity.AcquiredDefinition>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    row.Source).Identity);
+        Assert.Equal(
+            "N.Implementation",
+            source.Type.ToMetadataFullName());
+        Assert.True(result.Evidence.IsComplete);
+
+        static AssemblyReferenceHandle AddAssemblyReference(
+            MetadataBuilder metadata,
+            string name) =>
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(name),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
     }
 }
