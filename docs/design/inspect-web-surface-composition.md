@@ -949,6 +949,16 @@ references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
 
+Each direct NuGet dependency row begins with the package's embedded icon when
+the exact dependency version can be resolved and the icon is admitted by
+[Package icon range inspection](package-icon-range-inspection.md). Icon reads
+are range-only and asynchronous: row navigation becomes available after the
+existing package-coordinate match, without waiting for its icon. Missing,
+unavailable, refused, or failed icon reads use the existing NuGet default
+package icon and do not trigger a complete package download. A late icon result
+cannot update another Package, target framework, dependency group, or
+replacement row.
+
 Between the graph and package dependency list, an eligible package exposes a
 **Platform pruning** section. The section contains a runtime or ASP.NET Core
 family selector and an explicit **Evaluate** action. Opening Package

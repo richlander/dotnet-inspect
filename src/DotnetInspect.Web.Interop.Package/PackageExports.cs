@@ -844,6 +844,70 @@ public static partial class PackageExports
             packageId,
             declaredRange);
 
+    /// <summary>
+    /// Reads the embedded icon for one exact package coordinate through archive ranges only.
+    /// Missing, refused, and failed reads remain explicit and never acquire the complete package.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageIcon(
+        string packageId,
+        string version)
+    {
+        PackageIconRangeResult result =
+            await BrowserPackageWorkspace.ReadPackageIconAsync(
+                packageId,
+                version);
+        BrowserPackageIconInspection inspection = result switch
+        {
+            PackageIconRangeResult.Completed
+            {
+                Icon: PackageIconResult.Available available
+            } => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Available,
+                new BrowserPackageIcon(
+                    available.Value.MediaType,
+                    Convert.ToBase64String(available.Value.Bytes.AsSpan())),
+                Detail: null),
+            PackageIconRangeResult.Completed
+            {
+                Icon: PackageIconResult.Missing
+            } => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Missing,
+                Icon: null,
+                Detail: null),
+            PackageIconRangeResult.Completed
+            {
+                Icon: PackageIconResult.Unavailable unavailable
+            } => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Unavailable,
+                Icon: null,
+                unavailable.Reason.ToString()),
+            PackageIconRangeResult.Failed failed => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Failed,
+                Icon: null,
+                failed.Failure.Message),
+            PackageIconRangeResult.Refused refused => new(
+                packageId,
+                version,
+                BrowserPackageIconInspectionStatus.Refused,
+                Icon: null,
+                refused.Reason.ToString()),
+            _ => throw new InvalidOperationException(
+                "Package icon inspection returned an unknown outcome."),
+        };
+        return JsonSerializer.Serialize(
+            inspection,
+            BrowserPackageJsonContext.Default.BrowserPackageIconInspection);
+    }
+
     [JSExport]
     public static string MatchPackageDependencyCoordinate(
         string packageId,

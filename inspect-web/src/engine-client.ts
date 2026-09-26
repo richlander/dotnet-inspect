@@ -40,6 +40,7 @@ type PackageOperations =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
+  | "queryPackageIcon"
   | "queryPackageRoot"
   | "queryPackageDependencies"
   | "queryPackagePruning"

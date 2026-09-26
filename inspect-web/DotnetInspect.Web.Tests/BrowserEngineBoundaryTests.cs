@@ -953,6 +953,9 @@ public sealed partial class BrowserEngineBoundaryTests
 
         public List<string> Requested { get; } = [];
         public bool PayloadDisposed { get; private set; }
+        public int RangeRequests { get; private set; }
+        public int NonRangePackageRequests { get; private set; }
+        public long PackageBytesServed { get; private set; }
         public TaskCompletionSource PayloadReadStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -1005,9 +1008,47 @@ public sealed partial class BrowserEngineBoundaryTests
                         System.Net.HttpStatusCode.NotFound));
             }
 
+            System.Net.Http.Headers.RangeItemHeaderValue? range =
+                request.Headers.Range?.Ranges.SingleOrDefault();
+            if (range is not null)
+            {
+                RangeRequests++;
+                long from;
+                long to;
+                if (range.From is null)
+                {
+                    from = Math.Max(0, archive.Length - range.To!.Value);
+                    to = archive.Length - 1;
+                }
+                else
+                {
+                    from = range.From.Value;
+                    to = Math.Min(
+                        range.To ?? archive.Length - 1,
+                        archive.Length - 1);
+                }
+
+                byte[] bytes = archive[(int)from..(int)(to + 1)];
+                PackageBytesServed += bytes.Length;
+                var content = new ByteArrayContent(bytes);
+                content.Headers.ContentRange =
+                    new System.Net.Http.Headers.ContentRangeHeaderValue(
+                        from,
+                        to,
+                        archive.Length);
+                return Task.FromResult(
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.PartialContent)
+                    {
+                        Content = content,
+                    });
+            }
+
+            NonRangePackageRequests++;
             var response = new HttpResponseMessage(packageStatus);
             if (packageStatus == System.Net.HttpStatusCode.OK)
             {
+                PackageBytesServed += archive.Length;
                 response.Content = payloadRelease is not null
                     ? new StreamContent(new GatedPayloadStream(
                         archive, PayloadReadStarted, payloadRelease))
