@@ -252,6 +252,14 @@ public sealed class TypeRelationsCommandTests
             TestContext.Current.CancellationToken);
         try
         {
+            var all = await ExecuteAsync(
+                "type",
+                "Probe.IContract",
+                "--library",
+                path,
+                "-S",
+                "Implementers",
+                "--json");
             var first = await ExecuteAsync(
                 "type",
                 "Probe.IContract",
@@ -274,12 +282,21 @@ public sealed class TypeRelationsCommandTests
                 "--tail",
                 "--json");
 
+            Assert.Equal(0, all.ExitCode);
+            Assert.Empty(all.Error);
+            Assert.Equal(
+                ["Probe.Alpha", "Probe.Zulu"],
+                ReadJsonTypes(all.Output));
             Assert.Equal(0, first.ExitCode);
             Assert.Empty(first.Error);
-            Assert.Equal(["Probe.Alpha"], ReadJsonTypes(first.Output));
+            Assert.Equal(
+                ReadJsonTypes(all.Output)[..1],
+                ReadJsonTypes(first.Output));
             Assert.Equal(0, last.ExitCode);
             Assert.Empty(last.Error);
-            Assert.Equal(["Probe.Zulu"], ReadJsonTypes(last.Output));
+            Assert.Equal(
+                ReadJsonTypes(all.Output)[^1..],
+                ReadJsonTypes(last.Output));
         }
         finally
         {

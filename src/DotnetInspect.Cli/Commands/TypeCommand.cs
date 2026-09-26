@@ -1326,7 +1326,10 @@ public static class TypeCommand
         }
 
         IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates =
-            available.Relations.Candidates;
+            OrderTypeRelationCandidates(
+                available.Relations.Candidates,
+                implementers,
+                derivedTypes);
         if (appliesSemanticRowSelection)
         {
             if (available.Relations.Population.Rows
@@ -1529,10 +1532,7 @@ public static class TypeCommand
             WorkspaceTypeRelationCandidateRow[] sectionRows =
             [
                 .. candidates
-                    .Where(row => row.Form == section.Form)
-                    .OrderBy(
-                        TypeRelationCandidateName,
-                        StringComparer.Ordinal),
+                    .Where(row => row.Form == section.Form),
             ];
             if (!CliSemanticRowSelection.TrySelect(
                     options.TypeRelationsRowSelection,
@@ -1556,6 +1556,37 @@ public static class TypeCommand
 
         selected = results;
         return true;
+    }
+
+    private static IReadOnlyList<WorkspaceTypeRelationCandidateRow>
+        OrderTypeRelationCandidates(
+            IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates,
+            bool implementers,
+            bool derivedTypes)
+    {
+        var results = new List<WorkspaceTypeRelationCandidateRow>();
+        foreach (SubjectRelationForm form in new[]
+        {
+            SubjectRelationForm.Interface,
+            SubjectRelationForm.BaseType,
+        })
+        {
+            if (form == SubjectRelationForm.Interface
+                    ? !implementers
+                    : !derivedTypes)
+            {
+                continue;
+            }
+
+            results.AddRange(
+                candidates
+                    .Where(row => row.Form == form)
+                    .OrderBy(
+                        TypeRelationCandidateName,
+                        StringComparer.Ordinal));
+        }
+
+        return results;
     }
 
     private sealed record CliTypeRelationsRequest(
