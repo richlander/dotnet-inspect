@@ -2,8 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-canary="$repo_root/inspect-web/managed-operation-bridge-canary"
-host="$canary/Host/InspectWeb.ManagedOperationBridge.BrowserCanary.Host.csproj"
+managed_canary="$repo_root/tests/InspectWeb.ManagedOperationBridgeCanary"
+frontend_canary="$repo_root/inspect-web/managed-operation-bridge-canary"
+host="$managed_canary/Host/InspectWeb.ManagedOperationBridge.BrowserCanary.Host.csproj"
 verifier="$repo_root/inspect-web/scripts/verify-managed-operation-bridge-canary.ts"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
@@ -52,7 +53,7 @@ DOTNET="$dotnet" NODE="$node" TSC="$tsc" \
 
 if [[ "$mode" == comprehensive ]]; then
   mkdir -p "$scratch/stale-facade"
-  cp "$canary/facades/bridge.ts" "$scratch/stale-facade/"
+  cp "$frontend_canary/facades/bridge.ts" "$scratch/stale-facade/"
   printf '\n// stale\n' >> "$scratch/stale-facade/bridge.ts"
   expect_failure \
     stale-bridge-facade \
@@ -70,6 +71,7 @@ runtime_pack_directory=$(
   "$dotnet" msbuild \
     "$host" \
     -nologo \
+    -property:InspectWebIncludeFrontend=true \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
   | "$node" -e '
@@ -86,8 +88,11 @@ process.stdout.write(matches[0].PackageDirectory);
 )
 
 mkdir -p "$scratch/source/facades" "$scratch/source/_framework"
-cp "$canary/facades/bridge.ts" "$scratch/source/facades/"
-cp "$canary/initialize.ts" "$canary/exercise.ts" "$scratch/source/"
+cp "$frontend_canary/facades/bridge.ts" "$scratch/source/facades/"
+cp \
+  "$frontend_canary/initialize.ts" \
+  "$frontend_canary/exercise.ts" \
+  "$scratch/source/"
 cp \
   "$runtime_pack_directory/runtimes/browser-wasm/native/dotnet.d.ts" \
   "$scratch/source/_framework/"
@@ -114,10 +119,10 @@ JSON
 
 clear_canary_build_outputs() {
   rm -rf \
-    "$canary/Bridge/bin/Release/net11.0" \
-    "$canary/Bridge/obj/Release/net11.0" \
-    "$canary/Host/bin/Release/net11.0" \
-    "$canary/Host/obj/Release/net11.0"
+    "$managed_canary/Bridge/bin/Release/net11.0" \
+    "$managed_canary/Bridge/obj/Release/net11.0" \
+    "$managed_canary/Host/bin/Release/net11.0" \
+    "$managed_canary/Host/obj/Release/net11.0"
 }
 
 publish_canary() {
@@ -144,6 +149,7 @@ publish_canary() {
     "$dotnet" msbuild \
       "$host" \
       -nologo \
+      -property:InspectWebIncludeFrontend=true \
       -p:UseMonoRuntime="$use_mono_runtime" \
       -target:ProcessFrameworkReferences \
       -getItem:RuntimePack \
@@ -171,6 +177,7 @@ process.stdout.write(matches[0].Identity);
     "$host" \
     -c Release \
     --output "$output" \
+    -p:InspectWebIncludeFrontend=true \
     -p:CanaryModulesDir="$scratch/modules" \
     -p:UseMonoRuntime="$use_mono_runtime" \
     ${runtime_properties[@]+"${runtime_properties[@]}"} \

@@ -235,7 +235,7 @@ jobs:
       - name: Publish Inspect Web managed API
         run: >
           dotnet publish
-          inspect-web/msdl-proxy/MsdlProxy.csproj
+          src/MsdlProxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-publish/api
 
