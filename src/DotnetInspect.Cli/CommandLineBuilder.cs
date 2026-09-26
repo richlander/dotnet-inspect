@@ -166,7 +166,7 @@ public static class CommandLineBuilder
             processed,
             rootCommand,
             "library",
-            "coordinate");
+            "address");
         if (args.FirstOrDefault()?.StartsWith('-') == true
             && processed.FirstOrDefault() == "router")
         {
@@ -272,7 +272,7 @@ public static class CommandLineBuilder
             return args;
 
         string[] expanded = [.. result];
-        // Let the parser establish which literal `coordinate` token is the child.
+        // Let the parser establish which literal `address` token is the child.
         CommandResult selected = rootCommand.Parse(expanded).CommandResult;
         return selected.Command.Name == childName
             && selected.Parent is CommandResult selectedParent

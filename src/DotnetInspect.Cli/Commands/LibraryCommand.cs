@@ -241,8 +241,8 @@ public partial class LibraryCommand
         {
             Command = new InertString(
                 TextPolicy.Field,
-                options.CoordinateRequest is not null
-                    ? "library coordinate"
+                options.AddressRequest is not null
+                    ? "library address"
                     : "library"),
             Target = new InertString(
                 TextPolicy.Field,
@@ -368,9 +368,9 @@ public partial class LibraryCommand
         {
             return StructuralViewRegistry.Execute(
                 StructuralViewRegistry.Route(
-                    options.CoordinateRequest is null
+                    options.AddressRequest is null
                         ? StructuralViewIdentity.DirectLibrary
-                        : StructuralViewIdentity.LibraryCoordinate,
+                        : StructuralViewIdentity.LibraryAddress,
                     InspectionCatalogIdentity.Library),
                 StructuralDiscoveryRequest.From(options));
         }
@@ -393,9 +393,9 @@ public partial class LibraryCommand
             {
                 return StructuralViewRegistry.Execute(
                     StructuralViewRegistry.Route(
-                        options.CoordinateRequest is null
+                        options.AddressRequest is null
                             ? StructuralViewIdentity.DirectLibrary
-                            : StructuralViewIdentity.LibraryCoordinate,
+                            : StructuralViewIdentity.LibraryAddress,
                         InspectionCatalogIdentity.Library),
                     StructuralDiscoveryRequest.From(options));
             }
@@ -633,8 +633,8 @@ public partial class LibraryCommand
         // Coordinate file mode renders resolved coordinate rows rather than Library sections.
         // Discovery likewise renders its own rows, while still allowing -S to narrow discovery.
         bool rendersOwnPayload =
-            options.CoordinateRequest
-                is LibraryCoordinateRequest.FilePopulation
+            options.AddressRequest
+                is LibraryAddressRequest.FilePopulation
             || options.Discover is not null;
 
         if (!rendersOwnPayload
@@ -790,24 +790,24 @@ public partial class LibraryCommand
             return 1;
         }
 
-        if (options.CoordinateRequest
-                is LibraryCoordinateRequest.HeapPoint
+        if (options.AddressRequest
+                is LibraryAddressRequest.HeapPoint
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
         {
             CommandError.Write(
-                $"library coordinate requires the heap coordinate section. "
+                $"library address requires the heap coordinate section. "
                 + $"Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
             return 1;
         }
 
-        if (options.CoordinateRequest
-                is LibraryCoordinateRequest.IlPoint
+        if (options.AddressRequest
+                is LibraryAddressRequest.IlPoint
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
             CommandError.Write(
-                $"library coordinate requires an IL coordinate section. "
+                $"library address requires an IL coordinate section. "
                 + $"Omit -S or include -S \"{SectionNames.ILOffset}\", "
                 + $"-S \"{SectionNames.MemberContext}\", "
                 + $"-S \"{SectionNames.InstructionContext}\", "
@@ -939,7 +939,7 @@ public partial class LibraryCommand
         bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
-            && options.CoordinateRequest is null
+            && options.AddressRequest is null
             && options.MetadataRoot == MetadataRootKind.Cli;
 
         if (trace is not null)
@@ -1057,8 +1057,8 @@ public partial class LibraryCommand
                         framework!,
                         version,
                         "library --platform");
-                if (options.CoordinateRequest
-                        is LibraryCoordinateRequest.FilePopulation
+                if (options.AddressRequest
+                        is LibraryAddressRequest.FilePopulation
                     && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
@@ -1108,8 +1108,8 @@ public partial class LibraryCommand
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
                 bool sourceLinkAvailable = fullEffectiveDiscovery
-                    && options.CoordinateRequest
-                        is not LibraryCoordinateRequest.IlPoint
+                    && options.AddressRequest
+                        is not LibraryAddressRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         subject,
                         context.HttpClient,
@@ -1261,8 +1261,8 @@ public partial class LibraryCommand
                         CancellationToken.None);
                 }
 
-                if (options.CoordinateRequest
-                        is LibraryCoordinateRequest.FilePopulation
+                if (options.AddressRequest
+                        is LibraryAddressRequest.FilePopulation
                     && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
@@ -1339,8 +1339,8 @@ public partial class LibraryCommand
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
                     && primaryReady is not null
-                    && options.CoordinateRequest
-                        is not LibraryCoordinateRequest.IlPoint
+                    && options.AddressRequest
+                        is not LibraryAddressRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         primaryReady.Subject,
                         context.HttpClient,
@@ -1580,8 +1580,8 @@ public partial class LibraryCommand
 
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Local("library path");
-                if (options.CoordinateRequest
-                        is LibraryCoordinateRequest.FilePopulation
+                if (options.AddressRequest
+                        is LibraryAddressRequest.FilePopulation
                     && options.Discover is null)
                 {
                     LibraryInspectionSubject? coordinateSubject =
@@ -1629,8 +1629,8 @@ public partial class LibraryCommand
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
-                    && options.CoordinateRequest
-                        is not LibraryCoordinateRequest.IlPoint
+                    && options.AddressRequest
+                        is not LibraryAddressRequest.IlPoint
                     && await ProbeLocalSourceLinkAsync(
                         subject,
                         context.HttpClient,
@@ -2006,8 +2006,8 @@ public partial class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.FilePopulation
+        if (options.AddressRequest
+            is not LibraryAddressRequest.FilePopulation
             {
                 Population: { } population,
             })
@@ -2080,7 +2080,7 @@ public partial class LibraryCommand
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
         if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
-                options.CoordinateRowSelection,
+                options.AddressRowSelection,
                 options.Rows,
                 rows,
                 "IL coordinate",
@@ -2098,7 +2098,7 @@ public partial class LibraryCommand
         // non-zero exit remains the signal that some coordinate did not resolve.
         if (LensProjection.TryProject(
                 options,
-                "library coordinate --file",
+                "library address --file",
                 visibleRows.Count,
                 out var projectionExitCode,
                 ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
@@ -2143,8 +2143,8 @@ public partial class LibraryCommand
     {
         var queryOptions = options with
         {
-            CoordinateRequest =
-                new LibraryCoordinateRequest.IlPoint(
+            AddressRequest =
+                new LibraryAddressRequest.IlPoint(
                     coordinate.Value,
                     coordinate.MethodToken,
                     coordinate.ILOffset),
@@ -2279,8 +2279,8 @@ public partial class LibraryCommand
     {
         var select = options.Select?.ToList() ?? [];
         bool hasILCoordinate =
-            options.CoordinateRequest
-                is LibraryCoordinateRequest.IlPoint;
+            options.AddressRequest
+                is LibraryAddressRequest.IlPoint;
         bool hasExplicitSelect = select.Count > 0;
 
         // Reject "<coordinate section>:<offset>" selectors. The legacy spellings ("IL Offset",
@@ -2300,8 +2300,8 @@ public partial class LibraryCommand
             {
                 return (
                     options,
-                    "IL coordinate parameters belong in the coordinate argument, "
-                    + $"not in -S. Use library coordinate 0x06000001+0x5 "
+                    "IL coordinate parameters belong in the address argument, "
+                    + $"not in -S. Use library address 0x06000001+0x5 "
                     + $"--library <path> -S \"{SectionNames.ILOffset}\".");
             }
         }
@@ -2333,11 +2333,11 @@ public partial class LibraryCommand
             return null;
 
         const string ilCoordinateRequired =
-            "IL coordinate sections require library coordinate "
+            "IL coordinate sections require library address "
             + "<token>+<offset>.";
         var heapCoordinateRequired =
-            $"\"{MetadataSectionNames.Heap}\" requires library coordinate "
-            + "\"<heap>:<address>\", for example library coordinate "
+            $"\"{MetadataSectionNames.Heap}\" requires library address "
+            + "\"<heap>:<address>\", for example library address "
             + "\"#Strings:0x1a4\".";
         var bodyKindRequired =
             $"\"{sections.FirstOrDefault(section => BodyKindQueryOptions.Sections.Contains(
@@ -2348,7 +2348,7 @@ public partial class LibraryCommand
         var removedBodyShapesSection = false;
 
         if (sections.Overlaps(ILCoordinateSections)
-            && !HasILCoordinateRequest(options))
+            && !HasILAddressRequest(options))
         {
             if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
             {
@@ -2363,8 +2363,8 @@ public partial class LibraryCommand
         }
 
         if (sections.Contains(MetadataSectionNames.Heap)
-            && options.CoordinateRequest
-                is not LibraryCoordinateRequest.HeapPoint)
+            && options.AddressRequest
+                is not LibraryAddressRequest.HeapPoint)
         {
             // Reached through @Metadata the section is dropped because a category selects whatever
             // applies. An exact selector is an error because the section cannot exist without its
@@ -2811,8 +2811,8 @@ public partial class LibraryCommand
         NormalizeHeapCoordinateSelection(
             LibraryOptions options)
     {
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.HeapPoint)
+        if (options.AddressRequest
+            is not LibraryAddressRequest.HeapPoint)
             return (options, null);
 
         if (options.Discover != null || options.Select is { Length: > 0 })
@@ -2822,7 +2822,7 @@ public partial class LibraryCommand
     }
 
     /// <summary>
-    /// Reads the heap value named by the Coordinate child onto the model, which makes the
+    /// Reads the heap value named by the Address child onto the model, which makes the
     /// coordinate-scoped section applicable. Returns a process exit code, having written its own
     /// diagnostic, exactly as the IL-coordinate resolution above it does.
     ///
@@ -2837,8 +2837,8 @@ public partial class LibraryCommand
     private static int PopulateMetadataHeapIfRequested(
         LibraryInspection inspection, LibraryOptions options, VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-                is not LibraryCoordinateRequest.HeapPoint coordinate
+        if (options.AddressRequest
+                is not LibraryAddressRequest.HeapPoint coordinate
             || (options.Discover == null && options.IncludeSections?.Contains(MetadataSectionNames.Heap) != true))
             return 0;
 
@@ -2915,8 +2915,8 @@ public partial class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-                is LibraryCoordinateRequest.FilePopulation
+        if (options.AddressRequest
+                is LibraryAddressRequest.FilePopulation
             && options.Discover is not null)
         {
             return await PopulateILCoordinatePopulationForDiscoveryAsync(
@@ -2930,8 +2930,8 @@ public partial class LibraryCommand
                 logger);
         }
 
-        if (options.CoordinateRequest
-                is not LibraryCoordinateRequest.IlPoint
+        if (options.AddressRequest
+                is not LibraryAddressRequest.IlPoint
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
@@ -2958,8 +2958,8 @@ public partial class LibraryCommand
         HttpClient httpClient,
         VerboseLogger logger)
     {
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.FilePopulation
+        if (options.AddressRequest
+            is not LibraryAddressRequest.FilePopulation
             {
                 Population: { } population,
             })
@@ -4054,7 +4054,7 @@ public partial class LibraryCommand
     {
         if (options.IncludeSections is { Count: > 0 })
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
-        if (!HasILCoordinateRequest(options))
+        if (!HasILAddressRequest(options))
         {
             sections = sections
                 .Where(section => !ILCoordinateSections.Contains(
@@ -4062,8 +4062,8 @@ public partial class LibraryCommand
                     StringComparer.OrdinalIgnoreCase))
                 .ToList();
         }
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.HeapPoint)
+        if (options.AddressRequest
+            is not LibraryAddressRequest.HeapPoint)
         {
             sections = sections
                 .Where(section => !section.Equals(
@@ -4074,10 +4074,10 @@ public partial class LibraryCommand
         return sections;
     }
 
-    private static bool HasILCoordinateRequest(LibraryOptions options) =>
-        options.CoordinateRequest
-            is LibraryCoordinateRequest.IlPoint
-                or LibraryCoordinateRequest.FilePopulation;
+    private static bool HasILAddressRequest(LibraryOptions options) =>
+        options.AddressRequest
+            is LibraryAddressRequest.IlPoint
+                or LibraryAddressRequest.FilePopulation;
 
     private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,

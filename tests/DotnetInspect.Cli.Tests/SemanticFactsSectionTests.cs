@@ -69,7 +69,7 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            CoordinateRequest =
+            AddressRequest =
                 ILCoordinate(method.MetadataToken, allocationOffset),
             IncludeSections = [SectionNames.AllocationContext],
             Select = [SectionNames.AllocationContext],
@@ -97,7 +97,7 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            CoordinateRequest =
+            AddressRequest =
                 ILCoordinate(method.MetadataToken, allocationOffset),
             IncludeSections = [SectionNames.AllocationContext],
             Select = [SectionNames.AllocationContext],
@@ -158,7 +158,7 @@ public class SemanticFactsSectionTests
                 new LibraryOptions
                 {
                     AssemblyName = TestAssemblyPath,
-                    CoordinateRequest =
+                    AddressRequest =
                         ILCoordinate(
                             call.EvidenceMethod.MetadataToken,
                             call.ILOffset),
@@ -193,7 +193,7 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            CoordinateRequest =
+            AddressRequest =
                 ILCoordinate(method.MetadataToken, call.ILOffset),
             IncludeSections = [SectionNames.SafetyContext],
             Select = [SectionNames.SafetyContext],
@@ -221,7 +221,7 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            CoordinateRequest =
+            AddressRequest =
                 ILCoordinate(method.MetadataToken, call.ILOffset),
             IncludeSections = [SectionNames.SafetyContext],
             Select = [SectionNames.SafetyContext],
@@ -250,7 +250,7 @@ public class SemanticFactsSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             AssemblyName = TestAssemblyPath,
-            CoordinateRequest =
+            AddressRequest =
                 ILCoordinate(method.MetadataToken, call.ILOffset),
             IncludeSections = [SectionNames.SafetyContext],
             Select = [SectionNames.SafetyContext],
@@ -285,7 +285,7 @@ public class SemanticFactsSectionTests
         Assert.Contains("Cost Facts", result.Output);
     }
 
-    private static LibraryCoordinateRequest.IlPoint ILCoordinate(
+    private static LibraryAddressRequest.IlPoint ILCoordinate(
         int methodToken,
         int ilOffset) =>
         new(
