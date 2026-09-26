@@ -323,6 +323,11 @@ Resolution has three outcomes:
    registration, or incomplete adopted-domain coverage, prevents publication
    of the catalog.
 
+A host facade may first probe whether an operand is an exact registered path
+without computing unknown-path suggestions. A miss from that probe is not an
+`Unknown` outcome: after the facade classifies the operand as an exact path, it
+invokes full resolution to obtain the bounded suggestions.
+
 A path-shaped value that resolves to several resources is an invalid registry,
 not a runtime ambiguity to rank.
 
