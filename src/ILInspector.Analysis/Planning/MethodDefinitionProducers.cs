@@ -17,6 +17,13 @@ public enum MethodDefinitionLayers
     /// visit, after the declaration.
     /// </summary>
     Body = 2,
+
+    /// <summary>
+    /// The module-metadata lookup: a library-scope input, not a layer of the
+    /// unit, that resolves tokens and same-image correspondence outside the
+    /// unit. Its budget and caches are execution-scoped.
+    /// </summary>
+    ModuleLookup = 4,
 }
 
 /// <summary>
@@ -132,8 +139,26 @@ public readonly ref struct MethodDefinitionView
 
     internal MethodDefinition MethodDefinition => _unit.MethodDefinition;
 
-    /// <summary>The module-metadata lookup, an execution-scoped library input.</summary>
-    internal LibraryMethodAnalysisRunner Lookup => _unit.Lookup;
+    /// <summary>
+    /// The module-metadata lookup, an execution-scoped library input. A
+    /// producer that did not declare it cannot obtain it.
+    /// </summary>
+    internal LibraryMethodAnalysisRunner Lookup
+    {
+        get
+        {
+            if (!_producer.Declaration.Layers.HasFlag(
+                    MethodDefinitionLayers.ModuleLookup))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{_producer.Run.Producer.Identity}' did not "
+                    + "declare the module lookup.");
+            }
+
+            _producer.CountUnit(ref _producer.LastLookupUnit, Token, ref _producer.LookupUses);
+            return _unit.Lookup;
+        }
+    }
 
     /// <summary>Whether the unit has a managed IL body to acquire.</summary>
     internal bool HasManagedBody =>
@@ -155,7 +180,7 @@ public readonly ref struct MethodDefinitionView
                 + "declare the body layer.");
         }
 
-        _producer.BodyAcquisitions++;
+        _producer.CountUnit(ref _producer.LastBodyUnit, Token, ref _producer.BodyAcquisitions);
         return _unit.GetBody();
     }
 

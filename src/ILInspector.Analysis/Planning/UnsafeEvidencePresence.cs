@@ -20,7 +20,8 @@ public sealed class UnsafeEvidencePresenceProducer
             "UnsafeEvidencePresence",
             version: 1,
             tier: 0,
-            MethodDefinitionLayers.Body)
+            MethodDefinitionLayers.Body
+                | MethodDefinitionLayers.ModuleLookup)
     {
     }
 

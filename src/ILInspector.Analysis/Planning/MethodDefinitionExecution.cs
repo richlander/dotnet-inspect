@@ -325,12 +325,20 @@ public sealed class MethodDefinitionExecution
                         state.UnitsAttempted,
                         state.UnitsCompleted,
                         state.UnitsFailed,
-                        state.Declaration.Layers.HasFlag(
-                            MethodDefinitionLayers.Body)
-                            ? [new ProducerLayerParticipation(
-                                nameof(MethodDefinitionLayers.Body),
-                                state.BodyAcquisitions)]
-                            : []);
+                        [
+                            .. state.Declaration.Layers.HasFlag(
+                                MethodDefinitionLayers.Body)
+                                ? [new ProducerLayerParticipation(
+                                    nameof(MethodDefinitionLayers.Body),
+                                    state.BodyAcquisitions)]
+                                : Array.Empty<ProducerLayerParticipation>(),
+                            .. state.Declaration.Layers.HasFlag(
+                                MethodDefinitionLayers.ModuleLookup)
+                                ? [new ProducerLayerParticipation(
+                                    nameof(MethodDefinitionLayers.ModuleLookup),
+                                    state.LookupUses)]
+                                : Array.Empty<ProducerLayerParticipation>(),
+                        ]);
                 }),
             ]);
 
@@ -364,7 +372,24 @@ public sealed class MethodDefinitionExecution
 
         public int UnitsFailed { get; set; }
 
-        public int BodyAcquisitions { get; set; }
+        /// <summary>Units in which the body layer was acquired.</summary>
+        public int BodyAcquisitions;
+
+        /// <summary>Units in which the module lookup was used.</summary>
+        public int LookupUses;
+
+        public int LastBodyUnit;
+
+        public int LastLookupUnit;
+
+        /// <summary>Counts <paramref name="unitToken"/> once, however often a layer is read in it.</summary>
+        public void CountUnit(ref int lastUnit, int unitToken, ref int count)
+        {
+            if (lastUnit == unitToken)
+                return;
+            lastUnit = unitToken;
+            count++;
+        }
 
         public void Require(
             ProducerDeclaration dependency,

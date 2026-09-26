@@ -109,7 +109,10 @@ public sealed class ProducerPlanningTests
         Assert.Equal(2, execution.Receipt.UnitsVisited);
         Assert.Equal(
             2,
-            Assert.Single(participation.Layers).Acquired);
+            participation.Layers.Single(layer => layer.Layer == "Body").Acquired);
+        Assert.Equal(
+            2,
+            participation.Layers.Single(layer => layer.Layer == "ModuleLookup").Acquired);
 
         MethodDefinitionExecution all = Run(
             image,
@@ -142,10 +145,8 @@ public sealed class ProducerPlanningTests
                 .Outcome);
         Assert.Equal(
             0,
-            Assert.Single(
-                execution.Receipt.For(
-                    UnsafeEvidencePresenceProducer.Instance).Layers)
-                .Acquired);
+            execution.Receipt.For(UnsafeEvidencePresenceProducer.Instance)
+                .Layers.Single(layer => layer.Layer == "Body").Acquired);
     }
 
     [Fact]
@@ -187,6 +188,10 @@ public sealed class ProducerPlanningTests
         Assert.Throws<ProducerContractException>(
             () => Run(image, Plan(new ProducerRequest(bodyReader))));
 
+        var lookupReader = new LookupReadingProducer();
+        Assert.Throws<ProducerContractException>(
+            () => Run(image, Plan(new ProducerRequest(lookupReader))));
+
         var counter = new CountingProducer("Counter");
         var undeclared = new ResultReadingProducer(
             "Undeclared",
@@ -218,8 +223,8 @@ public sealed class ProducerPlanningTests
             participation.Producer);
         Assert.Equal(ProducerOutcome.Complete, participation.Outcome);
         Assert.Equal(
-            nameof(MethodDefinitionLayers.Body),
-            Assert.Single(participation.Layers).Layer);
+            [nameof(MethodDefinitionLayers.Body), nameof(MethodDefinitionLayers.ModuleLookup)],
+            participation.Layers.Select(layer => layer.Layer));
     }
 
     [Fact]
@@ -707,6 +712,23 @@ public sealed class ProducerPlanningTests
             IReadOnlyList<int> facts,
             MethodDefinitionCompletionView completion) =>
             completion.ResultOf(source).Value?.Length ?? -1;
+    }
+
+    /// <summary>Declares only the declaration layer, then asks for the module lookup.</summary>
+    sealed class LookupReadingProducer()
+        : MethodDefinitionProducer<int, int>(
+            "LookupReader",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Lookup is null ? 0 : 1;
+
+        internal override int Complete(
+            IReadOnlyList<int> facts,
+            MethodDefinitionCompletionView completion) =>
+            facts.Count;
     }
 
     /// <summary>Declares only the declaration layer, then asks for the body.</summary>
