@@ -413,6 +413,9 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "tools/CSharpDiffHarness/*",
@@ -437,6 +440,9 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "tools/IlDiffHarness/*",
@@ -497,6 +503,9 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "eng/check-decompiler-gate.cs",
@@ -542,6 +551,9 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "tests/DotnetInspector.ILRoundtrip.Tests/*",
@@ -558,6 +570,12 @@ internal sealed class ChangeRoutingPolicy
             state.IlRoundtrip = true;
         }
     }
+
+    private static bool IsInspectWebManagedTestBuildFile(
+        ReadOnlySpan<byte> path) =>
+        BytePattern.Matches(
+            path,
+            "tests/DotnetInspect.Web.Tests/Directory.Build.props");
 
     private static void RoutePackaging(
         ReadOnlySpan<byte> path,

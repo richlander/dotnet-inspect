@@ -115,6 +115,8 @@ internal static class ChangePlanTestSuite
                 + "ts-jsexport-runtime/R.ts", "code,web"),
             ("tests/DotnetInspect.Web.Tests/BrowserEngineLayeringTests.cs",
                 "code,web"),
+            ("tests/DotnetInspect.Web.Tests/Directory.Build.props",
+                "code,web"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
                 "code,ilroundtrip"),
             ("tests/DecompilerHarness.Tests/Closure.cs",
