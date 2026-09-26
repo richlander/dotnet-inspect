@@ -15157,8 +15157,18 @@ function restorePackageQueryReturnFocus() {
 function restorePackageActivityReturnFocus() {
   if (!state.packageActivityReturnFocusPending) return;
   if (state.packageActivityReturnFocus === "application-activity") {
-    afterCurrentNavigationFrame(() => {
-      afterCurrentNavigationFrame(() => {
+    const predecessorEntryId = state.packageActivityPredecessorEntryId;
+    const focusGeneration = documentFocusGeneration;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!state.packageActivityReturnFocusPending
+          || state.packageActivityReturnFocus !== "application-activity"
+          || focusGeneration !== documentFocusGeneration
+          || !isPackageActivityPredecessor(
+            history.state,
+            predecessorEntryId)) {
+          return;
+        }
         if (focusRenderedElement(document.querySelector<HTMLElement>(
           "[data-product-navigation-button]")) || focusLevelOneHeading()) {
           state.packageActivityReturnFocus = null;

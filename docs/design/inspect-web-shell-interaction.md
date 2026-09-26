@@ -227,6 +227,7 @@ Shell maintenance that replaces an open menu while the current routed product
 destination remains Home, Query, Workspace, Activity, or Demos preserves the
 open state and the focused stable destination. A product-destination change closes
 the outgoing menu and follows the ordinary routed destination-focus contract.
+Maintenance replacement also preserves focus when the closed trigger owns it.
 Surfaces outside that product-destination inventory retain their own
 replacement-focus contract.
 

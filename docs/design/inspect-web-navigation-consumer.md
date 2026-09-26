@@ -733,6 +733,10 @@ Back/Forward, predecessor-identity, and proportional focus-restoration pattern.
 Entry from Search returns focus to Search; entry from the product-navigation
 menu returns focus to the brand trigger. The visible `Back` action falls back
 to Home only when the route was loaded without an in-app predecessor.
+A same-entry maintenance refresh between restoration and deferred focus does
+not cancel that return: the consumer resolves focus against the currently
+rendered predecessor shell. A newer browser-selected entry or user focus
+movement cancels it.
 
 Selecting Activity restores the current session request, admitted rows,
 failures, progress, and typed completion state. Leaving `/activity`, route
