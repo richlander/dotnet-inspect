@@ -94,7 +94,7 @@ root README remains current without cataloging every focused capability.
 | How much of a package a command reads by range: surface or implementation, a folder at a time | [Package read demand](design/package-read-demand.md) |
 | What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
-| Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
+| Source, decoded documents, and PDB composition | [SourceHouse](design/source-house.md), [Decoded text document](design/decoded-text-document.md), and [PDB Acquisition](pdb-acquisition.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |
 | Decompiler architecture and correctness | [Decompiler Architecture](decompiler-architecture.md) and [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) |
 | Browser host | [Inspect Web](../inspect-web/README.md) |

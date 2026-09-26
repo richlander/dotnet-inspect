@@ -5,6 +5,7 @@ using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
 using Inspector.Findings;
+using Inspector.Text;
 
 namespace DotnetInspector.Sections;
 
@@ -27,17 +28,6 @@ public enum SourceViewLanguage
     CSharp,
     VisualBasic,
     FSharp,
-}
-
-public enum SourceViewLineTerminator
-{
-    None,
-    CarriageReturnLineFeed,
-    CarriageReturn,
-    LineFeed,
-    NextLine,
-    LineSeparator,
-    ParagraphSeparator,
 }
 
 public sealed record SourceViewBinding
@@ -214,8 +204,10 @@ public sealed record SourceViewTypeMappingEvidence
 
     public bool IsPartial { get; }
 
-    public ImmutableArray<SourceViewAdditionalDocument>
-        AdditionalDocuments { get; }
+    public ImmutableArray<SourceViewAdditionalDocument> AdditionalDocuments
+    {
+        get;
+    }
 }
 
 public sealed record SourceViewLine
@@ -224,7 +216,7 @@ public sealed record SourceViewLine
         int number,
         int start,
         string content,
-        SourceViewLineTerminator terminator)
+        DecodedTextLineTerminator terminator)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(number);
         ArgumentOutOfRangeException.ThrowIfNegative(start);
@@ -240,18 +232,18 @@ public sealed record SourceViewLine
 
     public string Content { get; }
 
-    public SourceViewLineTerminator Terminator { get; }
+    public DecodedTextLineTerminator Terminator { get; }
 
     public string TerminatorText =>
         Terminator switch
         {
-            SourceViewLineTerminator.None => "",
-            SourceViewLineTerminator.CarriageReturnLineFeed => "\r\n",
-            SourceViewLineTerminator.CarriageReturn => "\r",
-            SourceViewLineTerminator.LineFeed => "\n",
-            SourceViewLineTerminator.NextLine => "\u0085",
-            SourceViewLineTerminator.LineSeparator => "\u2028",
-            SourceViewLineTerminator.ParagraphSeparator => "\u2029",
+            DecodedTextLineTerminator.None => "",
+            DecodedTextLineTerminator.CarriageReturnLineFeed => "\r\n",
+            DecodedTextLineTerminator.CarriageReturn => "\r",
+            DecodedTextLineTerminator.LineFeed => "\n",
+            DecodedTextLineTerminator.NextLine => "\u0085",
+            DecodedTextLineTerminator.LineSeparator => "\u2028",
+            DecodedTextLineTerminator.ParagraphSeparator => "\u2029",
             _ => throw new InvalidOperationException(
                 "Unknown Source view line terminator."),
         };
@@ -608,57 +600,24 @@ public static class SourceViewInspection
 
     private static ImmutableArray<SourceViewLine> Lines(string text)
     {
-        ArgumentNullException.ThrowIfNull(text);
-
-        var lines = ImmutableArray.CreateBuilder<SourceViewLine>();
-        int lineStart = 0;
-        int lineNumber = 1;
-        for (int i = 0; i <= text.Length; i++)
+        var document = new DecodedTextDocument(text);
+        DecodedTextBatch batch = document.Pull(
+            document.Start,
+            DecodedTextPullRequest.Unbounded(int.MaxValue));
+        if (!batch.IsComplete)
         {
-            SourceViewLineTerminator terminator =
-                i < text.Length
-                    ? Terminator(text, i)
-                    : SourceViewLineTerminator.None;
-            if (i < text.Length
-                && terminator == SourceViewLineTerminator.None)
-            {
-                continue;
-            }
-
-            lines.Add(
-                new SourceViewLine(
-                    lineNumber,
-                    lineStart,
-                    text[lineStart..i],
-                    terminator));
-            if (i == text.Length)
-                break;
-
-            int terminatorLength =
-                terminator
-                == SourceViewLineTerminator.CarriageReturnLineFeed
-                    ? 2
-                    : 1;
-            i += terminatorLength - 1;
-            lineStart = i + 1;
-            lineNumber++;
+            throw new InvalidOperationException(
+                "Unbounded decoded-text projection did not complete.");
         }
 
-        return lines.ToImmutable();
+        return
+        [
+            .. batch.Lines.Select(
+                static line => new SourceViewLine(
+                    line.Number,
+                    line.Start,
+                    line.Content.ToString(),
+                    line.Terminator)),
+        ];
     }
-
-    private static SourceViewLineTerminator Terminator(
-        string text,
-        int index) =>
-        text[index] switch
-        {
-            '\r' when index + 1 < text.Length && text[index + 1] == '\n' =>
-                SourceViewLineTerminator.CarriageReturnLineFeed,
-            '\r' => SourceViewLineTerminator.CarriageReturn,
-            '\n' => SourceViewLineTerminator.LineFeed,
-            '\u0085' => SourceViewLineTerminator.NextLine,
-            '\u2028' => SourceViewLineTerminator.LineSeparator,
-            '\u2029' => SourceViewLineTerminator.ParagraphSeparator,
-            _ => SourceViewLineTerminator.None,
-        };
 }

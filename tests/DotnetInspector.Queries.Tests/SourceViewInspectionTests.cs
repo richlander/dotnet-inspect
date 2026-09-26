@@ -3,6 +3,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
+using Inspector.Text;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -43,43 +44,43 @@ public sealed partial class AssemblyContextSourceQueryTests
                 1,
                 0,
                 "A",
-                SourceViewLineTerminator.CarriageReturnLineFeed),
+                DecodedTextLineTerminator.CarriageReturnLineFeed),
             line => AssertLine(
                 line,
                 2,
                 3,
                 "😀B",
-                SourceViewLineTerminator.CarriageReturn),
+                DecodedTextLineTerminator.CarriageReturn),
             line => AssertLine(
                 line,
                 3,
                 7,
                 "C",
-                SourceViewLineTerminator.LineFeed),
+                DecodedTextLineTerminator.LineFeed),
             line => AssertLine(
                 line,
                 4,
                 9,
                 "D",
-                SourceViewLineTerminator.NextLine),
+                DecodedTextLineTerminator.NextLine),
             line => AssertLine(
                 line,
                 5,
                 11,
                 "E",
-                SourceViewLineTerminator.LineSeparator),
+                DecodedTextLineTerminator.LineSeparator),
             line => AssertLine(
                 line,
                 6,
                 13,
                 "F",
-                SourceViewLineTerminator.ParagraphSeparator),
+                DecodedTextLineTerminator.ParagraphSeparator),
             line => AssertLine(
                 line,
                 7,
                 15,
                 "G",
-                SourceViewLineTerminator.None));
+                DecodedTextLineTerminator.None));
 
         SourceView empty =
             AvailableDocument(
@@ -92,7 +93,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 1,
                 0,
                 "",
-                SourceViewLineTerminator.None));
+                DecodedTextLineTerminator.None));
         Assert.Equal("", Reconstruct(empty));
 
         SourceView finalEmpty =
@@ -106,13 +107,13 @@ public sealed partial class AssemblyContextSourceQueryTests
                 1,
                 0,
                 "A",
-                SourceViewLineTerminator.LineFeed),
+                DecodedTextLineTerminator.LineFeed),
             line => AssertLine(
                 line,
                 2,
                 2,
                 "",
-                SourceViewLineTerminator.None));
+                DecodedTextLineTerminator.None));
         Assert.Equal("A\n", Reconstruct(finalEmpty));
     }
 
@@ -533,7 +534,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         int number,
         int start,
         string content,
-        SourceViewLineTerminator terminator)
+        DecodedTextLineTerminator terminator)
     {
         Assert.Equal(number, line.Number);
         Assert.Equal(start, line.Start);
