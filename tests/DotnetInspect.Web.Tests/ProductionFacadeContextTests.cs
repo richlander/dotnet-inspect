@@ -119,11 +119,13 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageLibraryMetrics",
             "QueryPackageOpportunities",
             "QueryPackagePerformance",
+            "QueryPackageTypeImplementationHeat",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryMetrics",
             "QueryPlatformOpportunities",
             "QueryPlatformPerformance",
+            "QueryPlatformTypeImplementationHeat",
         ],
         [SourceAssembly] =
         [
@@ -218,10 +220,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 103 operations, and no operation name in two modules: a move that forgot to delete its
+        // 105 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(103, everyExport.Length);
+        Assert.Equal(105, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

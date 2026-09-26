@@ -5,7 +5,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Web.Interop.Analysis;
 
-internal static class BrowserImplementationProfileWireProjection
+internal static partial class BrowserImplementationProfileWireProjection
 {
     const int SchemaVersion = 2;
 

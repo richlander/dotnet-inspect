@@ -239,6 +239,48 @@ public static partial class AnalysisExports
             stableSelectors);
 
     [JSExport]
+    public static async Task<string> QueryPlatformTypeImplementationHeat(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack,
+        string typeDefinitionId)
+    {
+        BrowserTypeImplementationHeat heat;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            InspectionEnvelope<
+                AssemblyContextEntry<
+                    AssemblyTypeImplementationHeatInspection>>
+                    inspection =
+                        resolution.Scope.UseParticipant(
+                            resolution.Participant,
+                            (group, participant) =>
+                                TypeImplementationHeatInspectionOperation
+                                    .Execute(
+                                        group,
+                                        participant,
+                                        typeDefinitionId));
+            heat = BrowserImplementationProfileWireProjection.ProjectTypeHeat(
+                inspection,
+                new BrowserCompileLibraryAvailability(
+                    BrowserCompileLibraryStatus.Selected,
+                    resolution.Scope.Framework,
+                    null));
+        }
+
+        return JsonSerializer.Serialize(
+            heat,
+            BrowserAnalysisJsonContext.Default
+                .BrowserTypeImplementationHeat);
+    }
+
+    [JSExport]
     public static Task<string> QueryPlatformPerformance(
         string targetFramework,
         string platformVersion,
