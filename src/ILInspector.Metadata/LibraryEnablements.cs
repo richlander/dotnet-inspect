@@ -180,7 +180,19 @@ public sealed record LibraryEnablements(ImmutableArray<LibraryEnablement> Items)
         foreach (CustomAttributeHandle handle in reader.GetAssemblyDefinition().GetCustomAttributes())
         {
             CustomAttribute attribute = reader.GetCustomAttribute(handle);
-            if (AttributeReader.GetAttributeTypeName(reader, attribute.Constructor) != AssemblyMetadataAttribute)
+            string? typeName;
+            try
+            {
+                typeName = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
+            }
+            catch (BadImageFormatException)
+            {
+                // An undecodable constructor might name AssemblyMetadataAttribute.
+                undecodable = true;
+                continue;
+            }
+
+            if (typeName != AssemblyMetadataAttribute)
                 continue;
 
             if (!TryReadKeyValue(reader, attribute, out string? key, out string? value))

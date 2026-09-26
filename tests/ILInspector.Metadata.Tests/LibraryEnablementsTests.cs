@@ -67,6 +67,24 @@ public sealed class LibraryEnablementsTests
         Assert.Equal(LibraryEnablementState.Enabled, State(enablements, LibraryEnablementKind.MemorySafetyV2));
     }
 
+    [Theory]
+    [InlineData(new int[] { 1 }, LibraryEnablementUnavailableReason.UnsupportedMemorySafetyRules)]
+    [InlineData(new int[] { 3 }, LibraryEnablementUnavailableReason.UnsupportedMemorySafetyRules)]
+    [InlineData(new int[] { 2, 1 }, LibraryEnablementUnavailableReason.ConflictingMemorySafetyRules)]
+    [InlineData(null, LibraryEnablementUnavailableReason.MalformedMemorySafetyRules)]
+    public void NonUpdatedMemorySafetyMarkers_AreUnavailableWithTheOwnersState(
+        int[]? versions,
+        LibraryEnablementUnavailableReason reason)
+    {
+        int?[] markers = versions is null ? [null] : [.. versions.Select(static v => (int?)v)];
+        LibraryEnablement memorySafety = Single(
+            Read(MemorySafetyMetadataIndexTests.BuildSyntheticImage(markers)),
+            LibraryEnablementKind.MemorySafetyV2);
+
+        Assert.Equal(LibraryEnablementState.Unavailable, memorySafety.State);
+        Assert.Equal(reason, memorySafety.Reason);
+    }
+
     [Fact]
     public void CompilerGeneratedInternalAsyncMethod_EnablesRuntimeAsync()
     {
