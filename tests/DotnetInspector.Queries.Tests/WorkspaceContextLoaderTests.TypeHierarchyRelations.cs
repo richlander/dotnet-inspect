@@ -38,7 +38,7 @@ public sealed partial class WorkspaceContextLoaderTests
                 population.Receipt.Members,
                 member => ReferenceEquals(
                     member.Occurrence,
-                    available.Occurrence))
+                    available.DefinitionOccurrence))
                 .AssemblyIdentity.Name);
         Assert.Equal(
             "N.Widget",
@@ -114,8 +114,10 @@ public sealed partial class WorkspaceContextLoaderTests
             WorkspaceTypeHierarchyRelationsQuery.Execute(
                 workspace,
                 population,
-                contracts.Occurrence,
-                focusType,
+                new(
+                    contracts.AssemblyIdentity,
+                    contracts.Occurrence,
+                    focusType),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
@@ -132,5 +134,59 @@ public sealed partial class WorkspaceContextLoaderTests
             source.Type.ToMetadataFullName());
         Assert.True(result.Evidence.IsComplete);
         Assert.True(result.Evidence.HasUsableRows);
+    }
+
+    [Fact]
+    public async Task TypeHierarchyRelations_ResolveReferencedExternalInterface()
+    {
+        string implementationsPath =
+            FixtureCatalog.MetadataMethodImplFixtures.AssemblyPath();
+        byte[] package = Archive(
+            ($"lib/{Framework}/{Path.GetFileName(implementationsPath)}",
+                File.ReadAllBytes(implementationsPath)));
+        await using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(Version, package);
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceDeclarationContext context =
+            await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                workspace,
+                new()
+                {
+                    Framework = Framework,
+                    Members = [PackageMember(Version)],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(workspace, context);
+
+        var focus = Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                "ILInspector.Metadata.MethodImplContracts.IExternalContract",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.Null(focus.DefinitionOccurrence);
+        Assert.Equal(
+            "ILInspector.Metadata.MethodImplContracts",
+            focus.Assembly.Name);
+
+        WorkspaceTypeHierarchyRelationsResult result =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                focus,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        SubjectRelationRow row = Assert.Single(result.Rows);
+        var source = Assert.IsType<
+            InspectionGraphTypeIdentity.AcquiredDefinition>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    row.Source).Identity);
+        Assert.Equal(
+            "ILInspector.Metadata.MethodImplFixtures.ExternalImplementation",
+            source.Type.ToMetadataFullName());
+        Assert.True(result.Evidence.IsComplete);
     }
 }

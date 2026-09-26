@@ -11,7 +11,8 @@ public abstract record WorkspaceExactTypeFocusOutcome
     }
 
     public sealed record Found(
-        WorkspaceDeclarationOccurrence Occurrence,
+        AssemblyReferenceIdentity Assembly,
+        WorkspaceDeclarationOccurrence? DefinitionOccurrence,
         MetadataTypeDefinitionName Type)
         : WorkspaceExactTypeFocusOutcome;
 
@@ -26,8 +27,8 @@ public sealed record WorkspaceExactTypeFocusMemberOutcome(
     bool IsComplete);
 
 /// <summary>
-/// Locates one exact Type definition inside a captured Workspace population
-/// without requiring a portable source coordinate or projecting an API surface.
+/// Locates one exact Type definition or hierarchy target for a captured
+/// Workspace population without projecting an API surface.
 /// </summary>
 public static class WorkspaceExactTypeFocusQuery
 {
@@ -53,10 +54,7 @@ public static class WorkspaceExactTypeFocusQuery
                 nameof(type));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        var matches = new List<(
-            WorkspaceDeclarationOccurrence Occurrence,
-            MetadataTypeDefinitionName Type,
-            string FullName)>();
+        var matches = new List<DefinitionFocusCandidate>();
         var outcomes =
             ImmutableArray.CreateBuilder<
                 WorkspaceExactTypeFocusMemberOutcome>(
@@ -99,7 +97,7 @@ public static class WorkspaceExactTypeFocusQuery
                 if (declaration.Kind
                         != AssemblyTypeDeclarationKind.Definition)
                     continue;
-                matches.Add((
+                matches.Add(new(
                     member.Occurrence,
                     declaration.Name,
                     declaration.Name.ToEscapedFullName()));
@@ -124,13 +122,81 @@ public static class WorkspaceExactTypeFocusQuery
                 outcomes.ToImmutable());
         }
 
-        List<(
-            WorkspaceDeclarationOccurrence Occurrence,
-            MetadataTypeDefinitionName Type,
-            string FullName)> selected;
+        List<DefinitionFocusCandidate> selected = Select(
+            matches,
+            type,
+            selectionKind);
+        if (selected.Count == 1)
+        {
+            var match = selected[0];
+            WorkspaceDeclarationMember member =
+                population.Receipt.Members.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Occurrence,
+                        match.Occurrence));
+            return new WorkspaceExactTypeFocusOutcome.Found(
+                member.AssemblyIdentity,
+                match.Occurrence,
+                match.Type);
+        }
+        if (selected.Count > 1)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus is ambiguous in the candidate "
+                    + "context.",
+                outcomes.ToImmutable());
+        }
+        if (library is not null)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus could not be resolved in the "
+                    + "candidate context.",
+                outcomes.ToImmutable());
+        }
+
+        ReferencedFocusScan referenced = ScanReferencedHierarchyTargets(
+            population,
+            assemblyName,
+            includeAll,
+            cancellationToken);
+        if (!referenced.IsComplete)
+        {
+            return new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus could not be established because "
+                    + "the candidate hierarchy evidence is incomplete.",
+                outcomes.ToImmutable());
+        }
+        List<ReferencedFocusCandidate> referencedSelection = Select(
+            referenced.Candidates,
+            type,
+            selectionKind);
+        return referencedSelection switch
+        {
+            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
+                match.Assembly,
+                DefinitionOccurrence: null,
+                match.Type),
+            [] => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus could not be resolved in the "
+                    + "candidate context.",
+                outcomes.ToImmutable()),
+            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
+                "The exact Type focus is ambiguous in the candidate "
+                    + "context.",
+                outcomes.ToImmutable()),
+        };
+    }
+
+    private static List<TCandidate> Select<TCandidate>(
+        IEnumerable<TCandidate> candidates,
+        string type,
+        ExactTypeSelectionKind selectionKind)
+        where TCandidate : IFocusCandidate
+    {
+        TCandidate[] matches = [.. candidates];
         if (selectionKind == ExactTypeSelectionKind.DefinitionIdentity)
         {
-            selected =
+            return
             [
                 .. matches.Where(match =>
                     match.FullName.Equals(
@@ -164,7 +230,7 @@ public static class WorkspaceExactTypeFocusQuery
                         TypeMatcher.MatchesTypeFilter(name, type)),
                 ];
             }
-            selected =
+            return
             [
                 .. matches.Where(match =>
                     selectedNames.Contains(
@@ -172,20 +238,152 @@ public static class WorkspaceExactTypeFocusQuery
                         StringComparer.OrdinalIgnoreCase)),
             ];
         }
-
-        return selected switch
-        {
-            [var match] => new WorkspaceExactTypeFocusOutcome.Found(
-                match.Occurrence,
-                match.Type),
-            [] => new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus could not be resolved in the "
-                    + "candidate context.",
-                outcomes.ToImmutable()),
-            _ => new WorkspaceExactTypeFocusOutcome.Unavailable(
-                "The exact Type focus is ambiguous in the candidate "
-                    + "context.",
-                outcomes.ToImmutable()),
-        };
     }
+
+    private static ReferencedFocusScan ScanReferencedHierarchyTargets(
+        WorkspaceDeclarationPopulation population,
+        string? assemblyName,
+        bool includeAll,
+        CancellationToken cancellationToken)
+    {
+        var candidates = new List<ReferencedFocusCandidate>();
+        foreach (var access in population.ReadAccesses())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AssemblyContextParticipant participant =
+                access.Group.Participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        access.Assembly.Registration));
+            AssemblyContextEntry<MetadataRelationInspectionOutcome> entry =
+                AssemblyContextQueryExecutor.ExecuteParticipant(
+                    access.Group,
+                    participant,
+                    session => session.Relations(
+                        new(
+                            [MetadataRelationFamily.Hierarchy],
+                            MetadataOperationPolicy.Unbounded,
+                            includeNonPublic: false)
+                        {
+                            IncludeHidden = includeAll,
+                        },
+                        cancellationToken));
+            if (entry is not AssemblyContextEntry<
+                    MetadataRelationInspectionOutcome>.Available
+                {
+                    Value:
+                        MetadataRelationInspectionOutcome.Available available,
+                }
+                || available.Result.Hierarchy.Disposition
+                    != MetadataRelationFamilyDisposition.Complete)
+            {
+                return new(IsComplete: false, []);
+            }
+
+            MetadataRelationGraphProjection projection =
+                MetadataRelationGraphAdapter.Project(
+                    access.Assembly,
+                    available.Result);
+            foreach (InspectionGraphOccurrence occurrence
+                in projection.Occurrences)
+            {
+                var hierarchy =
+                    (MetadataHierarchyGraphEvidence)occurrence.Evidence;
+                if (!TryGetExactTarget(
+                        access.Assembly,
+                        hierarchy.Evidence.Target,
+                        out AssemblyReferenceIdentity? assembly,
+                        out MetadataTypeDefinitionName? target)
+                    || assembly is null
+                    || target is null
+                    || assemblyName is not null
+                        && !assembly.Name.Equals(
+                            assemblyName,
+                            StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var candidate = new ReferencedFocusCandidate(
+                    assembly,
+                    target,
+                    target.ToEscapedFullName());
+                if (!candidates.Any(existing =>
+                        existing.Type == candidate.Type
+                        && existing.Assembly.IsEquivalentTo(
+                            candidate.Assembly)))
+                {
+                    candidates.Add(candidate);
+                }
+            }
+        }
+        return new(IsComplete: true, [.. candidates]);
+    }
+
+    internal static bool TryGetExactTarget(
+        ResolvedAssemblyReference source,
+        MetadataTypeIdentity target,
+        out AssemblyReferenceIdentity? assembly,
+        out MetadataTypeDefinitionName? type)
+    {
+        MetadataNamedTypeIdentity? named = target switch
+        {
+            MetadataTypeIdentity.Named value => value.Definition,
+            MetadataTypeIdentity.GenericInstance value => value.Definition,
+            _ => null,
+        };
+        if (named is null
+            || MetadataTypeDefinitionName.Create(
+                    named.Namespace.ToString(),
+                    [.. named.Segments.Select(static segment =>
+                        segment.ToString())])
+                is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            assembly = null;
+            type = null;
+            return false;
+        }
+
+        assembly = named.Scope.Kind switch
+        {
+            MetadataTypeScopeKind.CurrentModule => source.Identity,
+            MetadataTypeScopeKind.AssemblyReference
+                when named.Scope.Assembly is { } reference =>
+                new AssemblyReferenceIdentity(
+                    reference.Name.ToString(),
+                    reference.Version,
+                    EmptyToNull(reference.Culture),
+                    EmptyToNull(reference.PublicKeyToken)),
+            MetadataTypeScopeKind.ModuleReference => null,
+            _ => null,
+        };
+        type = assembly is null ? null : valid.Name;
+        return assembly is not null;
+    }
+
+    private static string? EmptyToNull(InertText.InertString? value) =>
+        value is null || value.Value.IsEmpty
+            ? null
+            : value.Value.ToString();
+
+    private interface IFocusCandidate
+    {
+        string FullName { get; }
+    }
+
+    private sealed record DefinitionFocusCandidate(
+        WorkspaceDeclarationOccurrence Occurrence,
+        MetadataTypeDefinitionName Type,
+        string FullName)
+        : IFocusCandidate;
+
+    private sealed record ReferencedFocusCandidate(
+        AssemblyReferenceIdentity Assembly,
+        MetadataTypeDefinitionName Type,
+        string FullName)
+        : IFocusCandidate;
+
+    private sealed record ReferencedFocusScan(
+        bool IsComplete,
+        ImmutableArray<ReferencedFocusCandidate> Candidates);
 }

@@ -1204,6 +1204,7 @@ public static class TypeCommand
         {
             request = await CreateSubjectRelationsTypeRequestAsync(
                     options,
+                    capabilities,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1337,6 +1338,31 @@ public static class TypeCommand
                     request)),
         ];
         results = [.. RowWindow.Apply(options.Rows, results)];
+        TypeRelationsResultView view = BuildTypeRelationsView(
+            request.Type,
+            [.. results],
+            implementers,
+            derivedTypes);
+        if (options.JsonOutput
+            && (options.Columns is { Length: > 0 }
+                || options.Fields is { Length: > 0 }))
+        {
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions),
+                !options.CompactJson);
+            return available.Relations.Relations.Evidence.HasUsableRows
+                ? 0
+                : 1;
+        }
         if (options.JsonOutput)
         {
             JsonOutputHelper.Write(
@@ -1350,11 +1376,6 @@ public static class TypeCommand
                 : 1;
         }
 
-        TypeRelationsResultView view = BuildTypeRelationsView(
-            request.Type,
-            [.. results],
-            implementers,
-            derivedTypes);
         if (options.Tabular)
         {
             OutputFormatter.WriteProjectedTable(
@@ -1398,6 +1419,7 @@ public static class TypeCommand
     private static async Task<CliTypeRelationsRequest?>
         CreateSubjectRelationsTypeRequestAsync(
         TypeOptions options,
+        WorkspaceContextLoadOptions capabilities,
         CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(options.PlatformAssembly)
@@ -1408,21 +1430,28 @@ public static class TypeCommand
             && options.WorkspacePacket is null
             && !string.IsNullOrWhiteSpace(options.TypeName))
         {
-            (string defaultFramework, string? defaultVersion) =
-                DefaultPlatformTarget();
-            string framework = string.IsNullOrWhiteSpace(options.Tfm)
-                ? defaultFramework
-                : options.Tfm;
-            string? platformVersion =
-                framework.Equals(
-                    defaultFramework,
-                    StringComparison.OrdinalIgnoreCase)
-                    ? defaultVersion
-                    : null;
-            string family = string.IsNullOrWhiteSpace(
-                    options.PlatformFramework)
-                ? "runtime"
-                : options.PlatformFramework;
+            var (assemblyPath, resolvedFamily, platformVersion, error) =
+                await PlatformResolver.ResolveAssemblyAsync(
+                        options.PlatformAssembly,
+                        capabilities.HttpClient,
+                        capabilities.Log,
+                        options.PlatformFramework,
+                        sourceOptions: options.SourceOptions)
+                    .ConfigureAwait(false);
+            if (assemblyPath is null
+                || string.IsNullOrWhiteSpace(resolvedFamily)
+                || string.IsNullOrWhiteSpace(platformVersion)
+                || error is not null)
+            {
+                throw new InvalidOperationException(
+                    error
+                    ?? $"Could not resolve platform library "
+                        + $"'{options.PlatformAssembly}'.");
+            }
+            string framework = options.Tfm
+                ?? ApiSourceResolver.TryGetReferencePackTargetFramework(
+                    assemblyPath)
+                ?? PlatformTargetFramework(platformVersion);
             return new(
                 new(
                     new WorkspaceContextInput
@@ -1431,7 +1460,7 @@ public static class TypeCommand
                         Members =
                         [
                             WorkspaceMemberCoordinate.Platform(
-                                family,
+                                resolvedFamily,
                                 options.PlatformAssembly,
                                 version: platformVersion,
                                 framework: framework),
@@ -1439,8 +1468,8 @@ public static class TypeCommand
                     },
                     options.TypeName),
                 options.TypeName,
-                family,
-                platformVersion ?? framework);
+                resolvedFamily,
+                platformVersion);
         }
 
         if (!string.IsNullOrWhiteSpace(options.AssemblyPath)
@@ -1624,30 +1653,17 @@ public static class TypeCommand
         }
     }
 
-    private static (string Framework, string? Version)
-        DefaultPlatformTarget()
+    private static string PlatformTargetFramework(string platformVersion)
     {
-        int major = Environment.Version.Major;
-        string? productVersion = typeof(object).Assembly
-            .GetCustomAttributes(
-                typeof(System.Reflection.AssemblyInformationalVersionAttribute),
-                inherit: false)
-            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-            .FirstOrDefault()?
-            .InformationalVersion;
-        string? exactVersion = null;
-        if (productVersion is not null
-            && productVersion.Contains('-', StringComparison.Ordinal))
+        if (!NuGetVersion.TryParse(
+                platformVersion,
+                out NuGetVersion? version))
         {
-            int buildMetadata = productVersion.IndexOf(
-                '+',
-                StringComparison.Ordinal);
-            exactVersion = buildMetadata < 0
-                ? productVersion
-                : productVersion[..buildMetadata];
+            throw new InvalidOperationException(
+                $"Platform version '{platformVersion}' cannot be mapped "
+                    + "to a target framework.");
         }
-
-        return ($"net{major}.0", exactVersion);
+        return $"net{version.Major}.{version.Minor}";
     }
 
     private static TypeRelationResult ToTypeRelationResult(

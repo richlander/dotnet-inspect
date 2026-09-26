@@ -21,8 +21,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
     public static WorkspaceTypeRelationsInspectionResult Execute(
         InspectionWorkspace workspace,
         WorkspaceDeclarationPopulation population,
-        WorkspaceDeclarationOccurrence focusOccurrence,
-        MetadataTypeDefinitionName focusType,
+        WorkspaceExactTypeFocusOutcome.Found focus,
         SubjectRelationsQueryPlan plan,
         SubjectRelationPopulationCountRequest? count = null,
         SubjectRelationPopulationRowsRequest? rows = null,
@@ -42,8 +41,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
             WorkspaceTypeHierarchyRelationsQuery.Execute(
                 workspace,
                 population,
-                focusOccurrence,
-                focusType,
+                focus,
                 includeNonPublic,
                 cancellationToken);
         var inspectionRequest = new SubjectRelationsInspectionRequest(

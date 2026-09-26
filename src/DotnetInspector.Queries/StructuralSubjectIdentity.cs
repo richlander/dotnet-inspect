@@ -83,6 +83,16 @@ public abstract record StructuralSubjectIdentity
         MetadataTypeDefinitionName type) =>
         new(library, type);
 
+    /// <summary>
+    /// Creates one exact metadata Type referenced outside the acquired
+    /// candidate population.
+    /// </summary>
+    public static ReferencedTypeSubject ForReferencedType(
+        WorkspaceSubject workspace,
+        AssemblyReferenceIdentity assembly,
+        MetadataTypeDefinitionName type) =>
+        new(workspace, assembly, type);
+
     /// <summary>Creates one exact API Member subject.</summary>
     public static MemberSubject ForMember(
         TypeSubject declaringType,
@@ -295,6 +305,34 @@ public abstract record StructuralSubjectIdentity
         public ContextLibrarySubject Library { get; }
 
         public NavigationTypeIdentity Identity { get; }
+    }
+
+    /// <summary>
+    /// One exact metadata Type referenced by an acquired candidate Library.
+    /// </summary>
+    public sealed record ReferencedTypeSubject : StructuralSubjectIdentity
+    {
+        internal ReferencedTypeSubject(
+            WorkspaceSubject workspace,
+            AssemblyReferenceIdentity assembly,
+            MetadataTypeDefinitionName type)
+        {
+            Workspace = workspace
+                ?? throw new ArgumentNullException(nameof(workspace));
+            Assembly = assembly
+                ?? throw new ArgumentNullException(nameof(assembly));
+            Type = type
+                ?? throw new ArgumentNullException(nameof(type));
+        }
+
+        public override WorkspaceSubject Workspace { get; }
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Type;
+
+        public AssemblyReferenceIdentity Assembly { get; }
+
+        public MetadataTypeDefinitionName Type { get; }
     }
 
     /// <summary>One exact API Member in one exact Type.</summary>

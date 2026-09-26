@@ -7,7 +7,9 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Queries;
 
 public sealed record TypeHierarchyRelationCorrespondenceEvidence(
-    ResolvedTypeDefinition Definition);
+    AssemblyReferenceIdentity Assembly,
+    MetadataTypeDefinitionName Type,
+    ResolvedTypeDefinition? Definition);
 
 public sealed record WorkspaceTypeHierarchyRelationSource(
     AssemblyAcquisitionRegistration Registration,
@@ -16,7 +18,7 @@ public sealed record WorkspaceTypeHierarchyRelationSource(
     ExactLibrarySourceCoordinate? Coordinate);
 
 public sealed record WorkspaceTypeHierarchyRelationsResult(
-    StructuralSubjectIdentity.ContextTypeSubject Focus,
+    StructuralSubjectIdentity Focus,
     SubjectRelationPopulationAuthority Population,
     SubjectRelationPopulationEvidence Evidence,
     ImmutableArray<SubjectRelationRow> Rows,
@@ -37,15 +39,13 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     public static WorkspaceTypeHierarchyRelationsResult Execute(
         InspectionWorkspace workspace,
         WorkspaceDeclarationPopulation population,
-        WorkspaceDeclarationOccurrence focusOccurrence,
-        MetadataTypeDefinitionName focusType,
+        WorkspaceExactTypeFocusOutcome.Found focusSelection,
         bool includeNonPublic = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(population);
-        ArgumentNullException.ThrowIfNull(focusOccurrence);
-        ArgumentNullException.ThrowIfNull(focusType);
+        ArgumentNullException.ThrowIfNull(focusSelection);
         cancellationToken.ThrowIfCancellationRequested();
         if (!ReferenceEquals(
                 workspace.Identity,
@@ -55,34 +55,45 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 "The hierarchy population must belong to the exact Workspace.",
                 nameof(population));
         }
-        if (!population.TryGetAccess(
-                focusOccurrence,
-                out WorkspaceDeclarationMember? focusMember,
-                out _,
-                out ResolvedAssemblyReference? focusAssembly)
-            || focusMember is null
-            || focusAssembly is null)
-        {
-            throw new ArgumentException(
-                "The hierarchy focus must be an available member of the "
-                    + "captured population.",
-                nameof(focusOccurrence));
-        }
-
         var workspaceSubject =
             StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
-        var focusLibrary =
-            StructuralSubjectIdentity.ForContextLibrary(
-                workspaceSubject,
-                new NavigationAssemblyIdentity(
-                    focusAssembly.Registration,
-                    focusAssembly.Identity,
-                    focusAssembly.Provenance),
-                focusMember.Coordinate);
-        StructuralSubjectIdentity.ContextTypeSubject focus =
-            StructuralSubjectIdentity.ForContextType(
+        StructuralSubjectIdentity focus;
+        if (focusSelection.DefinitionOccurrence is { } focusOccurrence)
+        {
+            if (!population.TryGetAccess(
+                    focusOccurrence,
+                    out WorkspaceDeclarationMember? focusMember,
+                    out _,
+                    out ResolvedAssemblyReference? focusAssembly)
+                || focusMember is null
+                || focusAssembly is null
+                || !focusAssembly.Identity.IsEquivalentTo(
+                    focusSelection.Assembly))
+            {
+                throw new ArgumentException(
+                    "The acquired hierarchy focus must be an available "
+                        + "member of the captured population.",
+                    nameof(focusSelection));
+            }
+            var focusLibrary =
+                StructuralSubjectIdentity.ForContextLibrary(
+                    workspaceSubject,
+                    new NavigationAssemblyIdentity(
+                        focusAssembly.Registration,
+                        focusAssembly.Identity,
+                        focusAssembly.Provenance),
+                    focusMember.Coordinate);
+            focus = StructuralSubjectIdentity.ForContextType(
                 focusLibrary,
-                focusType);
+                focusSelection.Type);
+        }
+        else
+        {
+            focus = StructuralSubjectIdentity.ForReferencedType(
+                workspaceSubject,
+                focusSelection.Assembly,
+                focusSelection.Type);
+        }
         SubjectRelationPopulationAuthority populationAuthority =
             SubjectRelationPopulationAuthority.Capture(
                 workspaceSubject,
@@ -103,8 +114,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 ScanContext(
                     context.Key,
                     context,
-                    focusAssembly.Identity,
-                    focusType,
+                    focusSelection,
                     includeNonPublic,
                     cancellationToken));
         }
@@ -128,8 +138,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                             populationAuthority,
                             match.Occurrence.TargetSubject,
                             InspectionGraphEndpointRole.Target,
-                            new TypeHierarchyRelationCorrespondenceEvidence(
-                                match.Definition));
+                            match.Correspondence);
                     return MetadataRelationGraphAdapter.BindRows(
                         match.Projection,
                         focusCorrespondence);
@@ -166,8 +175,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             WorkspaceDeclarationMember Member,
             AssemblyContextGroup Group,
             ResolvedAssemblyReference Assembly)> members,
-        AssemblyReferenceIdentity focusAssembly,
-        MetadataTypeDefinitionName focusType,
+        WorkspaceExactTypeFocusOutcome.Found focus,
         bool includeNonPublic,
         CancellationToken cancellationToken)
     {
@@ -248,6 +256,54 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             [
                 .. projection.Occurrences,
             ];
+            if (focus.DefinitionOccurrence is null)
+            {
+                var referencedMatches =
+                    ImmutableArray.CreateBuilder<ResolvedMatch>();
+                int referencedExamined = 0;
+                int referencedUnavailable = 0;
+                foreach (InspectionGraphOccurrence occurrence
+                    in occurrences)
+                {
+                    var hierarchy =
+                        (MetadataHierarchyGraphEvidence)occurrence.Evidence;
+                    if (!WorkspaceExactTypeFocusQuery.TryGetExactTarget(
+                            participant.Assembly,
+                            hierarchy.Evidence.Target,
+                            out AssemblyReferenceIdentity? targetAssembly,
+                            out MetadataTypeDefinitionName? targetType)
+                        || targetAssembly is null
+                        || targetType is null)
+                    {
+                        referencedUnavailable++;
+                        continue;
+                    }
+
+                    referencedExamined++;
+                    if (targetType == focus.Type
+                        && targetAssembly.IsEquivalentTo(focus.Assembly))
+                    {
+                        referencedMatches.Add(
+                            new(
+                                projection,
+                                occurrence,
+                                new(
+                                    targetAssembly,
+                                    targetType,
+                                    Definition: null)));
+                    }
+                }
+                yield return new(
+                    member,
+                    projection,
+                    referencedMatches.ToImmutable(),
+                    occurrences.Length,
+                    referencedExamined,
+                    referencedUnavailable,
+                    RetentionFailure: null,
+                    EntryFailure: null);
+                continue;
+            }
             if (policy is null)
             {
                 yield return ParticipantScan.Unresolved(
@@ -274,7 +330,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 else if (!CouldReferenceFocus(
                     participant.Assembly,
                     named,
-                    focusAssembly))
+                    focus.Assembly))
                 {
                     examined++;
                 }
@@ -312,15 +368,18 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         continue;
                     }
                     examined++;
-                    if (resolved.Definition.Type.Equals(focusType)
+                    if (resolved.Definition.Type.Equals(focus.Type)
                         && resolved.Definition.Assembly.Assembly.Identity
-                            .IsEquivalentTo(focusAssembly))
+                            .IsEquivalentTo(focus.Assembly))
                     {
                         matches.Add(
                             new(
                                 projection,
                                 candidate.Occurrence,
-                                resolved.Definition));
+                                new(
+                                    focus.Assembly,
+                                    focus.Type,
+                                    resolved.Definition)));
                     }
                 }
             }
@@ -535,7 +594,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
     private sealed record ResolvedMatch(
         MetadataRelationGraphProjection Projection,
         InspectionGraphOccurrence Occurrence,
-        ResolvedTypeDefinition Definition);
+        TypeHierarchyRelationCorrespondenceEvidence Correspondence);
 
     private sealed record ParticipantScan(
         WorkspaceDeclarationMember Member,

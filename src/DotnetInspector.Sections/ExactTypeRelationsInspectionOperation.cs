@@ -149,8 +149,7 @@ public static class ExactTypeRelationsInspectionOperation
                         WorkspaceTypeRelationsInspectionOperation.Execute(
                             workspace,
                             population,
-                            found.Occurrence,
-                            found.Type,
+                            found,
                             plan,
                             count,
                             rows,

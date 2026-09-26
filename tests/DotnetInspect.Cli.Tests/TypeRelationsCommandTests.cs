@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotnetInspect.Cli;
+using DotnetInspector.Services;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -56,6 +57,75 @@ public sealed class TypeRelationsCommandTests
         Assert.Equal(
             [typeof(WorkspaceDerived).FullName!],
             ReadJsonTypes(result.Output));
+    }
+
+    [Fact]
+    public async Task LocalLibrary_ResolvesExternalInterfaceFocus()
+    {
+        var result = await ExecuteAsync(
+            "type",
+            typeof(IDisposable).FullName!,
+            "--library",
+            typeof(TypeRelationsCommandTests).Assembly.Location,
+            "-S",
+            "Implementers",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            typeof(WorkspaceDisposableImplementation).FullName!,
+            ReadJsonTypes(result.Output));
+    }
+
+    [Fact]
+    public async Task PinnedPlatformCoordinateExecutesRelations()
+    {
+        var (_, _, version, error) = PlatformResolver.ResolveAssembly(
+            "System.Private.CoreLib",
+            "runtime");
+        Assert.Null(error);
+        Assert.NotNull(version);
+        var result = await ExecuteAsync(
+            "type",
+            typeof(Stream).FullName!,
+            "--platform",
+            "System.Private.CoreLib",
+            "--framework",
+            $"runtime@{version!}",
+            "-S",
+            "Derived Types",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.True(int.Parse(result.Output.Trim()) > 0);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonHonorsSelectedColumns()
+    {
+        var result = await ExecuteAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            typeof(TypeRelationsCommandTests).Assembly.Location,
+            "-S",
+            "Implementers",
+            "--columns",
+            "Type",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement rows = document.RootElement.GetProperty("implementers");
+        Assert.All(
+            rows.EnumerateArray(),
+            row => Assert.Equal(
+                ["type"],
+                [.. row.EnumerateObject().Select(
+                    static property => property.Name)]));
     }
 
     [Fact]
@@ -231,3 +301,10 @@ public sealed class WorkspaceImplementationC :
 public abstract class WorkspaceBase;
 
 public sealed class WorkspaceDerived : WorkspaceBase;
+
+public sealed class WorkspaceDisposableImplementation : IDisposable
+{
+    public void Dispose()
+    {
+    }
+}
