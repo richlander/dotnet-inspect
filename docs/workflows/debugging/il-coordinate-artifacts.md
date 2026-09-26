@@ -119,7 +119,7 @@ Explain these debugger IL coordinates from my crash dump.
 ```
 
 ```bash
-"$INSPECT" library coordinate \
+"$INSPECT" library address \
   --file "$COORD_WORKFLOW/debugger.coords" \
   --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --markdown --tips q
@@ -262,7 +262,7 @@ normalize the frames:
 Then run `dotnet-inspect` on the normalized coordinate file:
 
 ```bash
-"$INSPECT" library coordinate \
+"$INSPECT" library address \
   --file "$COORD_WORKFLOW/crash.coords" \
   --library "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll" \
   --markdown --tips q
@@ -287,7 +287,7 @@ Explain these profiler sample coordinates without doing a full triage.
 ```
 
 ```bash
-"$INSPECT" library coordinate \
+"$INSPECT" library address \
   --file "$COORD_WORKFLOW/profiler.coords" \
   --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --markdown --tips q
@@ -314,7 +314,7 @@ Explain this analyzer artifact and keep bad lines visible.
 ```
 
 ```bash
-"$INSPECT" library coordinate \
+"$INSPECT" library address \
   --file "$COORD_WORKFLOW/analyzer.coords" \
   --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --markdown --tips q
@@ -336,7 +336,7 @@ normalization step:
 1. Identify the producer format (debugger/dump, profiler/trace, analyzer/CI).
 2. Extract or symbolize method identity + IL offset.
 3. Write the neutral coordinate file.
-4. Run `library coordinate --file <path> --library <library>`.
+4. Run `library address --file <path> --library <library>`.
 5. Decide whether the output is enough or whether to drill into individual
-   sections with `library coordinate <coordinate> --library <library>
+   sections with `library address <coordinate> --library <library>
    -S "<Context>"`.

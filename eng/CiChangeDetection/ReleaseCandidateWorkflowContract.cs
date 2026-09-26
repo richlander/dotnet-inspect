@@ -150,6 +150,16 @@ internal static class ReleaseCandidateWorkflowContract
 
         YamlMappingNode buildSite =
             GetRequiredMapping(jobs, "build-site", "release candidate jobs");
+        string publishSite = GetRequiredScalar(
+            FindStep(buildSite, "Publish browser app"),
+            "run",
+            "release candidate site publish");
+        RequireContains(
+            publishSite,
+            "src/DotnetInspect.Web/DotnetInspect.Web.csproj");
+        RequireContains(
+            publishSite,
+            "-p:InspectWebIncludeFrontend=true");
         YamlMappingNode verifySite =
             FindStep(buildSite, "Verify production site");
         RequireScalarValue(
@@ -255,6 +265,13 @@ internal static class ReleaseCandidateWorkflowContract
                 "Deep Inspect must not independently schedule release certification.");
 
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "Deep Inspect workflow");
+        YamlMappingNode platformTest =
+            GetRequiredMapping(jobs, "platform-test", "Deep Inspect jobs");
+        RequireScalarValue(
+            platformTest,
+            "timeout-minutes",
+            "240",
+            "Deep Inspect platform-test");
         string[] requiredJobs =
         [
             "test",

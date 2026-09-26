@@ -58,7 +58,7 @@ public sealed class RenderedUrlPreferenceCommandTests
             {
                 string[] arguments =
                 [
-                    "library", "coordinate", "0x06000001+0x0",
+                    "library", "address", "0x06000001+0x0",
                     "--library", assemblyPath,
                     "-S", "Context: Source Location", "--urls", "--tips", "q",
                     .. preferRendered ? new[] { "--prefer-rendered-urls" } : [],

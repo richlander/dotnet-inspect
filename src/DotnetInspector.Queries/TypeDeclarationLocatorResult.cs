@@ -11,6 +11,10 @@ public abstract record TypeDeclarationLocatorRequest
 
     public sealed record Exact(MetadataTypeDefinitionName Name) : TypeDeclarationLocatorRequest;
     public sealed record Pattern(string Text) : TypeDeclarationLocatorRequest;
+    public sealed record Namespace(
+        string Name,
+        MetadataNamespaceMatch Match = MetadataNamespaceMatch.Exact)
+        : TypeDeclarationLocatorRequest;
 }
 
 /// <summary>One detached declaration choice, including its source observation.</summary>
@@ -19,12 +23,14 @@ public sealed class TypeDeclarationLocatorCandidate
     internal TypeDeclarationLocatorCandidate(
         ExactLibrarySourceCoordinate coordinate,
         AssemblyTypeDeclaration declaration,
+        Guid moduleVersionId,
         int declarationOrder,
         WorkspaceDeclarationMember observation)
     {
         Coordinate = coordinate;
         Name = declaration.Name;
         Kind = declaration.Kind;
+        ModuleVersionId = moduleVersionId;
         DefinitionKind = declaration.DefinitionKind;
         IsDefinitionPublic = declaration.IsDefinitionPublic;
         IsPublicSurface = declaration.IsPublicSurface;
@@ -36,6 +42,7 @@ public sealed class TypeDeclarationLocatorCandidate
     public ExactLibrarySourceCoordinate Coordinate { get; }
     public MetadataTypeDefinitionName Name { get; }
     public AssemblyTypeDeclarationKind Kind { get; }
+    public Guid ModuleVersionId { get; }
     public AssemblyTypeDefinitionKind? DefinitionKind { get; }
     public bool? IsDefinitionPublic { get; }
     public bool IsPublicSurface { get; }

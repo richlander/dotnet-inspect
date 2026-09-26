@@ -11,7 +11,7 @@ namespace DotnetInspect.Cli.Output;
 /// <para>
 /// Most projection dispatch happens inside the section pipeline, so a mode that produces its own
 /// payload and returns early — <c>--versions</c>, <c>--layout</c>, <c>--tfms</c>,
-/// <c>--dependencies</c>, <c>library coordinate --file</c>, and
+/// <c>--dependencies</c>, <c>library address --file</c>, and
 /// <c>-D</c>/<c>--discover</c> — never reaches it. Each such mode accepted
 /// the projection flags and then rendered its own unprojected payload, which
 /// <see cref="ProjectionAudit"/> now reports as a bug. This is the dispatch those modes were

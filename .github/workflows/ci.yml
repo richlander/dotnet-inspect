@@ -495,32 +495,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Build browser frontend
-        working-directory: inspect-web
-        run: |
-          npm ci
-          npm run build
-
-      - name: Build platform-index generator
-        run: dotnet build inspect-web/tools/gen-platform-index/genindex.cs
-
       - name: Test browser engine
-        run: dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+        env:
+          MSBuildEnableWorkloadResolver: 'false'
+        run: dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 
   inspect-web-msdl-tests:
     name: inspect-web managed API tests
@@ -550,7 +533,7 @@ jobs:
           fi
 
       - name: Test Inspect Web managed API
-        run: dotnet run --project inspect-web/msdl-proxy.Tests -c Release
+        run: dotnet run --project tests/MsdlProxy.Tests -c Release
 
   inspect-web-browser:
     name: inspect-web browser (${{ matrix.shard }}/2)
@@ -624,9 +607,10 @@ jobs:
         run: |
           set -uo pipefail
           dotnet publish \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
-            --output artifacts/inspect-web-publish &
+            --output artifacts/inspect-web-publish \
+            -p:InspectWebIncludeFrontend=true &
           publish_pid=$!
           (
             cd inspect-web
@@ -735,7 +719,7 @@ jobs:
       - name: Publish Inspect Web managed API
         run: >
           dotnet publish
-          inspect-web/msdl-proxy/MsdlProxy.csproj
+          src/MsdlProxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-api
 
@@ -1182,6 +1166,10 @@ jobs:
       - name: Run row-selection tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
+
+      - name: Run QueryOverflow tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/QueryOverflow.Tests -c Release
 
       - name: Run source-selection public contract tests
         if: matrix.shard == 'contracts'

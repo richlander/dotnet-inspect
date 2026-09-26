@@ -546,7 +546,7 @@ public static class InspectionCommandDefinitions
             }
         });
         assemblyCommand.Subcommands.Add(
-            LibraryCoordinateCommandDefinitions.Create(
+            LibraryAddressCommandDefinitions.Create(
                 opts,
                 assemblyCommand,
                 assemblyPathArg,
