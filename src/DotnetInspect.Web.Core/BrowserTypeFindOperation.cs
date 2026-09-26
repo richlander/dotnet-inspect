@@ -85,6 +85,7 @@ internal abstract record BrowserTypeFindCapturedDestination
 internal sealed class BrowserTypeFindOperation : IDisposable
 {
     readonly object _gate = new();
+    readonly string _issuer = Guid.NewGuid().ToString("N");
     readonly BrowserFrameworkDeclarationActivation _framework;
     PublicationState? _current;
     long _latestGeneration = -1;
@@ -104,15 +105,11 @@ internal sealed class BrowserTypeFindOperation : IDisposable
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(navigation);
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return new BrowserTypeFindExecutionResult.Rejected(
-                "Type Find text must not be empty.");
-        }
         ArgumentOutOfRangeException.ThrowIfNegative(resultGeneration);
 
         BrowserFrameworkDeclarationResultAuthority frameworkAuthority;
         PublicationState publication;
+        PublicationState? superseded;
         lock (_gate)
         {
             if (_disposed)
@@ -137,9 +134,16 @@ internal sealed class BrowserTypeFindOperation : IDisposable
             }
 
             _latestGeneration = resultGeneration;
-            publication = new(resultGeneration);
+            publication = new(resultGeneration, navigation);
+            superseded = _current;
             _current = publication;
             frameworkAuthority = admitted.Authority;
+        }
+        RetirePublication(superseded);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return new BrowserTypeFindExecutionResult.Rejected(
+                "Type Find text must not be empty.");
         }
 
         InspectionWorkspace workspace = operation.Workspace;
@@ -207,8 +211,8 @@ internal sealed class BrowserTypeFindOperation : IDisposable
             ImmutableArray.CreateBuilder<PendingFrameworkCandidate>();
         var activations =
             ImmutableArray.CreateBuilder<BrowserTypeFindCandidateActivation>();
-        var captured =
-            ImmutableArray.CreateBuilder<BrowserTypeFindCapturedDestination>();
+        var capturedActions =
+            ImmutableArray.CreateBuilder<CapturedAction>();
 
         foreach (TypeDeclarationLocatorSectionAnswer answer
             in projected.Answers)
@@ -287,6 +291,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                             BrowserFrameworkDeclarationAction,
                             BrowserTypeFindLibraryIntent>.Projected selected)
                     {
+                        navigation.RetireRetainedTypeActions([action.Action]);
                         activations.Add(new(
                             reference,
                             BrowserTypeFindActivationSource.Package,
@@ -296,11 +301,27 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                         continue;
                     }
 
-                    string actionId =
-                        $"type-find-{resultGeneration}-{captured.Count + 1}";
-                    captured.Add(
+                    if (!TryTrackNavigationAction(
+                            publication,
+                            action.Action))
+                    {
+                        navigation.RetireRetainedTypeActions([action.Action]);
+                        activations.Add(new(
+                            reference,
+                            BrowserTypeFindActivationSource.Package,
+                            BrowserTypeFindActivationStatus.Stale,
+                            Action: null,
+                            "A newer Type Find result replaced this operation."));
+                        continue;
+                    }
+
+                    string actionId = ActionId(
+                        resultGeneration,
+                        capturedActions.Count + 1);
+                    capturedActions.Add(new(
+                        actionId,
                         new BrowserTypeFindCapturedDestination.Package(
-                            selected.Descriptor));
+                            selected.Descriptor)));
                     activations.Add(new(
                         reference,
                         BrowserTypeFindActivationSource.Package,
@@ -406,11 +427,13 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     continue;
                 }
 
-                string actionId =
-                    $"type-find-{resultGeneration}-{captured.Count + 1}";
-                captured.Add(
+                string actionId = ActionId(
+                    resultGeneration,
+                    capturedActions.Count + 1);
+                capturedActions.Add(new(
+                    actionId,
                     new BrowserTypeFindCapturedDestination.Framework(
-                        selected.Descriptor));
+                        selected.Descriptor)));
                 activations[pending.ActivationIndex] = new(
                     pending.Reference,
                     BrowserTypeFindActivationSource.Framework,
@@ -425,7 +448,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
             new(
                 execution.Inspection,
                 activations.ToImmutable()),
-            captured.ToImmutable());
+            capturedActions.ToImmutable());
     }
 
     internal BrowserTypeFindCapturedDestination? ResolveAction(string action)
@@ -441,51 +464,80 @@ internal sealed class BrowserTypeFindOperation : IDisposable
 
     public void Dispose()
     {
+        PublicationState? current;
         lock (_gate)
         {
             if (_disposed)
                 return;
             _disposed = true;
+            current = _current;
             _current = null;
         }
+        RetirePublication(current);
         _framework.Dispose();
     }
 
     BrowserTypeFindExecutionResult Complete(
         PublicationState publication,
         BrowserTypeFindOperationResult result,
-        ImmutableArray<BrowserTypeFindCapturedDestination> destinations)
+        ImmutableArray<CapturedAction> capturedActions)
+    {
+        lock (_gate)
+        {
+            if (!_disposed && ReferenceEquals(_current, publication))
+            {
+                if (result.Activations.Count(
+                        static activation => activation.Action is not null)
+                    != capturedActions.Length)
+                {
+                    throw new InvalidOperationException(
+                        "Every captured Type Find action must have one descriptor.");
+                }
+
+                publication.Actions =
+                    capturedActions
+                        .ToImmutableDictionary(
+                            static captured => captured.Action,
+                            static captured => captured.Destination,
+                            StringComparer.Ordinal);
+                return new BrowserTypeFindExecutionResult.Completed(result);
+            }
+        }
+
+        RetirePublication(publication);
+        return new BrowserTypeFindExecutionResult.Stale(
+            "A newer Type Find result replaced this operation.");
+    }
+
+    string ActionId(long resultGeneration, int ordinal) =>
+        $"type-find-{_issuer}-{resultGeneration}-{ordinal}";
+
+    bool TryTrackNavigationAction(
+        PublicationState publication,
+        NavigationAction action)
     {
         lock (_gate)
         {
             if (_disposed || !ReferenceEquals(_current, publication))
-            {
-                return new BrowserTypeFindExecutionResult.Stale(
-                    "A newer Type Find result replaced this operation.");
-            }
-            if (result.Activations.Count(
-                    static activation => activation.Action is not null)
-                != destinations.Length)
-            {
-                throw new InvalidOperationException(
-                    "Every captured Type Find action must have one descriptor.");
-            }
-
-            publication.Actions =
-                result.Activations
-                    .Where(static activation => activation.Action is not null)
-                    .Zip(
-                        destinations,
-                        static (activation, destination) =>
-                            KeyValuePair.Create(
-                                activation.Action!,
-                                destination))
-                    .ToImmutableDictionary(
-                        static pair => pair.Key,
-                        static pair => pair.Value,
-                        StringComparer.Ordinal);
-            return new BrowserTypeFindExecutionResult.Completed(result);
+                return false;
+            publication.NavigationActions =
+                publication.NavigationActions.Add(action);
+            return true;
         }
+    }
+
+    void RetirePublication(PublicationState? publication)
+    {
+        if (publication is null)
+            return;
+
+        ImmutableArray<NavigationAction> actions;
+        lock (_gate)
+        {
+            actions = publication.NavigationActions;
+            publication.NavigationActions = [];
+        }
+        publication.Navigation.RetireRetainedTypeActions(actions);
     }
 
     static TypeDeclarationLocatorCandidate ResolveRawCandidate(
@@ -975,9 +1027,13 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 "Unknown framework declaration activation block."),
         };
 
-    sealed class PublicationState(long generation)
+    sealed class PublicationState(
+        long generation,
+        BrowserNavigationStateSlot navigation)
     {
         internal long Generation { get; } = generation;
+
+        internal BrowserNavigationStateSlot Navigation { get; } = navigation;
 
         internal ImmutableDictionary<
             string,
@@ -986,7 +1042,14 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     string,
                     BrowserTypeFindCapturedDestination>.Empty
                     .WithComparers(StringComparer.Ordinal);
+
+        internal ImmutableArray<NavigationAction> NavigationActions
+            { get; set; } = [];
     }
+
+    sealed record CapturedAction(
+        string Action,
+        BrowserTypeFindCapturedDestination Destination);
 
     sealed record PendingFrameworkCandidate(
         int ActivationIndex,

@@ -193,7 +193,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 await owner.FindTypesAsync(
                     posting.RetainedDefinitionId,
                     posting.RealizationId,
-                    "JsonSerializer",
+                    "Json*",
                     resultGeneration: 1,
                     TestContext.Current.CancellationToken));
 
@@ -217,8 +217,27 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     BrowserTypeFindActivationStatus.Available,
                     activation.Status);
                 Assert.False(string.IsNullOrWhiteSpace(activation.Action));
-                Assert.NotNull(
-                    owner.ResolveTypeFindAction(activation.Action!));
+                BrowserTypeFindCapturedDestination captured =
+                    Assert.IsAssignableFrom<
+                        BrowserTypeFindCapturedDestination>(
+                            owner.ResolveTypeFindAction(
+                                activation.Action!));
+                if (activation.Source
+                    == BrowserTypeFindActivationSource.Package)
+                {
+                    Assert.IsType<
+                        BrowserTypeFindCapturedDestination.Package>(
+                            captured);
+                }
+                else
+                {
+                    Assert.Equal(
+                        BrowserTypeFindActivationSource.Framework,
+                        activation.Source);
+                    Assert.IsType<
+                        BrowserTypeFindCapturedDestination.Framework>(
+                            captured);
+                }
             });
     }
 
@@ -255,11 +274,58 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 "JsonSerializer",
                 resultGeneration: 2,
                 TestContext.Current.CancellationToken));
-        Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+        BrowserTypeFindExecutionResult.Completed replacementFind =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
             await owner.FindTypesAsync(
                 replacement.RetainedDefinitionId,
                 replacement.RealizationId,
                 "JsonSerializer",
+                resultGeneration: 1,
+                TestContext.Current.CancellationToken));
+        string replacementAction = replacementFind.Result.Activations
+            .First(activation => activation.Action is not null)
+            .Action!;
+        Assert.NotEqual(action, replacementAction);
+        Assert.Null(owner.ResolveTypeFindAction(action));
+        Assert.NotNull(owner.ResolveTypeFindAction(replacementAction));
+    }
+
+    [Fact]
+    public async Task ManagedTypeFind_EmptyTextSupersedesCapturedActions()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "cleared-type-find", Packet());
+        BrowserTypeFindExecutionResult.Completed completed =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                await owner.FindTypesAsync(
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    "JsonSerializer",
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        string action = completed.Result.Activations
+            .First(activation => activation.Action is not null)
+            .Action!;
+        Assert.NotNull(owner.ResolveTypeFindAction(action));
+
+        Assert.IsType<BrowserTypeFindExecutionResult.Rejected>(
+            await owner.FindTypesAsync(
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                " ",
+                resultGeneration: 2,
+                TestContext.Current.CancellationToken));
+
+        Assert.Null(owner.ResolveTypeFindAction(action));
+        Assert.IsType<BrowserTypeFindExecutionResult.Stale>(
+            await owner.FindTypesAsync(
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                "JsonDocument",
                 resultGeneration: 1,
                 TestContext.Current.CancellationToken));
     }

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
@@ -57,6 +58,22 @@ internal sealed class BrowserNavigationStateSlot
             return transition.ActionPublication
                 ?? throw new InvalidOperationException(
                     "Retained Type action publication returned no result.");
+        }
+    }
+
+    internal void RetireRetainedTypeActions(
+        ImmutableArray<NavigationAction> actions)
+    {
+        if (actions.IsDefaultOrEmpty)
+            return;
+        lock (_gate)
+        {
+            if (_retired)
+                return;
+            Commit(
+                NavigationTransitions.RetireRetainedTypeActions(
+                    _state,
+                    actions));
         }
     }
 
