@@ -869,7 +869,6 @@ public static class RouterCommandDefinition
                 message => platformLookupFailure ??= message,
                 allowRuntimeTypeFallback: !completeLocatorMiss);
             bool hasNonExactPlatformProbe = false;
-            bool drainCompletedCompatibilityMiss = false;
             if (typeProbe != null)
             {
                 hasNonExactPlatformProbe =
@@ -905,9 +904,6 @@ public static class RouterCommandDefinition
                             return tokens;
                     }
 
-                    drainCompletedCompatibilityMiss =
-                        compatibility
-                            is PlatformTypeCatalogRouteOutcome.Missing;
                 }
                 if (!hasNonExactPlatformProbe)
                 {
@@ -948,33 +944,44 @@ public static class RouterCommandDefinition
                 return tokens;
             }
 
-            if (drainCompletedCompatibilityMiss)
-            {
-                RouterDecisionLog.Record(
-                    "qualified-type-prefix",
-                    $"{target} -> framework="
-                        + PlatformFrameworkSpec(completedLocator!.Target));
-                return [
-                    "type",
-                    target,
-                    SuppressRuntimeTypeFallbackOptionName,
-                    SuppressRuntimeTypeFallbackCapability,
-                    .. tail,
-                ];
-            }
-
             if (hasNonExactPlatformProbe)
-                return ["type", target, .. tail];
+                return RouteTypeAfterLocator(
+                    target,
+                    tail,
+                    completeLocatorMiss);
 
             if (PlatformResolver.IsPlatformCandidate(target))
             {
                 if (await PackageExistsAsync(target, sourceOptions, context))
                     return ["package", .. tokens];
 
-                return ["type", target, .. tail];
+                return RouteTypeAfterLocator(
+                    target,
+                    tail,
+                    completeLocatorMiss);
             }
 
             return ["package", .. tokens];
+        }
+
+        private static string[] RouteTypeAfterLocator(
+            string target,
+            string[] tail,
+            bool completeLocatorMiss)
+        {
+            if (!completeLocatorMiss)
+                return ["type", target, .. tail];
+
+            RouterDecisionLog.Record(
+                "type-after-complete-platform-lookup",
+                target);
+            return [
+                "type",
+                target,
+                SuppressRuntimeTypeFallbackOptionName,
+                SuppressRuntimeTypeFallbackCapability,
+                .. tail,
+            ];
         }
 
         public static bool TryRewriteAcquisitionFree(

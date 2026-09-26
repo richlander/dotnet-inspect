@@ -152,11 +152,11 @@ ambiguous qualified-name behavior without intercepting another framework
 family's fallback, reopening the runtime catalog, or repeating a reverse
 declaration scan.
 
-After a completed compatibility request misses, Router marks its internal
-Type-command handoff so source resolution cannot reopen the runtime-wide
-reverse lookup. Existing narrow-source failure and wide prefix-browse behavior
-remain available through the Type command; the handoff is not a user-facing
-option.
+After a complete locator miss reaches a Type-command fallback, Router marks the
+internal handoff so neither source resolution nor Type's later exact
+find-if-miss can reopen runtime-wide discovery. Existing narrow-source failure
+and wide prefix-browse behavior remain available through the Type command; the
+handoff is capability-guarded and is not a user-facing option.
 
 The locator projects all declarations for Type/member parity with the replaced
 catalog. Namespace routing applies Metadata's `IsPublicSurface` fact before

@@ -1844,6 +1844,34 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Router_UnclassifiedCompleteLocatorMissSearchesPlatformOnce()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "System.DoesNotExist",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in runtime@",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in aspnetcore@",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            error.Split(
+                "libraries in netstandard@",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public async Task
         Router_RuntimeOnlyAssemblyPrefixUsesLocatorCompatibility()
     {
         using RouterDecisionLog.Capture decisions =
