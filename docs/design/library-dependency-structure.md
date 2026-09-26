@@ -286,9 +286,18 @@ never establishes identity or order.
 
 ## Derived structure
 
-**Namespace cycles** are the strongly connected components of the internal
-namespace graph that contain two or more namespaces. A cycle's members are
-ordered by namespace identity, and cycles are ordered by their first member.
+**Namespace cycles** are groups of two or more namespaces in the inspected
+library that depend on each other through call edges: each namespace in the
+group reaches every other one, directly or through other namespaces
+(formally, the strongly connected components of the internal namespace
+graph). For example, if `Foo.Validators` calls `Foo.Internal` and
+`Foo.Internal` calls back into `Foo.Validators`, both form one cycle.
+
+Only internal namespaces take part. A namespace in another assembly is an
+external node keyed by that assembly, even when it has the same name as a
+local namespace, so a namespace declared across two assemblies is neither a
+cycle nor detected here. A cycle's members are ordered by namespace identity,
+and cycles are ordered by their first member.
 
 **Levels** follow Lakos levelization over the condensation of the internal
 namespace graph. A namespace with no internal outgoing edge is level 0. Every
