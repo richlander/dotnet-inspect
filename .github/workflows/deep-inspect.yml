@@ -445,6 +445,15 @@ jobs:
           mkdir -p artifacts/deep-inspect
           bash eng/prepare-decompiler-corpus.sh artifacts/deep-inspect/corpus-assemblies.txt
 
+      - name: Run AssemblyRef supplier routing census
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet run -c Release eng/census-assemblyref-supplier-routing.cs -- \
+            artifacts/deep-inspect/assemblyref-supplier-routing.json 1 100 \
+            Microsoft.Azure.SignalR@1.33.1/net8.0 \
+            2>&1 | tee artifacts/deep-inspect/assemblyref-supplier-routing.txt
+
       - name: Run real-world corpus sensor
         shell: bash
         run: |

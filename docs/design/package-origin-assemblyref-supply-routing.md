@@ -32,11 +32,11 @@ The motivating production scenarios are:
 
 > Given one exact external `AssemblyRef` from an acquired package Library, a
 > completed referencing-context `NoNameOwner`, complete reachable PackageRef
-> evidence, selected package-role evidence when acquired, and eligible
-> Platform evidence when applicable, associate the request first with ordinary
-> Package suppliers and then with the Platform specialization without treating
-> package identity, filename, or Platform membership as a substitute for the
-> final Metadata binding decision.
+> evidence, a complete selected-role filename inventory when the namesake fast
+> path misses, and eligible Platform evidence when applicable, associate the
+> request through an ordered ordinary Package search and then the Platform
+> specialization without treating package identity, filename, or Platform
+> membership as a substitute for the final Metadata binding decision.
 
 It owns:
 
@@ -104,8 +104,8 @@ Package and Platform routes use the same evidence pattern:
 | Stage | Ordinary Package route | Platform specialization |
 | --- | --- | --- |
 | Supplier eligibility | Actual reachable PackageRef | Owner-issued eligible Platform family |
-| Resource-free correlation | Exact namesake or boundary-aligned package-family prefix | Exact Platform Library membership |
-| Member correlation | Selected package-role filename or validated identity inventory | Reference- or runtime-pack member |
+| Resource-free correlation | Exact namesake; then selected filename inventory with optional package-family ranking | Exact Platform Library membership |
+| Member correlation | Exact selected-role filename | Reference- or runtime-pack member |
 | Completion gate | Decoded `AssemblyDef` identity and Metadata binding policy | Decoded `AssemblyDef` identity and Metadata binding policy |
 
 The correlation stages answer where bounded work should look. They do not
@@ -129,17 +129,34 @@ ordinal-ignore-case package identity semantics:
   package identity alone.
 
 Exact and prefix matches are candidate evidence, not proof that the package
-contains the assembly. A separately owner-issued selected-role inventory may
-nominate a package with no name affinity. Conversely, the absence of name
-affinity cannot support a complete no-owner claim unless complete selected-role
-evidence has excluded that package.
+contains the assembly. They have different operational roles:
 
-This keeps the common path cheap without claiming that every package follows a
-package-ID-to-assembly naming convention.
+1. An exact namesake PackageRef is the fast-path candidate. The route may
+   select and decode its exact namesake file without inspecting other package
+   payloads. A successful Metadata binding completes the Package search.
+2. If the exact candidate is absent or does not bind, the route obtains the
+   complete selected-role filename inventory across the retained closure.
+3. Boundary-prefix correlation may rank namesake files found by that inventory
+   ahead of no-affinity packages. It does not cause an extra package
+   acquisition and does not exclude any namesake file.
+4. Remaining `<AssemblyRefName>.dll` files are the complete fallback candidate
+   set.
+
+This keeps the ordinary success path to one package selection and one Metadata
+decode. The fallback is O(n) over already selected asset filenames, not O(n)
+assembly acquisitions or Metadata decodes.
+
+The complete filename inventory is an immutable, generation-bound index for
+the selected package target, not a fresh traversal for each AssemblyRef. It is
+built lazily on the first exact-candidate miss and reused for every request
+with the same PackageHouse receipt. For `r` AssemblyRefs, `a` selected assets,
+and `c` namesake candidates that require Metadata validation, the bounded work
+is O(r) exact PackageRef lookups + O(a) filename indexing + O(c) candidate
+decodes, not O(r x a) payload scans or O(a) Metadata decodes per request.
 
 ### Selected package-content correlation
 
-For each retained candidate PackageRef:
+For the exact candidate and then each filename-inventory candidate:
 
 1. candidate resolution supplies one exact authorized package coordinate;
 2. PackageHouse selects the compile and implementation roles for the request;
@@ -150,10 +167,16 @@ For each retained candidate PackageRef:
    original `AssemblyRef`.
 
 The filename match is package-content evidence and a member-acquisition
-optimization. It is not the binding authority. A selected `Alias.dll` whose
-Metadata identity is `Contoso.Real` participates as `Contoso.Real`; a complete
-selected-role identity inventory may therefore establish a supplier that
-filename correlation alone would miss.
+optimization. It is not the binding authority. Only candidate files named
+`<AssemblyRefName>.dll` are decoded by the generic fallback, and decoded
+Metadata may still reject them.
+
+The generic association does not promise discovery of `Alias.dll` whose
+Metadata identity is `Contoso.Real`. Such a package can participate only when
+an adjacent owner already supplies a validated Metadata-identity index; this
+design neither builds nor requires that index. This is a deliberate bounded
+contract, monitored by the retained corpus census rather than hidden behind a
+closure-wide Metadata scan.
 
 Likewise, a same-named file with an incompatible version, culture, public key,
 or content remains `NameOwnedNoMatch`, rejected, or another owner-issued
@@ -178,19 +201,20 @@ compares package versions; Metadata binding compares assembly identities.
 
 ### Polly-family packages
 
-Polly illustrates both ordinary correlations:
+Polly illustrates the ordinary correlations:
 
 - exact PackageRef and AssemblyRef names identify namesake candidates such as
   `Polly.Core`;
-- a boundary-aligned `Polly`/`Polly.*` relation identifies a package-family
+- a boundary-aligned `Polly`/`Polly.*` relation can rank a filename-inventory
   candidate without claiming ownership; and
 - the selected package role and decoded assembly identity establish which
   package actually supplies `Polly.dll`, `Polly.Core.dll`, or
   `Polly.Extensions.Http.dll`.
 
-A broad shared prefix does not search NuGet, admit an undeclared package, or
-bind an assembly. It operates only over the complete reachable PackageRef set
-and must be confirmed by selected package content.
+A broad shared prefix does not trigger package acquisition, search NuGet,
+admit an undeclared package, or bind an assembly. It operates only over
+namesake files in the complete retained selected-role inventory and must be
+confirmed by decoded Metadata.
 
 ## Platform is a supplier specialization
 
@@ -358,7 +382,9 @@ The supplier-association input retains:
   applies;
 - every retained PackageRef and its exact, prefix, or no-affinity correlation
   result;
-- selected package-role filename and decoded identity evidence when available;
+- the exact-candidate result and, when it misses, the complete selected-role
+  filename inventory;
+- decoded identity evidence for each namesake candidate evaluated;
 - owner-issued Platform-family eligibility when the specialization is
   evaluated;
 - the exact selected Platform family composition and target when eligible;
@@ -373,21 +399,24 @@ The composition validates:
 2. every actual package edge is delegated or retained by its pruning result;
 3. no delegated edge appears as a Package acquisition candidate;
 4. every Package candidate is an actual reachable PackageRef;
-5. package-ID and filename correlation remain candidate evidence until decoded
-   Metadata identity settles ownership;
-6. a no-affinity correlation remains unsettled until complete owner-issued
-   selected-role evidence excludes or nominates the requested assembly;
-7. Platform-family eligibility comes from owner-issued framework or Workspace
+5. an exact namesake PackageRef can complete the ordered Package search only
+   after its namesake file's decoded Metadata identity binds;
+6. after an exact-candidate miss, complete owner-issued selected-role filename
+   inventory nominates every generic fallback candidate;
+7. prefix ranking applies only within that filename candidate set;
+8. a filename candidate remains unsettled until decoded Metadata identity
+   accepts or rejects it;
+9. Platform-family eligibility comes from owner-issued framework or Workspace
    evidence;
-8. Platform membership and source evidence correspond to the selected family
+10. Platform membership and source evidence correspond to the selected family
    and target; and
-9. every final supplier evaluation carries the unchanged Metadata request.
+11. every final supplier evaluation carries the unchanged Metadata request.
 
 ## Closed association outcomes
 
 Supplier association produces:
 
-- **PackageOwned** — one or more retained selected package roles own the
+- **PackageOwned** — the first successful ordered Package tier owns the
   requested assembly;
 - **PlatformApplicable** — no retained Package route owns the request and one
   eligible Platform membership can supply it;
@@ -399,30 +428,41 @@ Supplier association produces:
   finite-work evidence cannot settle; or
 - **Failed** — an owner failed while producing required evidence.
 
-The ladder consumes these outcomes under its existing precedence. The
-association owner does not select a lower-precedence supplier while a
-higher-precedence candidate remains unsettled.
+The ladder consumes these outcomes under its existing precedence. Within the
+Package association, exact namesake, prefix-ranked filename, and remaining
+filename candidates are ordered tiers. The association does not select a
+lower tier while a higher-tier candidate remains unsettled. Several binding
+candidates in the same tier are ambiguous.
 
 ## Pathological cases
 
 ### Exact PackageRef name with no matching member
 
 A namesake PackageRef is a candidate, but its selected role contains no
-matching filename or decoded assembly identity. It does not own the
-AssemblyRef. Complete remaining supplier evidence decides whether another
-Package or Platform route may proceed.
+matching filename or its namesake file does not bind. It does not own the
+AssemblyRef. The complete selected-role filename inventory decides whether a
+fallback Package candidate exists before Platform routing may proceed.
 
 ### Prefix PackageRef with unrelated content
 
 A boundary-aligned package-family prefix nominates a candidate but grants no
-ownership. Selected content that lacks the requested assembly closes that
-candidate as `NoNameOwner`.
+ownership. It ranks only packages whose selected roles contain the requested
+filename. Selected content that lacks that filename causes no acquisition.
 
-### Non-namesake package containing the assembly
+### Non-namesake package containing the namesake file
 
-A complete owner-issued selected-role inventory can nominate a package whose
-ID has no name affinity. Decoded Metadata identity, not the package ID or
+A complete selected-role filename inventory can nominate a package whose ID
+has no name affinity. `xunit.extensibility.core` supplying `xunit.core.dll` is
+one observed example. Decoded Metadata identity, not the package ID or
 filename, determines ownership.
+
+### Metadata identity unrelated to the filename
+
+The generic fallback does not decode every unrelated selected asset to
+discover an identity-only supplier. An adjacent validated identity index may
+nominate one; otherwise that convention violation is outside the bounded
+association contract and is reported by the Deep Inspect census sensor if it
+appears in the retained corpus.
 
 ### Retained Package and Platform both supply the name
 
@@ -435,13 +475,67 @@ does not override the retained Package supplier.
 The package edge remains conclusively delegated. Missing Platform membership
 is a typed Platform absence, not permission to reopen package acquisition.
 
+## Census evidence and bounded cost
+
+`eng/census-assemblyref-supplier-routing.cs` is the retained observational
+sensor for this cost model. It restores each package root independently, uses
+the product `ProjectAssetsParser` selected compile closure, reads identities
+and references with `AssemblyInspectionSession`, and compares them with exact
+reference-pack catalogs for the scenario TFM. The Deep Inspect census lane
+runs:
+
+```text
+dotnet run eng/census-assemblyref-supplier-routing.cs -- \
+  artifacts/deep-inspect/assemblyref-supplier-routing.json 1 100 \
+  Microsoft.Azure.SignalR@1.33.1/net8.0
+```
+
+The pinned top-100 corpus at `net11.0` produced 89 analyzed roots, 9
+`no-library` roots, 2 `no-compile-assets` roots, 91 root assemblies, 245
+selected compile assets, and 1,094 AssemblyRefs. Their classifications were:
+
+| Route | AssemblyRefs |
+| --- | ---: |
+| Exact namesake Package | 97 |
+| Filename-only Package | 1 |
+| Same-package context member | 3 |
+| Platform | 992 |
+| Unresolved | 1 |
+
+The exact namesake route had no competing Package supplier and no candidate
+miss. The only filename-only route was `xunit.core`, supplied by
+`xunit.extensibility.core/xunit.core.dll`. No identity-only Package supplier
+was observed. Prefix affinity produced no supplier that the filename fallback
+needed it to discover; 52 AssemblyRefs instead had a non-supplying
+prefix-affinity package. The selected closure averaged 2.73 packages and 2.75
+compile assets, with a maximum of 14 for each. The unresolved observation was
+`Sfa.Core.ServiceModel.dll` referencing `System.ServiceModel`.
+
+The supplemental `Microsoft.Azure.SignalR@1.33.1/net8.0` root selected 25
+packages and 26 compile assets. Its 74 AssemblyRefs classified as 6 exact
+namesake Package, 1 same-package context member, and 67 Platform. Fourteen
+exact-name package candidates failed Metadata binding and correctly continued
+to exact .NET Runtime or ASP.NET Core Platform membership. This demonstrates
+why the fast path still requires Metadata validation.
+
+This census is motivating evidence, not a universal proof. It examines root
+assemblies and restore-selected compile assets in a pinned popular-package
+corpus; it does not enumerate every assembly in every package or model future
+PackageHouse pruning. The JSON report records the package-pin digest,
+per-root TFM, closure sizes, exceptional routes, and failures. Any restore,
+asset decode, or root-analysis failure makes the sensor fail. A future
+identity-only supplier or repeated filename-fallback growth is evidence to
+revisit this bounded contract rather than silently broadening every production
+request into a closure-wide Metadata scan.
+
 ## Production adoption
 
 The end-to-end adoption has three remaining slices:
 
 1. Add host-neutral supplier association over PackageHouse dependency,
    selected-role, pruning, framework-reference, and exact Platform membership
-   evidence for one `AssemblyBindingRequest`.
+   evidence, including one reusable selected-filename index per PackageHouse
+   generation.
 2. Invoke existing PackageHouse and PlatformHouse sources for the selected
    Package or Platform supplier while preserving Reference and Implementation
    view demands.
@@ -467,8 +561,12 @@ Future Release gates must prove:
   correlation followed by selected-content verification;
 - a same-named or prefix-related PackageRef without the assembly does not own
   the request;
-- a selected package member with an unrelated filename can participate only
-  through owner-validated Metadata identity;
+- an exact namesake package and namesake file bind after one selected-package
+  Metadata evaluation without realizing unrelated package payloads;
+- an exact-candidate miss performs one complete selected-role filename scan
+  and decodes only namesake files;
+- the real `xunit.core` filename-only case resolves from
+  `xunit.extensibility.core`;
 - `Microsoft.Azure.SignalR` 1.33.1 at `net8.0` resolves
   `Microsoft.AspNetCore.SignalR.Core` through the ASP.NET Core Platform
   specialization without a component PackageRef;
@@ -483,13 +581,17 @@ Future Release gates must prove:
   outcome.
 
 The System.Text.Json, Polly, and Azure SignalR cases use real nuget.org
-packages. Synthetic fixtures cover false-positive prefix correlation,
-non-namesake content, missing Platform membership, ambiguity, incomplete
-evidence, and source failure.
+packages. Synthetic fixtures cover false-positive prefix correlation, missing
+Platform membership, same-tier ambiguity, incomplete filename inventory, and
+source failure. The Deep Inspect census monitors exact-path hit rate,
+filename-only suppliers, identity-only suppliers, candidate misses, closure
+sizes, and unresolved references over the pinned real-package corpus.
 
 ## Non-goals
 
 - Searching NuGet globally by assembly simple name.
+- Closure-wide Metadata decoding to discover arbitrary identity-only package
+  assets.
 - Treating package-ID or filename correlation as binding authority.
 - Mapping package IDs directly to Platform Library identities.
 - Treating pruning as an AssemblyRef classifier.
