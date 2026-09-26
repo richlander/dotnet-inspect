@@ -17,6 +17,53 @@ internal readonly record struct MetadataVisibilityClassification(
 
 internal static class MetadataVisibility
 {
+    internal static bool IsExternallyVisible(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        int remaining =
+            reader.GetTableRowCount(TableIndex.TypeDef);
+        TypeDefinitionHandle current = handle;
+        while (!current.IsNil)
+        {
+            if (remaining-- == 0)
+            {
+                throw new BadImageFormatException(
+                    "The nested type graph contains a cycle.");
+            }
+
+            TypeDefinition definition =
+                reader.GetTypeDefinition(current);
+            TypeAttributes access =
+                definition.Attributes
+                & TypeAttributes.VisibilityMask;
+            TypeDefinitionHandle declaringType =
+                definition.GetDeclaringType();
+            bool nested = access is not
+                (TypeAttributes.NotPublic
+                    or TypeAttributes.Public);
+            if (nested == declaringType.IsNil)
+            {
+                throw new BadImageFormatException(
+                    nested
+                        ? "A nested type has no declaring type."
+                        : "A top-level type has a declaring type.");
+            }
+            if (nested)
+            {
+                if (access != TypeAttributes.NestedPublic)
+                    return false;
+                current = declaringType;
+                continue;
+            }
+
+            return access == TypeAttributes.Public;
+        }
+
+        throw new BadImageFormatException(
+            "A Type definition has no visibility root.");
+    }
+
     internal static MetadataVisibilityClassification Classify(
         MetadataReader reader,
         int maximumTypeDefinitions)

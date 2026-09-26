@@ -72,13 +72,18 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 "Subject Relations execution requires Count, Rows, or both.");
         }
 
+        bool countNeedsRows =
+            count is not null
+            && !CanCountProducerCandidates(plan.Selection);
         WorkspaceTypeHierarchyRelationsResult relations =
             WorkspaceTypeHierarchyRelationsQuery.Execute(
                 workspace,
                 population,
                 focus,
                 includeNonPublic,
-                cancellationToken);
+                plan.Selection.Form,
+                materializeRows: rows is not null || countNeedsRows,
+                cancellationToken: cancellationToken);
         var inspectionRequest = new SubjectRelationsInspectionRequest(
             SubjectRelationsRouteKind.Type,
             relations.Focus,
@@ -96,7 +101,9 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 ? null
                 : relations.Evidence.IsComplete
                     ? new SubjectRelationPopulationCountOutcome.Counted(
-                        candidates.Length)
+                        countNeedsRows
+                            ? candidates.Length
+                            : relations.CandidateCount)
                     : new SubjectRelationPopulationCountOutcome.Incomplete();
         SubjectRelationPopulationRowsOutcome? rowsOutcome = null;
         ImmutableArray<WorkspaceTypeRelationCandidateRow> candidateRows = [];
@@ -233,5 +240,40 @@ public static class WorkspaceTypeRelationsInspectionOperation
                     group.Key.Candidate,
                     group.Value)),
         ];
+    }
+
+    private static bool CanCountProducerCandidates(
+        SubjectRelationPopulationSelection selection)
+    {
+        if (selection.Direction
+                is not SubjectRelationDirectionSelection.Incoming
+            and not SubjectRelationDirectionSelection.Both
+            || selection.Evidence
+                is not null
+                and not SubjectRelationEvidenceKind.Declaration
+            || selection.Integration
+                != SubjectRelationIntegrationSelection.Any
+            || selection.Ecosystem is not null
+            || selection.Concept is not null)
+        {
+            return false;
+        }
+
+        if (selection.Relationship is null)
+            return true;
+        InspectionGraphRelationshipDescriptor? relationship =
+            selection.Form switch
+            {
+                SubjectRelationForm.Interface =>
+                    MetadataRelationGraphCatalog.Interface,
+                SubjectRelationForm.BaseType =>
+                    MetadataRelationGraphCatalog.BaseType,
+                _ => null,
+            };
+        return relationship is not null
+            && string.Equals(
+                selection.Relationship,
+                relationship.Id,
+                StringComparison.Ordinal);
     }
 }

@@ -14,7 +14,7 @@ internal static partial class MetadataRelationInspection
         MetadataHierarchyRelationEvidence> ScanHierarchy(
         MetadataReader reader,
         MetadataRelationInspectionRequest request,
-        MetadataVisibilityClassification visibility,
+        MetadataVisibilityClassification? visibility,
         MetadataOperationContext operation,
         CancellationToken cancellationToken)
     {
@@ -25,23 +25,6 @@ internal static partial class MetadataRelationInspection
             ImmutableArray.CreateBuilder<MetadataRelationDiagnostic>();
         int considered = 0;
         int excluded = 0;
-        foreach (TypeDefinitionHandle handle
-            in reader.TypeDefinitions)
-        {
-            if (!request.IncludesType(reader, handle))
-                continue;
-            considered++;
-            if ((!request.IncludeNonPublic
-                    && !visibility.IsExternallyVisible(handle))
-                || (!request.IncludeHidden
-                    && AttributeReader.HasHiddenAttribute(
-                        reader,
-                        reader.GetTypeDefinition(handle)
-                            .GetCustomAttributes())))
-            {
-                excluded++;
-            }
-        }
         int examined = 0;
         int unavailable = 0;
         bool limited = false;
@@ -53,74 +36,65 @@ internal static partial class MetadataRelationInspection
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!request.IncludesType(reader, handle))
                     continue;
+                considered++;
                 operation.Charge(
                     MetadataOperationDimension.DeclarationCandidates);
                 if ((!request.IncludeNonPublic
-                        && !visibility.IsExternallyVisible(handle))
+                        && !(visibility?.IsExternallyVisible(handle)
+                            ?? MetadataVisibility.IsExternallyVisible(
+                                reader,
+                                handle)))
                     || (!request.IncludeHidden
                         && AttributeReader.HasHiddenAttribute(
                             reader,
                             reader.GetTypeDefinition(handle)
                                 .GetCustomAttributes())))
                 {
+                    excluded++;
                     continue;
                 }
 
                 TypeDefinition definition =
                     reader.GetTypeDefinition(handle);
-                MetadataTypeDefinitionName? sourceName =
-                    ReadTypeName(
-                        reader,
-                        handle,
-                        MetadataRelationFamily.Hierarchy,
-                        diagnostics);
-                if (sourceName is null)
-                {
-                    unavailable++;
-                    continue;
-                }
                 int diagnosticCount = diagnostics.Count;
-                MetadataTypeDefinitionAddress source =
-                    MetadataTypeDefinitionAddress.FromHandle(
-                        reader,
-                        handle);
-                GenericContext context =
-                    GenericContext.ForType(reader, definition);
-
                 if (!definition.BaseType.IsNil)
                 {
                     AddHierarchy(
                         reader,
                         definition.BaseType,
-                        context,
-                        source,
-                        sourceName,
+                        definition,
+                        handle,
                         MetadataHierarchyRelationKind.BaseType,
                         operation,
                         evidence,
                         diagnostics,
-                        MetadataTokens.GetToken(handle));
+                        MetadataTokens.GetToken(handle),
+                        request.HierarchyTarget);
                 }
 
-                foreach (InterfaceImplementationHandle row
-                    in definition.GetInterfaceImplementations())
+                if (request.HierarchyTarget?.Kind
+                    is not MetadataHierarchyRelationKind.BaseType)
                 {
-                    operation.Charge(
-                        MetadataOperationDimension
-                            .InterfaceImplementationRows);
-                    InterfaceImplementation implementation =
-                        reader.GetInterfaceImplementation(row);
-                    AddHierarchy(
-                        reader,
-                        implementation.Interface,
-                        context,
-                        source,
-                        sourceName,
-                        MetadataHierarchyRelationKind.Interface,
-                        operation,
-                        evidence,
-                        diagnostics,
-                        MetadataTokens.GetToken(row));
+                    foreach (InterfaceImplementationHandle row
+                        in definition.GetInterfaceImplementations())
+                    {
+                        operation.Charge(
+                            MetadataOperationDimension
+                                .InterfaceImplementationRows);
+                        InterfaceImplementation implementation =
+                            reader.GetInterfaceImplementation(row);
+                        AddHierarchy(
+                            reader,
+                            implementation.Interface,
+                            definition,
+                            handle,
+                            MetadataHierarchyRelationKind.Interface,
+                            operation,
+                            evidence,
+                            diagnostics,
+                            MetadataTokens.GetToken(row),
+                            request.HierarchyTarget);
+                    }
                 }
                 if (diagnostics.Count == diagnosticCount)
                     examined++;
@@ -170,39 +144,153 @@ internal static partial class MetadataRelationInspection
     private static void AddHierarchy(
         MetadataReader reader,
         EntityHandle target,
-        GenericContext context,
-        MetadataTypeDefinitionAddress source,
-        MetadataTypeDefinitionName sourceName,
+        TypeDefinition sourceDefinition,
+        TypeDefinitionHandle sourceHandle,
         MetadataHierarchyRelationKind kind,
         MetadataOperationContext operation,
         ImmutableArray<MetadataHierarchyRelationEvidence>.Builder
             evidence,
         ImmutableArray<MetadataRelationDiagnostic>.Builder
             diagnostics,
-        int? occurrenceToken = null)
+        int? occurrenceToken,
+        MetadataHierarchyTargetSelection? targetSelection)
     {
-        MetadataTypeIdentityDecodeResult decoded =
-            MetadataTypeIdentityDecoder.Decode(
+        if (targetSelection?.Kind is { } kindSelection
+            && kindSelection != kind)
+        {
+            return;
+        }
+
+        GenericContext? context = null;
+        MetadataTypeIdentity? selectedTarget = null;
+        if (targetSelection is not null)
+        {
+            operation.Charge(
+                MetadataOperationDimension.RelationshipEdges);
+            MetadataTypeNameFailure? directFailure = null;
+            MetadataTypeDefinitionNameMatchResult? directMatch;
+            if (target.Kind == HandleKind.TypeDefinition)
+            {
+                directMatch = MetadataTypeDefinitionName.Matches(
+                    reader,
+                    (TypeDefinitionHandle)target,
+                    targetSelection.Type,
+                    out directFailure);
+            }
+            else if (target.Kind == HandleKind.TypeReference)
+            {
+                directMatch = MetadataTypeDefinitionName.Matches(
+                    reader,
+                    (TypeReferenceHandle)target,
+                    targetSelection.Type,
+                    out directFailure);
+            }
+            else
+            {
+                directMatch = null;
+            }
+            if (directMatch
+                is MetadataTypeDefinitionNameMatchResult.Rejected)
+            {
+                diagnostics.Add(
+                    UnsupportedDiagnostic(
+                        MetadataRelationFamily.Hierarchy,
+                        occurrenceToken,
+                        directFailure?.Detail
+                            ?? "The hierarchy target name could not be read."));
+                return;
+            }
+            if (directMatch
+                is MetadataTypeDefinitionNameMatchResult.NoMatch)
+            {
+                return;
+            }
+            if (directMatch is null)
+            {
+                context = GenericContext.ForType(
+                    reader,
+                    sourceDefinition);
+                MetadataTypeIdentityDecodeResult candidate =
+                    MetadataTypeIdentityDecoder.Decode(
+                        reader,
+                        target,
+                        context,
+                        operation);
+                if (candidate
+                    is MetadataTypeIdentityDecodeResult.Rejected rejected)
+                {
+                    diagnostics.Add(
+                        UnsupportedDiagnostic(
+                            MetadataRelationFamily.Hierarchy,
+                            occurrenceToken,
+                            rejected.Detail));
+                    return;
+                }
+                selectedTarget =
+                    ((MetadataTypeIdentityDecodeResult.Decoded)candidate)
+                        .Identity;
+                MetadataNamedTypeIdentity? named = selectedTarget switch
+                {
+                    MetadataTypeIdentity.Named value => value.Definition,
+                    MetadataTypeIdentity.GenericInstance value =>
+                        value.Definition,
+                    _ => null,
+                };
+                if (named is null
+                    || MetadataTypeDefinitionName.Create(
+                            named.Namespace.ToString(),
+                            [.. named.Segments.Select(static segment =>
+                                segment.ToString())])
+                        is not MetadataTypeDefinitionNameResult.Valid valid
+                    || valid.Name != targetSelection.Type)
+                {
+                    return;
+                }
+            }
+        }
+
+        MetadataTypeDefinitionName? sourceName =
+            ReadTypeName(
                 reader,
-                target,
-                context,
-                operation);
-        if (decoded is MetadataTypeIdentityDecodeResult.Rejected rejected)
+                sourceHandle,
+                MetadataRelationFamily.Hierarchy,
+                diagnostics);
+        if (sourceName is null)
+            return;
+        context ??= GenericContext.ForType(
+            reader,
+            sourceDefinition);
+        MetadataTypeIdentityDecodeResult decoded =
+            selectedTarget is null
+                ? MetadataTypeIdentityDecoder.Decode(
+                    reader,
+                    target,
+                    context,
+                    operation)
+                : new MetadataTypeIdentityDecodeResult.Decoded(
+                    selectedTarget);
+        if (decoded
+            is MetadataTypeIdentityDecodeResult.Rejected rejectedTarget)
         {
             diagnostics.Add(
                 UnsupportedDiagnostic(
                     MetadataRelationFamily.Hierarchy,
                     occurrenceToken
                         ?? MetadataTokens.GetToken(target),
-                    rejected.Detail));
+                    rejectedTarget.Detail));
             return;
         }
 
-        operation.Charge(
-            MetadataOperationDimension.RelationshipEdges);
+        if (targetSelection is null)
+        {
+            operation.Charge(
+                MetadataOperationDimension.RelationshipEdges);
+        }
         evidence.Add(
             new(
-                source,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    sourceHandle),
                 sourceName,
                 kind,
                 ((MetadataTypeIdentityDecodeResult.Decoded)decoded)

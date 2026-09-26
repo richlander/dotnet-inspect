@@ -103,10 +103,15 @@ internal static partial class MetadataRelationInspection
                         diagnostic)));
         }
 
-        MetadataVisibilityClassification visibility;
+        MetadataVisibilityClassification? visibility = null;
         try
         {
-            visibility = MetadataVisibility.ClassifyAll(reader);
+            if ((request.Includes(MetadataRelationFamily.Hierarchy)
+                    && request.HierarchyTarget is null)
+                || request.Includes(MetadataRelationFamily.Signatures))
+            {
+                visibility = MetadataVisibility.ClassifyAll(reader);
+            }
         }
         catch (BadImageFormatException exception)
         {
@@ -157,7 +162,7 @@ internal static partial class MetadataRelationInspection
                     ? ScanSignatures(
                         reader,
                         request,
-                        visibility,
+                        visibility!.Value,
                         operation,
                         cancellationToken)
                     : MetadataRelationFamilyResult<

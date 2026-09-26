@@ -44,13 +44,35 @@ public enum MetadataRelationDiagnosticKind
     StaleSource,
 }
 
+/// <summary>
+/// Narrows hierarchy production to references to one exact metadata Type name
+/// and, optionally, one relation kind.
+/// </summary>
+public sealed record MetadataHierarchyTargetSelection
+{
+    public MetadataHierarchyTargetSelection(
+        MetadataTypeDefinitionName type,
+        MetadataHierarchyRelationKind? kind = null)
+    {
+        Type = type ?? throw new ArgumentNullException(nameof(type));
+        if (kind is not null && !Enum.IsDefined(kind.Value))
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        Kind = kind;
+    }
+
+    public MetadataTypeDefinitionName Type { get; }
+
+    public MetadataHierarchyRelationKind? Kind { get; }
+}
+
 public sealed record MetadataRelationInspectionRequest
 {
     public MetadataRelationInspectionRequest(
         IEnumerable<MetadataRelationFamily> families,
         MetadataOperationPolicy policy,
         bool includeNonPublic = false,
-        IEnumerable<MetadataTypeDefinitionAddress>? typeScope = null)
+        IEnumerable<MetadataTypeDefinitionAddress>? typeScope = null,
+        MetadataHierarchyTargetSelection? hierarchyTarget = null)
     {
         ArgumentNullException.ThrowIfNull(families);
         ArgumentNullException.ThrowIfNull(policy);
@@ -76,6 +98,14 @@ public sealed record MetadataRelationInspectionRequest
                 nameof(typeScope));
         }
         TypeScope = [.. scopeCopy];
+        if (hierarchyTarget is not null
+            && !familyCopy.Contains(MetadataRelationFamily.Hierarchy))
+        {
+            throw new ArgumentException(
+                "A hierarchy target requires the hierarchy relation family.",
+                nameof(hierarchyTarget));
+        }
+        HierarchyTarget = hierarchyTarget;
     }
 
     public ImmutableArray<MetadataRelationFamily> Families { get; }
@@ -88,6 +118,8 @@ public sealed record MetadataRelationInspectionRequest
 
     public ImmutableArray<MetadataTypeDefinitionAddress> TypeScope
     { get; }
+
+    public MetadataHierarchyTargetSelection? HierarchyTarget { get; }
 
     public bool Includes(MetadataRelationFamily family) =>
         Families.Contains(family);

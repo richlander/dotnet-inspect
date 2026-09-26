@@ -522,6 +522,70 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void HierarchyTargetSelectionProducesOnlyMatchingRelationForm()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: new(
+                            TypeName("System.IO", "Stream"),
+                            MetadataHierarchyRelationKind.BaseType)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            available.Result.Hierarchy.Disposition);
+        Assert.Equal(7, available.Result.Hierarchy.Evidence.Length);
+        Assert.All(
+            available.Result.Hierarchy.Evidence,
+            relation =>
+            {
+                Assert.Equal(
+                    MetadataHierarchyRelationKind.BaseType,
+                    relation.Kind);
+                AssertNamedType(
+                    relation.Target,
+                    "System.IO",
+                    "Stream");
+            });
+    }
+
+    [Fact]
+    public void SimpleTypeNameSearchMaterializesOnlyMatchingDefinitions()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var found =
+            Assert.IsType<MetadataTypeDefinitionNameSearchResult.Found>(
+                session.FindTypeDefinitionsBySimpleName("stream"));
+
+        Assert.Contains(
+            found.Names,
+            name => name.ToMetadataFullName() == "System.IO.Stream");
+        Assert.All(
+            found.Names,
+            name => Assert.Equal(
+                "Stream",
+                name.Segments[^1],
+                ignoreCase: true));
+    }
+
+    [Fact]
     public void ProducerLimitReturnsPartialInsteadOfExactEmpty()
     {
         string path = Path.Combine(

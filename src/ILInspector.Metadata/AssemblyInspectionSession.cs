@@ -203,6 +203,21 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Finds exact TypeDef names by one simple ASCII leaf name without
+    /// materializing unrelated declaration names.
+    /// </summary>
+    public MetadataTypeDefinitionNameSearchResult
+        FindTypeDefinitionsBySimpleName(string simpleName)
+    {
+        _image.EnsureAlive();
+        return MetadataTypeDefinitionName
+            .FindDefinitionsBySimpleName(
+                MetadataFormatAdmission.GetMetadataReader(
+                    _image.PEReader),
+                simpleName);
+    }
+
+    /// <summary>
     /// Executes request-driven Count and bounded Rows over this image's
     /// canonical assembly-reference relation population.
     /// </summary>

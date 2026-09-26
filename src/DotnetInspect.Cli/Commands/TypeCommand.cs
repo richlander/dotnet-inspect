@@ -1612,6 +1612,33 @@ public static class TypeCommand
             && options.WorkspacePacket is null
             && !string.IsNullOrWhiteSpace(options.TypeName))
         {
+            if (TryGetPinnedPlatformCoordinate(
+                    options.PlatformFramework,
+                    options.Tfm,
+                    out string? pinnedFamily,
+                    out string? pinnedVersion,
+                    out string? pinnedFramework))
+            {
+                return new(
+                    new(
+                        new WorkspaceContextInput
+                        {
+                            Framework = pinnedFramework,
+                            Members =
+                            [
+                                WorkspaceMemberCoordinate.Platform(
+                                    pinnedFamily,
+                                    options.PlatformAssembly,
+                                    version: pinnedVersion,
+                                    framework: pinnedFramework),
+                            ],
+                        },
+                        options.TypeName),
+                    options.TypeName,
+                    pinnedFamily,
+                    pinnedVersion);
+            }
+
             var (assemblyPath, resolvedFamily, platformVersion, error) =
                 await PlatformResolver.ResolveAssemblyAsync(
                         options.PlatformAssembly,
@@ -1846,6 +1873,48 @@ public static class TypeCommand
                     + "to a target framework.");
         }
         return $"net{version.Major}.{version.Minor}";
+    }
+
+    private static bool TryGetPinnedPlatformCoordinate(
+        string? frameworkSpec,
+        string? targetFramework,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out string? family,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out string? version,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out string? framework)
+    {
+        family = null;
+        version = null;
+        framework = null;
+        if (string.IsNullOrWhiteSpace(frameworkSpec))
+            return false;
+
+        int separator = frameworkSpec.LastIndexOf('@');
+        if (separator <= 0
+            || separator == frameworkSpec.Length - 1)
+        {
+            return false;
+        }
+
+        string candidateFamily =
+            frameworkSpec[..separator].ToLowerInvariant();
+        if (candidateFamily is not ("runtime" or "aspnetcore")
+            || !NuGetVersion.TryParse(
+                frameworkSpec[(separator + 1)..],
+                out NuGetVersion? candidateVersion))
+        {
+            return false;
+        }
+
+        string normalizedVersion =
+            candidateVersion.ToNormalizedString().ToLowerInvariant();
+        family = candidateFamily;
+        version = normalizedVersion;
+        framework = targetFramework
+            ?? PlatformTargetFramework(normalizedVersion);
+        return true;
     }
 
     private static TypeRelationResult ToTypeRelationResult(

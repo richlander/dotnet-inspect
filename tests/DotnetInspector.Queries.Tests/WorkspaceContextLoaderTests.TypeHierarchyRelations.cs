@@ -64,7 +64,7 @@ public sealed partial class WorkspaceContextLoaderTests
         WorkspaceExactTypeFocusOutcome result =
             WorkspaceExactTypeFocusQuery.Execute(
                 CaptureDeclarations(workspace, context),
-                "N.Widget",
+                "Widget",
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
@@ -137,6 +137,23 @@ public sealed partial class WorkspaceContextLoaderTests
             source.Type.ToMetadataFullName());
         Assert.True(result.Evidence.IsComplete);
         Assert.True(result.Evidence.HasUsableRows);
+        Assert.Equal(1, result.CandidateCount);
+
+        WorkspaceTypeHierarchyRelationsResult countOnly =
+            WorkspaceTypeHierarchyRelationsQuery.Execute(
+                workspace,
+                population,
+                new(
+                    contracts.AssemblyIdentity,
+                    contracts.Occurrence,
+                    focusType),
+                form: SubjectRelationForm.Interface,
+                materializeRows: false,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.Equal(1, countOnly.CandidateCount);
+        Assert.Empty(countOnly.Rows);
+        Assert.True(countOnly.Evidence.IsComplete);
     }
 
     [Fact]

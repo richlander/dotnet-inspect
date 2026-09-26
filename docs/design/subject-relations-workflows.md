@@ -320,6 +320,18 @@ segment, but it cannot widen acquisition, authorize another producer, change
 the canonical population, or strengthen completion. Sections and convenience
 commands lower their gestures to the same typed population request.
 
+For incoming Type hierarchy relations, the exact focused metadata Type name
+and selected Interface or Base Type form reach the Metadata producer. Metadata
+compares unrelated edge targets without materializing their names and projects
+source identities only for matching edges. Workspace correspondence resolves
+only those producer-returned candidates; current-module targets use their
+already-established assembly identity directly, while external and forwarded
+targets retain binding-policy resolution. A Count-only request groups exact
+candidate identities without lowering canonical Rows. Exact simple-name focus
+selection likewise probes matching TypeDefs without first retaining the whole
+declaration-name inventory; richer selection gestures retain the general
+inventory path.
+
 The canonical row unit is one logical relation. Each row preserves:
 
 - exact source and target identities;

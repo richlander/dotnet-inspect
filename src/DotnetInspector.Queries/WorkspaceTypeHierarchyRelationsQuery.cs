@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -21,6 +20,7 @@ public sealed record WorkspaceTypeHierarchyRelationsResult(
     StructuralSubjectIdentity Focus,
     SubjectRelationPopulationAuthority Population,
     SubjectRelationPopulationEvidence Evidence,
+    int CandidateCount,
     ImmutableArray<SubjectRelationRow> Rows,
     ImmutableArray<WorkspaceTypeHierarchyRelationSource> Sources);
 
@@ -41,6 +41,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         WorkspaceDeclarationPopulation population,
         WorkspaceExactTypeFocusOutcome.Found focusSelection,
         bool includeNonPublic = false,
+        SubjectRelationForm? form = null,
+        bool materializeRows = true,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -114,6 +116,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     context,
                     focusSelection,
                     includeNonPublic,
+                    form,
                     cancellationToken));
         }
 
@@ -124,12 +127,41 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         var evidence = new SubjectRelationPopulationEvidence(
             populationAuthority,
             [metadata, correspondence]);
-        ImmutableArray<SubjectRelationRow> rows =
-        [
-            .. scans
+        IGrouping<
+            RelationCandidateIdentity,
+            ResolvedMatch>[] groupedMatches =
+            !materializeRows
+                ? []
+                :
+                [
+                    .. scans
+                        .SelectMany(scan => scan.Matches)
+                        .GroupBy(static match =>
+                            new RelationCandidateIdentity(
+                                match.Occurrence.Relationship,
+                                match.Occurrence.SourceSubject,
+                                match.Occurrence.TargetSubject)),
+                ];
+        int candidateCount =
+            scans
                 .SelectMany(scan => scan.Matches)
-                .SelectMany(match =>
+                .Select(static match =>
+                    new CandidateIdentity(
+                        MetadataRelationGraphCatalog.Form(
+                            match.Occurrence.Relationship),
+                        match.Occurrence.SourceSubject))
+                .Distinct()
+                .Count();
+        ImmutableArray<SubjectRelationRow> rows =
+            !materializeRows
+                ? []
+                :
+        [
+            .. groupedMatches
+                .Select(group =>
                 {
+                    ResolvedMatch match = group.First();
+                    RelationCandidateIdentity identity = group.Key;
                     SubjectRelationFocusCorrespondence focusCorrespondence =
                         SubjectRelationFocusCorrespondence.Create(
                             focus,
@@ -137,22 +169,23 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                             match.Occurrence.TargetSubject,
                             InspectionGraphEndpointRole.Target,
                             match.Correspondence);
-                    return MetadataRelationGraphAdapter.BindRows(
-                        match.Projection,
-                        focusCorrespondence);
-                })
-                .GroupBy(static row => new
-                {
-                    row.Relationship,
-                    row.Source,
-                    row.Target,
-                })
-                .Select(static group => group.First()),
+                    return new SubjectRelationRow(
+                        MetadataRelationGraphCatalog.Form(
+                            identity.Relationship),
+                        SubjectRelationEvidenceKind.Declaration,
+                        identity.Relationship,
+                        identity.Source,
+                        identity.Target,
+                        focusCorrespondence,
+                        group.Select(static candidate =>
+                            candidate.Occurrence));
+                }),
         ];
         return new(
             focus,
             populationAuthority,
             evidence,
+            candidateCount,
             rows,
             [
                 .. population.ReadAccesses()
@@ -175,6 +208,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             ResolvedAssemblyReference Assembly)> members,
         WorkspaceExactTypeFocusOutcome.Found focus,
         bool includeNonPublic,
+        SubjectRelationForm? form,
         CancellationToken cancellationToken)
     {
         var selected = members
@@ -185,36 +219,13 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         participant.Assembly.Registration,
                         item.Assembly.Registration))))
             .ToArray();
-        var retained = new List<(
+        List<(
             AssemblyContextParticipant Participant,
-            ResolvedAssemblyReference Assembly)>();
+            ResolvedAssemblyReference Assembly)>? retained = null;
         CandidateOpenFailure? retentionFailure = null;
-        foreach (AssemblyContextParticipant participant
-            in group.Participants)
-        {
-            AssemblyImageAccessResult<ResolvedAssemblyReference> access =
-                group.RetainAssemblyReference(participant.Assembly);
-            if (access is AssemblyImageAccessResult<
-                    ResolvedAssemblyReference>.Available available)
-            {
-                retained.Add((participant, available.Value));
-            }
-            else if (access is AssemblyImageAccessResult<
-                ResolvedAssemblyReference>.Rejected rejected)
-            {
-                retentionFailure ??= rejected.Failure;
-            }
-        }
-
         IAcquisitionFreeAssemblyBindingPolicy? policy =
-            retentionFailure is null
-                ? SourceRelativeAssemblyGroupBindingPolicy
-                    .CreateClosedWorld(
-                        retained.Select(item => (
-                            item.Assembly,
-                            (IAcquisitionFreeAssemblyBindingPolicy)
-                                item.Participant.BindingPolicy)))
-                : null;
+            null;
+        bool bindingAttempted = false;
         foreach ((WorkspaceDeclarationMember member,
             AssemblyContextParticipant participant) in selected)
         {
@@ -227,7 +238,20 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                         new(
                             [MetadataRelationFamily.Hierarchy],
                             MetadataOperationPolicy.Unbounded,
-                            includeNonPublic: false)
+                            includeNonPublic: false,
+                            hierarchyTarget:
+                                new(
+                                    focus.Type,
+                                    form switch
+                                    {
+                                        SubjectRelationForm.Interface =>
+                                            MetadataHierarchyRelationKind
+                                                .Interface,
+                                        SubjectRelationForm.BaseType =>
+                                            MetadataHierarchyRelationKind
+                                                .BaseType,
+                                        _ => null,
+                                    }))
                         {
                             IncludeHidden = includeNonPublic,
                         },
@@ -283,7 +307,6 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     {
                         referencedMatches.Add(
                             new(
-                                projection,
                                 occurrence,
                                 new(
                                     targetAssembly,
@@ -302,17 +325,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     EntryFailure: null);
                 continue;
             }
-            if (policy is null)
-            {
-                yield return ParticipantScan.Unresolved(
-                    member,
-                    projection,
-                    occurrences.Length,
-                    retentionFailure);
-                continue;
-            }
-
             var candidates = new List<ResolutionCandidate>();
+            var matches = ImmutableArray.CreateBuilder<ResolvedMatch>();
             int examined = 0;
             int unavailable = 0;
             foreach (InspectionGraphOccurrence occurrence in occurrences)
@@ -336,6 +350,22 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 {
                     examined++;
                 }
+                else if (named.Scope.Kind
+                    == MetadataTypeScopeKind.CurrentModule)
+                {
+                    examined++;
+                    if (participant.Assembly.Identity
+                        .IsEquivalentTo(focus.Assembly))
+                    {
+                        matches.Add(
+                            new(
+                                occurrence,
+                                new(
+                                    focus.Assembly,
+                                    focus.Type,
+                                    Definition: null)));
+                    }
+                }
                 else if (TryCreateResolutionRequest(
                     participant.Assembly,
                     named,
@@ -353,11 +383,39 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 }
             }
 
-            var matches = ImmutableArray.CreateBuilder<ResolvedMatch>();
+            if (candidates.Count == 0)
+            {
+                yield return new(
+                    member,
+                    projection,
+                    matches.ToImmutable(),
+                    occurrences.Length,
+                    examined,
+                    unavailable,
+                    RetentionFailure: null,
+                    EntryFailure: null);
+                continue;
+            }
+
+            EnsureBinding();
+            if (policy is null)
+            {
+                yield return new(
+                    member,
+                    projection,
+                    matches.ToImmutable(),
+                    occurrences.Length,
+                    examined,
+                    checked(unavailable + candidates.Count),
+                    retentionFailure,
+                    EntryFailure: null);
+                continue;
+            }
+
             using (TypeResolutionContext resolution =
                 TypeResolutionContext.Create(
                     policy,
-                    retained.Select(static item => item.Assembly),
+                    retained!.Select(static item => item.Assembly),
                     candidates.Select(static candidate =>
                         candidate.Request)))
             {
@@ -377,7 +435,6 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     {
                         matches.Add(
                             new(
-                                projection,
                                 candidate.Occurrence,
                                 new(
                                     focus.Assembly,
@@ -396,6 +453,41 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 unavailable,
                 RetentionFailure: null,
                 EntryFailure: null);
+        }
+
+        void EnsureBinding()
+        {
+            if (bindingAttempted)
+                return;
+            bindingAttempted = true;
+            retained = [];
+            foreach (AssemblyContextParticipant participant
+                in group.Participants)
+            {
+                AssemblyImageAccessResult<ResolvedAssemblyReference> access =
+                    group.RetainAssemblyReference(participant.Assembly);
+                if (access is AssemblyImageAccessResult<
+                        ResolvedAssemblyReference>.Available available)
+                {
+                    retained.Add((participant, available.Value));
+                }
+                else if (access is AssemblyImageAccessResult<
+                    ResolvedAssemblyReference>.Rejected rejected)
+                {
+                    retentionFailure ??= rejected.Failure;
+                }
+            }
+
+            if (retentionFailure is null)
+            {
+                policy =
+                    SourceRelativeAssemblyGroupBindingPolicy
+                        .CreateClosedWorld(
+                            retained.Select(item => (
+                                item.Assembly,
+                                (IAcquisitionFreeAssemblyBindingPolicy)
+                                    item.Participant.BindingPolicy)));
+            }
         }
     }
 
@@ -583,9 +675,17 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         TypeResolutionRequest Request);
 
     private sealed record ResolvedMatch(
-        MetadataRelationGraphProjection Projection,
         InspectionGraphOccurrence Occurrence,
         TypeHierarchyRelationCorrespondenceEvidence Correspondence);
+
+    private sealed record RelationCandidateIdentity(
+        InspectionGraphRelationshipDescriptor Relationship,
+        InspectionGraphSubject Source,
+        InspectionGraphSubject Target);
+
+    private sealed record CandidateIdentity(
+        SubjectRelationForm Form,
+        InspectionGraphSubject Source);
 
     private sealed record ParticipantScan(
         WorkspaceDeclarationMember Member,
@@ -611,19 +711,5 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 retentionFailure,
                 entryFailure);
 
-        internal static ParticipantScan Unresolved(
-            WorkspaceDeclarationMember member,
-            MetadataRelationGraphProjection projection,
-            int unavailable,
-            CandidateOpenFailure? retentionFailure) =>
-            new(
-                member,
-                projection,
-                [],
-                unavailable,
-                Examined: 0,
-                unavailable,
-                retentionFailure,
-                EntryFailure: null);
     }
 }
