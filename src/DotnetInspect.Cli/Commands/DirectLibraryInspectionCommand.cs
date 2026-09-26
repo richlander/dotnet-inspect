@@ -81,7 +81,8 @@ internal static class DirectLibraryInspectionCommand
                     new(),
                     @namespace: options.TypeNamespace,
                     namespaceMatch: namespaceMatch),
-                s_bounds);
+                s_bounds,
+                new LibraryEnablementsRequest());
         }
         catch (ArgumentException failure)
         {
