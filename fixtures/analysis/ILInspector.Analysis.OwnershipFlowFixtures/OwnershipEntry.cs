@@ -640,6 +640,26 @@ public static class Entry
         }
     }
 
+    public static void RentAcrossNestedFinallyCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                ObserveResource(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
     public static void RentAndReleaseAsyncUnobserved()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
