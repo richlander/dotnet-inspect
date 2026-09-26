@@ -80,19 +80,19 @@ implementation asset or platform implementation assembly. Uploaded standalone
 Libraries are outside this slice because they do not yet participate in the
 same retained Browser workspace and Analysis facade path.
 
-An **eligible family** is a public API group on the Type whose member kind is
-`method` and that has at least two public overloads. Extension-method families
-that the API surface attaches to an extended Type are not eligible: their
-declaring static class can also declare same-name extensions for other
-receivers, and whether those belong in the family is undecided. That decision
-precedes their eligibility.
+An **eligible family** is a public API group on the Type with at least two
+public overloads, every one of member kind `method`. A group that contains any
+extension method the API surface attaches to the Type, alone or mixed with
+ordinary methods, is not eligible: the attached members' declaring static class
+can also declare same-name extensions for other receivers, and whether those
+belong in the family is undecided. That decision precedes their eligibility.
+The Type heat query and the Browser apply this same predicate.
 
 For each eligible family, two sets are distinct:
 
 - the **public roster** is the listed overloads; only these are rows; and
-- the **analyzed family** is every same-name method declared on the TypeDef
-  that declares each roster member, regardless of accessibility. For an
-  ordinary method family that is the Type itself.
+- the **analyzed family** is every same-name method declared on the Type,
+  regardless of accessibility.
 
 Heat and hub derivation read only the analyzed family. Non-public methods are
 never rows and never show heat or a hub strip, but they set the family maximum
@@ -117,25 +117,32 @@ The member list is built in two passes:
    cached heat state, the Browser requests the Type heat record once. Expanding
    a family then reads heat from that record; it issues no request.
 
-Selecting a Type is the explicit gesture that scopes the work. The request is
-bounded by that Type's eligible families and their analyzed same-name methods,
-so it is not the unbounded implementation analysis that
-[progressive disclosure](progressive-disclosure.md) reserves for explicit
-requests.
+The Type heat query declares `InspectionCost.Unbounded`, like the family
+query: its breadth is bounded by the Type, but its cost is dominated by
+whole-assembly Analysis setup until issue #8577 pushes breadth into that setup.
+[Progressive disclosure](progressive-disclosure.md) reserves such work for
+explicit requests. For this consumer only, selecting a Type is that explicit
+request, by operator decision: the reader has chosen the Type whose members
+they are reading, and one request per Type replaces a request per family.
 
-Selecting a concrete overload requests that overload's family detail through
-the unchanged family query, for the evidence in the Member detail. That request
-remains explicit and per family.
+Selecting a concrete overload issues no implementation request; the Member
+detail restates its heat description from the Type heat record. Opening the
+detail's implementation-evidence disclosure requests that overload's family
+detail through the unchanged family query, so a walk that never asks for raw
+metrics pays one Analysis execution per Type.
 
 The engine Worker is single-threaded. Heat analysis is synchronous managed CPU
 work in the same ordinary Worker as interactive requests such as Member
 declaration, Type projection, Member facts, and source. It does not block the
 page, but an interactive request that arrives during a heat run waits for the
-run to finish, and cancellation cannot interrupt it. The Browser bounds this:
+run to finish, and cancellation cannot interrupt it. Selecting another Type
+while a heat run is under way can therefore delay that Type's member list by
+the remainder of the run. The Browser bounds this:
 
 - a Type heat request is sent only when no interactive ordinary-Worker request
   from the current view is outstanding; an interactive request that arrives
-  before the heat request starts goes first;
+  before the heat request starts goes first, and the family's parent row shows
+  `measuring` while the request waits;
 - at most one Type heat request runs; a queued request for a Type the reader
   has left is dropped, and a running request finishes and settles its cache
   entry but publishes only into the view that still owns it; and
@@ -168,13 +175,17 @@ record per eligible family. Each family record carries:
 - the family's public Member anchors in roster order: Type definition ID,
   stable selector, and the owner-issued logical method token;
 - for each analyzed method: metadata token, whether it is public, whether it
-  was declared with a body, its size, and whether its measurement is complete;
+  was declared with a body, its size as defined under Family projection, and
+  whether its measurement, including every body counted in that size, is
+  complete;
 - the family's same-name call relationships: caller and callee tokens; and
 - the family's coverage receipt: unavailable bodies and Analysis diagnostics
   that fall inside the analyzed family.
 
-The record carries no raw metric set, physical-body breakdown, or IL offsets.
-Those remain in the family detail result. The record also carries the envelope
+The Type heat query computes each size when it constructs the record; the
+Browser reads it and never recomputes it from physical bodies. The record
+carries no raw metric set, physical-body breakdown, or IL offsets. Those remain
+in the family detail result. The record also carries the envelope
 outcome, Share outcome, and ordered diagnostics.
 
 ## Browser wire identity
@@ -228,10 +239,13 @@ waiter; it does not convert a valid shared result into cancellation.
 The Browser joins the Type heat record to the member list by Type definition
 ID and stable selector; it never matches by rendered signature text.
 
-Each overload has one **size**: the instruction count of its own logical body.
-Generated bodies remain separate evidence in the family detail result; the
-largest of them stands in for size only when the logical body has no profile
-of its own.
+Each analyzed method has one **size**: the sum of the instruction counts of its
+own logical body and every generated body attributed to it, such as an async or
+iterator state machine, a local function, or a lambda. An overload's code is
+all of that; for an `async` implementation the logical body is only a stub that
+starts the state machine. Declared-source attribution assigns each generated
+body to exactly one logical method, so the sum counts no body twice. The family
+detail result keeps each physical body as a separate evidence row.
 
 The **family maximum** is the largest size in the analyzed family, including
 non-public methods. A method declared without a body, such as an abstract or
@@ -246,7 +260,8 @@ An overload is a **hub** when all of the following hold:
   and this overload as its callee;
 - no relationship has this overload as its caller and another analyzed-family
   method as its callee; and
-- the overload's own measurement is complete.
+- the overload's own measurement, including every body counted in its size, is
+  complete.
 
 Hub state is shown for an overload whose own measurement is complete even when
 another analyzed body is incomplete: a missing relationship from an incomplete
@@ -320,12 +335,12 @@ methods call it. Neither channel relies on color alone.
 
 ### Detail
 
-Selecting an overload shows its implementation evidence in the Member detail,
-from the family detail result: instruction count, structural cues, the exact
-sibling relationships it makes and receives within the public roster, and
-progressive disclosure of every raw metric, incomplete reason, and
-unavailable-body receipt. The detail restates the overload's heat description
-from the Type heat record.
+Selecting an overload restates its heat description from the Type heat record
+in the Member detail. The detail's implementation-evidence disclosure, when
+opened, shows the family detail result: instruction counts per physical body,
+structural cues, the exact sibling relationships the overload makes and
+receives within the public roster, and every raw metric, incomplete reason,
+and unavailable-body receipt.
 
 The presentation uses host-specific HTML and CSS rather than Markout. The
 member list is an interactive Browser view; no current CLI or multi-format
@@ -345,8 +360,10 @@ For the Type heat record:
   only for overloads whose own measurement is complete, and `heat incomplete`
   on its parent row;
 - **rejected, failed, or unavailable Content**, or **producer failed**: no heat
-  or hub strip, `heat unavailable` on the parent row, and the owner-issued
-  outcome, diagnostics, and an explicit Retry in the Member detail; and
+  or hub strip, and `heat unavailable` on each eligible family's parent row
+  when expanded. The owner-issued outcome, diagnostics, and an explicit Retry
+  appear in the Member detail of any selected member of an eligible family in
+  that Type; and
 - **superseded**: no state is published because operation authority removed
   the view's publication right.
 
@@ -358,8 +375,8 @@ rejected, failed, producer-failed, and superseded states in the Member detail.
 Subjects:
 
 - `System.Private.CoreLib` from `Microsoft.NETCore.App` 11.0.0-rc.1, `net11.0`:
-  `System.Text.StringBuilder.AppendFormat` has 15 public overloads and one
-  367-instruction hub.
+  `System.Text.StringBuilder.AppendFormat` has 15 public overloads and one hub
+  of size 387: a 367-instruction body plus a 20-instruction local function.
 - `System.Text.Json` 10.0.5, `net10.0`:
   - `JsonDocument.Parse`: 5 public overloads measuring 55, 44, 33, 9, and 8
     instructions; the non-public `Parse(ReadOnlySpan<byte>, JsonReaderOptions,
@@ -368,8 +385,13 @@ Subjects:
     instructions, 8 hubs; and
   - `JsonSerializer.Serialize`: all-forwarder overloads with a largest body of
     16 instructions.
+- Dapper 2.1.89: `SqlMapper.QueryAsync` has public forwarders of 5 to 22
+  instructions and a private `QueryAsync(IDbConnection, Type,
+  CommandDefinition)` whose 23-instruction stub starts a 441-instruction
+  `<QueryAsync>d__33.MoveNext()` state machine. Its size is 464, so no public
+  overload reaches half the family maximum and none is a hub.
 
-Reproduce sizes with
+Reproduce the per-body counts with
 `dotnet-inspect member <Type> <Member> --package System.Text.Json@10.0.5
 -S "Member Metrics" --all`, or `--platform System.Private.CoreLib`.
 
@@ -395,22 +417,25 @@ boundaries.
 
 The following gates enforce this design:
 
-1. Type heat query tests prove, on the System.Text.Json real asset, that
-   `JsonDocument.Parse` records its non-public implementation as the family
-   maximum, that `Utf8JsonWriter.WriteString` records its hubs from same-name
-   relationships, that ineligible and attached extension families are absent,
-   and that one Analysis execution serves every family on the Type; and that
-   the family query and CLI `Member Metrics` gates pass unchanged.
+1. Type heat query tests prove, on real assets, that `JsonDocument.Parse`
+   records its non-public implementation as the family maximum; that Dapper
+   `SqlMapper.QueryAsync` sizes its private async implementation as stub plus
+   state machine; that `Utf8JsonWriter.WriteString` records the same-name
+   relationships from which the Browser derives its 8 hubs; that ineligible,
+   attached-extension, and mixed groups are absent; and that one Analysis
+   execution serves every family on the Type. The family query and CLI
+   `Member Metrics` gates pass unchanged.
 2. Analysis-facade projection tests compare Type heat and family detail wire
    results with their completed host-neutral envelopes, including outcome,
    identities, sizes, relationships, coverage, Share, and ordered diagnostics.
 3. Generated-facade ownership and ordinary Worker tests prove the complete
    typed results cross the Analysis facade and Worker transport unchanged.
-4. Coordinator tests prove no request before the member list's first paint,
-   one Type heat request per Type, no request on family expansion, deferral
-   while an interactive request is outstanding, at most one heat request
-   running with queued requests for departed Types dropped, cache reuse on
-   return, explicit retry, workspace replacement, and stale-publication
+4. Coordinator tests prove no request before the member list's first paint, one
+   Type heat request per Type, no request on family expansion or overload
+   selection, a family detail request only from the evidence disclosure,
+   deferral while an interactive request is outstanding, at most one heat
+   request running with queued requests for departed Types dropped, cache reuse
+   on return, explicit retry, workspace replacement, and stale-publication
    suppression.
 5. Family-projection tests prove size, the family maximum, the
    half-of-maximum heat threshold, noise suppression, hub derivation, and
@@ -426,5 +451,6 @@ The following gates enforce this design:
    to heat for the real-evidence Types and confirms through instrumentation
    that package acquisition, API loading, first paint, and family expansion
    issue no heat request and that interactive requests are not queued behind
-   an unstarted heat request. Timing is observational evidence, not a stable
-   CI threshold.
+   an unstarted heat request. It also records the worst observed interactive
+   wait behind a started heat run, such as the next Type's member list. Timing
+   is observational evidence, not a stable CI threshold.
