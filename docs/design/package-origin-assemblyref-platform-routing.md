@@ -302,7 +302,7 @@ The route-preparation input retains:
   applies;
 - every retained package route and any selected-role assembly evidence already
   available for it;
-- the exact selected Platform family composition and target; and
+- the exact selected Platform family composition and target;
 - owner-issued exact Platform Library membership for the unchanged
   `AssemblyRef`; and
 - the Workspace, source-plan, operation, and work-ledger identities.
