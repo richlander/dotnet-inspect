@@ -20,7 +20,7 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
-    <ProjectReference Include="..\msdl-proxy\MsdlProxy.csproj" />
+    <ProjectReference Include="..\..\src\MsdlProxy\MsdlProxy.csproj" />
   </ItemGroup>
 
 </Project>

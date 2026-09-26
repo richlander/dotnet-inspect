@@ -2,14 +2,15 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-canary="$repo_root/inspect-web/multi-facade-canary"
-host="$canary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj"
+managed_canary="$repo_root/tests/InspectWeb.MultiFacadeCanary"
+frontend_canary="$repo_root/inspect-web/multi-facade-canary"
+host="$managed_canary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 tsc=${TSC:-"$repo_root/inspect-web/node_modules/.bin/tsc"}
-facade_output_dir=${CANARY_FACADE_OUTPUT_DIR:-"$canary/facades"}
+facade_output_dir=${CANARY_FACADE_OUTPUT_DIR:-"$frontend_canary/facades"}
 
 mode=write
 case "${1:-}" in
@@ -33,11 +34,16 @@ if [[ ! -x "$tsc" ]]; then
   exit 1
 fi
 
-"$dotnet" build "$host" -c Release --nologo >&2
+"$dotnet" build \
+  "$host" \
+  -c Release \
+  -p:InspectWebIncludeFrontend=true \
+  --nologo >&2
 runtime_pack_directory=$(
   "$dotnet" msbuild \
     "$host" \
     -nologo \
+    -property:InspectWebIncludeFrontend=true \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
   | "$node" -e '
@@ -88,10 +94,10 @@ generate_facade() {
 
 generate_facade \
   alpha \
-  "$canary/Alpha/bin/Release/net11.0/TsJsExport.MultiFacade.Alpha.dll"
+  "$managed_canary/Alpha/bin/Release/net11.0/TsJsExport.MultiFacade.Alpha.dll"
 generate_facade \
   beta \
-  "$canary/Beta/bin/Release/net11.0/TsJsExport.MultiFacade.Beta.dll"
+  "$managed_canary/Beta/bin/Release/net11.0/TsJsExport.MultiFacade.Beta.dll"
 
 sed \
   's/TsJsExport\.MultiFacade\.Alpha/TsJsExport.MultiFacade.Assembly/g' \
@@ -105,7 +111,7 @@ if ! cmp -s "$scratch/alpha.normalized.ts" "$scratch/beta.normalized.ts"; then
   exit 1
 fi
 
-cp "$canary/coordinator.ts" "$canary/exercise.ts" "$scratch/"
+cp "$frontend_canary/coordinator.ts" "$frontend_canary/exercise.ts" "$scratch/"
 cat > "$scratch/tsconfig.json" <<'JSON'
 {
   "compilerOptions": {

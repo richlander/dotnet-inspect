@@ -2,15 +2,16 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-canary="$repo_root/inspect-web/managed-operation-bridge-canary"
-host="$canary/Host/InspectWeb.ManagedOperationBridge.BrowserCanary.Host.csproj"
-assembly="$canary/Bridge/bin/Release/net11.0/InspectWeb.ManagedOperationBridge.BrowserCanary.dll"
+managed_canary="$repo_root/tests/InspectWeb.ManagedOperationBridgeCanary"
+frontend_canary="$repo_root/inspect-web/managed-operation-bridge-canary"
+host="$managed_canary/Host/InspectWeb.ManagedOperationBridge.BrowserCanary.Host.csproj"
+assembly="$managed_canary/Bridge/bin/Release/net11.0/InspectWeb.ManagedOperationBridge.BrowserCanary.dll"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 tsc=${TSC:-"$repo_root/inspect-web/node_modules/.bin/tsc"}
-facade_output_dir=${CANARY_FACADE_OUTPUT_DIR:-"$canary/facades"}
+facade_output_dir=${CANARY_FACADE_OUTPUT_DIR:-"$frontend_canary/facades"}
 
 mode=write
 case "${1:-}" in
@@ -34,11 +35,16 @@ if [[ ! -x "$tsc" ]]; then
   exit 1
 fi
 
-"$dotnet" build "$host" -c Release --nologo >&2
+"$dotnet" build \
+  "$host" \
+  -c Release \
+  -p:InspectWebIncludeFrontend=true \
+  --nologo >&2
 runtime_pack_directory=$(
   "$dotnet" msbuild \
     "$host" \
     -nologo \
+    -property:InspectWebIncludeFrontend=true \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
   | "$node" -e '
@@ -81,7 +87,7 @@ cp "$dotnet_dts" "$scratch/_framework/dotnet.d.ts"
 sed -i.bak '${/^$/d;}' "$scratch/facades/bridge.ts"
 rm "$scratch/facades/bridge.ts.bak"
 
-cp "$canary/initialize.ts" "$canary/exercise.ts" "$scratch/"
+cp "$frontend_canary/initialize.ts" "$frontend_canary/exercise.ts" "$scratch/"
 cat > "$scratch/tsconfig.json" <<'JSON'
 {
   "compilerOptions": {

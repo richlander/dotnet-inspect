@@ -1274,7 +1274,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
 
   assert.match(
     multiFacadeGenerationScript,
-    /canary="\$repo_root\/inspect-web\/multi-facade-canary"/);
+    /managed_canary="\$repo_root\/tests\/InspectWeb\.MultiFacadeCanary"/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /frontend_canary="\$repo_root\/inspect-web\/multi-facade-canary"/);
   assert.match(
     multiFacadeGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
@@ -1292,7 +1295,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
 
   assert.match(
     managedBridgeGenerationScript,
-    /canary="\$repo_root\/inspect-web\/managed-operation-bridge-canary"/);
+    /managed_canary="\$repo_root\/tests\/InspectWeb\.ManagedOperationBridgeCanary"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /frontend_canary="\$repo_root\/inspect-web\/managed-operation-bridge-canary"/);
   assert.match(
     managedBridgeGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
