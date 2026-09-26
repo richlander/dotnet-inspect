@@ -666,6 +666,86 @@ public static partial class AnalysisExports
             compileLibrary);
     }
 
+    /// <summary>
+    /// Member-list heat for every eligible overload family on one Type in a
+    /// package implementation Library, measured in one Analysis execution.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageTypeImplementationHeat(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeDefinitionId)
+    {
+        BrowserTypeImplementationHeat heat =
+            await PackageTypeImplementationHeatAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeDefinitionId);
+        return JsonSerializer.Serialize(
+            heat,
+            BrowserAnalysisJsonContext.Default
+                .BrowserTypeImplementationHeat);
+    }
+
+    static async Task<BrowserTypeImplementationHeat>
+        PackageTypeImplementationHeatAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            string typeDefinitionId)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return BrowserImplementationProfileWireProjection
+                .TypeHeatUnavailable(
+                    compileLibrary.Status.ToString(),
+                    $"The package has no selected compile library "
+                        + $"({compileLibrary.Status}).",
+                    compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        if (!scope.ImplementationParticipants.Contains(participant))
+        {
+            return BrowserImplementationProfileWireProjection
+                .TypeHeatUnavailable(
+                    "NoImplementationAssembly",
+                    "The selected library has no managed implementation "
+                        + "assembly.",
+                    compileLibrary);
+        }
+
+        InspectionEnvelope<
+            AssemblyContextEntry<AssemblyTypeImplementationHeatInspection>>
+                inspection =
+                    scope.UseImplementationParticipant(
+                        participant,
+                        (group, selectedParticipant) =>
+                            TypeImplementationHeatInspectionOperation.Execute(
+                                group,
+                                selectedParticipant,
+                                typeDefinitionId));
+        return BrowserImplementationProfileWireProjection.ProjectTypeHeat(
+            inspection,
+            compileLibrary);
+    }
+
     static async Task<BrowserLibraryMetrics> PackageLibraryMetricsAsync(
         string packageId,
         string version,

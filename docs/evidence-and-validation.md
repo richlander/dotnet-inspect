@@ -77,6 +77,47 @@ insufficient. If there is no such trigger, omit the extra claim and gate.
   property must name the gate that enforces it, or explicitly mark the
   property as unverified.
 
+## NativeAOT before/after for modernization
+
+Every modernization or legacy-path replacement requires before/after
+performance evidence from exact NativeAOT production binaries. Measure every
+terminal supported by the adopted surface, like Count. A terminal omitted
+from the report is unverified and prevents a merge-readiness claim for that
+adoption.
+
+Compare the exact effective base with the exact candidate head. Run the
+complete production-host command or operation, including startup, acquisition,
+planning, execution, and output consumption. A lower-level benchmark may
+explain the result, but it does not replace the end-to-end comparison.
+
+The report must identify:
+
+- the base and head commits, product versions, NativeAOT target, and binary
+  identities;
+- the pinned real assets, exact commands or requests, and every measured
+  terminal;
+- representative zero, small, and population-sensitive scenarios when work
+  scales with candidate or result count;
+- warmup, sample count, execution ordering or interleaving, host, and relevant
+  machine state;
+- median and tail latency for base and head; and
+- expected and observed cardinality plus a stable content or identity check
+  where result values are produced.
+
+Interpret the result against the modernization's stated intent. Separate
+startup and fixed acquisition cost from work that grows with the population
+when that distinction matters. A slower result is not dismissed because the
+implementation follows the new architecture: explain it through changed
+behavior or work, show that it remains inside the named product target, and
+show that the overall intent still holds. Otherwise the candidate is not
+merge-ready.
+
+Use [#8411](https://github.com/richlander/dotnet-inspect/pull/8411) as the
+reporting precedent. It compared exact NativeAOT base/head apphosts for every
+supported terminal, verified result cardinality, reported median and p95, and
+explained a bounded terminal tradeoff alongside substantial end-to-end
+improvements.
+
 ## Use evidence envelopes during command development
 
 `EvidenceInspectionEnvelope<TContent, TEvidence>` is the shared shape for
@@ -119,7 +160,7 @@ The current command families expose these useful evidence patterns:
 | Did a change begin at this version boundary? | Exact endpoint and build identities, work-item and pair counts, typed failures, and `PairFinding` state for the owner-issued Finding. | An adjacent `Added`, `Removed`, `Changed`, or `Present` classification for the selected pair. | A sparse timeline probe only locates a candidate boundary; a similarity score only ranks candidates. |
 | Why is decompiled or source-backed output different? | Module version ID, MethodDef token, IL offset, fidelity grade, stable `DEC####` causes, symbol source, and PDB checksum algorithm, value, and verification result. | The physical body inspected, why fidelity degraded, and whether fetched source bytes match the PDB. | Readable decompiled C# is not authored source; a checksum match does not validate semantic equivalence. |
 | Which static performance candidate should be measured? | Finding and candidate identity, provenance, module version ID, source and evidence MethodDef tokens, IL offset, operation token, loop/amplification facts, priority, and confidence. | The exact IL-visible shape and a stable coordinate for a runtime/static join. | Static evidence does not prove runtime heat, frequency, allocated bytes, or improvement; use a benchmark or profiler from the same build. |
-| Did acquisition use the intended input? | Admitted source authority, exact package/library coordinate, selected asset, provenance, bounded acquisition completion, and typed rejection or failure. | Which authorized input produced the inspection and why another candidate was rejected. | Do not retain credentials, sensitive locators, response bodies, or an unbounded request transcript. |
+| Did acquisition use the intended input? | Admitted source authority, exact package/library address, selected asset, provenance, bounded acquisition completion, and typed rejection or failure. | Which authorized input produced the inspection and why another candidate was rejected. | Do not retain credentials, sensitive locators, response bodies, or an unbounded request transcript. |
 
 Existing command-level traces remain useful while developing a host adapter.
 For example, library `--trace` shows query demand, prerequisite expansion,
