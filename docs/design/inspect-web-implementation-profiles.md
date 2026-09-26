@@ -27,9 +27,9 @@ When the member list shows an overloaded method family, its nested overload
 rows show which overloads carry the most code and which overloads are hubs the
 others call. Two channels carry that claim:
 
-- **Heat**: a tint whose strength follows each overload's instruction count
-  relative to the largest same-name method size in its family, including
-  methods that are not listed overloads.
+- **Heat**: a tint whose strength follows each overload's size relative to the
+  largest same-name method size in its family, including methods that are not
+  listed overloads (for example, due to accessibility filtering).
 - **Hub strip**: a marker on an overload that same-name methods call and that
   calls no same-name method itself.
 
