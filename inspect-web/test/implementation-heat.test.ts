@@ -1,0 +1,397 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  createTypeHeatCoordinator,
+  familyHeatCue,
+  familyHeatFor,
+  projectFamilyHeat,
+  typeHeatCacheKey,
+  type PackageTypeHeatRequest,
+  type TypeHeatState,
+  type TypeHeatStateHost,
+} from "../src/implementation-heat.ts";
+import type {
+  BrowserImplementationHeatFamily,
+  BrowserImplementationHeatMethod,
+  BrowserTypeImplementationHeat,
+} from "../src/facades/inspect-web-analysis.d.ts";
+import { createOperationAuthorityPage } from "../src/operation-authority.ts";
+
+const typeId = "type:Example.Widget";
+
+function method(
+  metadataToken: number,
+  size: number | null,
+  overrides: Partial<BrowserImplementationHeatMethod> = {},
+): BrowserImplementationHeatMethod {
+  return {
+    metadataToken,
+    isRosterMember: true,
+    hasBody: size !== null,
+    size,
+    isTrivial: size !== null && size <= 8,
+    isComplete: true,
+    ...overrides,
+  };
+}
+
+// Run(int) 80 calls Run(string) 5; Run(string) calls nothing.
+function family(
+  overrides: Partial<BrowserImplementationHeatFamily> = {},
+): BrowserImplementationHeatFamily {
+  return {
+    member: "Run",
+    roster: [
+      { typeDefinitionId: typeId, stableSelector: "Run(int)", metadataToken: 1 },
+      { typeDefinitionId: typeId, stableSelector: "Run(string)", metadataToken: 2 },
+    ],
+    methods: [method(1, 80), method(2, 5, { isTrivial: false })],
+    relationships: [{ callerToken: 1, calleeToken: 2 }],
+    unavailableBodies: [],
+    analysisDiagnostics: [],
+    ...overrides,
+  };
+}
+
+function heat(
+  families: ReadonlyArray<BrowserImplementationHeatFamily> = [family()],
+): BrowserTypeImplementationHeat {
+  return {
+    schemaVersion: 1,
+    outcome: "available",
+    subject: {
+      identity: { name: "Example", version: "1.0.0.0", culture: null, publicKeyToken: null },
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      provenance: {
+        kind: "Package",
+        packageId: "Example.Package",
+        packageVersion: "1.0.0",
+        framework: "net11.0",
+        frameworkVersion: null,
+        runtimeIdentifier: null,
+        assetPath: "lib/net11.0/Example.dll",
+        resolverSource: null,
+        project: null,
+        contentRef: null,
+        digest: null,
+        declaredName: null,
+      },
+    },
+    content: {
+      typeDefinitionId: typeId,
+      families,
+      analysisDiagnostics: [],
+      apiSurfaceInspectionFailures: [],
+    },
+    failure: null,
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "type-implementation-heat/share",
+      reason: "Fixture.",
+    },
+    diagnostics: [],
+    compileLibrary: { status: "Selected", targetFramework: "net11.0", message: null },
+  };
+}
+
+function request(typeDefinitionId = typeId): PackageTypeHeatRequest {
+  return {
+    kind: "package",
+    workspaceGeneration: "generation",
+    packageId: "Example.Package",
+    version: "1.0.0",
+    targetFramework: "net11.0",
+    assemblyName: "Example",
+    typeDefinitionId,
+  };
+}
+
+test("heat tints overloads at or above half the family maximum", () => {
+  const projected = projectFamilyHeat(family());
+  assert.equal(projected.status, "shown");
+  assert.equal(projected.maximum, 80);
+  assert.deepEqual(
+    projected.overloads.map(overload => overload.heatStrength),
+    [1, null],
+  );
+  assert.equal(
+    projected.overloads[0]?.description,
+    "80 instructions; 100% of the largest body in this family",
+  );
+});
+
+test("a hub is called by a same-name method and calls none", () => {
+  const projected = projectFamilyHeat(family());
+  assert.deepEqual(projected.overloads.map(overload => overload.hub), [false, true]);
+  assert.match(
+    projected.overloads[1]?.description ?? "",
+    /hub called by 1 same-name method$/,
+  );
+});
+
+test("a bodyless overload is never a hub", () => {
+  const projected = projectFamilyHeat(family({
+    methods: [method(1, 80), method(2, null, { hasBody: false })],
+  }));
+  assert.equal(projected.overloads[1]?.hub, false);
+});
+
+test("an unlisted implementation sets the maximum and silences listed forwarders", () => {
+  const projected = projectFamilyHeat(family({
+    methods: [
+      method(1, 22),
+      method(2, 19, { isTrivial: false }),
+      method(3, 464, { isRosterMember: false, isTrivial: false }),
+    ],
+    relationships: [
+      { callerToken: 1, calleeToken: 3 },
+      { callerToken: 2, calleeToken: 3 },
+    ],
+  }));
+  assert.equal(projected.status, "shown");
+  assert.equal(projected.maximum, 464);
+  assert.equal(projected.maximumIsUnlisted, true);
+  assert.deepEqual(
+    projected.overloads.map(overload => [overload.heatStrength, overload.hub]),
+    [[null, false], [null, false]],
+  );
+  assert.match(
+    projected.overloads[0]?.description ?? "",
+    /5% of the largest body in this family, which is not a listed overload/,
+  );
+});
+
+test("an unknown maximum removes heat but keeps complete hubs", () => {
+  const unavailable = projectFamilyHeat(family({
+    unavailableBodies: [{
+      evidenceMethodKey: null,
+      methodToken: 9,
+      reason: "InvalidBody",
+      diagnostic: null,
+    }],
+  }));
+  assert.equal(unavailable.status, "unknown-maximum");
+  assert.deepEqual(unavailable.overloads.map(overload => overload.heatStrength), [null, null]);
+  assert.equal(unavailable.overloads[1]?.hub, true);
+
+  const incomplete = projectFamilyHeat(family({
+    methods: [method(1, 80, { isComplete: false }), method(2, 5, { isTrivial: false })],
+  }));
+  assert.equal(incomplete.status, "unknown-maximum");
+});
+
+test("heat is suppressed for one measured body or all-trivial families", () => {
+  assert.equal(
+    projectFamilyHeat(family({ methods: [method(1, 80), method(2, null, { hasBody: false })] }))
+      .status,
+    "suppressed",
+  );
+  assert.equal(
+    projectFamilyHeat(family({ methods: [method(1, 8), method(2, 4)] })).status,
+    "suppressed",
+  );
+  assert.equal(
+    projectFamilyHeat(family({
+      methods: [method(1, 8), method(2, 4, { isTrivial: false })],
+    })).status,
+    "shown",
+  );
+});
+
+test("the record decides eligibility by exact roster", () => {
+  const ready: TypeHeatState = {
+    status: "ready",
+    request: request(),
+    isCurrent: () => true,
+    families: new Map([["Run", projectFamilyHeat(family())]]),
+    rosters: new Map([["Run", ["Run(int)", "Run(string)"]]]),
+  };
+  assert.notEqual(familyHeatFor(ready, "Run", ["Run(string)", "Run(int)"]), null);
+  assert.equal(familyHeatFor(ready, "Run", ["Run(int)"]), null);
+  assert.equal(familyHeatFor(ready, "Spin", ["Spin(int)", "Spin(string)"]), null);
+});
+
+test("parent-row status text follows the Type request", () => {
+  const selectors = ["Run(int)", "Run(string)"];
+  assert.equal(familyHeatCue({ status: "idle" }, "Run", selectors), null);
+  assert.deepEqual(
+    familyHeatCue({ status: "loading", request: request(), isCurrent: () => true }, "Run", selectors),
+    { text: "measuring", tone: "progress" },
+  );
+  assert.deepEqual(
+    familyHeatCue({
+      status: "failed",
+      request: request(),
+      isCurrent: () => true,
+      outcome: "failed",
+      message: "boom",
+    }, "Run", selectors),
+    { text: "heat unavailable", tone: "problem" },
+  );
+  const incomplete = projectFamilyHeat(family({
+    methods: [method(1, 80, { isComplete: false }), method(2, 5)],
+  }));
+  assert.deepEqual(
+    familyHeatCue({
+      status: "ready",
+      request: request(),
+      isCurrent: () => true,
+      families: new Map([["Run", incomplete]]),
+      rosters: new Map([["Run", selectors]]),
+    }, "Run", selectors),
+    { text: "heat incomplete", tone: "problem" },
+  );
+});
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolvePromise: ((value: T) => void) | undefined;
+  const promise = new Promise<T>(resolve => { resolvePromise = resolve; });
+  return { promise, resolve: value => resolvePromise?.(value) };
+}
+
+async function turn(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function harness(currentType: () => string) {
+  const state: TypeHeatStateHost = { typeHeat: { status: "idle" } };
+  const queried: string[] = [];
+  const results = new Map<string, Deferred<BrowserTypeImplementationHeat>>();
+  let idle = deferred<void>();
+  const coordinator = createTypeHeatCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: heatRequest => {
+      queried.push(heatRequest.typeDefinitionId);
+      const result = deferred<BrowserTypeImplementationHeat>();
+      results.set(heatRequest.typeDefinitionId, result);
+      return result.promise;
+    },
+    whenWorkerIdle: () => idle.promise,
+    describeError: String,
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  const ask = (typeDefinitionId: string) =>
+    coordinator.request(request(typeDefinitionId), () => currentType() === typeDefinitionId);
+  return {
+    state,
+    queried,
+    results,
+    coordinator,
+    ask,
+    // An idle Worker stays idle until an ordinary request makes it busy.
+    releaseIdle: () => idle.resolve(),
+    busy: () => { idle = deferred<void>(); },
+  };
+}
+
+test("heat waits for the ordinary Worker to go idle and shows measuring meanwhile", async () => {
+  const h = harness(() => typeId);
+  h.ask(typeId);
+  await turn();
+  assert.deepEqual(h.queried, []);
+  assert.equal(h.state.typeHeat.status, "loading");
+
+  h.releaseIdle();
+  await turn();
+  assert.deepEqual(h.queried, [typeId]);
+  h.results.get(typeId)?.resolve(heat());
+  await turn();
+  assert.equal(h.state.typeHeat.status, "ready");
+});
+
+test("only the latest Type waits, and a departed queued Type is dropped", async () => {
+  let current = "type:A";
+  const h = harness(() => current);
+  h.ask("type:A");
+  await turn();
+  current = "type:B";
+  h.ask("type:B");
+  current = "type:C";
+  h.ask("type:C");
+  h.releaseIdle();
+  await turn();
+  // A left before it was sent; only the latest requested Type is queried.
+  assert.deepEqual(h.queried, ["type:C"]);
+});
+
+test("one heat run at a time; the next Type starts after the running one settles", async () => {
+  let current = "type:A";
+  const h = harness(() => current);
+  h.ask("type:A");
+  h.releaseIdle();
+  await turn();
+  assert.deepEqual(h.queried, ["type:A"]);
+
+  current = "type:B";
+  h.ask("type:B");
+  await turn();
+  assert.deepEqual(h.queried, ["type:A"]);
+
+  h.results.get("type:A")?.resolve(heat());
+  await turn();
+  assert.deepEqual(h.queried, ["type:A", "type:B"]);
+  // The departed Type's result settled its cache entry but did not publish.
+  assert.notEqual(h.state.typeHeat.status, "ready");
+});
+
+test("returning to a Type reuses its settled result without a query", async () => {
+  let current = typeId;
+  const h = harness(() => current);
+  h.ask(typeId);
+  h.releaseIdle();
+  await turn();
+  h.results.get(typeId)?.resolve(heat());
+  await turn();
+  assert.equal(h.state.typeHeat.status, "ready");
+
+  current = "type:Other";
+  h.state.typeHeat = { status: "idle" };
+  current = typeId;
+  h.ask(typeId);
+  await turn();
+  assert.equal(h.state.typeHeat.status, "ready");
+  assert.deepEqual(h.queried, [typeId]);
+});
+
+test("a producer failure stays failed until explicit retry", async () => {
+  const h = harness(() => typeId);
+  h.ask(typeId);
+  h.releaseIdle();
+  await turn();
+  const failing = h.results.get(typeId);
+  assert.ok(failing);
+  // Reject by resolving an invalid result: the cache validates it.
+  failing.resolve({ ...heat(), schemaVersion: 99 });
+  await turn();
+  assert.equal(h.state.typeHeat.status, "failed");
+
+  h.ask(typeId);
+  await turn();
+  assert.equal(h.state.typeHeat.status, "failed");
+  assert.deepEqual(h.queried, [typeId]);
+
+  h.busy();
+  h.coordinator.retry(request(), () => true);
+  await turn();
+  assert.deepEqual(h.queried, [typeId]);
+  h.releaseIdle();
+  await turn();
+  assert.deepEqual(h.queried, [typeId, typeId]);
+});
+
+test("cache keys separate Types and coordinates", () => {
+  assert.notEqual(typeHeatCacheKey(request("type:A")), typeHeatCacheKey(request("type:B")));
+  assert.notEqual(
+    typeHeatCacheKey(request()),
+    typeHeatCacheKey({ ...request(), version: "2.0.0" }),
+  );
+});
