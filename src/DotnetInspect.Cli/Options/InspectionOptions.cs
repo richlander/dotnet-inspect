@@ -78,11 +78,11 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string? PackageLibrary { get; init; }
 
-    /// <summary>The coordinate operation retained while a Package selects its Library.</summary>
-    internal LibraryCoordinateRequest? LibraryCoordinateRequest { get; init; }
+    /// <summary>The address operation retained while a Package selects its Library.</summary>
+    internal LibraryAddressRequest? LibraryAddressRequest { get; init; }
 
-    /// <summary>Semantic selection over retained coordinate-file rows.</summary>
-    internal RowSelectionIntent<string>? LibraryCoordinateRowSelection { get; init; }
+    /// <summary>Semantic selection over retained address-file rows.</summary>
+    internal RowSelectionIntent<string>? LibraryAddressRowSelection { get; init; }
 
     /// <summary>
     /// Execute the selected Package compile-Library aggregate.

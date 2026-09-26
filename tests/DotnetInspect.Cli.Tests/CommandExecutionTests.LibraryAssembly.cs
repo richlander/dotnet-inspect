@@ -3092,7 +3092,7 @@ public partial class CommandExecutionTests
         // The parent-owned topical category doors lead the catalog, in alphabetical order, and
         // every category row precedes every section row. @Metadata is among them because --schema
         // surfaces the whole parent catalog, including the explicit-only lens the curated
-        // top-level -D still leaves out. @Context belongs to library coordinate.
+        // top-level -D still leaves out. @Context belongs to library address.
         var categoryLines = SplitOutputLines(output)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
@@ -3516,7 +3516,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "\"Metadata: Heap\" requires library coordinate",
+            "\"Metadata: Heap\" requires library address",
             error);
     }
 
