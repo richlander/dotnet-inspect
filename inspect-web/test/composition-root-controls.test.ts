@@ -133,9 +133,9 @@ test("implementation evidence follows the expanded family after paint across pac
   // Every render schedules one Type heat request after paint; family detail
   // follows only an open evidence disclosure.
   const render = sourceText(functionDeclaration("render"));
-  assert.match(
-    render,
-    /finally[\s\S]*scheduleTypeHeat\(\);[\s\S]*ensureImplementationEvidence\(\);/);
+  assert.match(render, /finally[\s\S]*scheduleTypeHeat\(\);/);
+  // Rendering never requests family detail; only the disclosure does.
+  assert.doesNotMatch(render, /implementationProfiles\.activate|loadSelectedImplementationProfiles/);
   const schedule = sourceText(functionDeclaration("scheduleTypeHeat"));
   assert.match(
     schedule,
@@ -145,10 +145,18 @@ test("implementation evidence follows the expanded family after paint across pac
     heatTarget,
     /state\.rootKind === "library"[\s\S]*navMode\(\) !== "member"/);
   assert.doesNotMatch(heatTarget, /stableSelectors/);
-  const evidence = sourceText(functionDeclaration("ensureImplementationEvidence"));
+  // The disclosure renders open only for the overload it was opened on, while
+  // the published family detail still serves the current selection.
+  const evidenceOpen = sourceText(functionDeclaration("implementationEvidenceIsOpen"));
   assert.match(
-    evidence,
-    /state\.implementationEvidenceOpen[\s\S]*implementationProfiles\.activate\(target\.request, target\.selection\)/);
+    evidenceOpen,
+    /state\.implementationEvidenceKey[\s\S]*implementationEvidenceKey\(stableSelector\)[\s\S]*published\.selection\.isCurrent\(\)/);
+  // Heat eligibility follows the producer: an attached extension group of the
+  // same name makes the family ineligible.
+  const eligible = sourceText(functionDeclaration("familyIsEligible"));
+  assert.match(
+    eligible,
+    /group\.kind === "method"[\s\S]*group\.overloads\.length > 1[\s\S]*candidate\.name !== group\.name \|\| candidate\.kind === "method"/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));
   assert.match(

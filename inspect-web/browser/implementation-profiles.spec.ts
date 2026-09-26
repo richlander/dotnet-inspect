@@ -163,7 +163,8 @@ test("Type heat paints after the member list and family evidence stays behind it
     .toHaveCount(2);
   await expect(page.getByText("Branches: 8", { exact: true })).toBeVisible();
 
-  // Moving within the Type reuses its heat.
+  // Moving within the Type reuses its heat, and a disclosure opened on one
+  // overload never turns later selection into family requests.
   const compute = page.locator("[data-nav-member]")
     .filter({ hasText: "Compute" });
   await compute.click();
@@ -171,4 +172,26 @@ test("Type heat paints after the member list and family evidence stays behind it
   await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
   await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
   await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+  await page.locator('[data-nav-overload="1"]').click();
+  await expect(page.locator("[data-implementation-evidence]"))
+    .not.toHaveAttribute("open", "");
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "1",
+  );
+  await page.getByText("Implementation evidence", { exact: true }).click();
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "2",
+  );
+  expect(JSON.parse(
+    await html.getAttribute("data-implementation-profile-request") ?? "null",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    core.id,
+    "Example.Widget",
+    ["Compute(int)", "Compute(string)"],
+  ]);
 });

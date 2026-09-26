@@ -249,6 +249,8 @@ export type TypeHeatState =
       readonly isCurrent: () => boolean;
       readonly outcome: "rejected" | "failed" | "unavailable" | "producer-failed";
       readonly message: string;
+      /** Owner-issued diagnostics as `code: summary`, for settled Content. */
+      readonly diagnostics?: ReadonlyArray<string>;
     };
 
 export interface TypeHeatStateHost {
@@ -318,6 +320,8 @@ function project(
         ? heat.outcome
         : "failed",
       message: heat.failure?.detail ?? "Type implementation heat is unavailable.",
+      diagnostics: heat.diagnostics.map(diagnostic =>
+        `${diagnostic.code}: ${diagnostic.summary}`),
     };
   }
   return {

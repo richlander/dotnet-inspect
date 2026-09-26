@@ -291,9 +291,12 @@ carries family-level status text.
 The target nested-row label is the member name and its parameter types in C#
 spelling without namespace qualification, for example
 `Parse(ReadOnlySequence<byte>, JsonDocumentOptions)`. That compact label is
-owned by a separate member-surface-producer design; the Browser does not
-derive it by editing the rendered signature. Until the producer issues it,
-nested rows keep the existing signature text.
+owned by a separate member-surface-producer design. Until the producer issues
+it, a nested row drops the return type from the existing signature text: the
+row starts at the first occurrence of the family's member name followed by `(`
+or `<` at a word boundary. A signature that does not spell the member name,
+such as a constructor or operator, is shown whole. This is presentation only;
+no identity is read from the label.
 
 ### Heat
 
@@ -368,9 +371,10 @@ For the Type heat record:
   on its parent row;
 - **rejected, failed, or unavailable Content**, or **producer failed**: no heat
   or hub strip, and `heat unavailable` on each eligible family's parent row
-  when expanded. The owner-issued outcome, diagnostics, and an explicit Retry
-  appear in the Member detail of any selected member of an eligible family in
-  that Type; and
+  when expanded. The owner-issued outcome and diagnostics appear in the Member
+  detail of any selected member of an eligible family in that Type, with an
+  explicit Retry for a transport or producer failure; settled Content belongs
+  to its key and is not retried; and
 - **superseded**: no state is published because operation authority removed
   the view's publication right.
 

@@ -1239,7 +1239,7 @@ const initialState = {
   memberTextFilter: "",
   implementationProfiles: { status: "idle" as const },
   typeHeat: { status: "idle" } as TypeHeatState,
-  implementationEvidenceOpen: false,
+  implementationEvidenceKey: null as string | null,
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1406,7 +1406,7 @@ interface StateOverrides {
   selectedOverloadIndex: number | null;
   implementationProfiles: ImplementationProfileState;
   typeHeat: TypeHeatState;
-  implementationEvidenceOpen: boolean;
+  implementationEvidenceKey: string | null;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -3218,7 +3218,15 @@ const typeHeat = createTypeHeatCoordinator({
         request.assemblyFileName,
         request.pack,
         request.typeDefinitionId),
-  whenWorkerIdle: () => engineClient.activity.whenIdle(),
+  // Idle resolves while the last request settles; one macrotask lets that
+  // request's own continuation issue follow-up work before heat is sent.
+  whenWorkerIdle: async () => {
+    for (;;) {
+      await engineClient.activity.whenIdle();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (engineClient.activity.outstanding() === 0) return;
+    }
+  },
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
     console.error(
@@ -6423,9 +6431,21 @@ function typeHeatTarget(): {
   };
 }
 
+// The producer's eligibility: at least two public overloads, and every public
+// member sharing the name is an ordinary method (an attached extension group
+// of the same name makes the family ineligible).
+function familyIsEligible(
+  type: AppTypeSurface,
+  group: { name: string; kind: string; overloads: readonly unknown[] },
+) {
+  return group.kind === "method"
+    && group.overloads.length > 1
+    && memberGroups(type).every(candidate =>
+      candidate.name !== group.name || candidate.kind === "method");
+}
+
 function typeHasEligibleFamily(type: AppTypeSurface) {
-  return memberGroups(type).some(group =>
-    group.kind === "method" && group.overloads.length > 1);
+  return memberGroups(type).some(group => familyIsEligible(type, group));
 }
 
 function currentTypeHeatState(): TypeHeatState {
@@ -6453,25 +6473,28 @@ function scheduleTypeHeat() {
   }, 0));
 }
 
-// An open implementation-evidence disclosure follows the selected overload's
-// family: its detail request is explicit, made by opening the disclosure.
-function ensureImplementationEvidence() {
-  if (!state.implementationEvidenceOpen) return;
-  const target = implementationProfileTarget();
+// The implementation-evidence disclosure is the only family-detail request.
+// It belongs to the overload it was opened on, and it renders open only while
+// the published family detail still serves the current selection, so moving
+// to another overload or Type never issues a request by itself.
+function implementationEvidenceKey(stableSelector: string) {
+  return `${selectedType()?.id ?? ""}\u0000${stableSelector}`;
+}
+
+function implementationEvidenceIsOpen(stableSelector: string) {
   const published = state.implementationProfiles;
-  if (!target
-    || (published.status !== "idle" && published.selection.isCurrent())) {
-    return;
-  }
-  observeAsync(
-    implementationProfiles.activate(target.request, target.selection),
-    "Loading implementation evidence");
+  return state.implementationEvidenceKey
+      === implementationEvidenceKey(stableSelector)
+    && published.status !== "idle"
+    && published.selection.isCurrent();
 }
 
 function navGroupSelectors(group: { key: string }) {
-  const appGroup = memberGroups(selectedType())
-    .find(candidate => candidate.key === group.key);
-  return appGroup && appGroup.kind === "method" && appGroup.overloads.length > 1
+  const type = selectedType();
+  const appGroup = type
+    ? memberGroups(type).find(candidate => candidate.key === group.key)
+    : undefined;
+  return type && appGroup && familyIsEligible(type, appGroup)
     ? {
         name: appGroup.name,
         selectors: appGroup.overloads.map(overload => overload.stableSelector),
@@ -6507,12 +6530,13 @@ function memberNavFamilyHeatCue(group: { key: string }) {
 function renderOverloadImplementationEvidence(stableSelector: string) {
   const member = selectedMember(selectedType());
   if (!member || !implementationProfileTarget()) return "";
+  const evidenceOpen = implementationEvidenceIsOpen(stableSelector);
   const selectors = member.overloads.map(overload => overload.stableSelector);
   const heatState = currentTypeHeatState();
   const overloadHeat = familyHeatFor(heatState, member.name, selectors)
     ?.overloads.find(item => item.stableSelector === stableSelector);
   const summary = heatState.status === "failed"
-    ? `<p class="implementation-heat-failure">Implementation heat is unavailable: ${escapeHtml(heatState.message)} <button type="button" id="type-heat-retry" data-type-heat-retry>Retry heat</button></p>`
+    ? `<div class="implementation-heat-failure"><p>Implementation heat is unavailable (${escapeHtml(heatState.outcome)}): ${escapeHtml(heatState.message)}${heatState.outcome === "producer-failed" ? ' <button type="button" id="type-heat-retry" data-type-heat-retry>Retry heat</button>' : ""}</p>${heatState.diagnostics?.length ? `<ul>${heatState.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`
     : overloadHeat
       ? `<p class="implementation-profile-heat-summary">${escapeHtml(overloadHeat.description)}</p>`
       : heatState.status === "loading"
@@ -6521,9 +6545,9 @@ function renderOverloadImplementationEvidence(stableSelector: string) {
   return `<section class="learn-section member-implementation" aria-labelledby="member-implementation-title">
     <h2 id="member-implementation-title">Implementation</h2>
     ${summary}
-    <details class="implementation-evidence" data-implementation-evidence${state.implementationEvidenceOpen ? " open" : ""}>
+    <details class="implementation-evidence" data-implementation-evidence="${escapeHtml(stableSelector)}"${evidenceOpen ? " open" : ""}>
       <summary>Implementation evidence</summary>
-      ${state.implementationEvidenceOpen
+      ${evidenceOpen
         ? renderImplementationProfileState(
             currentImplementationProfileState(),
             escapeHtml,
@@ -7030,7 +7054,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   } finally {
     productNavigationBinding.afterRender();
     scheduleTypeHeat();
-    ensureImplementationEvidence();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),
@@ -11322,8 +11345,11 @@ function bindImplementationProfileEvents() {
     ?.addEventListener("toggle", event => {
       const details = event.currentTarget;
       if (!(details instanceof HTMLDetailsElement)) return;
-      if (state.implementationEvidenceOpen === details.open) return;
-      state.implementationEvidenceOpen = details.open;
+      const selector = details.dataset.implementationEvidence ?? "";
+      if (details.open === implementationEvidenceIsOpen(selector)) return;
+      state.implementationEvidenceKey = details.open
+        ? implementationEvidenceKey(selector)
+        : null;
       if (details.open)
         observeAsync(
           loadSelectedImplementationProfiles(),

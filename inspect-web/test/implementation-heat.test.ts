@@ -395,3 +395,35 @@ test("cache keys separate Types and coordinates", () => {
     typeHeatCacheKey({ ...request(), version: "2.0.0" }),
   );
 });
+
+test("settled failed Content keeps its outcome and diagnostics", async () => {
+  const h = harness(() => typeId);
+  h.ask(typeId);
+  h.releaseIdle();
+  await turn();
+  h.results.get(typeId)?.resolve({
+    ...heat(),
+    outcome: "rejected",
+    content: null,
+    failure: {
+      kind: "InvalidImage",
+      detail: "The image is not a managed assembly.",
+      metadataRootReason: null,
+    },
+    diagnostics: [{
+      code: "implementation-profiles.participant-rejected",
+      severity: 2,
+      summary: "Participant rejected.",
+      correspondence: null,
+    }],
+  });
+  await turn();
+  const failed = h.state.typeHeat;
+  assert.equal(failed.status, "failed");
+  if (failed.status !== "failed") return;
+  assert.equal(failed.outcome, "rejected");
+  assert.equal(failed.message, "The image is not a managed assembly.");
+  assert.deepEqual(failed.diagnostics, [
+    "implementation-profiles.participant-rejected: Participant rejected.",
+  ]);
+});
