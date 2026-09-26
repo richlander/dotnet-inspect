@@ -7017,6 +7017,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   if (state.home) {
     renderHomeView(homeFocus);
+    restoreApplicationActivityReturnFocus();
     return;
   }
   if (scope() === "platform") {
@@ -15161,19 +15162,8 @@ function restorePackageActivityReturnFocus() {
     const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (!state.packageActivityReturnFocusPending
-          || state.packageActivityReturnFocus !== "application-activity"
-          || focusGeneration !== documentFocusGeneration
-          || !isPackageActivityPredecessor(
-            history.state,
-            predecessorEntryId)) {
-          return;
-        }
-        if (focusRenderedElement(document.querySelector<HTMLElement>(
-          "[data-product-navigation-button]")) || focusLevelOneHeading()) {
-          state.packageActivityReturnFocus = null;
-          state.packageActivityReturnFocusPending = false;
-        }
+        if (focusGeneration !== documentFocusGeneration) return;
+        restoreApplicationActivityReturnFocus(predecessorEntryId);
       });
     });
     return;
@@ -15185,6 +15175,26 @@ function restorePackageActivityReturnFocus() {
       state.packageActivityReturnFocusPending = false;
     }
   });
+}
+
+function restoreApplicationActivityReturnFocus(
+  predecessorEntryId = state.packageActivityPredecessorEntryId,
+): boolean {
+  if (!state.packageActivityReturnFocusPending
+    || state.packageActivityReturnFocus !== "application-activity"
+    || state.packageActivityPredecessorEntryId !== predecessorEntryId
+    || !isPackageActivityPredecessor(
+      history.state,
+      predecessorEntryId)) {
+    return false;
+  }
+  if (!focusRenderedElement(document.querySelector<HTMLElement>(
+    "[data-product-navigation-button]")) && !focusLevelOneHeading()) {
+    return false;
+  }
+  state.packageActivityReturnFocus = null;
+  state.packageActivityReturnFocusPending = false;
+  return true;
 }
 
 function restorePackageQueryWorkspaceFocus() {
@@ -22088,6 +22098,18 @@ window.addEventListener("popstate", () => {
   let leftPackageQueryForWorkspaceSuccessor = false;
   let unavailableWorkspaceAdmissionRejected = false;
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
+  if (state.packageActivityOpen
+    && !isPackageActivityPath(location.pathname)) {
+    state.packageActivityOpen = false;
+    packageChangesController.cancel("disposed");
+    state.packageActivityReturnFocusPending =
+      state.packageActivityReturnFocus !== null
+      && isPackageActivityPredecessor(
+        history.state,
+        state.packageActivityPredecessorEntryId);
+    leftPackageQueryForWorkspaceSuccessor =
+      !state.packageActivityReturnFocusPending;
+  }
   invalidateMemberDestinationWork(state);
   const historyWorkspaceId =
     retainedWorkspaceIdFromHistory(history.state);
@@ -22250,7 +22272,9 @@ window.addEventListener("popstate", () => {
     state.home = false;
     state.loading = !state.engineReady;
     render();
-    if (state.engineReady) focusPackageQueryInput();
+    if (!restoreApplicationActivityReturnFocus() && state.engineReady) {
+      focusPackageQueryInput();
+    }
     return;
   }
   if (isPackageActivityPath(location.pathname)) {
@@ -22282,18 +22306,6 @@ window.addEventListener("popstate", () => {
         state.packageQueryPredecessorEntryId);
     leftPackageQueryForWorkspaceSuccessor =
       !state.packageQueryReturnFocusPending;
-  }
-  if (state.packageActivityOpen) {
-    state.packageActivityOpen = false;
-    packageChangesController.cancel("disposed");
-    state.packageActivityReturnFocusPending =
-      state.packageActivityReturnFocus !== null
-      && isPackageActivityPredecessor(
-        history.state,
-        state.packageActivityPredecessorEntryId);
-    leftPackageQueryForWorkspaceSuccessor =
-      leftPackageQueryForWorkspaceSuccessor
-      || !state.packageActivityReturnFocusPending;
   }
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();

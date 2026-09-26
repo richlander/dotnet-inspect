@@ -168,6 +168,28 @@ test("Activity Back restores focus on the Platform route", async ({ page }) => {
   await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
+test("Activity Back restores menu focus on Query and Home routes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const productNavigation = page.locator("[data-product-navigation-button]");
+
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  await openProductDestination(page, "activity");
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(productNavigation).toBeFocused();
+
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await openProductDestination(page, "activity");
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await expect(productNavigation).toBeFocused();
+});
+
 test("platform-only Workspace preserves Query as its Back predecessor", async ({
   page,
 }) => {
