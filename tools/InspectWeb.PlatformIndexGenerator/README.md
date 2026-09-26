@@ -67,7 +67,7 @@ library correspondence.
 From the repository root, with the repository-selected SDK:
 
 ```bash
-dotnet run inspect-web/tools/gen-platform-index/genindex.cs \
+dotnet run tools/InspectWeb.PlatformIndexGenerator/genindex.cs \
   -c Release -- inspect-web/assets/platform-index.json
 ```
 
@@ -83,4 +83,4 @@ package supply, role examples, and the shipped .NET 11 target. Engine catalog
 tests cover dynamic discovery and acquisition; browser tests cover Platform
 presentation, navigation, and exact demo correspondence. The owning experience
 is issue #6013 and
-[Platform subject](../../../docs/design/inspect-web-navigation-presentation.md#platform-subject).
+[Platform subject](../../docs/design/inspect-web-navigation-presentation.md#platform-subject).
