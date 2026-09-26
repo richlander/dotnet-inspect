@@ -659,7 +659,7 @@ binding-owned typed execution path. A descriptor registered beside a handler
 or export that directly bypasses that binding does not satisfy adoption.
 
 The first implementation uses
-`dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release` for the
+`dotnet run --project tests/DotnetInspect.Web.Tests -c Release` for the
 Browser-managed binding and
 `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` for
 resource-free catalog construction. NativeAOT and single-threaded Wasm remain

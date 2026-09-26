@@ -822,7 +822,8 @@ public sealed class MethodSemanticsRowReaderTests
         int propertyCount = 0,
         int eventCount = 0,
         IReadOnlyList<RawSemanticsRow>? rows = null,
-        string metadataVersion = "v4.0.30319")
+        string metadataVersion = "v4.0.30319",
+        int? secondTypeMethodStart = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -852,6 +853,16 @@ public sealed class MethodSemanticsRowReaderTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        if (secondTypeMethodStart is int otherMethodStart)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("Other"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(otherMethodStart));
+        }
 
         var methodSignature = new BlobBuilder();
         new BlobEncoder(methodSignature)

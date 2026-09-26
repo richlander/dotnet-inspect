@@ -6,8 +6,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 inspect_web="$repo_root/inspect-web"
-engine_csproj="$inspect_web/DotnetInspect.Web/DotnetInspect.Web.csproj"
-engine_output="$inspect_web/DotnetInspect.Web/bin/Release/net11.0"
+engine_csproj="$repo_root/src/DotnetInspect.Web/DotnetInspect.Web.csproj"
+engine_output="$repo_root/artifacts/bin/DotnetInspect.Web/release_browser-wasm"
 engine_dll="$engine_output/DotnetInspect.Web.dll"
 context_type="DotnetInspect.Web.InspectWebJsExportContext"
 
@@ -115,7 +115,10 @@ if [[ ! -f "$compiler" ]]; then
 fi
 
 if [[ "$mode" != contract ]]; then
-  "$dotnet" build "$engine_csproj" -c Release >&2
+  "$dotnet" build \
+    "$engine_csproj" \
+    -c Release \
+    -p:InspectWebIncludeFrontend=true >&2
 fi
 
 # One invocation of the compiled recipe, into a destination that does not exist yet: the
@@ -210,10 +213,14 @@ seed_stale_msbuild_module() {
 
 verify_msbuild_facade_build() {
   seed_stale_msbuild_module
+  "$dotnet" restore \
+    "$engine_csproj" \
+    -p:InspectWebIncludeFrontend=true >&2
   "$dotnet" build \
     "$engine_csproj" \
     -c Release \
     --no-restore \
+    -p:InspectWebIncludeFrontend=true \
     "$@" >&2
   if [[ -e "$stale_msbuild_module" ]]; then
     echo "error: the .NET build left the stale facade module in place." >&2
@@ -231,6 +238,7 @@ verify_msbuild_facade_publish() {
     -c Release \
     --no-restore \
     --output "$publish_output" \
+    -p:InspectWebIncludeFrontend=true \
     "$@" >&2
   if [[ -e "$stale_msbuild_module" ]]; then
     echo "error: the .NET publish left the stale facade module in place." >&2

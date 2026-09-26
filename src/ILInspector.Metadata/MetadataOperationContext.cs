@@ -372,6 +372,7 @@ internal enum MetadataOperationWorkKind
     InterfaceImplementationRowRead,
     MethodSemanticsAssociationRead,
     MethodDeclarationPublication,
+    AccessorDeclarationPublication,
     TypeDeclarationPublication,
 }
 

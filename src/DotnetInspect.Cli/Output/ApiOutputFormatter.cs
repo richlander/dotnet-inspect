@@ -2606,10 +2606,10 @@ public static class ApiOutputFormatter
     internal static void PopulateCalledTypes(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryCallGraphAnalysisResult callGraph,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var rows = index
+        var rows = callGraph
             .CalledTypes(method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
@@ -2691,7 +2691,7 @@ public static class ApiOutputFormatter
     internal static void PopulateOptimizationOpportunities(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryOptimizationAnalysisResult optimization,
         IReadOnlySet<string>? explicitSections = null,
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
@@ -2704,7 +2704,7 @@ public static class ApiOutputFormatter
             ? typeMemberTokens
             : null;
         LibraryMetadataService.ReportOptimizationDiagnostics(
-            index,
+            optimization.Receipt.Diagnostics,
             diagnostic =>
                 (diagnostic.SourceDeclaringType
                     ?? diagnostic.DeclaringType) is { } diagnosticType
@@ -2716,14 +2716,14 @@ public static class ApiOutputFormatter
                         diagnostic.SourceMethodToken
                             ?? diagnostic.MethodToken)));
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
-                LibraryMetadataService.TriageOpportunities(index, options)
+                LibraryMetadataService.TriageOpportunities(optimization, options)
                     .Where(opportunity => ApiAnalysisInspection.SameType(
                         (opportunity.SourceOwner ?? opportunity.Method)
                             .DeclaringType,
                         type))
                     .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
                         opportunity,
-                        index.GeneratedFrameworkTypes))
+                        optimization.GeneratedFrameworkTypes))
                     .Where(opportunity => memberTokens is null
                         || memberTokens.Contains(
                             (opportunity.SourceOwner ?? opportunity.Method)
@@ -2979,7 +2979,7 @@ public static class ApiOutputFormatter
         }
     }
 
-    internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryBodyIndex index, bool restrictToModelMembers = false)
+    internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryLeverageAnalysisResult leverage, bool restrictToModelMembers = false)
     {
         var drillByToken = BuildMemberDrillMap(type);
 
@@ -2988,12 +2988,12 @@ public static class ApiOutputFormatter
         // limiter (`-n`/`--rows`) trims the rendered table. In member-detail/overload
         // contexts `type.Members` is narrowed to the selected member(s), so restrict the
         // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
-        var rows = index.TopLeverage(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
+        var rows = leverage.Top(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypes);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, leverage.GeneratedFrameworkTypes);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),
@@ -3014,32 +3014,38 @@ public static class ApiOutputFormatter
     internal static void PopulateImplementationProfiles(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryImplementationProfileAnalysisResult profiles,
         bool memberScope,
         bool restrictToModelMembers = false,
         int? selectedMethodToken = null)
     {
+        if (!profiles.WasRequested)
+        {
+            throw new InvalidOperationException(
+                "Implementation profiles were not requested for this body index.");
+        }
+
         var drillByToken = BuildMemberDrillMap(type);
         LibraryMetadataService.ReportImplementationProfileDiagnostics(
-            index,
+            profiles.Receipt.Diagnostics,
             diagnostic => IncludesImplementationProfileDiagnostic(
                 diagnostic,
                 type,
                 drillByToken,
                 restrictToModelMembers,
                 selectedMethodToken));
-        var relationshipsByBody = index.OverloadRelationships()
+        var relationshipsByBody = profiles.OverloadRelationships
             .GroupBy(relationship => (
                 relationship.Caller.MetadataToken,
                 relationship.EvidenceMethod.MetadataToken))
             .ToDictionary(
                 group => group.Key,
                 group => group.ToArray());
-        var rows = index.ImplementationProfiles(
-                scope: method =>
-                    ApiAnalysisInspection.SameType(
-                        method.DeclaringType,
-                        type))
+        var rows = profiles.Profiles
+            .Where(profile =>
+                ApiAnalysisInspection.SameType(
+                    profile.Method.DeclaringType,
+                    type))
             .Where(profile =>
                 selectedMethodToken is { } selected
                     ? profile.Method.MetadataToken == selected
@@ -3062,7 +3068,7 @@ public static class ApiOutputFormatter
                     drill,
                     LibraryMetadataService.IsGeneratedMethod(
                         profile.Method,
-                        index.GeneratedFrameworkTypes),
+                        profiles.GeneratedFrameworkTypes),
                     includeDeclaringType: false);
             })
             .ToList();

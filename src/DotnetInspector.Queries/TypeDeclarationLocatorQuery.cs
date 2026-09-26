@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -47,6 +48,13 @@ public static class TypeDeclarationLocatorQuery
             {
                 TypeDeclarationLocatorRequest.Exact exact => exact.Name is not null,
                 TypeDeclarationLocatorRequest.Pattern pattern => !string.IsNullOrWhiteSpace(pattern.Text),
+                TypeDeclarationLocatorRequest.Namespace @namespace =>
+                    !string.IsNullOrWhiteSpace(@namespace.Name)
+                    && Enum.IsDefined(@namespace.Match)
+                    && (@namespace.Match
+                            != MetadataNamespaceMatch.Suffix
+                        || (@namespace.Name.Length > 1
+                            && @namespace.Name[0] == '.')),
                 _ => false,
             };
             if (!valid)
@@ -104,10 +112,70 @@ public static class TypeDeclarationLocatorQuery
             switch (access)
             {
                 case WorkspaceDeclarationInventoryOutcome.Inspected
-                    { Outcome: AssemblyTypeDeclarationInventoryOutcome.Read read }:
+                    inspected
+                    when inspected.Outcome
+                        is AssemblyTypeDeclarationInventoryOutcome.Read read:
+                    Evaluate(
+                        read.Inventory,
+                        inspected.ModuleVersionId);
+                    break;
+                case WorkspaceDeclarationInventoryOutcome.Inspected
+                    inspected
+                    when inspected.Outcome
+                        is AssemblyTypeDeclarationInventoryOutcome.Rejected
+                            rejected:
+                    outcomes.Add(
+                        new TypeDeclarationLocatorMemberOutcome
+                            .InventoryRejected(
+                                member,
+                                rejected.Failure));
+                    break;
+                case WorkspaceDeclarationInventoryOutcome.LibraryInspected
+                    inspected
+                    when inspected.Outcome
+                        is LibraryTypeDeclarationInventoryInspectionOutcome
+                            .Completed completed:
+                    Evaluate(
+                        completed.Correspondence.Inventory,
+                        completed.Correspondence.ModuleVersionId);
+                    break;
+                case WorkspaceDeclarationInventoryOutcome.LibraryInspected
+                    inspected:
+                    outcomes.Add(
+                        new TypeDeclarationLocatorMemberOutcome
+                            .InventoryRejected(
+                                member,
+                                LibraryFailure(inspected.Outcome)));
+                    break;
+                case WorkspaceDeclarationInventoryOutcome
+                    .InventoryRejected rejected:
+                    outcomes.Add(
+                        new TypeDeclarationLocatorMemberOutcome
+                            .InventoryRejected(
+                                member,
+                                rejected.Failure));
+                    break;
+                case WorkspaceDeclarationInventoryOutcome.AcquisitionRejected rejected:
+                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.AccessRejected(member, rejected.Failure));
+                    break;
+                case WorkspaceDeclarationInventoryOutcome.Unavailable rejected:
+                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.Unavailable(member, rejected.Failure));
+                    break;
+                case WorkspaceDeclarationInventoryOutcome.NotEvaluated stopped:
+                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.NotEvaluated(member, stopped.Bound));
+                    break;
+                default:
+                    throw new InspectionQueryException("Unknown declaration inventory outcome.");
+            }
+
+            void Evaluate(
+                AssemblyTypeDeclarationInventory inventory,
+                Guid moduleVersionId)
+            {
                     var unsupported = ImmutableArray.CreateBuilder<AssemblyTypeDeclaration>();
                     int declarationOrder = 0;
-                    foreach (AssemblyTypeDeclaration declaration in read.Inventory.GetDeclarations(includeAll))
+                    foreach (AssemblyTypeDeclaration declaration
+                        in inventory.GetDeclarations(includeAll))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         int currentDeclarationOrder = declarationOrder++;
@@ -125,6 +193,11 @@ public static class TypeDeclarationLocatorQuery
                                 TypeDeclarationLocatorRequest.Exact exact => exact.Name.Equals(declaration.Name),
                                 TypeDeclarationLocatorRequest.Pattern pattern =>
                                     TypeMatcher.MatchesTypeFilter(declaration.Name, pattern.Text),
+                                TypeDeclarationLocatorRequest.Namespace
+                                    @namespace =>
+                                    declaration.Name.IsInNamespace(
+                                        @namespace.Name,
+                                        @namespace.Match),
                                 _ => throw new InspectionQueryException("Unknown admitted locator request."),
                             };
                             if (matches)
@@ -133,28 +206,13 @@ public static class TypeDeclarationLocatorQuery
                                     new(
                                         coordinate,
                                         declaration,
+                                        moduleVersionId,
                                         currentDeclarationOrder,
                                         member));
                             }
                         }
                     }
                     outcomes.Add(new TypeDeclarationLocatorMemberOutcome.Searched(member, unsupported.ToImmutable()));
-                    break;
-                case WorkspaceDeclarationInventoryOutcome.Inspected
-                    { Outcome: AssemblyTypeDeclarationInventoryOutcome.Rejected rejected }:
-                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.InventoryRejected(member, rejected.Failure));
-                    break;
-                case WorkspaceDeclarationInventoryOutcome.AcquisitionRejected rejected:
-                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.AccessRejected(member, rejected.Failure));
-                    break;
-                case WorkspaceDeclarationInventoryOutcome.Unavailable rejected:
-                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.Unavailable(member, rejected.Failure));
-                    break;
-                case WorkspaceDeclarationInventoryOutcome.NotEvaluated stopped:
-                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.NotEvaluated(member, stopped.Bound));
-                    break;
-                default:
-                    throw new InspectionQueryException("Unknown declaration inventory outcome.");
             }
         }
 
@@ -241,4 +299,35 @@ public static class TypeDeclarationLocatorQuery
         return comparison != 0 ? comparison
             : StringComparer.OrdinalIgnoreCase.Compare(left.PublicKeyToken ?? "", right.PublicKeyToken ?? "");
     }
+
+    static CandidateOpenFailure LibraryFailure(
+        LibraryTypeDeclarationInventoryInspectionOutcome outcome) =>
+        outcome switch
+        {
+            LibraryTypeDeclarationInventoryInspectionOutcome
+                .Incomplete incomplete =>
+                    new(
+                        CandidateOpenFailureKind.ResourceBudget,
+                        $"Library declaration inspection reached "
+                            + $"{incomplete.Bound}."),
+            LibraryTypeDeclarationInventoryInspectionOutcome
+                .Rejected rejected =>
+                    new(
+                        CandidateOpenFailureKind.InvalidImage,
+                        $"Library declaration inspection was rejected as "
+                            + $"{rejected.Kind}."),
+            LibraryTypeDeclarationInventoryInspectionOutcome
+                .Failed failed =>
+                    new(
+                        failed.Kind
+                            is LibraryTypeDeclarationInventoryInspectionFailureKind
+                                .UnsupportedWindowsMetadata
+                            ? CandidateOpenFailureKind
+                                .UnsupportedMetadataFormat
+                            : CandidateOpenFailureKind.InvalidImage,
+                        $"Library declaration inspection failed as "
+                            + $"{failed.Kind}."),
+            _ => throw new InspectionQueryException(
+                "A completed Library declaration inventory was not evaluated."),
+        };
 }

@@ -94,8 +94,9 @@ npm ci
 npm run build
 
 cd "$repo_root"
-dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+dotnet publish src/DotnetInspect.Web/DotnetInspect.Web.csproj \
   -c Release \
+  -p:InspectWebIncludeFrontend=true \
   --disable-build-servers \
   -p:UseSharedCompilation=false \
   -p:BuildInParallel=false \
@@ -103,15 +104,10 @@ dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
   -nr:false
 ```
 
-Derive the target framework from the project rather than embedding today's
-framework in scripts:
+Use the repository's centralized publish output:
 
 ```bash
-target_framework="$(
-  dotnet msbuild inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
-    -nologo -getProperty:TargetFramework
-)"
-site_root="$repo_root/inspect-web/DotnetInspect.Web/bin/Release/$target_framework/publish/wwwroot"
+site_root="$repo_root/artifacts/publish/DotnetInspect.Web/release_browser-wasm/wwwroot"
 dotnet_loader="$(
   grep -oE '_framework/dotnet\.[a-z0-9]+\.js' "$site_root/index.html" |
     head -n 1
