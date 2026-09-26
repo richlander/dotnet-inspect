@@ -30,6 +30,17 @@ public enum SourceViewLanguage
     FSharp,
 }
 
+public enum SourceViewLineTerminator
+{
+    None,
+    CarriageReturnLineFeed,
+    CarriageReturn,
+    LineFeed,
+    NextLine,
+    LineSeparator,
+    ParagraphSeparator,
+}
+
 public sealed record SourceViewBinding
 {
     internal SourceViewBinding(Guid value)
@@ -216,7 +227,7 @@ public sealed record SourceViewLine
         int number,
         int start,
         string content,
-        DecodedTextLineTerminator terminator)
+        SourceViewLineTerminator terminator)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(number);
         ArgumentOutOfRangeException.ThrowIfNegative(start);
@@ -232,18 +243,18 @@ public sealed record SourceViewLine
 
     public string Content { get; }
 
-    public DecodedTextLineTerminator Terminator { get; }
+    public SourceViewLineTerminator Terminator { get; }
 
     public string TerminatorText =>
         Terminator switch
         {
-            DecodedTextLineTerminator.None => "",
-            DecodedTextLineTerminator.CarriageReturnLineFeed => "\r\n",
-            DecodedTextLineTerminator.CarriageReturn => "\r",
-            DecodedTextLineTerminator.LineFeed => "\n",
-            DecodedTextLineTerminator.NextLine => "\u0085",
-            DecodedTextLineTerminator.LineSeparator => "\u2028",
-            DecodedTextLineTerminator.ParagraphSeparator => "\u2029",
+            SourceViewLineTerminator.None => "",
+            SourceViewLineTerminator.CarriageReturnLineFeed => "\r\n",
+            SourceViewLineTerminator.CarriageReturn => "\r",
+            SourceViewLineTerminator.LineFeed => "\n",
+            SourceViewLineTerminator.NextLine => "\u0085",
+            SourceViewLineTerminator.LineSeparator => "\u2028",
+            SourceViewLineTerminator.ParagraphSeparator => "\u2029",
             _ => throw new InvalidOperationException(
                 "Unknown Source view line terminator."),
         };
@@ -617,7 +628,29 @@ public static class SourceViewInspection
                     line.Number,
                     line.Start,
                     line.Content.ToString(),
-                    line.Terminator)),
+                    SourceTerminator(line.Terminator))),
         ];
     }
+
+    private static SourceViewLineTerminator SourceTerminator(
+        DecodedTextLineTerminator terminator) =>
+        terminator switch
+        {
+            DecodedTextLineTerminator.None =>
+                SourceViewLineTerminator.None,
+            DecodedTextLineTerminator.CarriageReturnLineFeed =>
+                SourceViewLineTerminator.CarriageReturnLineFeed,
+            DecodedTextLineTerminator.CarriageReturn =>
+                SourceViewLineTerminator.CarriageReturn,
+            DecodedTextLineTerminator.LineFeed =>
+                SourceViewLineTerminator.LineFeed,
+            DecodedTextLineTerminator.NextLine =>
+                SourceViewLineTerminator.NextLine,
+            DecodedTextLineTerminator.LineSeparator =>
+                SourceViewLineTerminator.LineSeparator,
+            DecodedTextLineTerminator.ParagraphSeparator =>
+                SourceViewLineTerminator.ParagraphSeparator,
+            _ => throw new InvalidOperationException(
+                "Unknown decoded-text line terminator."),
+        };
 }
