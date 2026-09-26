@@ -19,11 +19,15 @@ public sealed class SectionSourceRowExecutionRequest<
                 TCompletionEvidence>> sources,
         SectionRowExecutionRequest<
             TIdentity,
-            TProjection>? residualRequest)
+            TProjection>? rowsResidualRequest,
+        SectionRowExecutionRequest<
+            TIdentity,
+            TProjection>? countResidualRequest)
     {
         RowSets = rowSets;
         Sources = sources;
-        ResidualRequest = residualRequest;
+        RowsResidualRequest = rowsResidualRequest;
+        CountResidualRequest = countResidualRequest;
     }
 
     public IReadOnlyList<
@@ -39,7 +43,12 @@ public sealed class SectionSourceRowExecutionRequest<
 
     internal SectionRowExecutionRequest<
         TIdentity,
-        TProjection>? ResidualRequest
+        TProjection>? RowsResidualRequest
+    { get; }
+
+    internal SectionRowExecutionRequest<
+        TIdentity,
+        TProjection>? CountResidualRequest
     { get; }
 
     public static SectionSourceRowExecutionRequest<
@@ -58,16 +67,10 @@ public sealed class SectionSourceRowExecutionRequest<
                     TDisposition,
                     TCompletionEvidence>> sources)
     {
+        ArgumentNullException.ThrowIfNull(rowSets);
+        ArgumentNullException.ThrowIfNull(association);
         ArgumentNullException.ThrowIfNull(sources);
-
-        SectionRowExecutionRequest<TIdentity, TProjection>
-            validated =
-                SectionRowExecutionRequest<
-                    TIdentity,
-                    TProjection>.Create(
-                        rowSets,
-                        association);
-        if (sources.Count != validated.RowSets.Count)
+        if (sources.Count != rowSets.Count)
         {
             throw new ArgumentException(
                 "A source-aware section-row request requires one source "
@@ -75,12 +78,18 @@ public sealed class SectionSourceRowExecutionRequest<
                 nameof(sources));
         }
 
+        var resolvedRowSets =
+            new SectionRowSetDeclaration<
+                TIdentity,
+                TProjection>[rowSets.Count];
         var sourceCopy =
             new SectionRowSourceState<
                 TIdentity,
                 TDisposition,
                 TCompletionEvidence>[sources.Count];
+        var exactCountIdentities = new HashSet<TIdentity>();
         var usableIdentities = new HashSet<TIdentity>();
+        var countResidualIdentities = new HashSet<TIdentity>();
         for (int index = 0; index < sources.Count; index++)
         {
             SectionRowSourceState<
@@ -92,7 +101,11 @@ public sealed class SectionSourceRowExecutionRequest<
                         nameof(sources),
                         $"Source state {index + 1} is null.");
             SectionRowSetDeclaration<TIdentity, TProjection>
-                rowSet = validated.RowSets[index];
+                rowSet =
+                    rowSets[index]
+                    ?? throw new ArgumentNullException(
+                        nameof(rowSets),
+                        $"Declared row set {index + 1} is null.");
             if (!EqualityComparer<TIdentity>.Default.Equals(
                     source.Identity,
                     rowSet.Identity))
@@ -104,21 +117,49 @@ public sealed class SectionSourceRowExecutionRequest<
             }
 
             sourceCopy[index] = source;
+            if (source.ExactCount is int exactCount)
+            {
+                exactCountIdentities.Add(source.Identity);
+                resolvedRowSets[index] =
+                    rowSet.ResolveExactCountSnapshot(exactCount);
+            }
+            else
+            {
+                resolvedRowSets[index] = rowSet;
+            }
             if (source.RowsAreUsable)
             {
                 usableIdentities.Add(source.Identity);
             }
+            if (source.CountIsSufficient
+                && source.ExactCount is null)
+            {
+                countResidualIdentities.Add(source.Identity);
+            }
         }
 
+        SectionRowExecutionRequest<TIdentity, TProjection>
+            validated =
+                SectionRowExecutionRequest<
+                    TIdentity,
+                    TProjection>.Create(
+                        resolvedRowSets,
+                        association,
+                        exactCountIdentities);
         SectionRowExecutionRequest<
             TIdentity,
-            TProjection>? residualRequest =
+            TProjection>? rowsResidualRequest =
                 validated.CreateSubset(usableIdentities);
+        SectionRowExecutionRequest<
+            TIdentity,
+            TProjection>? countResidualRequest =
+                validated.CreateSubset(countResidualIdentities);
 
         return new(
             validated.RowSets,
             SectionContractSnapshot.Own(sourceCopy),
-            residualRequest);
+            rowsResidualRequest,
+            countResidualRequest);
     }
 }
 
@@ -148,11 +189,11 @@ public static class SectionSourceRowExecutor
             new Dictionary<
                 TIdentity,
                 SectionRowSetResult<TIdentity, TProjection>>();
-        if (request.ResidualRequest is not null)
+        if (request.RowsResidualRequest is not null)
         {
             SectionRowsOutcome<TIdentity, TProjection> selected =
                 SectionRowExecutor.ApplyRows(
-                    request.ResidualRequest);
+                    request.RowsResidualRequest);
             if (!selected.IsSuccess)
             {
                 return SectionSourceRowsOutcome<
@@ -258,19 +299,89 @@ public static class SectionSourceRowExecutor
                         sources);
         }
 
-        if (request.ResidualRequest is null)
+        var countsByIdentity =
+            new Dictionary<TIdentity, int>();
+        foreach (SectionRowSourceState<
+            TIdentity,
+            TDisposition,
+            TCompletionEvidence> source in request.Sources)
         {
-            throw new InvalidOperationException(
-                "A Count-sufficient source-aware request has no residual "
-                + "row execution.");
+            if (source.ExactCount is int exactCount)
+            {
+                countsByIdentity.Add(
+                    source.Identity,
+                    exactCount);
+            }
         }
 
-        return SectionRowExecutor.ApplyCount<
+        if (request.CountResidualRequest is not null)
+        {
+            SectionCountOutcome<
+                TIdentity,
+                SectionRowSourceEvidence<
+                    TDisposition,
+                    TCompletionEvidence>> residual =
+                        SectionRowExecutor.ApplyCount<
+                            TIdentity,
+                            TProjection,
+                            SectionRowSourceEvidence<
+                                TDisposition,
+                                TCompletionEvidence>>(
+                                    request.CountResidualRequest);
+            if (residual is SectionCountOutcome<
+                    TIdentity,
+                    SectionRowSourceEvidence<
+                        TDisposition,
+                        TCompletionEvidence>>.Semantic semantic)
+            {
+                return semantic;
+            }
+            if (residual is not SectionCountOutcome<
+                    TIdentity,
+                    SectionRowSourceEvidence<
+                        TDisposition,
+                        TCompletionEvidence>>.Completed completed)
+            {
+                throw new InvalidOperationException(
+                    "Residual section-row Count returned a source outcome.");
+            }
+
+            foreach (SectionCountEntry<TIdentity> count
+                in completed.Counts)
+            {
+                if (!countsByIdentity.TryAdd(
+                        count.Identity,
+                        count.Value))
+                {
+                    throw new InvalidOperationException(
+                        "Source-aware Count produced a row set more than "
+                        + "once.");
+                }
+            }
+        }
+
+        var counts =
+            new SectionCountEntry<TIdentity>[request.Sources.Count];
+        for (int index = 0;
+             index < request.Sources.Count;
+             index++)
+        {
+            TIdentity identity =
+                request.Sources[index].Identity;
+            if (!countsByIdentity.TryGetValue(
+                    identity,
+                    out int count))
+            {
+                throw new InvalidOperationException(
+                    "Source-aware Count omitted a participating row set.");
+            }
+            counts[index] = new(identity, count);
+        }
+
+        return new SectionCountOutcome<
             TIdentity,
-            TProjection,
             SectionRowSourceEvidence<
                 TDisposition,
-                TCompletionEvidence>>(
-                    request.ResidualRequest);
+                TCompletionEvidence>>.Completed(counts);
     }
 }

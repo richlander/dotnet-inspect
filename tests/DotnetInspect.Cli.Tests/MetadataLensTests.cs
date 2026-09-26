@@ -278,7 +278,7 @@ public partial class CommandExecutionTests
             "library",
             "--metadata-root",
             "r2r-manifest",
-            "coordinate",
+            "address",
             $"#Strings:{entry.Offset}",
             "--library",
             path,
@@ -383,7 +383,7 @@ public partial class CommandExecutionTests
                 "library",
                 "--metadata-root",
                 "r2r-manifest",
-                "coordinate",
+                "address",
                 $"#Strings:{cliEntry.Offset}",
                 "--library",
                 path,
@@ -1291,7 +1291,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_HeapCoordinate_RendersTheValueAtThatAddress()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "coordinate", "#Strings:1",
+            "library", "address", "#Strings:1",
             "--library", TestAssemblyPath, "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -1306,7 +1306,7 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
 
         var childCount = await RunAppAsync(
-            "library", "coordinate", "#Strings:1",
+            "library", "address", "#Strings:1",
             "--library", TestAssemblyPath, "--count", "--tips", "q");
         Assert.Equal(0, childCount.Exit);
         Assert.Equal("1", childCount.Output.Trim());
@@ -1318,7 +1318,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
-            "coordinate",
+            "address",
             "#Strings:1",
             "-D",
             "--schema",
@@ -1345,7 +1345,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_HeapCoordinate_AcceptsEverySpelling(string coordinate)
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "coordinate", coordinate,
+            "library", "address", coordinate,
             "--library", TestAssemblyPath, "--tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -1381,7 +1381,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(withoutOutput));
 
         var (withExit, withOutput, _) = await RunAppAsync(
-            "library", "coordinate", "#Strings:1",
+            "library", "address", "#Strings:1",
             "--library", TestAssemblyPath,
             "-D", SectionCategoryNames.Metadata,
             "--effective", "--tsv", "--tips", "q");
@@ -1403,7 +1403,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Contains(
-            "library coordinate",
+            "library address",
             error,
             StringComparison.Ordinal);
     }
@@ -1442,7 +1442,7 @@ public partial class CommandExecutionTests
         string coordinate, string expected)
     {
         var (childExit, childOutput, childError) = await RunAppAsync(
-            "library", "coordinate", coordinate,
+            "library", "address", coordinate,
             "--library", TestAssemblyPath, "--tips", "q");
 
         Assert.Equal(1, childExit);
@@ -1466,7 +1466,7 @@ public partial class CommandExecutionTests
         Assert.Contains("## Metadata: #Strings", output, StringComparison.Ordinal);
         Assert.Contains("not a walk of the heap", output, StringComparison.Ordinal);
         Assert.Contains(
-            "library coordinate \"#Strings:<address>\"",
+            "library address \"#Strings:<address>\"",
             output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1513,7 +1513,7 @@ public partial class CommandExecutionTests
         Assert.Contains("ldstr", output, StringComparison.Ordinal);
         Assert.Contains("cannot be walked", output, StringComparison.Ordinal);
         Assert.Contains(
-            "library coordinate \"#US:<address>\"",
+            "library address \"#US:<address>\"",
             output,
             StringComparison.Ordinal);
     }
@@ -1555,7 +1555,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_UnresolvableHeapCoordinate_IsAnErrorNotAMalformedRow()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "coordinate", "#Strings:999999999",
+            "library", "address", "#Strings:999999999",
             "--library", TestAssemblyPath, "--tips", "q");
 
         Assert.Equal(1, exit);
@@ -1566,7 +1566,7 @@ public partial class CommandExecutionTests
         // Effective discovery must not advertise a section the coordinate cannot produce.
         // Structural discovery intentionally does not acquire the Library or resolve the coordinate.
         var discovery = await RunAppAsync(
-            "library", "coordinate", "#Strings:999999999",
+            "library", "address", "#Strings:999999999",
             "--library", TestAssemblyPath,
             "-D", SectionCategoryNames.Metadata,
             "--effective", "--tsv", "--tips", "q");
@@ -1595,7 +1595,7 @@ public partial class CommandExecutionTests
         }
 
         var result = await RunAppAsync(
-            "library", "coordinate", "#Strings:999999999",
+            "library", "address", "#Strings:999999999",
             "--library", TestAssemblyPath,
             "-D", "--tsv", "--tips", "q");
 

@@ -246,7 +246,7 @@ stderr rather than mixed into structured output.
 | Source | `type`/`member -S Source` / `@Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` | `Source` is authored-first and retains provider and fallback context. `@Source` adds forced `PDB Source` and `Decompiled Source` views plus `Source Diff`; SourceLink inventories remain separate. |
 | Performance analysis *(experimental)* | `library -S "Library Metrics"`, `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-library structural metrics, whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
-| Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
+| Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
@@ -457,9 +457,9 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect type JsonSerializer --package System.Text.Json -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
-dotnet-inspect library coordinate 0x060002EA+0x0 \
+dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
-dotnet-inspect library coordinate --file coordinates.txt \
+dotnet-inspect library address --file coordinates.txt \
   --library ./MyLibrary.dll
 ```
 
@@ -473,14 +473,14 @@ ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
 validated image header and section directory. Use `@Metadata` to discover or
 render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
 the ReadyToRun manifest metadata instead of the default CLI root, and
-`library coordinate` for one exact heap address in the selected root.
+`library address` for one exact heap address in the selected root.
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
-dotnet-inspect library coordinate "#Strings:0x1a4" \
+dotnet-inspect library address "#Strings:0x1a4" \
   --library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll
 dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
 ```
@@ -1196,7 +1196,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --pr
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
   --print --part body --markdown
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
-dotnet-inspect library coordinate 0x060002EA+0x0 \
+dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
@@ -1211,6 +1211,29 @@ bodies, including private and compiler-generated bodies when they are part of
 that population, without requiring `--all`. If an aggregate result identifies
 a non-public body and you follow it into an API-level command, that separate
 command may require `--all` to resolve the declaration.
+
+Exact `library ... -S "Library Metrics" --json` emits the complete Research
+`LibraryStructuralReportDocument`: the Analysis receipt and coverage,
+numeric distributions and maximum-body identities, async disposition, typed
+type summaries, cross-type relationships, and Analysis diagnostics.
+`--envelope` emits identical `content` plus Share and operation diagnostics:
+
+```bash
+dotnet-inspect library Markout.dll --package Markout@0.35.2 \
+  --tfm net10.0 -S "Library Metrics" --json
+dotnet-inspect library Markout.dll --package Markout@0.35.2 \
+  --tfm net10.0 -S "Library Metrics" --envelope
+```
+
+This complete transport is separate from Markout lowering. Markdown, table,
+TSV, and JSONL retain their existing Library Metrics row contracts. Complete
+JSON requires one exact Library, one target framework, and the exact singleton
+section; it rejects row, field, column, Count, discovery, payload, and
+competing presentation projections rather than truncating Content. Type
+summaries carry exact metadata keys separately from display labels, and every
+relationship endpoint names a retained summary, so a Copilot App can render an
+SVG without recovering identity from display text. Library Metrics Share is
+currently `nonProjectable`.
 
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
@@ -1242,6 +1265,28 @@ including Source when the completed caller rows came from multiple assemblies.
 Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`,
 mixed sections, discovery, and scope-implied Callers without the exact selector
 retain their existing row contracts or rendered-line fallback.
+
+Exact `member ... -S "Call Graph" --json` emits the complete semantic
+`InspectionGraphDocument`: typed member subjects, directed call edges,
+physical call-site occurrences, characteristics, seeds, completeness limits,
+and failures. `--envelope` emits the identical document under `content` plus
+Share and diagnostics:
+
+```bash
+dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
+  --platform System.Text.Json -S "Call Graph" --json
+dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
+  --platform System.Text.Json -S "Call Graph" --envelope
+```
+
+This complete transport is separate from Markout lowering. Markdown,
+Mermaid, tree, table, TSV, and JSONL keep their existing presentation and row
+contracts. Complete Call Graph JSON requires the exact singleton section and
+rejects row or line windows, fields, columns, Count, payload projections, and
+competing presentation formats rather than truncating the semantic document.
+Call Graph Share is currently `nonProjectable`; a Copilot App may render the
+typed `content` as SVG without recovering graph semantics from Mermaid or
+display labels.
 
 Focused member `-S "Source Locations" --json` reports `member`, `document`, and
 `pdb_span` without fetching source text or adding generic section/row wrappers.
@@ -1746,7 +1791,7 @@ its source-member, provider-type, target-member, extension-method, and physical
 call-site footprint. The rows name every source member, source token, target
 member, target token, call kind, evidence method, evidence token, and IL offset
 in that cluster. Use source and target identities for ordinary `member`
-inspection. Use the evidence token with the IL offset for `library coordinate`,
+inspection. Use the evidence token with the IL offset for `library address`,
 because a compiler-generated physical body can differ from the attributed
 source member. The cluster remains structural evidence rather than a
 source-inlining verdict.
@@ -1773,7 +1818,7 @@ dotnet-inspect member "<TargetType>" \
   -m "<TargetMember>" \
   -S @Source
 
-dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
+dotnet-inspect library address "<EvidenceToken>+<ILOffset>" \
   --library ./Consumer.dll
 ```
 

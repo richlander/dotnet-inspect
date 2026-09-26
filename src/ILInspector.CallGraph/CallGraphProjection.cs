@@ -183,6 +183,13 @@ public sealed class CallGraphCallSiteIdentity
         _callerStorage is null
         && _structuralCaller!.IsPortable;
 
+    /// <summary>
+    /// Opaque evidence for the acquisition registration that supplied this
+    /// physical receipt. Null for structurally identified synthetic receipts.
+    /// </summary>
+    public string? SourceReceiptEvidence =>
+        _callerStorage?.SourceReceiptEvidence;
+
     public bool Equals(CallGraphCallSiteIdentity? other) =>
         other is not null
         && Equals(_callerStorage, other._callerStorage)

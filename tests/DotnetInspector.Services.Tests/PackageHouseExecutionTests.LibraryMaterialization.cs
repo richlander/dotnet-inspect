@@ -889,6 +889,9 @@ public sealed partial class PackageHouseExecutionTests
         public IReadOnlyList<PackageContentEntry>
             EnumerateEntriesWithLengths() =>
             inner.EnumerateEntriesWithLengths();
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            inner.CreateEntryScanner();
     }
 
     private sealed class HideablePackageContent(
@@ -960,6 +963,11 @@ public sealed partial class PackageHouseExecutionTests
             HideEntries
                 ? []
                 : inner.EnumerateEntriesWithLengths();
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            HideEntries
+                ? PackageContentEntryScanner.From([])
+                : inner.CreateEntryScanner();
     }
 
     private sealed class ForwardOnlyPackageContent(

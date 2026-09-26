@@ -158,14 +158,13 @@ public class SharedOptions
         };
         QueryHelp.Aliases.Add("--query-help");
 
-        Select = new Option<string?>("-S")
+        Select = new Option<string?>(SelectOptionName)
         {
             Description = "Select sections/categories by name or wildcard (comma/semicolon-separated)",
             Arity = ArgumentArity.ExactlyOne
         };
-        Select.Aliases.Add("--select");
-        Select.Aliases.Add("-s");
-        Select.Aliases.Add("--section");
+        foreach (string alias in SelectAliases.Skip(1))
+            Select.Aliases.Add(alias);
 
         Columns = new Option<string?>("--columns")
         {
@@ -200,7 +199,11 @@ public class SharedOptions
         // pipeline, which System.CommandLine renders as an unhandled-exception stack
         // trace unless the individual command happens to catch it -- `find` does,
         // `package` does not (dotnet-inspect#3494 review).
-        AddListNameValidator(Select, "--select", rejectDuplicates: false);
+        AddListNameValidator(
+            Select,
+            "--select",
+            rejectDuplicates: false,
+            emptyMessage: MissingSelectorMessage("--select"));
         AddListNameValidator(Columns, "--columns", rejectDuplicates: true);
         AddListNameValidator(Fields, "--fields", rejectDuplicates: true);
 
@@ -255,7 +258,8 @@ public class SharedOptions
     private static void AddListNameValidator(
         Option<string?> option,
         string flag,
-        bool rejectDuplicates)
+        bool rejectDuplicates,
+        string? emptyMessage = null)
     {
         option.Validators.Add(result =>
         {
@@ -274,7 +278,7 @@ public class SharedOptions
             var names = ParseCommaSeparatedList(result.Tokens[^1].Value);
             if (names is not { Length: > 0 })
             {
-                result.AddError($"{flag} requires at least one name.");
+                result.AddError(emptyMessage ?? $"{flag} requires at least one name.");
                 return;
             }
 
@@ -376,6 +380,81 @@ public class SharedOptions
                     lowering),
             defaultUnit: CliRowSelectionDefaultUnit.RenderedLines);
     }
+
+    internal const string SelectOptionName = "-S";
+
+    /// <summary>
+    /// The error for a section selector that names nothing. A selector always names what it
+    /// selects; the command's default view is the absence of the selector.
+    /// </summary>
+    public static string MissingSelectorMessage(string flag) =>
+        $"{flag} requires at least one name. Omit {flag} for the default view, "
+        + $"name a section or @category with {flag} <name>, or list them with -D.";
+
+    private static readonly string[] SelectAliases = [SelectOptionName, "-s", "--select", "--section"];
+
+    /// <summary>
+    /// Rewrites System.CommandLine's missing-argument error for a section selector alias into the
+    /// selector guidance, wherever a parse error is written.
+    /// </summary>
+    internal static bool TryFormatMissingSelectorParseError(string message, out string? error)
+    {
+        const string prefix = "Required argument missing for option: '";
+        if (message.StartsWith(prefix, StringComparison.Ordinal)
+            && message.EndsWith("'.", StringComparison.Ordinal))
+        {
+            string alias = message[prefix.Length..^2];
+            if (SelectAliases.Contains(alias, StringComparer.Ordinal))
+            {
+                error = MissingSelectorMessage(alias);
+                return true;
+            }
+        }
+
+        error = null;
+        return false;
+    }
+
+    /// <summary>
+    /// The missing-selector error for a parse whose section selector was spelled without a
+    /// value. System.CommandLine reports that spelling as a generic missing argument, and a
+    /// command validator may report an unrelated combination error first, so the caller
+    /// reports this instead of the parse's own errors.
+    /// </summary>
+    public static bool TryGetMissingSelectorError(ParseResult parseResult, out string? error)
+    {
+        for (SymbolResult? scope = parseResult.CommandResult;
+            scope is not null;
+            scope = scope.Parent)
+        {
+            if (scope is not CommandResult command)
+                continue;
+
+            OptionResult? missing = command.Children
+                .OfType<OptionResult>()
+                .FirstOrDefault(static option =>
+                    option.Option.Name == SelectOptionName
+                    && option is { Implicit: false, Tokens.Count: 0 });
+            if (missing is not null)
+            {
+                error = MissingSelectorMessage(missing.IdentifierToken?.Value ?? "--select");
+                return true;
+            }
+        }
+
+        error = null;
+        return false;
+    }
+
+    /// <summary>
+    /// The selector text a parse-time validator or predicate may read. <c>GetValue</c> throws
+    /// for a selector option spelled without a value, and a throw from a validator surfaces as a
+    /// stack trace instead of the parse error the command reports for that spelling.
+    /// </summary>
+    public string? SelectText(SymbolResult result) =>
+        result.GetResult(Select) is { Tokens.Count: > 0 } selected
+            ? selected.Tokens[^1].Value
+            : null;
 
     /// <summary>
     /// Adds the validators for shared row-window options already available to a command,

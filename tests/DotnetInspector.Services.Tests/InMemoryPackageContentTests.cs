@@ -120,6 +120,11 @@ public sealed class InMemoryPackageContentTests
         PackageContentEntry entry = Assert.Single(first);
         Assert.Equal("payload.bin", entry.Path);
         Assert.Equal(32, entry.Length);
+        using PackageContentEntryScanner scanner =
+            content.CreateEntryScanner();
+        Assert.True(scanner.MoveNext(out PackageContentEntry scanned));
+        Assert.Equal(entry, scanned);
+        Assert.False(scanner.MoveNext(out _));
         Assert.True(content.TryGetEntryLength("PAYLOAD.BIN", out long length));
         Assert.Equal(32, length);
     }

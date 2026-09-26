@@ -49,8 +49,8 @@ package_pid=$!
 "$repo_root/eng/test-inspect-web-source-comparison-gate.sh" &
 source_pid=$!
 
-"$dotnet" run "$repo_root/eng/validate-inspect-web-promotion.cs" -- --self-test &
-promotion_pid=$!
+"$dotnet" run "$repo_root/eng/validate-release-candidate.cs" -- --self-test &
+candidate_pid=$!
 
 failed=0
 for gate in \
@@ -59,7 +59,7 @@ for gate in \
   "published benchmark bridge:$benchmark_pid" \
   "package adoption:$package_pid" \
   "Authored Source comparison:$source_pid" \
-  "promotion validation:$promotion_pid"; do
+  "release candidate validation:$candidate_pid"; do
   name="${gate%%:*}"
   pid="${gate##*:}"
   if wait "$pid"; then

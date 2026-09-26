@@ -203,7 +203,8 @@ public sealed class TypeResolutionCatalog : IDisposable
         ResolvedAssemblyReference source,
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll = false,
-        bool typesOnly = false)
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
@@ -236,7 +237,8 @@ public sealed class TypeResolutionCatalog : IDisposable
                     this,
                     bindingPolicy,
                     includeAll,
-                    typesOnly);
+                    typesOnly,
+                    includeCompilerGenerated);
         if (readyRegistration.InventoryFailure is { } inventoryFailure
             && !surface.InspectionFailures.Any(
                 failure =>

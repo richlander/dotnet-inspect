@@ -3,264 +3,364 @@ name: Publish
 on:
   workflow_dispatch:
     inputs:
-      run_id:
-        description: 'Successful main CI run identifying the commit to publish'
+      candidate_run_id:
+        description: 'Nightly release-candidate run to publish unchanged'
         required: true
-      certification_run_id:
-        description: 'Completed Deep Inspect test run observing this commit or an ancestor'
+      candidate_attempt:
+        description: 'Exact complete workflow attempt selected by the operator'
         required: true
-      allow_later_commit:
-        description: 'Accept changes after the observed Deep Inspect commit'
-        required: true
-        default: false
-        type: boolean
-      accept_failed_certification:
-        description: 'Accept disclosed non-success Deep Inspect outcomes'
+      accept_certification_concerns:
+        description: 'Accept every disclosed completed non-success certification outcome'
         required: true
         default: false
         type: boolean
       confirm:
-        description: 'Type "publish" to confirm NuGet release'
+        description: 'Type "publish" to confirm packages, GitHub release, and production site'
         required: true
 
 permissions:
-  actions: read
-  contents: write
-  id-token: write
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  DOTNET_SDK_VERSION: '11.0.100-rc.1.26425.128'
 
 jobs:
-  # Resolve and validate the exact commit to publish. Deep Inspect supplies
-  # completed evidence; non-success outcomes and later descendants each require
-  # separate explicit operator acceptance. A divergent or older commit is never
-  # accepted.
   resolve:
+    name: Validate selected candidate
     runs-on: ubuntu-26.04
-    if: github.event.inputs.confirm == 'publish'
+    permissions:
+      actions: read
+      checks: read
+      contents: read
     outputs:
-      sha: ${{ steps.sha.outputs.sha }}
+      sha: ${{ steps.candidate.outputs.sha }}
+      run_attempt: ${{ steps.candidate.outputs.run_attempt }}
+      artifact_id: ${{ steps.candidate.outputs.artifact_id }}
+      artifact_digest: ${{ steps.candidate.outputs.artifact_digest }}
+      concerns_accepted: ${{ steps.candidate.outputs.concerns_accepted }}
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Validate certification and resolve commit
-        id: sha
+      - name: Require main dispatch
         shell: bash
         env:
-          CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
-          TARGET_RUN_ID: ${{ inputs.run_id }}
-          ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
-          ACCEPT_FAILED_CERTIFICATION: ${{ inputs.accept_failed_certification }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          bash eng/validate-release-evidence.sh \
-            "$CERTIFICATION_RUN_ID" \
-            "$TARGET_RUN_ID" \
-            "$ALLOW_LATER_COMMIT" \
-            "$ACCEPT_FAILED_CERTIFICATION" \
-            "$GITHUB_OUTPUT"
-
-  build-native:
-    needs: resolve
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - rid: win-x64
-            os: windows-latest
-          - rid: win-arm64
-            os: windows-latest
-          - rid: osx-arm64
-            os: macos-latest
-          - rid: linux-x64
-            os: ubuntu-26.04
-          - rid: linux-arm64
-            os: ubuntu-26.04-arm
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Pack RID-specific package
-        run: dotnet pack src/DotnetInspect.Cli -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
-
-      - name: Upload RID package
-        uses: actions/upload-artifact@v7
-        with:
-          name: package-${{ matrix.rid }}
-          path: artifacts/package/release/*.nupkg
-          if-no-files-found: error
-
-  # Build the RID-neutral packages: the non-AOT "any" fallback and the
-  # TFM-agnostic pointer. These used to come from CI's pack job; they are now
-  # built here at publish time so CI never produces release artifacts.
-  build-portable:
-    needs: resolve
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Pack pointer package
-        # SelfContained=true forces the pack TFM segment to 'any', so the pointer
-        # manifest lands at tools/any/any/DotnetToolSettings.xml. The pointer
-        # carries no implementation, so SelfContained pulls in no runtime.
-        # RID-specific packages are built by build-native; disabling inner RID
-        # packs keeps this portable job pointer-only on .NET 11 Preview 7+.
-        run: dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
-
-      - name: Upload pointer package
-        uses: actions/upload-artifact@v7
-        with:
-          name: package-pointer
-          path: artifacts/package/release/*.nupkg
-          if-no-files-found: error
-
-      - name: Pack any (non-AOT) package
-        # TFM is pinned to net10.0 structurally via Directory.Build.props so this
-        # fallback stays installable on the LTS runtime. See issue #240.
-        run: dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
-
-      - name: Upload any package
-        uses: actions/upload-artifact@v7
-        with:
-          name: package-any
-          path: artifacts/package/release/*.nupkg
-          if-no-files-found: error
-
-  publish:
-    needs: [resolve, build-native, build-portable]
-    runs-on: ubuntu-26.04
-    if: github.event.inputs.confirm == 'publish'
-    environment: nuget
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
-      
-      - name: Download all packages built in this run
-        uses: actions/download-artifact@v8
-        with:
-          path: packages
-          pattern: package-*
-          merge-multiple: true
-      
-      - name: List packages
-        run: ls -la packages/
-
-      # Reach guard (issue #240): the non-AOT "any" fallback must target the LTS
-      # floor so it installs on machines without the latest runtime, and the
-      # pointer must stay TFM-agnostic. Fail the publish before pushing if either
-      # regresses. Kept here (publish-time) to keep PR CI cheap.
-      - name: Validate reach packaging
+          CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Publication must be dispatched from main." >&2
+            exit 1
+          fi
+          if [ "$CONFIRM" != publish ]; then
+            echo "::error::Type publish to confirm coordinated publication." >&2
+            exit 1
+          fi
 
-          settings_path() {
-            unzip -l "$1" | grep -oE 'tools/[^[:space:]]*DotnetToolSettings.xml' | head -1
-          }
-
-          any_pkg=$(ls packages/dotnet-inspect.any.*.nupkg)
-          any_path=$(settings_path "$any_pkg")
-          echo "any package:     $any_pkg -> $any_path"
-          case "$any_path" in
-            tools/net10.0/*) echo "OK: any package targets net10.0 (LTS reach floor)";;
-            *) echo "ERROR: any package must target net10.0 for reach, found: $any_path"; exit 1;;
-          esac
-
-          pointer_pkg=$(ls packages/dotnet-inspect.[0-9]*.nupkg)
-          pointer_path=$(settings_path "$pointer_pkg")
-          echo "pointer package: $pointer_pkg -> $pointer_path"
-          case "$pointer_path" in
-            tools/any/any/*) echo "OK: pointer is TFM-agnostic (tools/any/any)";;
-            *) echo "ERROR: pointer must be TFM-agnostic (tools/any/any), found: $pointer_path"; exit 1;;
-          esac
-        shell: bash
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
-      - name: Revalidate certification before publish
+      - name: Validate candidate identity and evidence
+        id: candidate
+        shell: bash
         env:
-          CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
-          TARGET_RUN_ID: ${{ inputs.run_id }}
-          ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
-          ACCEPT_FAILED_CERTIFICATION: ${{ inputs.accept_failed_certification }}
-          RESOLVED_SHA: ${{ needs.resolve.outputs.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
+          ACCEPT_CERTIFICATION_CONCERNS: ${{ inputs.accept_certification_concerns }}
         run: |
-          bash eng/validate-release-evidence.sh \
-            "$CERTIFICATION_RUN_ID" \
-            "$TARGET_RUN_ID" \
-            "$ALLOW_LATER_COMMIT" \
-            "$ACCEPT_FAILED_CERTIFICATION" \
-            "$RUNNER_TEMP/revalidated-evidence" \
-            "$RESOLVED_SHA"
-      
-      - name: NuGet login (OIDC → temp API key)
+          eng/validate-release-candidate.sh \
+            "$CANDIDATE_RUN_ID" \
+            "$CANDIDATE_ATTEMPT" \
+            "$ACCEPT_CERTIFICATION_CONCERNS" \
+            "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish packages and GitHub release
+    needs: resolve
+    runs-on: ubuntu-26.04
+    environment: nuget
+    permissions:
+      actions: read
+      checks: read
+      contents: write
+      id-token: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Revalidate selected candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
+          ACCEPT_CERTIFICATION_CONCERNS: ${{ inputs.accept_certification_concerns }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+          EXPECTED_ARTIFACT_ID: ${{ needs.resolve.outputs.artifact_id }}
+          EXPECTED_DIGEST: ${{ needs.resolve.outputs.artifact_digest }}
+          EXPECTED_CONCERNS_ACCEPTED: ${{ needs.resolve.outputs.concerns_accepted }}
+        run: |
+          eng/validate-release-candidate.sh \
+            "$CANDIDATE_RUN_ID" \
+            "$CANDIDATE_ATTEMPT" \
+            "$ACCEPT_CERTIFICATION_CONCERNS" \
+            "$RUNNER_TEMP/revalidated-candidate" \
+            "$EXPECTED_SHA" \
+            "$EXPECTED_ARTIFACT_ID" \
+            "$EXPECTED_DIGEST" \
+            "$EXPECTED_CONCERNS_ACCEPTED"
+
+      - name: Download selected candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.resolve.outputs.artifact_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          path: artifacts/release-candidate
+          digest-mismatch: error
+
+      - name: Verify retained candidate bytes
+        shell: bash
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+          EXPECTED_DIGEST: ${{ needs.resolve.outputs.artifact_digest }}
+        run: |
+          eng/verify-release-candidate-artifact.sh \
+            artifacts/release-candidate \
+            "$CANDIDATE_RUN_ID" \
+            "$CANDIDATE_ATTEMPT" \
+            "$EXPECTED_SHA" \
+            "$EXPECTED_DIGEST"
+
+      - name: Read retained version
+        id: version
+        shell: bash
+        run: |
+          version=$(jq -er .version artifacts/release-candidate/release-candidate.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify NuGet retry identity
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          packages=artifacts/release-candidate/packages
+          retry_args=()
+          for pkg in "$packages"/*.nupkg; do
+            file=${pkg##*/}
+            id=${file%."$VERSION".nupkg}
+            lower_id=${id,,}
+            url="https://api.nuget.org/v3-flatcontainer/$lower_id/$VERSION/$lower_id.$VERSION.nupkg"
+            published="$RUNNER_TEMP/$lower_id.$VERSION.nupkg"
+            status=$(curl -sS -L -o "$published" -w '%{http_code}' "$url")
+            case "$status" in
+              200)
+                retry_args+=("$pkg" "$published")
+                ;;
+              404)
+                ;;
+              *)
+                echo "::error::NuGet identity query for $id returned HTTP $status." >&2
+                exit 1
+                ;;
+            esac
+          done
+          if (( ${#retry_args[@]} > 0 )); then
+            dotnet run eng/verify-nuget-retry-package.cs -- "${retry_args[@]}"
+          fi
+
+      - name: NuGet login (OIDC to temporary API key)
         id: login
         uses: NuGet/login@v1
         with:
           user: ${{ secrets.NUGET_USER }}
-      
-      # Publish RID-specific packages first, then any package, then pointer package last
-      - name: Publish packages
-        run: |
-          # 1. Publish RID-specific AOT packages first
-          for pkg in packages/dotnet-inspect.win-*.nupkg packages/dotnet-inspect.linux-*.nupkg packages/dotnet-inspect.osx-*.nupkg; do
-            if [[ -f "$pkg" ]]; then
-              echo "Publishing $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-            fi
-          done
-          
-          # 2. Publish any (non-AOT) package
-          for pkg in packages/dotnet-inspect.any.*.nupkg; do
-            if [[ -f "$pkg" ]]; then
-              echo "Publishing any package: $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-            fi
-          done
-          
-          # 3. Publish pointer package last (references all RID-specific packages)
-          for pkg in packages/dotnet-inspect.[0-9]*.nupkg; do
-            if [[ -f "$pkg" ]]; then
-              echo "Publishing pointer package: $pkg"
-              dotnet nuget push "$pkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-            fi
-          done
+
+      - name: Publish retained packages
         shell: bash
-      
-      - name: Get version
-        id: version
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
-          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/DotnetInspect.Cli/DotnetInspect.Cli.csproj)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-      
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+          set -euo pipefail
+          packages=artifacts/release-candidate/packages
+
+          for pkg in \
+            "$packages"/dotnet-inspect.win-*.nupkg \
+            "$packages"/dotnet-inspect.linux-*.nupkg \
+            "$packages"/dotnet-inspect.osx-*.nupkg; do
+            echo "Publishing $pkg"
+            dotnet nuget push "$pkg" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+          for pkg in "$packages"/dotnet-inspect.any.*.nupkg; do
+            echo "Publishing managed fallback $pkg"
+            dotnet nuget push "$pkg" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+          for pkg in "$packages"/dotnet-inspect.[0-9]*.nupkg; do
+            echo "Publishing pointer $pkg"
+            dotnet nuget push "$pkg" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+      - name: Create GitHub release from retained packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          packages=artifacts/release-candidate/packages
+          release_json="$RUNNER_TEMP/existing-release.json"
+          release_error="$RUNNER_TEMP/existing-release.error"
+          if gh api \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+            > "$release_json" 2> "$release_error"; then
+            target=$(jq -er .target_commitish "$release_json")
+            if [ "$target" != "$EXPECTED_SHA" ]; then
+              echo "::error::Release $tag targets $target, not $EXPECTED_SHA." >&2
+              exit 1
+            fi
+            gh release upload "$tag" "$packages"/*.nupkg --clobber
+          elif grep -Fq '(HTTP 404)' "$release_error"; then
+            tag_json="$RUNNER_TEMP/existing-tag.json"
+            tag_error="$RUNNER_TEMP/existing-tag.error"
+            if gh api \
+              "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" \
+              > "$tag_json" 2> "$tag_error"; then
+              tag_type=$(jq -er .object.type "$tag_json")
+              tag_sha=$(jq -er .object.sha "$tag_json")
+              if [ "$tag_type" = tag ]; then
+                tag_sha=$(gh api \
+                  "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" \
+                  --jq .object.sha)
+              elif [ "$tag_type" != commit ]; then
+                echo "::error::Tag $tag resolves to unsupported object $tag_type." >&2
+                exit 1
+              fi
+              if [ "$tag_sha" != "$EXPECTED_SHA" ]; then
+                echo "::error::Tag $tag targets $tag_sha, not $EXPECTED_SHA." >&2
+                exit 1
+              fi
+            elif ! grep -Fq '(HTTP 404)' "$tag_error"; then
+              cat "$tag_error" >&2
+              exit 1
+            fi
+            gh release create "$tag" \
+              --target "$EXPECTED_SHA" \
+              --generate-notes \
+              "$packages"/*.nupkg
+          else
+            cat "$release_error" >&2
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy retained production site
+    needs:
+      - resolve
+      - publish
+    environment:
+      name: inspect-web-production-promotion
+      url: https://dotnet-inspect.net
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          target_commitish: ${{ needs.resolve.outputs.sha }}
-          files: packages/*.nupkg
-          generate_release_notes: true
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Revalidate selected candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
+          ACCEPT_CERTIFICATION_CONCERNS: ${{ inputs.accept_certification_concerns }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+          EXPECTED_ARTIFACT_ID: ${{ needs.resolve.outputs.artifact_id }}
+          EXPECTED_DIGEST: ${{ needs.resolve.outputs.artifact_digest }}
+          EXPECTED_CONCERNS_ACCEPTED: ${{ needs.resolve.outputs.concerns_accepted }}
+        run: |
+          eng/validate-release-candidate.sh \
+            "$CANDIDATE_RUN_ID" \
+            "$CANDIDATE_ATTEMPT" \
+            "$ACCEPT_CERTIFICATION_CONCERNS" \
+            "$RUNNER_TEMP/revalidated-candidate" \
+            "$EXPECTED_SHA" \
+            "$EXPECTED_ARTIFACT_ID" \
+            "$EXPECTED_DIGEST" \
+            "$EXPECTED_CONCERNS_ACCEPTED"
+
+      - name: Download selected candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.resolve.outputs.artifact_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          path: artifacts/release-candidate
+          digest-mismatch: error
+
+      - name: Verify retained candidate bytes
+        shell: bash
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+          EXPECTED_DIGEST: ${{ needs.resolve.outputs.artifact_digest }}
+        run: |
+          eng/verify-release-candidate-artifact.sh \
+            artifacts/release-candidate \
+            "$CANDIDATE_RUN_ID" \
+            "$CANDIDATE_ATTEMPT" \
+            "$EXPECTED_SHA" \
+            "$EXPECTED_DIGEST"
+
+      - name: Deploy to production
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION }}
+          action: upload
+          app_location: artifacts/release-candidate/site/wwwroot
+          api_location: artifacts/release-candidate/site/api
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true

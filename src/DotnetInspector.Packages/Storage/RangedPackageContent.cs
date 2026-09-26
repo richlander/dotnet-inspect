@@ -192,6 +192,10 @@ public sealed class RangedPackageContent :
         _entries;
 
     /// <inheritdoc />
+    public PackageContentEntryScanner CreateEntryScanner() =>
+        PackageContentEntryScanner.From(_entries);
+
+    /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries() =>
         _entries.Select(static entry => entry.Path);
 

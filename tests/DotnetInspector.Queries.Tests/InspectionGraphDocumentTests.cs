@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -178,6 +180,38 @@ public sealed class InspectionGraphDocumentTests
         Assert.Equal(
             InspectionGraphDocumentScope.Portable,
             document.Scope);
+    }
+
+    [Fact]
+    public void CallAdapter_PreservesCorrespondenceDiagnosticsAsContentLimit()
+    {
+        MemberRef focus = Member("Focus");
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                Node(focus, CallTreeStatus.Leaf),
+                Node(focus, CallTreeStatus.Leaf));
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(
+                projection,
+                new CatalogCallGraphDiagnostics(
+                    IncompleteNodeCount: 2,
+                    IncompleteEdgeCount: 3,
+                    BindingIdentityConflictCount: 1));
+
+        InspectionGraphLimit limit = Assert.Single(document.Limits);
+        Assert.Same(
+            CallGraphInspectionGraphCatalog.CorrespondenceIncomplete,
+            limit.Descriptor);
+        Assert.Equal(
+            InspectionGraphTarget.Node(projection.Focus.Id),
+            limit.Target);
+        var evidence =
+            Assert.IsType<CallGraphCorrespondenceIncompleteEvidence>(
+                limit.Evidence);
+        Assert.Equal(2, evidence.IncompleteNodeCount);
+        Assert.Equal(3, evidence.IncompleteEdgeCount);
+        Assert.Equal(1, evidence.BindingIdentityConflictCount);
     }
 
     [Fact]
@@ -478,6 +512,29 @@ public sealed class InspectionGraphDocumentTests
                         occurrence.Evidence).Identity)
                 .Distinct()
                 .Count());
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            CallGraphInspectionJson.Write(writer, document);
+        }
+        using JsonDocument json = JsonDocument.Parse(stream.ToArray());
+        string[] sourceReceipts =
+        [
+            .. json.RootElement
+                .GetProperty("occurrences")
+                .EnumerateArray()
+                .Select(occurrence => occurrence
+                    .GetProperty("evidence")
+                    .GetProperty("sourceReceiptEvidence")
+                    .GetString()!),
+        ];
+        Assert.Equal(2, sourceReceipts.Distinct().Count());
+        Assert.All(
+            sourceReceipts
+                .GroupBy(receipt => receipt)
+                .Select(group => group.Count()),
+            count => Assert.Equal(2, count));
     }
 
     static void AssertCharacteristic(

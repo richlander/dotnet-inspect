@@ -158,7 +158,7 @@ public static class ProjectCommandDefinitions
         if (result.GetResult(opts.Discover) is { Implicit: false })
             return false;
 
-        string? selectValue = result.GetValue(opts.Select);
+        string? selectValue = opts.SelectText(result);
         bool selectDefault =
             result.GetResult(opts.Select) is { Implicit: false }
             && string.IsNullOrWhiteSpace(selectValue);

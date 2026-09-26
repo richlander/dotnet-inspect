@@ -90,6 +90,46 @@ test("pristine framing follows the viewport while a user-adjusted view stays fix
   expect(await svg.getAttribute("style")).not.toBe(fitted);
 });
 
+test("dense Call graph opens on a readable target and keeps Fit as the overview", async ({ page }) => {
+  await page.goto("/browser/graph-explorer.html?graph=dense");
+  const svg = page.locator("#diagram svg");
+  await expect(svg).toBeVisible();
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  const viewport = page.locator(".graph-explorer .graph-viewport");
+  const target = viewport.locator("g.node.target");
+
+  const focused = await page.evaluate(() => {
+    const viewportElement =
+      document.querySelector<HTMLElement>(".graph-explorer .graph-viewport")!;
+    const targetElement =
+      viewportElement.querySelector<SVGGElement>("g.node.target")!;
+    const svgElement = viewportElement.querySelector<SVGSVGElement>("svg")!;
+    const viewportRect = viewportElement.getBoundingClientRect();
+    const targetRect = targetElement.getBoundingClientRect();
+    return {
+      deltaX: Math.abs(
+        targetRect.left + targetRect.width / 2
+        - (viewportRect.left + viewportRect.width / 2)),
+      deltaY: Math.abs(
+        targetRect.top + targetRect.height / 2
+        - (viewportRect.top + viewportRect.height / 2)),
+      scale: Number(
+        /scale\(([^)]+)\)/
+          .exec(svgElement.getAttribute("style") || "")?.[1]),
+    };
+  });
+  expect(focused.scale).toBeGreaterThanOrEqual(0.65);
+  expect(focused.deltaX).toBeLessThan(2);
+  expect(focused.deltaY).toBeLessThan(2);
+  await expect(target).toBeInViewport();
+
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  const overview = await svg.getAttribute("style");
+  expect(overview).not.toContain("scale(0.65)");
+  await page.getByRole("button", { name: "Target", exact: true }).click();
+  expect(await svg.getAttribute("style")).not.toBe(overview);
+});
+
 test("production Call graph roles match the legend palette in both themes", async ({ page }) => {
   const colors = async () => ({
     target: await page.locator("#diagram g.node.target rect.label-container")
@@ -221,11 +261,13 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
   test(`uses the available graph area at ${size.width}px without page overflow`, async ({ page }) => {
     await page.setViewportSize(size);
     await page.getByRole("button", { name: "Explore", exact: true }).click();
+    const header = await page.locator(".graph-explorer-head").boundingBox();
     const viewport = await page.locator(".graph-viewport").boundingBox();
     const scope = await page.locator(".graph-scope").boundingBox();
     const legend = await page.locator(".graph-legend").boundingBox();
     expect(viewport!.width).toBeGreaterThan(size.width - 30);
     expect(viewport!.height).toBeGreaterThan(size.height * 0.6);
+    expect(header!.height).toBeLessThanOrEqual(50);
     expect(viewport!.y + viewport!.height).toBeLessThanOrEqual(scope!.y);
     expect(scope!.y + scope!.height).toBeLessThanOrEqual(legend!.y);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
@@ -236,7 +278,7 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
   });
 }
 
-test("long subjects and context wrap completely without displacing Close", async ({ page }) => {
+test("long addresses stay in one app row without displacing Close", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 900 });
   await page.goto("/browser/graph-explorer.html?header=long");
   await expect(page.locator("#diagram svg")).toBeVisible();
@@ -244,12 +286,43 @@ test("long subjects and context wrap completely without displacing Close", async
 
   const subject = page.locator("#graph-explorer-title");
   const context = page.locator(".graph-explorer-context");
-  await expect(subject).toHaveText(
-    "System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Example.Result>> ProcessAsync<TRequest, TResponse>(TRequest request, System.Threading.CancellationToken cancellationToken)");
-  await expect(context).toHaveText(
-    "Example.Package.Experimental.Extensions@12.0.0-preview.7.26381.103 · Example.Long.Namespace.Containing.Multiple.Nested.Types.Worker<TRequest, TResponse>");
-  await expect(subject).toBeInViewport();
-  await expect(context).toBeInViewport();
+  const subjectText =
+    "System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Example.Result>> ProcessAsync<TRequest, TResponse>(TRequest request, System.Threading.CancellationToken cancellationToken)";
+  const contextText =
+    "Example.Package.Experimental.Extensions@12.0.0-preview.7.26381.103 · Example.Long.Namespace.Containing.Multiple.Nested.Types.Worker<TRequest, TResponse>";
+  await expect(subject).toHaveText(subjectText);
+  await expect(context).toHaveText(contextText);
+  await expect(subject).toHaveAttribute("title", subjectText);
+  await expect(context).toHaveAttribute("title", contextText);
   await expect(page.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+  const layout = await page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>(".graph-explorer-head")!;
+    const kind = document.querySelector<HTMLElement>(".graph-explorer-kind")!;
+    const address = document.querySelector<HTMLElement>(".graph-explorer-address")!;
+    const subjectElement =
+      document.querySelector<HTMLElement>("#graph-explorer-title")!;
+    const close = document.querySelector<HTMLElement>("#graph-explorer-close")!;
+    const headerRect = header.getBoundingClientRect();
+    const kindRect = kind.getBoundingClientRect();
+    const addressRect = address.getBoundingClientRect();
+    const closeRect = close.getBoundingClientRect();
+    return {
+      headerHeight: headerRect.height,
+      centerDelta: Math.max(
+        Math.abs(kindRect.top + kindRect.height / 2
+          - (headerRect.top + headerRect.height / 2)),
+        Math.abs(addressRect.top + addressRect.height / 2
+          - (headerRect.top + headerRect.height / 2)),
+        Math.abs(closeRect.top + closeRect.height / 2
+          - (headerRect.top + headerRect.height / 2))),
+      addressBeforeClose: addressRect.right <= closeRect.left,
+      subjectTruncated:
+        subjectElement.scrollWidth > subjectElement.clientWidth,
+    };
+  });
+  expect(layout.headerHeight).toBeLessThanOrEqual(50);
+  expect(layout.centerDelta).toBeLessThan(2);
+  expect(layout.addressBeforeClose).toBe(true);
+  expect(layout.subjectTruncated).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(360);
 });

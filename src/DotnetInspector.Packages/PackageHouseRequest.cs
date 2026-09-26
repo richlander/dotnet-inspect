@@ -25,6 +25,13 @@ public enum PackageHouseLibraryHandoffMode
     SelectedLibraries,
 }
 
+/// <summary>Additional package-authored evidence one realization reads.</summary>
+public enum PackageHouseEvidenceDemand
+{
+    None,
+    FrameworkReferences,
+}
+
 /// <summary>How the package target framework is selected.</summary>
 public enum PackageHouseTargetSelectionMode
 {
@@ -264,7 +271,9 @@ public sealed class PackageHouseRequest
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
-        PackageDocumentDemand? documentDemand = null)
+        PackageDocumentDemand? documentDemand = null,
+        PackageHouseEvidenceDemand evidenceDemand =
+            PackageHouseEvidenceDemand.None)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -274,6 +283,8 @@ public sealed class PackageHouseRequest
             throw new ArgumentOutOfRangeException(nameof(assetSelection));
         if (!Enum.IsDefined(assetDemand))
             throw new ArgumentOutOfRangeException(nameof(assetDemand));
+        if (!Enum.IsDefined(evidenceDemand))
+            throw new ArgumentOutOfRangeException(nameof(evidenceDemand));
 
         bool realizes =
             operation.Profile == PackageHouseOperationProfile.Realize;
@@ -316,6 +327,15 @@ public sealed class PackageHouseRequest
                 nameof(documentDemand));
         }
 
+        if (evidenceDemand != PackageHouseEvidenceDemand.None
+            && (!realizes
+                || assetSelection != PackageHouseAssetSelectionKind.Compile))
+        {
+            throw new ArgumentException(
+                "Framework-reference evidence requires a compile Realize operation.",
+                nameof(evidenceDemand));
+        }
+
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
@@ -324,6 +344,7 @@ public sealed class PackageHouseRequest
         Association = association;
         AssetDemand = assetDemand;
         DocumentDemand = documentDemand;
+        EvidenceDemand = evidenceDemand;
         ImplementationNames = implementationNames is null
             ? null
             : PackageImplementationNames.Create(
@@ -366,4 +387,11 @@ public sealed class PackageHouseRequest
     /// (docs/design/package-read-demand.md#document-demand).
     /// </summary>
     public PackageDocumentDemand? DocumentDemand { get; }
+
+    /// <summary>
+    /// Additional package-authored evidence this compile realization reads.
+    /// A ranged acquisition adds only the evidence entry to the selected
+    /// compile entries.
+    /// </summary>
+    public PackageHouseEvidenceDemand EvidenceDemand { get; }
 }

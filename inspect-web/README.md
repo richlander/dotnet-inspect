@@ -35,9 +35,11 @@ package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
 carried forward.
 
-`DotnetInspect.Web` remains the executable Browser/Wasm host and the owner of
-all current exports and wire DTOs. `DotnetInspect.Web.Core` is its one-way,
-implementation-only dependency for shared package/platform workspaces,
+`DotnetInspect.Web` remains the executable Browser/Wasm host under this website
+workspace and the owner of all current exports and wire DTOs. The managed Core
+and interop production libraries live under `src/`, where the normal solution
+build covers them without invoking Node. `DotnetInspect.Web.Core` is the host's
+one-way, implementation-only dependency for shared package/platform workspaces,
 operation lifetimes, browser host policy, and typed internal results. Engine
 maps those results to its wire DTOs; Core contains no `[JSExport]` method or
 generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
@@ -45,7 +47,7 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
 The rule is enforced by the compiler, not by a convention.
-`DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
+`src/DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
 factories, and the group's image and retained-descriptor accessors in this
 project, and `Directory.Build.targets` already escalates `RS0030` to an error
@@ -407,7 +409,7 @@ assemblies that receive a .NET platform lookup on click.
 | `DotnetInspect.Web.Interop.Source` | source, annotated-source, method-body, and source-comparison exports and wire contracts |
 | `DotnetInspect.Web.Interop.CallGraph` | package and platform call-graph exports and wire contracts |
 | `DotnetInspect.Web.Interop.Catalog` | vocabulary, home-demo, and workspace-share exports and wire contracts |
-| `DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
+| `tests/DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -780,8 +782,8 @@ fall back to decompilation.
 
 MSDL's redirect omits CORS headers, so the Browser host rewrites only the exact
 MSDL symbol-request shape to the current site's absolute `/api/msdl/...` URL.
-Each Free Static Web App deploys the small anonymous managed Function in
-`msdl-proxy`; the fixed upstream host and independent path-segment validator
+Each Free Static Web App deploys the small anonymous managed Function from
+`src/MsdlProxy`; the fixed upstream host and independent path-segment validator
 keep it from becoming a caller-directed proxy. The function enforces the same
 8 MiB portable-PDB ceiling as the Browser consumer.
 
@@ -1303,8 +1305,9 @@ managed runtime.
 After a Release publish, run the native binding gate:
 
 ```bash
-dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
-  -c Release --output artifacts/inspect-web-publish
+dotnet publish src/DotnetInspect.Web/DotnetInspect.Web.csproj \
+  -c Release --output artifacts/inspect-web-publish \
+  -p:InspectWebIncludeFrontend=true
 cd inspect-web
 INSPECT_WEB_WORKER_SOURCE_DLL=\
 ../artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll \
@@ -1340,8 +1343,10 @@ activation. Lifecycle composition, production Source activation, and direct
 page-runtime retirement remain focused follow-on slices under #5418, #5987,
 and #5420.
 
-The purpose-built `multi-facade-canary` proves that this lifecycle composes
-across independently generated modules. Its Alpha and Beta assemblies
+The purpose-built `multi-facade-canary` pairs managed consumer projects under
+`tests/InspectWeb.MultiFacadeCanary` with frontend assets under
+`inspect-web/multi-facade-canary`. It proves that this lifecycle composes across
+independently generated modules. Its Alpha and Beta assemblies
 deliberately use the same namespace, declaring-type names, method names,
 overload shapes, record name, and enum name. Each checked-in facade is generated
 from only its own assembly and acquires only that assembly's export root. A
@@ -1374,10 +1379,13 @@ check and one Mono runtime execution. The complete mutation set and both
 runtimes run daily in the Deep Inspect `inspect-web` lane and on PRs that
 change the generator or canary owners.
 
-The purpose-built `managed-operation-bridge-canary` directly drives the product
-`BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
-controlled feature bodies expose synchronous progress, keyed cancellation, and
-terminal release without reproducing lifecycle logic in the harness.
+The purpose-built `managed-operation-bridge-canary` pairs managed consumer
+projects under `tests/InspectWeb.ManagedOperationBridgeCanary` with frontend
+assets under `inspect-web/managed-operation-bridge-canary`. It directly drives
+the product `BrowserManagedOperationBridge` through a generated `[JSExport]`
+facade. Its controlled feature bodies expose synchronous progress, keyed
+cancellation, and terminal release without reproducing lifecycle logic in the
+harness.
 `eng/test-inspect-web-managed-operation-bridge-canary.sh` publishes and runs the
 host under both Mono and CoreCLR Browser/Wasm. It proves distinct-operation
 cancellation routing, all six normalized reasons, concrete fulfilled result
@@ -1654,7 +1662,8 @@ do diverge — an authored `src/bin/probe.html`, say — the set comparison fail
 loudly rather than passing quietly. The `bin` and `obj` entries matter only once
 the engine project has been built, which is why they went unnoticed locally and
 surfaced on CI: without them html-validate was linting
-`DotnetInspect.Web/bin/**` and `DotnetInspect.Web/obj/**` — MSBuild
+`../artifacts/bin/DotnetInspect.Web/**` and
+`../artifacts/obj/DotnetInspect.Web/**` — MSBuild
 static-web-asset placeholders and copied `wwwroot` output that no one authored
 and no one can fix.
 
@@ -1720,8 +1729,9 @@ rather than by enumerating one more placement.
 
 Nineteen elements carry scoped `html-validate-disable-next` directives. The
 Wasm preload is genuinely incomplete until the .NET publish step injects its
-runtime `href`; three workflows plus `PromotionWorkflowContract.cs` pin it by
-id. The nine same-origin stylesheet and nine module references are Vite source
+runtime `href`; three workflows plus
+`InspectWebDeploymentWorkflowContract.cs` pin it by id. The nine same-origin
+stylesheet and nine module references are Vite source
 inputs whose final asset names and bytes do not exist until build. Each
 directive names one rule on the immediately following element.
 
@@ -1766,7 +1776,8 @@ because the site is deployed from that copy rather than from the source file.
 The word "static" there is a real boundary, not hedging. Azure Static Web Apps
 does not apply `globalHeaders` to responses produced by the managed functions
 under `/api/*`, which carry whatever headers the function sets for itself. The
-MSDL proxy sets its own [response headers](msdl-proxy/README.md#response-security)
+MSDL proxy sets its own
+[response headers](../src/MsdlProxy/README.md#response-security)
 for function-produced responses, with a separate gate in `MsdlProxyFunctionTests`.
 
 Prism is delivered through the same npm/Vite pipeline as mermaid, marked, and
@@ -1973,7 +1984,7 @@ npm test
 npx playwright install firefox
 npm run test:browser
 cd ..
-dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
@@ -2010,15 +2021,16 @@ The shared product paths are gated by:
   from a path-less, stream-backed assembly reference, and supplying the
   whole-assembly analysis context that path-keyed resolution cannot provide.
 
-`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` gates the layering
+`BrowserEngineLayeringTests` in `tests/DotnetInspect.Web.Tests` gates the layering
 rule described above on every browser-engine CI run.
 
-Pull requests that change Inspect Web, its shared annotated-source
-viewer, product dependencies, or repository build inputs run the `inspect-web`
-CI job. That job installs the locked Node dependencies, checks and bundles the
-TypeScript/JavaScript frontend, rejects unused authored files, exports, and
-dependencies, compiles the platform-index generator, publishes the Release Wasm
-bundle, runs the browser-engine tests, and runs both frontend test suites.
+Pull requests that change Inspect Web, its shared annotated-source viewer,
+product dependencies, or repository build inputs run the `inspect-web` CI
+fan-out. The managed test job runs from the normal solution graph without Node
+or the WebAssembly workload. Separate frontend jobs install the locked Node
+dependencies, check and bundle the TypeScript/JavaScript frontend, reject unused
+authored files, exports, and dependencies, publish the Release Wasm bundle, and
+run the frontend and browser suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
@@ -2622,17 +2634,20 @@ download that artifact by ID with digest mismatch configured as an error and
 deploy it to the public staging site at `https://dotnet-inspect.ca`. The upload
 includes the managed API's hidden `.azurefunctions` dependencies and overwrites
 the same-name artifact on a rerun, so a cancelled attempt can be retried without
-leaving multiple artifacts that promotion rejects.
-`PromotionWorkflowContract` gates both properties. The post-download gate
-requires the extension loader before deployment. Candidate build code never
-runs in the staging deployment job. The separate
+leaving multiple retained copies.
+`InspectWebDeploymentWorkflowContract` gates both properties. The
+post-download gate requires the extension loader before deployment. Candidate
+build code never runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-`.github/workflows/deploy-inspect-web-runtime-sites.yml` runs nightly at
-00:47 UTC from one exact green `main` commit. It calls the controlled runtime
-cohort to build Mono, CoreCLR IL, and non-composite CoreCLR ReadyToRun with one
-shared frontend, then publishes the exact accepted CoreCLR artifacts to:
+`.github/workflows/deploy-inspect-web-runtime-sites.yml` runs automatically
+after each completed nightly release candidate. It validates that exact
+candidate run and attempt, passes the candidate SHA through every controlled
+runtime-cohort checkout, and records the run, attempt, and SHA in retained
+evidence and each deployment receipt. The cohort builds Mono, CoreCLR IL, and
+non-composite CoreCLR ReadyToRun with one shared frontend, then publishes the
+exact accepted CoreCLR artifacts to:
 
 | Site | Runtime artifact | GitHub environment |
 | --- | --- | --- |
@@ -2719,23 +2734,18 @@ deployment job.
 The cohort gates both expected-lowering properties, exact facade domains,
 browser invocations, graph receipts, and transferred evidence.
 
-`.github/workflows/promote-inspect-web.yml` intentionally promotes one
-successful staging run to production at `https://dotnet-inspect.net`. The
-operator supplies the staging run ID and types `promote`; the workflow verifies
-that the run was a successful `main` build through the staging workflow, that
-its `Publish staging` job succeeded, and that it produced one unexpired,
-nonempty `inspect-web-site` artifact. Main-push staging is the default. An
-operator-dispatched staging run is accepted only when the promotion dispatch
-explicitly enables `allow_manual_staging`; the validator rejects it otherwise.
-After production approval the workflow revalidates that same override, run
-attempt, commit, artifact identity, and digest, downloads the exact artifact ID
-with digest mismatch configured as an error, and deploys the archived staging
-files. `validate-inspect-web-promotion.cs --self-test`, run by inspect-web CI,
-gates the default rejection, explicit exception, and other close negative cases;
-the CI change-detection workflow contract gate keeps the Mono deployment jobs
-free of candidate code, keeps
-production revalidation on the trusted dispatch revision, and orders each
-artifact download before only verification and deployment.
+`.github/workflows/release.yml` deploys the production site only as part of one
+operator-authorized publication of an immutable nightly release candidate. The
+operator supplies the candidate run ID and exact attempt and types `publish`.
+The workflow validates the run, exact-SHA CI, same-attempt asset and Deep
+Inspect jobs, final artifact ID and digest, and any explicit certification
+concern acceptance. After package and GitHub release publication succeeds, the
+production job revalidates those identities, downloads the exact artifact ID
+with digest mismatch configured as an error, recomputes the receipt and every
+site checksum, and deploys the retained `site` files without rebuilding them.
+`validate-release-candidate.cs --self-test` and the CI change-detection
+workflow contract gate cover the identity, same-attempt, concern, ordering,
+download, and no-rebuild boundaries.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`

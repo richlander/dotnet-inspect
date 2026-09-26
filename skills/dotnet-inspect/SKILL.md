@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.26.0
+version: 0.27.0
 description: Find and share evidence instead of guessing about .NET packages, libraries, APIs, dependencies, source, performance, and version changes.
 ---
 

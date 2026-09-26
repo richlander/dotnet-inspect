@@ -122,6 +122,7 @@ function renderTreemap(
   escapeHtml: (value: unknown) => string,
 ): string {
   const source = [...(data.typeSummaries ?? [])]
+    .filter(item => item.bodyCount > 0)
     .sort((left, right) => right.instructionCount - left.instructionCount);
   if (!source.length) {
     return `<section class="document-section empty-document"><h2>No type-level implementation evidence</h2><p>The library report did not issue type summaries for this population.</p></section>`;

@@ -215,6 +215,30 @@ public sealed class LibraryStructuralReportTests
                 relationship.Source.Name == "BodilessCallerApi"
                 && relationship.Target.Name == "IBodilessApi"
                 && relationship.CallSiteCount == 1);
+        Assert.Contains(
+            available.Document.TypeSummaries,
+            static summary =>
+                summary.Type.Name == "IBodilessApi"
+                && summary.BodyCount == 0);
+        HashSet<string> typeKeys =
+        [
+            .. available.Document.TypeSummaries.Select(
+                static summary =>
+                    LibraryStructuralReport.TypeKey(summary.Type)),
+        ];
+        Assert.All(
+            available.Document.EntangledRelationships,
+            relationship =>
+            {
+                Assert.Contains(
+                    LibraryStructuralReport.TypeKey(
+                        relationship.Source),
+                    typeKeys);
+                Assert.Contains(
+                    LibraryStructuralReport.TypeKey(
+                        relationship.Target),
+                    typeKeys);
+            });
         Assert.True(
             available.Document.EntangledRelationships.Length
                 <= LibraryStructuralReport.MaximumEntangledTypeCount
@@ -266,6 +290,11 @@ public sealed class LibraryStructuralReportTests
         Assert.Equal(
             oneArgument.DeclaringType.ToQualifiedDisplayString(),
             twoArguments.DeclaringType.ToQualifiedDisplayString());
+        Assert.NotEqual(
+            LibraryStructuralReport.TypeKey(
+                oneArgument.DeclaringType),
+            LibraryStructuralReport.TypeKey(
+                twoArguments.DeclaringType));
 
         HashSet<TypeRef> retainedTypes =
         [

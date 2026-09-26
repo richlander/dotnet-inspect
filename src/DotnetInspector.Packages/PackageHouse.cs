@@ -1384,9 +1384,10 @@ public sealed class PackageHouse
     /// retained content can answer the realization it was read for. Surface
     /// assets, and unnamed implementation assets, are read as whole folders;
     /// named implementation assets are block anchors, read with their aligned
-    /// block (docs/design/package-read-demand.md). A runtime request without
-    /// an exact framework selects nothing here and is visibly rejected after
-    /// acquisition, as it is for complete access.
+    /// block (docs/design/package-read-demand.md). Requested package evidence
+    /// adds its exact entry without changing that asset selection. A runtime
+    /// request without an exact framework selects nothing here and is visibly
+    /// rejected after acquisition, as it is for complete access.
     /// </summary>
     private static PackageRangedSelection SelectRangedEntries(
         PackageHouseRequest request,
@@ -1394,56 +1395,111 @@ public sealed class PackageHouse
         IPackageContent directory)
     {
         PackageImplementationNames? names = request.ImplementationNames;
-        switch (request.AssetSelection)
+        PackageRangedSelection selected = request.AssetSelection switch
         {
-            case PackageHouseAssetSelectionKind.Compile:
-                PackageCompileAssetSelection compile =
-                    PackageCompileAssetSelector.Evaluate(
-                        directory,
-                        packageId,
-                        CompilePolicy(request),
-                        request.TargetContext?.RequestedFramework,
-                        request.TargetContext?.RuntimeIdentifier).Selection;
-                IEnumerable<string> surface =
-                    compile.Assets.Select(static asset => asset.Path);
-                if (request.AssetDemand == PackageAssetDemand.Surface)
-                    return new(WholeFolders(surface, directory));
-                IEnumerable<string> implementation =
-                    compile.ImplementationAssets.Select(static asset => asset.Path);
-                if (names is null)
-                    return new(WholeFolders(surface.Concat(implementation), directory));
-                // A named implementation asset whose folder is already read
-                // whole as the surface, as in a package with no ref/ folder,
-                // needs no block: its block would add only other folders'
-                // interleaved entries (docs/design/package-read-demand.md).
-                IReadOnlyList<string> surfaceEntries = WholeFolders(surface, directory);
-                var readWhole = new HashSet<string>(surfaceEntries, StringComparer.Ordinal);
-                return new(
-                    surfaceEntries,
-                    [.. Anchors(implementation.Where(names.MatchesPath), directory)
-                        .Where(anchor => !readWhole.Contains(anchor))]);
-            case PackageHouseAssetSelectionKind.Runtime:
-                if (request.TargetContext?.RequestedFramework is not { } framework)
-                    return new([]);
-                if (PackageAssetSelector.Evaluate(
-                        directory,
-                        framework,
-                        request.TargetContext.RuntimeIdentifier).Selection
-                    is not PackageAssetSelection.Selected selected)
-                {
-                    return new([]);
-                }
-                IEnumerable<string> universe =
-                    selected.Universe.Assets.Select(static asset => asset.EntryPath);
-                return names is null
-                    ? new(WholeFolders(universe, directory))
-                    : new([], Anchors(universe.Where(names.MatchesPath), directory));
-            default:
-                throw new ArgumentOutOfRangeException(
-                    nameof(request),
-                    request.AssetSelection,
-                    "A ranged Realize operation requires a known asset-selection kind.");
+            PackageHouseAssetSelectionKind.Compile =>
+                SelectRangedCompileEntries(
+                    request,
+                    packageId,
+                    directory,
+                    names),
+            PackageHouseAssetSelectionKind.Runtime =>
+                SelectRangedRuntimeEntries(
+                    request,
+                    directory,
+                    names),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(request),
+                request.AssetSelection,
+                "A ranged Realize operation requires a known asset-selection kind."),
+        };
+
+        return request.EvidenceDemand
+            == PackageHouseEvidenceDemand.FrameworkReferences
+                ? AddRootManifest(selected, directory)
+                : selected;
+    }
+
+    private static PackageRangedSelection SelectRangedCompileEntries(
+        PackageHouseRequest request,
+        string packageId,
+        IPackageContent directory,
+        PackageImplementationNames? names)
+    {
+        PackageCompileAssetSelection compile =
+            PackageCompileAssetSelector.Evaluate(
+                directory,
+                packageId,
+                CompilePolicy(request),
+                request.TargetContext?.RequestedFramework,
+                request.TargetContext?.RuntimeIdentifier).Selection;
+        IEnumerable<string> surface =
+            compile.Assets.Select(static asset => asset.Path);
+        if (request.AssetDemand == PackageAssetDemand.Surface)
+            return new(WholeFolders(surface, directory));
+        IEnumerable<string> implementation =
+            compile.ImplementationAssets.Select(static asset => asset.Path);
+        if (names is null)
+            return new(WholeFolders(surface.Concat(implementation), directory));
+        // A named implementation asset whose folder is already read
+        // whole as the surface, as in a package with no ref/ folder,
+        // needs no block: its block would add only other folders'
+        // interleaved entries (docs/design/package-read-demand.md).
+        IReadOnlyList<string> surfaceEntries = WholeFolders(surface, directory);
+        var readWhole = new HashSet<string>(surfaceEntries, StringComparer.Ordinal);
+        return new(
+            surfaceEntries,
+            [.. Anchors(implementation.Where(names.MatchesPath), directory)
+                .Where(anchor => !readWhole.Contains(anchor))]);
+    }
+
+    private static PackageRangedSelection SelectRangedRuntimeEntries(
+        PackageHouseRequest request,
+        IPackageContent directory,
+        PackageImplementationNames? names)
+    {
+        if (request.TargetContext?.RequestedFramework is not { } framework)
+            return new([]);
+        if (PackageAssetSelector.Evaluate(
+                directory,
+                framework,
+                request.TargetContext.RuntimeIdentifier).Selection
+            is not PackageAssetSelection.Selected selected)
+        {
+            return new([]);
         }
+        IEnumerable<string> universe =
+            selected.Universe.Assets.Select(static asset => asset.EntryPath);
+        return names is null
+            ? new(WholeFolders(universe, directory))
+            : new([], Anchors(universe.Where(names.MatchesPath), directory));
+    }
+
+    private static PackageRangedSelection AddRootManifest(
+        PackageRangedSelection selected,
+        IPackageContent directory)
+    {
+        string? manifest;
+        try
+        {
+            manifest = PackageManifestContent.FindRootManifest(directory);
+        }
+        catch (InvalidDataException)
+        {
+            return selected;
+        }
+
+        if (manifest is null
+            || selected.Entries.Contains(
+                manifest,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return selected;
+        }
+
+        return new(
+            [.. selected.Entries, manifest],
+            selected.BlockAnchors);
     }
 
     /// <summary>The directory entries the selected asset paths name.</summary>

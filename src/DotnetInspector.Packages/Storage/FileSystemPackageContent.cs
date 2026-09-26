@@ -303,25 +303,45 @@ public sealed class FileSystemPackageContent :
     /// <inheritdoc />
     public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths()
     {
-        if (!Directory.Exists(_root))
-            return [];
-
-        var entries = new List<PackageContentEntry>();
-        foreach (var file in Directory.EnumerateFiles(
-            _root,
-            "*",
-            SearchOption.AllDirectories))
-        {
-            entries.Add(
-                new PackageContentEntry(
-                    Path.GetRelativePath(_root, file)
-                        .Replace(Path.DirectorySeparatorChar, '/'),
-                    new FileInfo(file).Length));
-        }
-
-        return entries;
+        using PackageContentEntryScanner scanner = CreateEntryScanner();
+        return scanner.ReadToEnd();
     }
+
+    /// <inheritdoc />
+    public PackageContentEntryScanner CreateEntryScanner() =>
+        Directory.Exists(_root)
+            ? new FileSystemEntryScanner(_root)
+            : PackageContentEntryScanner.From([]);
 
     private string ResolveEntryPath(string relativePath)
         => StorePath.ResolveUnderRoot(_root, relativePath);
+
+    private sealed class FileSystemEntryScanner(string root)
+        : PackageContentEntryScanner
+    {
+        private readonly IEnumerator<string> _files =
+            Directory.EnumerateFiles(
+                    root,
+                    "*",
+                    SearchOption.AllDirectories)
+                .GetEnumerator();
+
+        public override bool MoveNext(out PackageContentEntry entry)
+        {
+            if (!_files.MoveNext())
+            {
+                entry = default;
+                return false;
+            }
+
+            string file = _files.Current;
+            entry = new(
+                Path.GetRelativePath(root, file)
+                    .Replace(Path.DirectorySeparatorChar, '/'),
+                new FileInfo(file).Length);
+            return true;
+        }
+
+        public override void Dispose() => _files.Dispose();
+    }
 }

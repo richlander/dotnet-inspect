@@ -28,7 +28,8 @@ internal static class DirectLibraryInspectionCommand
 
     internal static bool ShouldExecute(
         LibraryOptions options) =>
-        options.EnvelopeOutput;
+        options.EnvelopeOutput
+        && !LibraryCommand.IsExactLibraryMetricsSelection(options);
 
     internal static async Task<int> ExecuteAsync(
         LibraryOptions options,
@@ -80,7 +81,8 @@ internal static class DirectLibraryInspectionCommand
                     new(),
                     @namespace: options.TypeNamespace,
                     namespaceMatch: namespaceMatch),
-                s_bounds);
+                s_bounds,
+                new LibraryEnablementsRequest());
         }
         catch (ArgumentException failure)
         {

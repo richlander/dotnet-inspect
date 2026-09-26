@@ -89,9 +89,9 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Persistent hierarchy | Use one title line for the brand-triggered Home/Query/Workspace/Activity product menu, subject/inspector navigation, and Search/history; keep the inspected target on its separate row |
+| Persistent hierarchy | Use one title line for the brand-triggered Home/Query/Workspace/Activity/Demos product menu, subject/inspector navigation, and Search/history; keep the inspected target on its separate row |
 | Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Back/Forward and flush-right Search |
-| Product navigation | Open Home, Query, Workspace, and Activity vertically from the `dotnet-inspect` brand instead of competing horizontally with inspection identity |
+| Product navigation | Open Home, Query, Workspace, Activity, and Demos vertically from the `dotnet-inspect` brand instead of competing horizontally with inspection identity |
 | Subject navigation | Establish Package, Type, and Member now; add Library when product descriptors are ready |
 | Subject zone | Render complete full-label subject and inspector tablists when they fit; otherwise adapt either group to its current-label Chooser |
 | Workspace selection | Keep ordinary single-workspace use free of coordinate tabs; manage retained coordinates inside the Workspace product destination |

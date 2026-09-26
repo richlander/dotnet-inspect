@@ -72,10 +72,22 @@ public static class ResourceExplanationCommand
                 capabilityCatalog,
                 PackageQueryCapabilityResourcePaths.Create(
                     capabilityCatalog));
+        InspectionCapabilityCatalog packageFilesCapabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageFileInventoryCapability.ProductModule,
+                    PackageFileInventoryCommandCapability.Module,
+                ]);
+        ResourceExplanationCatalog packageFilesCapabilityExplanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                packageFilesCapabilityCatalog,
+                PackageFileInventoryCapabilityResourcePaths.Create(
+                    packageFilesCapabilityCatalog));
         ResourceExplanationCatalog catalog =
             ResourceExplanationCatalog.Combine(
                 structuralCatalog,
-                capabilityExplanation);
+                capabilityExplanation,
+                packageFilesCapabilityExplanation);
         ResourcePathResolution resolution = catalog.Resolve(resourcePath);
         if (resolution is ResourcePathResolution.Invalid invalid)
         {

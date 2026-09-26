@@ -206,7 +206,7 @@ public sealed class ResearchTargetAttemptId
 /// compares through
 /// <see cref="AssemblyReferenceIdentity.EquivalentComparer"/>. Research does
 /// not renormalize name, culture, or public-key-token fields itself, and never
-/// derives a key from a formatted assembly name or a body-index path.
+/// derives a key from a formatted assembly name or an Analysis source path.
 /// <c>ResearchTargetDomains_EraseOnlyAssemblyVersion</c> gates that exactly
 /// the version is erased.
 /// </remarks>

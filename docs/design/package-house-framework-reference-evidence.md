@@ -102,7 +102,8 @@ another cache entry, or another package generation.
 A complete payload already contains the root nuspec. A ranged PackageHouse
 realization may otherwise materialize only selected assembly entries.
 Framework-reference evidence therefore requires an explicit House request
-demand that adds the root nuspec to ranged-read planning.
+demand, `PackageHouseEvidenceDemand.FrameworkReferences`, that adds the root
+nuspec to ranged-read planning.
 
 The demand:
 
@@ -156,7 +157,7 @@ source spelling.
 Conceptually:
 
 ```text
-PackageHouseFrameworkReferenceProjectionOutcome
+PackageHouseFrameworkReferenceOutcome
   NotRequested(Association)
   Selected(Evidence)
   NoFrameworkReferenceGroups(Association)
@@ -172,8 +173,8 @@ PackageHouseFrameworkReferenceAssociation
   Realization: exact PackageHouseRealizationReceipt.Compile
   Generation: exact PackageContentGenerationIdentity
   TargetBasis:
-    Requested(PackageHouseTargetContext.Exact)
-    SelectedCompileTarget(string)
+    Exact(string)
+    CompileSelection(string)
     Unavailable
 
 PackageHouseFrameworkReferenceEvidence

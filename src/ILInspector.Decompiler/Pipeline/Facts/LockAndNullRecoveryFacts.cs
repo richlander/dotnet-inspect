@@ -22,9 +22,12 @@ internal sealed class LockAndNullRecoveryFacts : ILoweringFactProvider
             [
                 new FactPrimitive("place.variable", "PlaceIdentity.SameVariable"),
                 new FactPrimitive("type-shape.non-nullable-value", "TypeFamilies.IsKnownNonNullableValueType"),
+                new FactPrimitive("ownership.single-entry-arms", "NullConditionalPass.RaiseVoidCall target-count confinement"),
+                new FactPrimitive("ownership.shared-continuation", "NullConditionalPass.NullArmReachesSameContinuation"),
+                new FactPrimitive("dataflow.stack-slot-single-assignment", "NullConditionalPass.RaiseVoidCall slot confinement"),
             ],
-            PositiveCoverage: "IrImporterTests NullConditional_RaisesQuestionDot_AndSoundlyTypesSlot and IdiomShapeScorecardTests NullConditionalPass conditional-access fixture",
-            AdversarialCoverage: "NullValueTypeGuardTests re-evaluable and spilled value-type receiver negatives; PlaceIdentityTests SameVariable atom negatives",
+            PositiveCoverage: "IrImporterTests NullConditional_RaisesQuestionDot_AndSoundlyTypesSlot, IdiomShapeScorecardTests NullConditionalPass conditional-access fixture, and VoidNullConditionalRaisingTests effectful void-call fixture",
+            AdversarialCoverage: "NullValueTypeGuardTests re-evaluable and spilled value-type receiver negatives; PlaceIdentityTests SameVariable atom negatives; VoidNullConditionalRaisingTests external-entry, live-slot, and mismatched-terminator negatives",
             MissingDiscriminator: "nullable value-type ?. forms lower through Nullable<T> and are not represented by the bare null arm this pass raises"),
 
         new(

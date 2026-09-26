@@ -46,6 +46,9 @@ identity, view binding, exact Count requirement, and Source-owned continuation
 compatibility.
 It does not redefine:
 
+- the shared decoded-text document, segment, pull, long-line fragmentation, or
+  continuation mechanics tracked by
+  [issue #8319](https://github.com/richlander/dotnet-inspect/issues/8319);
 - authored preference, decompiled fallback, checksum verification, or
   acquisition failure, which remain owned by
   [Source Finding producers](source-finding-producers.md) and the existing
@@ -162,14 +165,39 @@ rules retain a usable editor coordinate space and match the existing
 
 Count is the exact number of rows under these rules. A producer that has not
 proved the complete decoded document cannot return an exact Count, exhaustion,
-or successful complete inventory.
+or successful complete inventory. Count therefore remains unknown during
+ordinary progressive delivery until the producer proves exhaustion; a host
+must not infer it from segment size, mounted rows, or continuation presence.
 
 ## Rows, Count, and continuation
 
 Rows and Count use the same Source request, content binding, ordered line
 population, and semantic selection.
 
-One Rows execution may return a bounded segment plus a Source-owned
+The shared decoded-text substrate makes Rows pull-driven: one consumer
+execution requests the next bounded segment and no later line rows are
+projected or transferred until another execution resumes the result. For
+Source, a normal segment contains at most:
+
+- 256 complete line rows;
+- 32,768 UTF-16 code units of row text, including exact terminators; and
+- 65,536 JSON-encoded UTF-8 bytes of row text for the Browser transport.
+
+The JSON bound covers encoded row text only. Property names, line-number and
+offset fields, arrays, scalar view facts, diagnostics, and envelope framing are
+additional transport overhead. These limits are execution policy rather than
+portable query meaning or a caller-selectable page size. They cap work even
+when unusually long lines make the row limit ineffective.
+
+The complete next row is included only when all applicable bounds remain
+satisfied. If one untrusted line exceeds a content bound by itself, the shared
+substrate may split that line into execution-only fragments. A fragment is not
+a Source row, line identity, Count unit, semantic selection result, or
+coordinate-space replacement. Fragmentation does not split a UTF-16 surrogate
+pair, and the exact terminator remains associated with the completed line.
+Ordinary segments otherwise contain only complete semantic rows.
+
+One Rows execution may return its bounded segment plus a Source-compatible
 continuation. The continuation is an opaque receipt bound to:
 
 - the view binding;
@@ -192,8 +220,12 @@ An incompatible request, binding, semantic selection, or expired receipt fails
 visibly. The operation never silently restarts at line one or resumes against
 newly acquired content.
 
-The initial production execution bound is 256 line rows. It is execution
-policy, not portable query meaning or a new page-size concept.
+Source composes the receipt supplied by the shared decoded-text substrate with
+its view binding and request compatibility. Source does not introduce a second
+continuation format or independently implement generic segment accounting.
+Pull-driven Rows does not imply that checksum verification, source acquisition,
+or decompilation can publish an unsettled view; those operations may complete
+before the first row becomes available.
 
 ## Acquisition, provider, and failure preservation
 
@@ -243,7 +275,10 @@ Inspect Web adoption:
    the viewer requests later segments with the Source-owned continuation.
 3. The Browser never treats callback credit, mounted DOM rows, or received
    segments as exact Count or completion.
-4. The current full-text `BrowserSource` transport retires only after the
+4. Authored Source and Decompiled Source remain independently selectable and
+   lazy. Selecting authored Source by default does not hide, precompute, or
+   replace the exact-type decompiled view.
+5. The current full-text `BrowserSource` transport retires only after the
    progressive viewer preserves provenance, errors, cancellation,
    supersession, navigation, and accessibility behavior.
 
@@ -267,28 +302,64 @@ line. A 256-line execution bound deterministically requires eight successful
 Rows executions, so the ordinary CLI and Browser scenarios cannot pass through
 a one-shot-only implementation.
 
+The pinned authored-source corpus provides the broader execution-policy
+evidence. `tools/SourceCorpusCensus` deduplicated 24,005 harvested corpus rows
+by SourceLink URL plus checksum identity, then fetched and verified all 3,334
+unique physical documents through the product checksum and decoding paths.
+The population contained 995,925 lines with zero retrieval or checksum
+failures. Document p95 was 42,758 bytes and 978 lines; p99 was 136,449 bytes
+and 2,826 lines; the maximum was 1,841,248 bytes and 38,928 lines. The longest
+observed line was 1,047 UTF-16 code units and 1,291 JSON-encoded row-text
+bytes.
+
+At the selected 256-row, 32,768-UTF-16, and 65,536-JSON-byte bounds, 855 of
+3,334 documents required continuation. The population produced 5,935 total
+segments; p95 was four segments per document and the maximum was 153. No
+observed line required fragmentation. Doubling both content bounds saved one
+segment across the population, so the 256-row bound dominates ordinary files
+while the content bounds contain pathological lines.
+
+A separate exact PDB census reproduced the pinned 104-assembly broad package
+pool. Seventy-seven assemblies supplied Portable PDBs and 76 supplied
+SourceLink maps. The census inspected 32,992 TypeDefs. Of 27,486 types with
+correlated document mappings, 759 mapped to multiple physical documents.
+Restricting the population to 19,659 source-spellable exact type names, 703
+(3.58%) mapped to multiple documents; p95 was one document, p99 two, and the
+maximum 83. The 27 assemblies without available Portable PDBs are explicit
+coverage gaps and do not enter the mapping denominator. This evidence supports
+independent per-document navigation rather than concatenating a partial type's
+documents.
+
+These observations are exact for the pinned populations, not claims about
+every SourceLink document or package. The authored-source corpus is biased
+toward documents containing harvested eligible methods. Reproduce both
+reports with the commands in
+[`tools/SourceCorpusCensus/README.md`](../../tools/SourceCorpusCensus/README.md).
+
 The preserved production gate uses package and PDB acquisition rather than
 checking a repository copy into the fixture tree. Focused synthetic fixtures
 supplement it with CRLF, CR, NEL, line separator, paragraph separator, no final
-terminator, a final terminator, an empty document, stale continuation, and
-incompatible-request cases.
+terminator, a final terminator, an empty document, an over-bound line, stale
+continuation, and incompatible-request cases.
 
 ## Focused delivery sequence
 
 Implementation proceeds through focused slices:
 
 1. Lock this Source view, physical-artifact association, line identity,
-   view-binding, continuation, and host-adoption contract.
-2. Add the immutable host-neutral view/line types and projection over the
-   existing completed type and member Source envelopes. Gate exact
-   reconstruction and failure preservation without changing hosts.
-3. Add bounded line execution and the Source-owned opaque continuation,
-   composing Query Space's continuation contract without treating physical
-   segments as pages.
-4. Adopt the shared operation in CLI type and member `Source`, preserve complete
+   view-binding, execution-policy, and host-adoption contract, with a
+   reproducible observational census.
+2. Issue #8319 adds the shared immutable decoded-text document, bounded pull,
+   execution-only long-line fragments, and opaque continuation substrate.
+3. Compose the existing host-neutral Source view/artifact model and completed
+   type and member Source envelopes with that shared substrate. Gate exact
+   reconstruction, Source request compatibility, and failure preservation
+   without changing hosts.
+4. Adopt the composed operation in CLI type and member `Source`, preserve complete
    default output, and retire the host-local source projection.
 5. Adopt the same operation in Inspect Web's type and member Source viewer,
-   preserve the shared envelope, and retire the full-text Browser transport.
+   preserve the shared envelope and independent Decompiled Source selection,
+   and retire the full-text Browser transport.
 6. Preserve the real Npgsql asset in CLI and published Browser/Wasm gates, each
    requiring at least one continuation resume.
 
@@ -304,9 +375,10 @@ acquisition, Query Space, or the viewer.
 | `SourceViewProjectionDistinguishesArtifactsAndPreservesEvidence` | The four view kinds are explicit; authored origins retain their physical artifact and member mapping; decompiled origins have no artifact; a declaration excerpt does not masquerade as its physical file; PDB/decompiled success and non-success preserve facts, Share, diagnostics, mapping, and typed failures. | Verified in Release by `SourceViewInspectionTests`. |
 | `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
 | `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
+| `SourceLineSegmentsRespectExecutionBounds` | Normal pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line uses non-row fragments without splitting a surrogate pair or changing exact reconstruction. | Unverified until slices 2 and 3. |
 | `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
 | `CliSourceDrainsContinuationWithoutChangingOutput` | CLI default output equals the pre-adoption decoded document, while Count and Rows observe source lines. | Unverified until slice 4. |
-| `BrowserSourceRequestsContinuedLines` | Published Browser/Wasm obtains the same envelope and document facts, then requests later line segments instead of receiving complete text first. | Unverified until slice 5. |
+| `BrowserSourceRequestsContinuedLines` | Published Browser/Wasm obtains the same envelope and document facts, requests later line segments instead of receiving complete text first, and keeps authored and decompiled views independently selectable and lazy. | Unverified until slice 5. |
 | `NpgsqlConnectionSourceRequiresContinuation` | The real checksum-verified Npgsql document requires and resumes at least one continuation in both production hosts. | Unverified until slice 6. |
 
 All correctness gates run in Release. A source-fetch measurement or one-shot
@@ -318,6 +390,7 @@ This contract does not claim:
 
 - preservation of original encoded bytes, encoding, or byte-order mark;
 - that line continuation avoids complete source acquisition inside the engine;
+- that exact line Count is known before complete decoded-view exhaustion;
 - random line seeking or portable continuation receipts;
 - that exact Count is cheaper than splitting the complete decoded text;
 - that every Source view is a physical source artifact;

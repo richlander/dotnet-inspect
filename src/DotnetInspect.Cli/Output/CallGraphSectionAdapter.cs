@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 
@@ -24,8 +25,10 @@ internal readonly record struct CallGraphSectionOutput(
     CallGraphRenderedFieldEvidence RenderedFieldEvidence);
 
 /// <summary>
-/// Turns the format-neutral <see cref="CallGraphProjection"/> into the generic
-/// <see cref="Markout.Graph"/> shape the writer lowers per format.
+/// Turns the semantic <see cref="InspectionGraphDocument"/> into the generic
+/// <see cref="Markout.Graph"/> shape the writer lowers per format. The producer
+/// projection remains available only for presentation annotations and row
+/// selection that are not L1 graph facts.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -46,6 +49,7 @@ internal static class CallGraphSectionAdapter
     /// <summary>
     /// Builds the section's graph.
     /// </summary>
+    /// <param name="document">The complete semantic graph document.</param>
     /// <param name="projection">The projected bidirectional graph centred on the selected member.</param>
     /// <param name="spellMember">
     /// The CLI's member spelling. The projection offers a host-neutral default label, but this
@@ -62,6 +66,7 @@ internal static class CallGraphSectionAdapter
     /// not request graph fields, not that default graph cues were requested.
     /// </param>
     public static CallGraphSectionOutput ToGraph(
+        InspectionGraphDocument document,
         CallGraphProjection projection,
         Func<MemberRef, string> spellMember,
         IReadOnlyList<CallGraphField>? requestedFields = null,
@@ -72,14 +77,27 @@ internal static class CallGraphSectionAdapter
         IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
             opportunityAnnotations = null)
     {
+        ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(spellMember);
+        if (document.Nodes.Length != projection.Nodes.Length
+            || document.Edges.Length != projection.Rows.Length)
+        {
+            throw new InvalidOperationException(
+                "The semantic Call Graph document does not match its presentation projection.");
+        }
+
+        int focusNodeId = document.Seeds
+            .Single(seed =>
+                seed.Role == InspectionGraphSeedRole.Primary
+                && seed.Target.Kind == InspectionGraphTargetKind.Node)
+            .Target.Id;
 
         var selectedRows = rows ?? projection.Rows;
         HashSet<int>? selectedNodeIds = null;
         if (rows is not null)
         {
-            selectedNodeIds = [projection.Focus.Id];
+            selectedNodeIds = [focusNodeId];
             foreach (var row in selectedRows)
             {
                 selectedNodeIds.Add(row.Edge.From);
@@ -88,9 +106,21 @@ internal static class CallGraphSectionAdapter
         }
 
         var nodes = new List<Markout.GraphNode>(
-            selectedNodeIds?.Count ?? projection.Nodes.Length);
-        foreach (var node in projection.Nodes)
+            selectedNodeIds?.Count ?? document.Nodes.Length);
+        foreach (InspectionGraphNode semanticNode in document.Nodes)
         {
+            CallGraphNode node = projection.Nodes[semanticNode.Id];
+            if (semanticNode.Subject
+                    is not InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.CallGraph identity,
+                    }
+                || identity.Member != node.Member)
+            {
+                throw new InvalidOperationException(
+                    "The semantic Call Graph node does not match its presentation projection.");
+            }
             if (selectedNodeIds is not null && !selectedNodeIds.Contains(node.Id))
                 continue;
 
@@ -101,23 +131,37 @@ internal static class CallGraphSectionAdapter
                     spellMember,
                     requestedFields,
                     hasFieldProjection,
-                    opportunityAnnotations))
+                    opportunityAnnotations,
+                    semanticNode.Role))
             {
-                Group = Group(node),
+                Group = Group(semanticNode.Role),
                 // The selected member is what the reader asked about; every sink that can
                 // distinguish it should.
-                Emphasized = node.Kind == CallGraphNodeKind.Focus,
+                Emphasized = node.Id == focusNodeId,
             });
         }
 
         var edges = new List<Markout.GraphEdge>(selectedRows.Count);
-        foreach (var row in selectedRows)
+        var selectedEdgeIds = selectedRows
+            .Select(static row => row.Number - 1)
+            .ToHashSet();
+        foreach (InspectionGraphEdge semanticEdge in document.Edges)
         {
-            var edge = row.Edge;
+            if (!selectedEdgeIds.Contains(semanticEdge.Id))
+                continue;
+            CallGraphEdge edge = projection.Rows[semanticEdge.Id].Edge;
+            if (semanticEdge.FromNodeId != edge.From
+                || semanticEdge.ToNodeId != edge.To
+                || semanticEdge.Relationship.Id
+                    != CallGraphInspectionGraphCatalog.Call.Id)
+            {
+                throw new InvalidOperationException(
+                    "The semantic Call Graph edge does not match its presentation projection.");
+            }
             edges.Add(
                 new Markout.GraphEdge(
-                    Key(edge.From),
-                    Key(edge.To))
+                    Key(semanticEdge.FromNodeId),
+                    Key(semanticEdge.ToNodeId))
                 {
                     Label = edge.AnyCallInLoop
                         ? edge.CallSiteIds.IsEmpty
@@ -180,7 +224,7 @@ internal static class CallGraphSectionAdapter
             new Markout.Graph(
                 nodes,
                 edges,
-                focusKey: Key(projection.Focus.Id)),
+                focusKey: Key(focusNodeId)),
             new CallGraphRenderedFieldEvidence(
                 graphFields,
                 fromFields,
@@ -196,9 +240,9 @@ internal static class CallGraphSectionAdapter
     /// reader needs when a graph crosses a library boundary. In-assembly nodes are ungrouped so a
     /// single-library graph stays a plain graph with no clustering and no extra table columns.
     /// </summary>
-    private static string? Group(CallGraphNode node) => node.Kind switch
+    private static string? Group(InspectionGraphNodeRole role) => role switch
     {
-        CallGraphNodeKind.External => "External",
+        InspectionGraphNodeRole.External => "External",
         _ => null,
     };
 
@@ -208,21 +252,22 @@ internal static class CallGraphSectionAdapter
         IReadOnlyList<CallGraphField>? requestedFields,
         bool hasFieldProjection,
         IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
-            opportunityAnnotations)
+            opportunityAnnotations,
+        InspectionGraphNodeRole role)
     {
         var member = spellMember(node.Member);
         var suffixes = new List<string>();
 
-        switch (node.Kind)
+        switch (role)
         {
             // A boundary node is a place the graph stopped, not a leaf. Say so, or a reader reads
             // a depth limit as "this method calls nothing".
-            case CallGraphNodeKind.Truncated:
+            case InspectionGraphNodeRole.Truncated:
                 suffixes.Add("…");
                 break;
             // Grouping clusters this node in sinks that draw containers, but a tree or a plain
             // table has no container to draw, so the fact also has to survive in the label.
-            case CallGraphNodeKind.External:
+            case InspectionGraphNodeRole.External:
                 suffixes.Add("external");
                 break;
         }

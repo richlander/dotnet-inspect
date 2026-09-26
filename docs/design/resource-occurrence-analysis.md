@@ -177,6 +177,13 @@ incompleteness because the value-flow substrate intentionally carries no
 partial provenance from which the producer could soundly prove that the value
 is unrelated.
 
+An unresolved effect-source limitation retains the exact call, effect, source
+location, and resolved resource-kind domain without assigning a root. A
+same-execution consumer may join that limitation to stronger root-specific
+reaching-definition evidence only when the call, source parameter, and exact
+resource domain all match. The limitation remains visible, so evidence
+recovered through that join remains incomplete.
+
 Positive occurrence evidence survives unrelated limitations. Unsupported or
 incomplete evidence does not become a successful empty result. Resolution
 failure that prevents identifying an affected root remains visibly

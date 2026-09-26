@@ -106,24 +106,26 @@ public static class DirectMemberComparisonQuery
                     var subject = new AssemblyContextSubject(endpoint.Participant.Assembly);
                     AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
                         AssemblyContextAnalysisSource.Resolver(group, subject);
-                    LibraryBodyIndex? index = null;
+                    LibraryCallGraphAnalysisResult? callGraph = null;
                     try
                     {
-                        index = LibraryBodyIndex.OpenFromPrefetchedImage(
-                            AssemblyContextAnalysisSource.Name(subject),
-                            snapshot.Content,
-                            LibraryBodyAnalysisFeatures.MethodEvidence,
-                            resolver,
-                            bodyScope: new HashSet<int> { endpoint.Address!.Value.Token });
+                        callGraph = LibraryBodyAnalysisService.ExecuteImage(
+                                AssemblyContextAnalysisSource.Name(subject),
+                                snapshot.Content,
+                                LibraryBodyAnalysisRequest.Create(
+                                    LibraryBodyAnalysisFeatures.MethodEvidence,
+                                    bodyScope: new HashSet<int> { endpoint.Address!.Value.Token }),
+                                resolver)
+                            .CallGraph;
                         LocalComparisonQueryResult result = compare(new(
                             snapshot.RetainAssemblyReference(endpoint.Participant.Assembly),
-                            resolver, index));
+                            resolver, callGraph));
                         resolver.ValidateForPublication();
                         return result;
                     }
                     finally
                     {
-                        index?.ReleaseCallGraphCaches();
+                        callGraph?.ReleaseCaches();
                     }
                 });
             return access switch

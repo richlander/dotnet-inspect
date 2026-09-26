@@ -1,0 +1,56 @@
+<Project>
+  <PropertyGroup>
+    <InspectWebIncludeFrontend Condition="'$(InspectWebIncludeFrontend)' == ''">false</InspectWebIncludeFrontend>
+    <MSBuildProjectExtensionsPath Condition="'$(InspectWebIncludeFrontend)' == 'true'">$(MSBuildThisFileDirectory)..\..\..\artifacts\obj\InspectWeb.ManagedOperationBridge.BrowserCanary.Host\browser-wasm\</MSBuildProjectExtensionsPath>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk.WebAssembly" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" Condition="'$(InspectWebIncludeFrontend)' != 'true'" />
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPublishable>true</IsPublishable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <AppendRuntimeIdentifierToOutputPath Condition="'$(InspectWebIncludeFrontend)' == 'true'">true</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference
+      Include="../Bridge/InspectWeb.ManagedOperationBridge.BrowserCanary.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(InspectWebIncludeFrontend)' == 'true' And '$(CanaryModulesDir)' != ''">
+    <Content
+      Include="$(CanaryModulesDir)/initialize.js"
+      Link="wwwroot/initialize.js"
+      CopyToPublishDirectory="PreserveNewest" />
+    <Content
+      Include="$(CanaryModulesDir)/exercise.js"
+      Link="wwwroot/exercise.js"
+      CopyToPublishDirectory="PreserveNewest" />
+    <Content
+      Include="$(CanaryModulesDir)/facades/*.js"
+      Link="wwwroot/facades/%(Filename)%(Extension)"
+      CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="ValidateInspectWebIncludeFrontend"
+    BeforeTargets="PrepareForBuild;PrepareForPublish">
+    <Error
+      Condition="'$(InspectWebIncludeFrontend)' != 'true' And '$(InspectWebIncludeFrontend)' != 'false'"
+      Text="InspectWebIncludeFrontend must be 'true' or 'false'." />
+  </Target>
+
+  <Target Name="RequireInspectWebFrontendForPublish"
+    BeforeTargets="PrepareForPublish"
+    Condition="'$(InspectWebIncludeFrontend)' != 'true'">
+    <Error Text="Publishing the managed-operation bridge Browser/Wasm canary requires '-p:InspectWebIncludeFrontend=true'." />
+  </Target>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.WebAssembly" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" Condition="'$(InspectWebIncludeFrontend)' != 'true'" />
+</Project>

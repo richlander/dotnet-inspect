@@ -49,6 +49,7 @@ function sampleResult(
 ): AnnotatedSourceResult {
   return {
     document,
+    signature: inertStringFixture("public void Sample()"),
     viewerCatalog: sampleViewerCatalog,
     findingEvidenceDocuments: [],
     findingEvidence: [],

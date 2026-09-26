@@ -5686,6 +5686,7 @@ public sealed partial class CSharpPrinter
     bool IsStatementExpression(IrExpression expression) => expression switch
     {
         Call call => !IsOperatorCall(call),
+        NullConditional { Member: Call call } => !IsOperatorCall(call),
         CallIndirect or NewObject or IncrementDecrement or AwaitExpression or LocalFunctionInvocation => true,
         _ => false,
     };

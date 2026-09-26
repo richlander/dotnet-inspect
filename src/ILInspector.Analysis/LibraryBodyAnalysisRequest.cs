@@ -96,7 +96,9 @@ public sealed class LibraryBodyAnalysisRequest
         CreateImplementationMetrics(
             ImplementationMetricEvidenceKind evidence,
             ImplementationMetricWorkLimits limits,
-            IReadOnlySet<int> bodyScope)
+            IReadOnlySet<int> bodyScope,
+            LibraryBodyAnalysisFeatures features =
+                LibraryBodyAnalysisFeatures.None)
     {
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(bodyScope);
@@ -107,7 +109,7 @@ public sealed class LibraryBodyAnalysisRequest
                 nameof(bodyScope));
         }
         return new(
-            LibraryBodyAnalysisFeatures.None,
+            features,
             bodyScope,
             bodyTypeScope: null,
             resourceEffects: null,

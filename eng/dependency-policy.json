@@ -139,7 +139,9 @@
         "*.Tests",
         "*Fixture*",
         "dotnet-inspect",
-        "DotnetInspect.Cli"
+        "DotnetInspect.Cli",
+        "DotnetInspect.Web.Interop.Catalog",
+        "DotnetInspect.Web.Interop.Package"
       ],
       "deny": [
         "DotnetInspector.Ecosystems"

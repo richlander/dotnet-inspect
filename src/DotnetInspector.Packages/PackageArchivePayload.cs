@@ -54,14 +54,14 @@ internal sealed class PackageArchivePayload
     internal Stream OpenArchive() =>
         new MemoryStream(_bytes, writable: false);
 
-    internal IReadOnlyList<PackageContentEntry> GetEntries() =>
-        _entries
-            .Where(entry => !entry.IsDirectory)
-            .Select(entry => new PackageContentEntry(
-                entry.Path,
-                checked((long)entry.UncompressedSize)))
-            .ToList()
-            .AsReadOnly();
+    internal PackageContentEntryScanner CreateEntryScanner() =>
+        new ArchiveEntryScanner(_entries);
+
+    internal IReadOnlyList<PackageContentEntry> GetEntries()
+    {
+        using PackageContentEntryScanner scanner = CreateEntryScanner();
+        return scanner.ReadToEnd();
+    }
 
     internal Dictionary<string, PackageArchiveEntryValidation>
         CreateEntryValidationIndex() =>
@@ -73,6 +73,31 @@ internal sealed class PackageArchivePayload
                     entry.UncompressedSize,
                     entry.Crc32),
                 StringComparer.OrdinalIgnoreCase);
+
+    private sealed class ArchiveEntryScanner(
+        IReadOnlyList<PackageArchiveEntry> entries)
+        : PackageContentEntryScanner
+    {
+        private int _index;
+
+        public override bool MoveNext(out PackageContentEntry entry)
+        {
+            while (_index < entries.Count)
+            {
+                PackageArchiveEntry candidate = entries[_index++];
+                if (candidate.IsDirectory)
+                    continue;
+
+                entry = new(
+                    candidate.Path,
+                    checked((long)candidate.UncompressedSize));
+                return true;
+            }
+
+            entry = default;
+            return false;
+        }
+    }
 
     internal bool TryOpenEntry(
         string relativePath,

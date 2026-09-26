@@ -31,6 +31,12 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 public partial class ApiCommand
 {
+    private static readonly InspectionEnvelopeJsonContract<
+        InspectionGraphDocument> s_callGraphJson =
+        new(
+            "member-call-graph",
+            1,
+            CallGraphInspectionJson.Write);
 
     // ===== Single Type Rendering =====
 
@@ -204,6 +210,14 @@ public partial class ApiCommand
         bool projectedFactsJson = IsProjectedFactsJson(options);
         bool callsJson = IsCallsJson(options);
         bool callersJson = IsCallersJson(options);
+        if (options is MemberOptions transportOptions
+            && !ValidateCallGraphTransport(transportOptions))
+        {
+            return 1;
+        }
+        bool callGraphTransport =
+            options is MemberOptions callGraphOptions
+            && IsCallGraphTransport(callGraphOptions);
         bool typeApiDeclarationsJson =
             options.JsonOutput
             && !options.Count
@@ -276,7 +290,8 @@ public partial class ApiCommand
             && !typeApiDeclarationsJson
             && !sourceJson
             && !sourceDocumentJson && !findingCensusJson && !factsJson
-            && !projectedFactsJson && !callsJson && !callersJson)
+            && !projectedFactsJson && !callsJson && !callersJson
+            && !callGraphTransport)
         {
             if (SectionNames.IncludesBodyMetrics(
                     GetRequestedMemberSections(type, options)))
@@ -443,13 +458,11 @@ public partial class ApiCommand
             }
 
             // Type-scope analysis sections share one execution per type (opened lazily, only
-            // when such a section is requested). Compatibility consumers materialize the index.
+            // when such a section is requested).
             Analysis.LibraryBodyAnalysisExecution? typeAnalysis = null;
             Analysis.LibraryBodyAnalysisExecution TypeAnalysis() =>
                 typeAnalysis ??= ApiAnalysisInspection.OpenTypeAnalysis(
                     options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
-            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                TypeAnalysis().CompatibilityIndex();
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -476,7 +489,7 @@ public partial class ApiCommand
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
                     || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), options.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysis().CallGraph, options.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, options);
@@ -499,7 +512,7 @@ public partial class ApiCommand
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), options.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysis().Optimization, options.IncludeSections,
                     options.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
@@ -508,7 +521,7 @@ public partial class ApiCommand
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysis().Leverage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
@@ -544,7 +557,7 @@ public partial class ApiCommand
                                 type,
                                 options)
                             : type,
-                        TypeAnalysisIndex(),
+                        TypeAnalysis().ImplementationProfiles,
                                 options is MemberOptions,
                                 restrictToModelMembers:
                             restrictImplementationProfiles,
@@ -974,6 +987,26 @@ public partial class ApiCommand
         {
             if (!TryPopulateSource(view, options))
                 return 1;
+        }
+
+        if (callGraphTransport
+            && options is MemberOptions memberCallGraphOptions)
+        {
+            if (view.MemberCode?.CallGraphInspection is not { } inspection)
+            {
+                CommandError.Write(
+                    "Call Graph output requires exactly one selected method overload.",
+                    "Select an overload by Name:N, Name~digest, or --index N.");
+                return 1;
+            }
+
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                inspection,
+                s_callGraphJson,
+                memberCallGraphOptions.EnvelopeOutput,
+                memberCallGraphOptions.CompactJson);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return wrote ? 0 : 1;
         }
 
         if (options.Print)

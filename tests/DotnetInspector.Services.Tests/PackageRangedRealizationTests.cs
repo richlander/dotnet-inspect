@@ -509,9 +509,9 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Contains(
             settlement.Result.Evidence.Failures,
             failure => failure is PackageHouseFailure.Authority
-                {
-                    Failure.Kind: PackageAuthorityFailureKind.AuthenticationRequired,
-                }
+            {
+                Failure.Kind: PackageAuthorityFailureKind.AuthenticationRequired,
+            }
                 || failure is PackageHouseFailure.Source
                 {
                     Failure.Kind: PackageSourceFailureKind.AuthenticationRequired,
@@ -710,7 +710,9 @@ public sealed partial class PackageRangedRealizationTests
             string version,
             IEnumerable<string>? implementationNames = null,
             PackageHouseAssetSelectionKind selection =
-                PackageHouseAssetSelectionKind.Compile)
+                PackageHouseAssetSelectionKind.Compile,
+            PackageHouseEvidenceDemand evidenceDemand =
+                PackageHouseEvidenceDemand.None)
         {
             // The real assets here are small, so the ranged gates set a zero
             // size cut; size first itself is gated separately.
@@ -727,7 +729,8 @@ public sealed partial class PackageRangedRealizationTests
                 PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
                 PackageHouseTargetContext.Exact(framework),
                 selection,
-                implementationNames: implementationNames);
+                implementationNames: implementationNames,
+                evidenceDemand: evidenceDemand);
             return house.ExecuteAsync(
                 request,
                 Root.IssueOperationLease(

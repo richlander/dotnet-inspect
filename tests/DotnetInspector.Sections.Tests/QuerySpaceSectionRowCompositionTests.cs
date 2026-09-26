@@ -517,6 +517,454 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
+    public void ExactSourceCountBypassesRowsAndResidualShaping()
+    {
+        int predicateCalls = 0;
+        int baselineResolverCalls = 0;
+        int projectionCalls = 0;
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(
+                CreateRowVocabulary(
+                    () => baselineResolverCalls++,
+                    predicateApplied:
+                        () => predicateCalls++));
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        "score",
+                        PortableQueryOperator.AtLeast,
+                        "2"),
+                ],
+                [],
+                [PortableQueryStage.Head(1)],
+                [
+                    PortableQueryOrderOperation.Fields(
+                        PortableQueryOrderRole.Baseline,
+                        [
+                            new(
+                                "score",
+                                PortableQueryDirection.Descending),
+                        ]),
+                ]);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        SectionRowSetDeclaration<
+            string,
+            Projection>[] declarations =
+        [
+            Declaration(
+                "left",
+                schema,
+                [new(1), new(4), new(3)],
+                (projection, _) =>
+                {
+                    projectionCalls++;
+                    return projection;
+                }),
+            Declaration(
+                "right",
+                schema,
+                [new(9)],
+                (projection, _) =>
+                {
+                    projectionCalls++;
+                    return projection;
+                }),
+        ];
+        var leftReceipt =
+            new CompletionReceipt("accepted exact zero");
+        var rightReceipt =
+            new CompletionReceipt("accepted exact count");
+        var sources =
+            new List<
+                SectionRowSourceState<
+                    string,
+                    SourceDisposition,
+                    CompletionReceipt>>
+            {
+                ExactCountSource(
+                    "left",
+                    SourceDisposition.Complete,
+                    leftReceipt,
+                    0),
+                ExactCountSource(
+                    "right",
+                    SourceDisposition.Complete,
+                    rightReceipt,
+                    7),
+            };
+        var sectionScope =
+            new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                queryScope,
+                schema);
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> resolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Count),
+                    declarations,
+                    sources,
+                    sectionScope);
+
+        Assert.True(resolution.IsSuccess);
+        sources.Clear();
+        sources.Add(
+            ExactCountSource(
+                "left",
+                SourceDisposition.Complete,
+                new("mutated"),
+                99));
+
+        var completed =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.Completed>(
+                            QuerySpaceSectionRowExecutor.ApplyCount(
+                                resolution.Request!));
+        Assert.Equal(
+            ["left", "right"],
+            completed.Counts.Select(
+                static count => count.Identity));
+        Assert.Equal(
+            [0, 7],
+            completed.Counts.Select(
+                static count => count.Value));
+        Assert.Equal(0, predicateCalls);
+        Assert.Equal(0, baselineResolverCalls);
+        Assert.Equal(0, projectionCalls);
+    }
+
+    [Fact]
+    public void ExactSourceCountComposesWithResidualCount()
+    {
+        int residualCalls = 0;
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(
+                CreateRowVocabulary(
+                    () => residualCalls++));
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        SectionRowSetDeclaration<
+            string,
+            Projection>[] declarations =
+        [
+            Declaration(
+                "left",
+                schema,
+                [],
+                static (projection, _) => projection),
+            Declaration(
+                "right",
+                schema,
+                [new(1), new(4), new(3)],
+                static (projection, _) => projection),
+        ];
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] sources =
+        [
+            ExactCountSource(
+                "left",
+                SourceDisposition.Complete,
+                new("accepted exact count"),
+                7),
+            Source(
+                "right",
+                SourceDisposition.Complete,
+                new("logical exhaustion"),
+                rowsAreUsable: true,
+                countIsSufficient: true),
+        ];
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> resolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        PortableQueryIntent.Create(
+                            [],
+                            [],
+                            [PortableQueryStage.Head(2)],
+                            [
+                                PortableQueryOrderOperation.Fields(
+                                    PortableQueryOrderRole.Baseline,
+                                    [
+                                        new(
+                                            "score",
+                                            PortableQueryDirection
+                                                .Descending),
+                                    ]),
+                            ]),
+                        QuerySpaceTerminalRequirement.Count),
+                    declarations,
+                    sources,
+                    new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                        queryScope,
+                        schema));
+
+        var completed =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.Completed>(
+                            QuerySpaceSectionRowExecutor.ApplyCount(
+                                resolution.Request!));
+        Assert.Equal(
+            ["left", "right"],
+            completed.Counts.Select(
+                static count => count.Identity));
+        Assert.Equal(
+            [7, 2],
+            completed.Counts.Select(
+                static count => count.Value));
+        Assert.Equal(1, residualCalls);
+    }
+
+    [Fact]
+    public void ResidualFailureSuppressesExactSourceCount()
+    {
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(
+                CreateRowVocabulary(),
+                [RowSelectionStageKind.Window]);
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] sources =
+        [
+            ExactCountSource(
+                "left",
+                SourceDisposition.Complete,
+                new("accepted exact count"),
+                7),
+            Source(
+                "right",
+                SourceDisposition.Complete,
+                new("logical exhaustion"),
+                rowsAreUsable: true,
+                countIsSufficient: true),
+        ];
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> resolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        PortableQueryIntent.Create(
+                            [],
+                            [],
+                            [PortableQueryStage.Window(1, 2)],
+                            []),
+                        QuerySpaceTerminalRequirement.Count),
+                    [
+                        Declaration(
+                            "left",
+                            schema,
+                            [],
+                            static (projection, _) => projection),
+                        Declaration(
+                            "right",
+                            schema,
+                            [new(1)],
+                            static (projection, _) => projection),
+                    ],
+                    sources,
+                    new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                        queryScope,
+                        schema));
+
+        var failure =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.Semantic>(
+                            QuerySpaceSectionRowExecutor.ApplyCount(
+                                resolution.Request!));
+        Assert.Equal("right", failure.Identity);
+        Assert.Equal(1, failure.StageNumber);
+        Assert.Equal(2, failure.RequiredPosition);
+        Assert.Equal(1, failure.AvailableCount);
+    }
+
+    [Fact]
+    public void InsufficientCompanionSuppressesExactSourceCount()
+    {
+        int residualCalls = 0;
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(
+                CreateRowVocabulary(
+                    () => residualCalls++));
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        var exactReceipt =
+            new CompletionReceipt("accepted exact count");
+        var partialReceipt =
+            new CompletionReceipt("provider cap");
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] sources =
+        [
+            ExactCountSource(
+                "left",
+                SourceDisposition.Complete,
+                exactReceipt,
+                7),
+            Source(
+                "right",
+                SourceDisposition.Partial,
+                partialReceipt,
+                rowsAreUsable: true,
+                countIsSufficient: false),
+        ];
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> resolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        PortableQueryIntent.Empty,
+                        QuerySpaceTerminalRequirement.Count),
+                    [
+                        Declaration(
+                            "left",
+                            schema,
+                            [],
+                            static (projection, _) => projection),
+                        Declaration(
+                            "right",
+                            schema,
+                            [new(1), new(2), new(3)],
+                            static (projection, _) => projection),
+                    ],
+                    sources,
+                    new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                        queryScope,
+                        schema));
+
+        var failed =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.SourceForCount>(
+                            QuerySpaceSectionRowExecutor.ApplyCount(
+                                resolution.Request!));
+        Assert.Equal(
+            ["left", "right"],
+            failed.Sources.Select(
+                static source => source.Identity));
+        Assert.Same(
+            exactReceipt,
+            failed.Sources[0].Evidence.Completion);
+        Assert.Same(
+            partialReceipt,
+            failed.Sources[1].Evidence.Completion);
+        Assert.Equal(0, residualCalls);
+    }
+
+    [Fact]
+    public void ExactCountDoesNotMakeRowsAvailable()
+    {
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(CreateRowVocabulary());
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> resolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        PortableQueryIntent.Empty,
+                        QuerySpaceTerminalRequirement.Rows,
+                        ["left"]),
+                    [
+                        Declaration(
+                            "left",
+                            schema,
+                            [new(1)],
+                            static (projection, _) => projection),
+                    ],
+                    [
+                        ExactCountSource(
+                            "left",
+                            SourceDisposition.Complete,
+                            new("accepted exact count"),
+                            1),
+                    ],
+                    new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                        queryScope,
+                        schema));
+
+        SectionSourceRowsOutcome<
+            string,
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rows =
+                QuerySpaceSectionRowExecutor.ApplyRows(
+                    resolution.Request!);
+        Assert.True(rows.IsSuccess);
+        Assert.False(Assert.Single(rows.RowSets).RowsAreAvailable);
+    }
+
+    [Fact]
+    public void ExactSourceCountMustBeNonNegative()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ExactCountSource(
+                "left",
+                SourceDisposition.Complete,
+                new("invalid"),
+                -1));
+    }
+
+    [Fact]
     public void ExecutionUsesDeclarationSnapshotAfterCallerMutation()
     {
         QuerySpaceRowScopeBinding<ScoreRow> queryScope =
@@ -1089,7 +1537,8 @@ public sealed class QuerySpaceSectionRowCompositionTests
     private static RowQueryVocabulary<ScoreRow>
         CreateRowVocabulary(
             Action? baselineResolved = null,
-            bool includeTopRanking = false)
+            bool includeTopRanking = false,
+            Action? predicateApplied = null)
     {
         RowQueryKey<ScoreRow> score =
             RowQueryKey<ScoreRow>.Create(
@@ -1098,7 +1547,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 [RowQueryOperator.GreaterOrEqual],
                 static row =>
                     RowQueryValue<int>.Present(row.Score),
-                static (@operator, token) =>
+                (@operator, token) =>
                 {
                     if (@operator
                             is not RowQueryOperator.GreaterOrEqual
@@ -1111,7 +1560,11 @@ public sealed class QuerySpaceSectionRowCompositionTests
                         return null;
                     }
 
-                    return actual => actual >= expected;
+                    return actual =>
+                    {
+                        predicateApplied?.Invoke();
+                        return actual >= expected;
+                    };
                 },
                 direction =>
                 {
@@ -1259,6 +1712,19 @@ public sealed class QuerySpaceSectionRowCompositionTests
             new(disposition, completion),
             rowsAreUsable,
             countIsSufficient);
+
+    private static SectionRowSourceState<
+        string,
+        SourceDisposition,
+        CompletionReceipt> ExactCountSource(
+            string identity,
+            SourceDisposition disposition,
+            CompletionReceipt completion,
+            int exactCount) =>
+        new(
+            identity,
+            new(disposition, completion),
+            exactCount);
 
     private static SectionRowSetDeclaration<
         string,

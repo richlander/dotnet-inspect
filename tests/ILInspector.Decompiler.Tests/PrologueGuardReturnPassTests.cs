@@ -4,10 +4,9 @@ namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
 /// <see cref="PrologueGuardReturnPass"/> folds a leading <c>if (c) goto L;
-/// return X; L:</c> prologue guard that <see cref="StructuringPass"/> leaves flat
-/// only because the rest of the body is EH-entangled (a surviving <c>Leave</c>
-/// makes a later block a leave-target). The fold must touch only the pristine
-/// prologue and stand down whenever the arm could reach into the EH residue.
+/// return X; L:</c> prologue guard independently of later control flow. The fold
+/// must touch only the pristine prologue and stand down whenever the arm could
+/// reach into EH residue or another branch enters it.
 /// </summary>
 [Trait("Area", "Pass")]
 public class PrologueGuardReturnPassTests
@@ -83,15 +82,17 @@ public class PrologueGuardReturnPassTests
     }
 
     [Fact]
-    public void NoSurvivingLeave_StandsDown()
+    public void NoSurvivingLeave_FoldsIndependently()
     {
-        // Without a leave-target the container is StructuringPass's to own.
+        // A later irreducible non-EH region must not keep this proven leading
+        // guard in goto form.
         var function = Build(survivingLeave: false);
 
         new PrologueGuardReturnPass().Run(function, PassContext.None);
 
-        Assert.Empty(function.Descendants.OfType<IfStatement>());
-        Assert.Contains(function.Body.Blocks, b => b.StartOffset == 0x0008);
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.DoesNotContain(function.Body.Blocks, b => b.StartOffset == 0x0008);
+        function.CheckInvariant();
     }
 
     [Fact]

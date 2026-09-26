@@ -12,6 +12,7 @@ const app = document.querySelector<HTMLElement>("#app")!;
 const explorer = createGraphExplorer(document);
 const keybindings = createWorkbenchKeybindings();
 keybindings.attach(document);
+const denseGraph = new URLSearchParams(location.search).get("graph") === "dense";
 const graphTargets = [
   {
     id: "n0", assembly: "Example", assemblyVersion: "1.0.0.0",
@@ -25,7 +26,21 @@ const graphTargets = [
     id: "n2", assembly: "Example", assemblyVersion: "1.0.0.0",
     typeDefinitionId: "Example.Worker", kind: "normal",
   },
-] as const;
+  ...Array.from({ length: denseGraph ? 14 : 0 }, (_, index) => ({
+    id: `c${index}`,
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    typeDefinitionId: `Example.Caller${index}`,
+    kind: "normal" as const,
+  })),
+  ...Array.from({ length: denseGraph ? 14 : 0 }, (_, index) => ({
+    id: `d${index}`,
+    assembly: "Other",
+    assemblyVersion: "2.0.0.0",
+    typeDefinitionId: `Other.Dependency${index}`,
+    kind: "external" as const,
+  })),
+];
 let key = "member-one";
 let state: "ready" | "pending" | "failure" | "no-body" = "ready";
 let depth = 0;
@@ -57,6 +72,7 @@ declare global {
 function target() {
   return {
     key,
+    role: "call" as const,
     kind: "Call graph",
     subject,
     context,
@@ -75,20 +91,31 @@ async function mountGraph() {
     flowchart: { htmlLabels: false },
   });
   const style = getComputedStyle(document.documentElement);
+  const denseEdges = denseGraph
+    ? [
+        ...Array.from(
+          { length: 14 },
+          (_, index) => `c${index}[Caller ${index} with a readable label] --> n0`),
+        ...Array.from(
+          { length: 14 },
+          (_, index) => `n0 --> d${index}[Dependency ${index} with a readable label]`),
+      ].join("\n")
+    : `n0[Process]:::focus --> n1[Platform method]:::external
+        n0 --> n2[Open member]:::normal`;
   const definition = resolveMermaidCssVariables(
     styleCallGraphMermaid(
       `graph LR
-        n0[Process]:::focus --> n1[Platform method]:::external
-        n0 --> n2[Open member]:::normal`,
+        ${denseEdges}`,
       graphTargets),
     name => style.getPropertyValue(name));
   const { svg } = await mermaid.render(`browser-graph-${++mounts}`, definition);
   if (!diagram.isConnected) return;
   diagram.innerHTML = `
     <div class="graph-viewport">${svg}</div>
-    ${graphControlsHtml()}`;
+    ${graphControlsHtml(true)}`;
   bindGraphPanZoom(diagram, diagram.querySelector<HTMLElement>(".graph-viewport")!, {
     keybindings,
+    focusNodeSelector: "g.node.target",
     resolveCallGraphNode: id => id === "n1"
       ? {
           label: "Drill into platform",

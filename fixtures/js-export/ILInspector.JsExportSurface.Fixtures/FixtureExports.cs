@@ -626,14 +626,14 @@ public static partial class DirectionalFixtureExports
             .Id;
 
     [JSExport]
-    public static string RoundTripDirectional(string payloadJson)
+    public static string ReemitDirectionalServerNote(string payloadJson)
     {
-        DirectionalRoundTripDto payload = JsonSerializer.Deserialize(
+        DirectionalServerNoteDto payload = JsonSerializer.Deserialize(
             payloadJson,
-            DirectionalFixtureJsonContext.Default.DirectionalRoundTripDto)!;
+            DirectionalFixtureJsonContext.Default.DirectionalServerNoteDto)!;
         return JsonSerializer.Serialize(
             payload,
-            DirectionalFixtureJsonContext.Default.DirectionalRoundTripDto);
+            DirectionalFixtureJsonContext.Default.DirectionalServerNoteDto);
     }
 }
 
@@ -728,7 +728,7 @@ public sealed class DirectionalAccessorInputDto
 }
 
 /// <summary>Reached in both directions, so its split member has no single shape.</summary>
-public sealed record DirectionalRoundTripDto(string Name)
+public sealed record DirectionalServerNoteDto(string Name)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
     public string ServerNote { get; init; } = "";
@@ -738,7 +738,7 @@ public sealed record DirectionalRoundTripDto(string Name)
 [JsonSerializable(typeof(DirectionalInputDto))]
 [JsonSerializable(typeof(DirectionalSharedInputDto))]
 [JsonSerializable(typeof(DirectionalAccessorInputDto))]
-[JsonSerializable(typeof(DirectionalRoundTripDto))]
+[JsonSerializable(typeof(DirectionalServerNoteDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class DirectionalFixtureJsonContext : JsonSerializerContext;
 

@@ -83,6 +83,7 @@ export function memberFindingCensusFixture(
     facts,
     annotatedSource: {
       document,
+      signature: inertStringFixture("public void Sample()"),
       viewerCatalog: sampleViewerCatalog,
       findingEvidenceDocuments: [],
       findingEvidence: [],

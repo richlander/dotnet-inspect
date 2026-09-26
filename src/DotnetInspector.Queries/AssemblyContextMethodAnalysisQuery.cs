@@ -23,7 +23,7 @@ public sealed record AssemblyMethodAnalysis(
 
 /// <summary>
 /// Reads exact method-body evidence while the query layer owns the retained
-/// workspace snapshot and Analysis index.
+/// workspace snapshot and Analysis execution.
 /// </summary>
 public static class AssemblyContextMethodAnalysisQuery
 {
@@ -74,7 +74,7 @@ public static class AssemblyContextMethodAnalysisQuery
         int methodToken,
         CancellationToken cancellationToken)
     {
-        LibraryBodyIndex? index = null;
+        LibraryCallGraphAnalysisResult? callGraph = null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -87,14 +87,16 @@ public static class AssemblyContextMethodAnalysisQuery
                     LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities,
                     new HashSet<int> { methodToken });
-            index = LibraryBodyAnalysisService.AnalyzeImage(
-                AssemblyContextAnalysisSource.Name(subject),
-                snapshot.Content,
-                request,
-                resolver);
+            LibraryBodyAnalysisExecution execution =
+                LibraryBodyAnalysisService.ExecuteImage(
+                    AssemblyContextAnalysisSource.Name(subject),
+                    snapshot.Content,
+                    request,
+                    resolver);
+            callGraph = execution.CallGraph;
             cancellationToken.ThrowIfCancellationRequested();
 
-            MethodIdentity? declaration = index.DeclaredMethods.FirstOrDefault(
+            MethodIdentity? declaration = callGraph.DeclaredMethods.FirstOrDefault(
                 method => method.MetadataToken == methodToken);
             if (declaration is null)
             {
@@ -104,7 +106,7 @@ public static class AssemblyContextMethodAnalysisQuery
                     nameof(methodToken));
             }
 
-            MethodIdentity? method = index.Methods.FirstOrDefault(
+            MethodIdentity? method = callGraph.Methods.FirstOrDefault(
                 candidate => candidate.MetadataToken == methodToken);
             if (method is null)
             {
@@ -126,19 +128,19 @@ public static class AssemblyContextMethodAnalysisQuery
                     exceptionRegionError);
             }
 
-            index.GetMethodSignals().TryGetValue(
+            callGraph.MethodSignals.TryGetValue(
                 methodToken,
                 out MethodSignals? signals);
-            index.GetAllocationOccurrences().TryGetValue(
+            execution.Allocations.Occurrences.TryGetValue(
                 methodToken,
                 out ImmutableArray<AllocationOccurrence> allocations);
-            index.GetDirectCallsByEvidenceMethod().TryGetValue(
+            callGraph.DirectCallsByEvidenceMethod.TryGetValue(
                 methodToken,
                 out ImmutableArray<DirectCall> directCalls);
-            index.GetUnsafetyOccurrences().TryGetValue(
+            execution.Safety.Occurrences.TryGetValue(
                 methodToken,
                 out ImmutableArray<UnsafetyOccurrence> unsafetyOccurrences);
-            index.GetUnsafeEvidenceByMember().TryGetValue(
+            execution.Safety.GetEvidenceByMember().TryGetValue(
                 methodToken,
                 out ImmutableArray<UnsafeEvidence> unsafeEvidence);
 
@@ -152,14 +154,14 @@ public static class AssemblyContextMethodAnalysisQuery
                 EmptyIfDefault(unsafeEvidence),
                 [.. exceptionRegions],
                 [
-                    .. index.OptimizationOpportunities.Where(
+                    .. execution.Optimization.Opportunities.Where(
                         opportunity =>
                             (opportunity.EvidenceMethodToken
                                 ?? opportunity.Method.MetadataToken)
                             == methodToken),
                 ],
                 [
-                    .. index.Diagnostics.Where(
+                    .. execution.Receipt.Diagnostics.Where(
                         diagnostic =>
                             diagnostic.MethodToken == methodToken),
                 ]);
@@ -169,7 +171,7 @@ public static class AssemblyContextMethodAnalysisQuery
         }
         finally
         {
-            index?.ReleaseCallGraphCaches();
+            callGraph?.ReleaseCaches();
         }
     }
 

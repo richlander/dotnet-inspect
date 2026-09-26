@@ -80,6 +80,7 @@ export type TypeApiDeclarationScope = "ApiVisible" | "All" | number;
 
 export interface BrowserAnnotatedSource {
   readonly document: unknown;
+  readonly signature: InertString;
   readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
   readonly provenance: InertString;
   readonly contextLimitation: string | null;

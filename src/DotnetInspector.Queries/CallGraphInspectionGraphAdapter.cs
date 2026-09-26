@@ -300,17 +300,37 @@ public static class CallGraphInspectionGraphAdapter
 {
     public static InspectionGraphDocument Create(
         CallGraphProjection projection)
+        => Create(projection, CatalogCallGraphDiagnostics.Empty);
+
+    public static InspectionGraphDocument Create(
+        CallGraphProjection projection,
+        CatalogCallGraphDiagnostics diagnostics)
     {
         ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(diagnostics);
         InspectionGraphSubject[] roots = RootSubjects(projection);
         InspectionGraphModeRequest modeRequest =
             roots.Length == 1
                 ? InspectionGraphModeRequest.SingleSeed(roots[0])
                 : InspectionGraphModeRequest.PeerSeeds(roots);
+        InspectionGraphLimit[] limits =
+            diagnostics.IsIncomplete
+                ?
+                [
+                    new(
+                        CallGraphInspectionGraphCatalog
+                            .CorrespondenceIncomplete,
+                        InspectionGraphTarget.Node(projection.Focus.Id),
+                        new CallGraphCorrespondenceIncompleteEvidence(
+                            diagnostics.IncompleteNodeCount,
+                            diagnostics.IncompleteEdgeCount,
+                            diagnostics.BindingIdentityConflictCount)),
+                ]
+                : [];
         return Create(
             projection,
             modeRequest,
-            []);
+            limits);
     }
 
     internal static InspectionGraphDocument

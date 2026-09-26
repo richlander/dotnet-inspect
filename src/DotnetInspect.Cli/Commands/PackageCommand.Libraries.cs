@@ -876,14 +876,22 @@ public partial class PackageCommand
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
             TypeFilter = options.TypeFilter,
+            AddressRequest =
+                options.LibraryAddressRequest,
+            AddressRowSelection =
+                options.LibraryAddressRowSelection,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,
+            EnvelopeOutput = options.EnvelopeOutput,
+            CompactJson = options.CompactJson,
             PlainText = options.Format == OutputFormat.PlainText,
             Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet =
+                options.FormatFlagExplicitlySet,
             Format = options.Format,
             Verbose = options.Verbose,
             Trace = options.Trace,

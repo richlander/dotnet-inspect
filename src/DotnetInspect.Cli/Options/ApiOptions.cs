@@ -360,6 +360,7 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
+    internal bool RouterCompletedPlatformLookup { get; init; }
     public InspectionEnvelope<CSharpTypeDocumentOutcome>?
         TypeDocumentInspection
     {
@@ -403,6 +404,7 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    public bool EnvelopeOutput { get; init; }
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
     internal RowSelectionIntent<string>? CallRowSelection { get; init; }
     internal RowSelectionIntent<string>? CallerRowSelection { get; init; }
@@ -443,6 +445,7 @@ public record MemberOptions : ApiOptions
         get;
         init;
     }
+
     public InspectionEnvelope<AssemblyMemberDecompilationEntry>?
         MemberDecompilationInspection
     {
@@ -534,7 +537,11 @@ public record MemberOptions : ApiOptions
 
     /// <inheritdoc/>
     public override bool IsRawOutput =>
-        base.IsRawOutput || Tree || MermaidOutput || ShareFormat is not null;
+        base.IsRawOutput
+        || EnvelopeOutput
+        || Tree
+        || MermaidOutput
+        || ShareFormat is not null;
 }
 
 /// <summary>
