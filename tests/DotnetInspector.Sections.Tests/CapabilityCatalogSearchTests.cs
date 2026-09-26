@@ -145,6 +145,43 @@ public sealed class CapabilityCatalogSearchTests
     }
 
     [Fact]
+    public void AdapterAuthoredSummaries_AreNotSearchTerms()
+    {
+        (InspectionCapabilityCatalog catalog,
+            ResourceExplanationCatalog explanation) = CreateCatalog();
+
+        CapabilityCatalogSearchResult executable =
+            CapabilityCatalogSearch.Search(
+                    catalog,
+                    explanation,
+                    new("executable", maximumResults: 1))
+                .Content
+                .Results
+                .Single();
+        CapabilityCatalogSearchDocument production =
+            CapabilityCatalogSearch.Search(
+                    catalog,
+                    explanation,
+                    new("production"))
+                .Content;
+
+        Assert.Equal(
+            ResourceExplanationResourceKind.HostNeutralRoute,
+            executable.ResourceKind);
+        Assert.Equal(
+            PackageQueryCapability.Route.Descriptor.Identity,
+            executable.ResourceIdentity.Identity);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.Summary,
+            executable.MatchSource);
+        Assert.DoesNotContain(
+            production.Results,
+            static result =>
+                result.ResourceKind
+                    == ResourceExplanationResourceKind.ConsumerBinding);
+    }
+
+    [Fact]
     public void EqualScores_PreferCompleteTermsBeforeCanonicalPath()
     {
         (InspectionCapabilityCatalog catalog,

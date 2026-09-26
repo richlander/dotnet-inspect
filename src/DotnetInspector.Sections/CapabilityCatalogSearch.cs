@@ -405,7 +405,7 @@ public static class CapabilityCatalogSearch
                 CapabilityCatalogSearchMatchSource.OwnerIdentity);
 
             string name;
-            string summary;
+            string? summary;
             ImmutableArray<string> canonicalKeys;
             switch (resource.Details)
             {
@@ -423,7 +423,7 @@ public static class CapabilityCatalogSearch
                     break;
                 case ResourceExplanationDetail.QuerySpaceDetails details:
                     name = details.Name;
-                    summary = details.Summary;
+                    summary = null;
                     canonicalKeys = [];
                     break;
                 case ResourceExplanationDetail.QueryFacetDetails details:
@@ -438,7 +438,7 @@ public static class CapabilityCatalogSearch
                 case ResourceExplanationDetail.ConsumerBindingDetails
                     details:
                     name = details.Name;
-                    summary = details.Summary;
+                    summary = null;
                     canonicalKeys = [];
                     break;
                 default:
@@ -456,10 +456,13 @@ public static class CapabilityCatalogSearch
                 terms,
                 name,
                 CapabilityCatalogSearchMatchSource.ResourceName);
-            AddTerms(
-                terms,
-                summary,
-                CapabilityCatalogSearchMatchSource.Summary);
+            if (summary is not null)
+            {
+                AddTerms(
+                    terms,
+                    summary,
+                    CapabilityCatalogSearchMatchSource.Summary);
+            }
 
             CapabilityCatalogSearchRoute[] routeArray = [.. routes];
             foreach (CapabilityCatalogSearchRoute route in routeArray)
