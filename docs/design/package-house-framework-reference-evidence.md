@@ -260,10 +260,10 @@ The selected names are package-authored framework-reference evidence only.
 
 The [Assembly Reference Resolution
 Ladder](assembly-reference-resolution-ladder.md) consumes this evidence only
-as framework-family eligibility. Exact platform correspondence, package
+as framework-family eligibility. Exact Platform target selection, package
 pruning, and the requested AssemblyRef's membership in one Platform Library
 remain separate owner-issued inputs. The ladder applies package pruning before
-platform applicability.
+Platform applicability.
 
 The nuspec `<frameworkAssemblies>` element is a legacy .NET Framework assembly
 declaration and is not shared-framework evidence.
@@ -337,9 +337,13 @@ seven owner-separated slices:
    by PackageHouse.
 3. #8504 adds the PackageHouse request demand and exact-settlement projection
    specified here.
-4. #8503 supplies exact platform package-to-Library correspondence.
-5. the ladder composes framework eligibility, correspondence, and
-   pruning-before-platform applicability.
+4. #8503 composes
+   [package-origin AssemblyRef Platform
+   routing](package-origin-assemblyref-platform-routing.md) from framework
+   eligibility, terminal pruning, retained-package name ownership, and exact
+   Platform membership.
+5. the ladder consumes that route preparation and applies its ordinary rung
+   precedence.
 6. Workspace publishes the selected platform closure as an immutable
    replacement generation.
 7. Browser/Wasm and CLI resolution consumers adopt the shared PackageHouse
