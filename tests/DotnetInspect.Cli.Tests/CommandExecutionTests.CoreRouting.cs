@@ -3730,7 +3730,7 @@ public partial class CommandExecutionTests
     {
         // Issue #1690: every command reports a missing required argument the Unix way —
         // a concise error on stderr with a non-zero exit, not full help with exit 0.
-        foreach (var command in new[] { "type", "member", "find", "depends", "extensions", "implements" })
+        foreach (var command in new[] { "type", "member", "find", "depends", "extensions" })
         {
             var (exit, output, error) = await RunAppAsync(command, "--tips", "q");
 

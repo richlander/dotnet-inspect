@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -33,25 +34,23 @@ public class SearchJsonResultTests
     }
 
     [Fact]
-    public void ImplementerResult_PreservesPublicJsonFieldNames()
+    public void TypeRelationResult_PreservesPublicJsonFieldNames()
     {
-        var result = ImplementerJsonResult.From(new ImplementerResult
-        {
-            TypeName = "Widget",
-            Namespace = "Example",
-            Kind = "class",
-            Relationship = "implements",
-            Assembly = "Example.dll",
-        });
+        var result = new TypeRelationResult(
+            "Example.Widget",
+            "interface",
+            "Example",
+            "Package",
+            "1.0.0");
 
         var json = JsonSerializer.Serialize(
-            new List<ImplementerJsonResult> { result },
-            ImplementsJsonContext.Default.ListImplementerJsonResult);
+            new List<TypeRelationResult> { result },
+            TypeRelationsJsonContext.Default.ListTypeRelationResult);
         using var document = JsonDocument.Parse(json);
         var item = document.RootElement[0];
 
-        Assert.Equal("Widget", item.GetProperty("type").GetString());
-        Assert.Equal("Example.dll", item.GetProperty("library").GetString());
+        Assert.Equal("Example.Widget", item.GetProperty("type").GetString());
+        Assert.Equal("Example", item.GetProperty("library").GetString());
         Assert.False(item.TryGetProperty("type_name", out _));
     }
 }

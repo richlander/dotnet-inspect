@@ -7,6 +7,7 @@ using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 using Markout;
 using System.CommandLine;
@@ -953,13 +954,43 @@ public static class StructuralViewRegistry
             case InspectionCatalogIdentity.ApiMemberDetail:
             {
                 var pipeline =
-                    ApiInspectionCatalogRegistry.CreateMemberPipeline(
-                        route.Catalog);
+                    route.View.Identity == StructuralViewIdentity.Type
+                    && route.Catalog
+                        == InspectionCatalogIdentity.ApiMember
+                        ? ApiMemberSectionPipelines.CreateTypePipeline()
+                        : ApiInspectionCatalogRegistry
+                            .CreateMemberPipeline(route.Catalog);
                 schema = ApiCommand.GetStructuralSchema(route.Catalog);
+                if (route.View.Identity == StructuralViewIdentity.Type
+                    && route.Catalog
+                        == InspectionCatalogIdentity.ApiMember)
+                {
+                    DocumentSchema relationSchema =
+                        SearchViewContext.Default
+                            .GetSchemaInfo<TypeRelationsResultView>()!
+                            .ToDocumentSchema();
+                    foreach (string sectionName in new[]
+                    {
+                        SectionNames.Implementers,
+                        SectionNames.DerivedTypes,
+                    })
+                    {
+                        var section =
+                            relationSchema.GetSection(sectionName)!;
+                        schema.Add(
+                            sectionName,
+                            section.ItemKind,
+                            [.. section.Items.Select(item => item.Name)]);
+                    }
+                }
                 selectableSections =
-                    ApiInspectionCatalogRegistry
-                        .Get(route.Catalog)
-                        .SectionNames;
+                    route.View.Identity == StructuralViewIdentity.Type
+                    && route.Catalog
+                        == InspectionCatalogIdentity.ApiMember
+                        ? pipeline.SelectableSectionNames
+                        : ApiInspectionCatalogRegistry
+                            .Get(route.Catalog)
+                            .SectionNames;
                 defaultSections =
                     route.View.Identity
                         == StructuralViewIdentity.Type

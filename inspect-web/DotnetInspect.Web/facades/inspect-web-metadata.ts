@@ -502,6 +502,7 @@ export interface BrowserTypeGraphNode {
 
 export interface BrowserTypeMetadata {
   readonly exactTypeInspection: InspectionEnvelope<ExactTypeInspectionResult>;
+  readonly implementers: ReadonlyArray<string>;
   readonly derivedTypes: ReadonlyArray<string>;
   readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
   readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;

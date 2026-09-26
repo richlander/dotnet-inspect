@@ -13,17 +13,8 @@ public partial class CommandExecutionTests
 {
 
     [Fact]
-    public async Task RelationshipCommands_NamespacePrefixInputs_PrintPrefixBrowseHint()
+    public async Task Extensions_NamespacePrefixInput_PrintsPrefixBrowseHint()
     {
-        var (implementsExit, implementsOutput, implementsError) = await RunAppAsync(
-            "implements", "System.Text", "--tips", "q");
-
-        Assert.Equal(0, implementsExit);
-        Assert.Empty(implementsOutput);
-        Assert.Contains("looks like a namespace prefix", implementsError);
-        Assert.Contains("type System.Text", implementsError);
-        Assert.Contains("find \"System.Text*\" --platform", implementsError);
-
         var (extensionsExit, extensionsOutput, extensionsError) = await RunAppAsync(
             "extensions", "System.Text", "--tips", "q");
 
@@ -51,10 +42,17 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Implements_Count_ComposesWithJson()
+    public async Task TypeRelations_Count_ComposesWithJson()
     {
         var (exit, output, _) = await RunAppAsync(
-            "implements", "IDisposable", "--library", TestAssemblyPath, "--count", "--json");
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            typeof(TypeRelationsCommandTests).Assembly.Location,
+            "-S",
+            "Implementers",
+            "--count",
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
@@ -99,7 +97,8 @@ public partial class CommandExecutionTests
             "find", ".ToString", "--platform", "System.Private.CoreLib",
             "--count", "--rows", "1..1", "--tips", "q");
         var implements = await RunAppAsync(
-            "implements", "IDisposable", "--platform", "System.Private.CoreLib",
+            "type", "IDisposable", "--platform", "System.Private.CoreLib",
+            "-S", "Implementers",
             "--count", "--rows", "1..1", "--tips", "q");
         var extensions = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
@@ -630,7 +629,8 @@ public partial class CommandExecutionTests
     public async Task RelationshipCommands_Count_RendersOnlyCount()
     {
         var (implementsExit, implementsOutput, implementsError) = await RunAppAsync(
-            "implements", "IDisposable", "--platform", "--count");
+            "type", "IDisposable", "--platform", "System.Private.CoreLib",
+            "-S", "Implementers", "--count");
         var (extensionsExit, extensionsOutput, extensionsError) = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "--count");
         var (dependsExit, dependsOutput, dependsError) = await RunAppAsync(
@@ -753,11 +753,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Implements_TypeColumn_RendersGenericNameAsCodeSpan()
+    public async Task TypeRelations_TypeColumn_RendersGenericNameAsCodeSpan()
     {
         var (exit, output, error) = await RunAppAsync(
-            "implements", "System.Text.Json.Serialization.JsonConverter",
-            "--platform", "System.Text.Json", "--tips", "q");
+            "type", "System.Text.Json.Serialization.JsonConverter",
+            "--platform", "System.Text.Json",
+            "-S", "Derived Types",
+            "--tips", "q");
 
         Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
         Assert.Contains("`System.Text.Json.Serialization.JsonConverter<T>`", output);

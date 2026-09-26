@@ -1226,9 +1226,6 @@ public static class CommandLineBuilder
         // Product-owned ecosystem catalog
         rootCommand.Subcommands.Add(EcosystemCommandDefinitions.CreateEcosystemCommand(opts));
 
-        // Implements command
-        rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
-
         // Match command (pairwise structural-clone correspondence)
         rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
 

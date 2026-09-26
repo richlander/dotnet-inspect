@@ -198,6 +198,28 @@ public static class TypeOptionsParser
             typeFilter);
     }
 
+    internal static bool IsTypeRelationsRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        if (opts.IsDiscoveryMode(parseResult)
+            || parseResult.GetResult(opts.QueryHelp) is { Implicit: false })
+        {
+            return false;
+        }
+
+        return opts.ParseSelect(parseResult)?.Any(section =>
+            section.Equals(
+                SectionNames.Implementers,
+                StringComparison.OrdinalIgnoreCase)
+            || section.Equals(
+                SectionNames.DerivedTypes,
+                StringComparison.OrdinalIgnoreCase)
+            || section.Equals(
+                SectionCategoryNames.Relations,
+                StringComparison.OrdinalIgnoreCase)) is true;
+    }
+
     private static bool SelectsTypeListingCatalog(
         string? typeTarget,
         string? typeFilter) =>
@@ -331,20 +353,30 @@ public static class TypeOptionsParser
             CloneCandidateRowSelectionAdoption.IsActive(
                 parseResult,
                 opts);
+        bool selectsTypeRelationRows =
+            !selectsCloneCandidateRows
+            && IsTypeRelationsRowSelection(
+                parseResult,
+                opts);
         bool selectsTypeListingRows =
             !selectsCloneCandidateRows
+            && !selectsTypeRelationRows
             && IsTypeListingRowSelection(
                 parseResult,
                 opts,
                 args);
         RowSelectionIntent<string>? semanticRowSelection = null;
-        if ((selectsCloneCandidateRows || selectsTypeListingRows)
+        if ((selectsCloneCandidateRows
+                || selectsTypeRelationRows
+                || selectsTypeListingRows)
             && !CliRowSelectionCommandRegistry
                 .TryGetPreparedSemanticIntent(
                     parseResult,
                     selectsCloneCandidateRows
                         ? "Clone Candidates"
-                        : "Type",
+                        : selectsTypeRelationRows
+                            ? "Type Relations"
+                            : "Type",
                     out semanticRowSelection,
                     out string? rowSelectionError))
         {
@@ -483,6 +515,9 @@ public static class TypeOptionsParser
             TypeListingRowSelection = selectsTypeListingRows
                 ? semanticRowSelection
                 : null,
+            TypeRelationsRowSelection = selectsTypeRelationRows
+                ? semanticRowSelection
+                : null,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
             ShowDocs = false,  // Type command: docs off by default
@@ -533,6 +568,7 @@ public static class TypeOptionsParser
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Count = parseResult.GetValue(opts.Count),
             Rows = selectsTypeListingRows
+                || selectsTypeRelationRows
                 || semanticRowSelection is not null
                 ? null
                 : opts.ParseRows(parseResult),

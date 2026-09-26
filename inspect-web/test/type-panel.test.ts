@@ -1141,6 +1141,7 @@ test("type metadata renders composition, interfaces, and derived types once load
             signature: null,
           }],
         }),
+        implementers: ["System.Text.Json.JsonSerializerContext"],
         derivedTypes: ["System.Text.Json.MyJsonSerializer"],
       },
     },
@@ -1158,6 +1159,10 @@ test("type metadata renders composition, interfaces, and derived types once load
     /class="metadata-surface-scroll"[\s\S]*?class="document-section metadata-shape-section"[\s\S]*?Type shape/);
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
+  assert.match(html, /Known implementers/);
+  assert.match(
+    html,
+    /data-graph-type="System\.Text\.Json\.JsonSerializerContext"/);
   assert.match(html, /Known derived types/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);

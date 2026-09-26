@@ -175,6 +175,29 @@ public static class ApiCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            typeCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                !result.GetValue(matchOption)
+                && TypeOptionsParser.IsTypeRelationsRowSelection(
+                    result,
+                    opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {

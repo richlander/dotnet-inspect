@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -18,6 +19,8 @@ using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using DotnetInspect.Cli.Planning;
 using NuGet.Versioning;
+using QuerySpace;
+using QuerySpace.Operations;
 using Decompiler = ILInspector.Decompiler;
 
 namespace DotnetInspect.Cli.Commands;
@@ -184,6 +187,18 @@ public static class TypeCommand
             return 1;
         }
 
+        if (DiscoversTypeRelations(options)
+            && !string.IsNullOrWhiteSpace(options.TypeName)
+            && !TypeMatcher.IsTypeGlobPattern(options.TypeName)
+            && string.IsNullOrWhiteSpace(options.TypeFilter))
+        {
+            return StructuralViewRegistry.Execute(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Type,
+                    InspectionCatalogIdentity.ApiMember),
+                StructuralDiscoveryRequest.From(options));
+        }
+
         if (resolvedSource is null
             && loadedSurface is null
             && options.WorkspacePacket is not null
@@ -208,6 +223,16 @@ public static class TypeCommand
         options = (TypeOptions)preamble.Options;
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
+
+        if (SelectsTypeRelations(options, plan))
+        {
+            return await ExecuteTypeRelationsAsync(
+                options,
+                plan,
+                exactTypeCapabilities
+                    ?? CreateWorkspaceContextLoadOptions(options),
+                cancellationToken).ConfigureAwait(false);
+        }
 
         if (resolvedSource is null
             && loadedSurface is null
@@ -1030,6 +1055,7 @@ public static class TypeCommand
                         options.SourceOptions),
                 PackageStore = new FileSystemPackageStore(),
                 UseVersionCache = true,
+                IncludePrerelease = true,
                 Log = options.Verbose
                     ? CommandError.WriteLine
                     : null,
@@ -1149,6 +1175,756 @@ public static class TypeCommand
             plan,
             request,
             CreateWorkspaceContextLoadOptions(options));
+
+    private static bool SelectsTypeRelations(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan) =>
+        (options.ExactIncludeSections?.Any(IsTypeRelationSection) is true
+            || options.Select?.Any(selector =>
+                IsTypeRelationSection(selector)
+                || selector.Equals(
+                    SectionCategoryNames.Relations,
+                    StringComparison.OrdinalIgnoreCase)) is true)
+        && plan.Selection.ResolvedSections.Any(IsTypeRelationSection);
+
+    private static bool DiscoversTypeRelations(TypeOptions options) =>
+        options.Discover is not null
+        && (options.Discover.Any(IsTypeRelationSelector)
+            || options.Select?.Any(IsTypeRelationSelector) is true);
+
+    private static bool IsTypeRelationSelector(string selector) =>
+        IsTypeRelationSection(selector)
+        || selector.Equals(
+            SectionCategoryNames.Relations,
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTypeRelationSection(string section) =>
+        section.Equals(
+            SectionNames.Implementers,
+            StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            SectionNames.DerivedTypes,
+            StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<int> ExecuteTypeRelationsAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan inspectionPlan,
+        WorkspaceContextLoadOptions capabilities,
+        CancellationToken cancellationToken)
+    {
+        string[] unsupported =
+        [
+            .. inspectionPlan.Selection.ResolvedSections
+                .Where(section => !IsTypeRelationSection(section)),
+        ];
+        if (unsupported.Length > 0)
+        {
+            CommandError.Write(
+                "Subject Relations sections cannot yet be combined with "
+                    + $"'{string.Join("', '", unsupported)}'.");
+            return 1;
+        }
+        CliTypeRelationsRequest? request;
+        try
+        {
+            request = await CreateSubjectRelationsTypeRequestAsync(
+                    options,
+                    capabilities,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
+        if (request is null)
+        {
+            CommandError.Write(
+                "Subject Relations require one exact package version and "
+                    + "target framework, one platform assembly, one local "
+                    + "library, or one restored project.");
+            return 1;
+        }
+
+        bool implementers =
+            inspectionPlan.Selection.ResolvedSections.Contains(
+                SectionNames.Implementers,
+                StringComparer.OrdinalIgnoreCase);
+        bool derivedTypes =
+            inspectionPlan.Selection.ResolvedSections.Contains(
+                SectionNames.DerivedTypes,
+                StringComparer.OrdinalIgnoreCase);
+        List<PortableQueryTerm> terms =
+        [
+            new(
+                SubjectRelationsQuery.DirectionTermKey,
+                PortableQueryOperator.Equal,
+                "incoming"),
+        ];
+        if (implementers != derivedTypes)
+        {
+            terms.Add(
+                new(
+                    SubjectRelationsQuery.FormTermKey,
+                    PortableQueryOperator.Equal,
+                    implementers ? "interface" : "base-type"));
+        }
+        SubjectRelationsQueryPlanResult resolved =
+            SubjectRelationsQuery.ResolveIntent(
+                SubjectRelationsRouteKind.Type,
+                PortableQueryIntent.Create(terms, [], [], []),
+                cancellationToken);
+        if (resolved is not SubjectRelationsQueryPlanResult.Accepted
+            accepted)
+        {
+            CommandError.Write(
+                "The Subject Relations query could not be resolved.");
+            return 1;
+        }
+
+        ExactTypeRelationsInspectionOutcome outcome;
+        bool appliesSemanticRowSelection =
+            options.TypeRelationsRowSelection is not null;
+        try
+        {
+            outcome = await ExactTypeRelationsInspectionOperation
+                .ExecuteAsync(
+                    request.Inspection,
+                    request.EmbeddedContent is null
+                        ? capabilities
+                        : capabilities with
+                        {
+                            EmbeddedContent = request.EmbeddedContent,
+                        },
+                    accepted.Plan,
+                    count: options.Count
+                        && !appliesSemanticRowSelection
+                        ? new SubjectRelationPopulationCountRequest()
+                        : null,
+                    rows: options.Count
+                        && !appliesSemanticRowSelection
+                        ? null
+                        : new SubjectRelationPopulationRowsRequest(
+                            appliesSemanticRowSelection
+                                ? int.MaxValue
+                                : options.Limit ?? int.MaxValue),
+                    includeNonPublic: options.IncludeAll,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
+        if (outcome
+            is not ExactTypeRelationsInspectionOutcome.Available available)
+        {
+            CommandError.Write(
+                ((ExactTypeRelationsInspectionOutcome.Unavailable)outcome)
+                    .Detail);
+            return 1;
+        }
+
+        IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates =
+            OrderTypeRelationCandidates(
+                available.Relations.Candidates,
+                implementers,
+                derivedTypes);
+        if (appliesSemanticRowSelection)
+        {
+            if (available.Relations.Population.Rows
+                    is not SubjectRelationPopulationRowsOutcome.Read
+                || !TrySelectTypeRelationCandidates(
+                    options,
+                    candidates,
+                    implementers,
+                    derivedTypes,
+                    out candidates))
+            {
+                if (available.Relations.Population.Rows
+                    is not SubjectRelationPopulationRowsOutcome.Read)
+                {
+                    CommandError.Write(
+                        "Subject Relations rows are unavailable.");
+                }
+                return 1;
+            }
+        }
+
+        if (options.Count)
+        {
+            if (appliesSemanticRowSelection)
+            {
+                if (!available.Relations.Relations.Evidence.IsComplete)
+                {
+                    CommandError.Write(
+                        "The exact Subject Relations count is incomplete "
+                            + "because one or more candidate assemblies "
+                            + "could not be inspected or resolved.");
+                    return 1;
+                }
+                CountOutput.WriteCount(
+                    candidates.Count,
+                    outputPath: null);
+                return 0;
+            }
+
+            if (available.Relations.Population.Count
+                is SubjectRelationPopulationCountOutcome.Counted counted)
+            {
+                CountOutput.WriteCount(
+                    counted.Value,
+                    outputPath: null);
+                return 0;
+            }
+
+            CommandError.Write(
+                "The exact Subject Relations count is incomplete because "
+                    + "one or more candidate assemblies could not be "
+                    + "inspected or resolved.");
+            return 1;
+        }
+
+        bool evidenceComplete =
+            available.Relations.Relations.Evidence.IsComplete;
+        if (!evidenceComplete)
+        {
+            WriteIncompleteTypeRelationEvidence(
+                available.Relations.Relations.Evidence);
+        }
+        if (available.Relations.Population.Rows
+            is not SubjectRelationPopulationRowsOutcome.Read)
+        {
+            CommandError.Write(
+                "Subject Relations rows are unavailable.");
+            return 1;
+        }
+        List<TypeRelationResult> results =
+        [
+            .. candidates.Select(candidate =>
+                ToTypeRelationResult(
+                    candidate,
+                    available.Relations.Relations,
+                    request)),
+        ];
+        results = [.. RowWindow.Apply(options.Rows, results)];
+        TypeRelationsResultView view = BuildTypeRelationsView(
+            request.Type,
+            [.. results],
+            implementers,
+            derivedTypes,
+            evidenceComplete);
+        if (options.JsonOutput
+            && (options.Columns is { Length: > 0 }
+                || options.Fields is { Length: > 0 }))
+        {
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions),
+                !options.CompactJson);
+            return evidenceComplete ? 0 : 1;
+        }
+        if (options.JsonOutput)
+        {
+            JsonOutputHelper.Write(
+                results,
+                TypeRelationsJsonContext.Default.ListTypeRelationResult,
+                TypeRelationsCompactJsonContext.Default
+                    .ListTypeRelationResult,
+                options.CompactJson);
+            return evidenceComplete ? 0 : 1;
+        }
+
+        if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions),
+                null);
+        }
+        else
+        {
+            OutputFormatter.WriteWindowedMarkdown(
+                Console.Out,
+                rows: null,
+                writerOptions => MarkoutSerializer.Serialize(
+                    view,
+                    SearchViewContext.Default,
+                    writerOptions));
+        }
+        return evidenceComplete ? 0 : 1;
+    }
+
+    private static void WriteIncompleteTypeRelationEvidence(
+        SubjectRelationPopulationEvidence evidence)
+    {
+        CommandError.Write(
+            "Subject Relations results are incomplete; returned rows do not "
+                + "establish an exhaustive result.");
+        foreach (SubjectRelationProducerOutcome producer
+            in evidence.Producers.Where(producer =>
+                producer.Disposition
+                    != SubjectRelationProducerDisposition.Complete))
+        {
+            string details = string.Join(
+                " ",
+                producer.Diagnostics
+                    .Select(static diagnostic =>
+                        diagnostic.Evidence switch
+                        {
+                            Exception exception => exception.Message,
+                            _ => diagnostic.Evidence.ToString(),
+                        })
+                    .Where(static detail =>
+                        !string.IsNullOrWhiteSpace(detail))
+                    .Distinct(StringComparer.Ordinal));
+            CommandError.Write(
+                $"{producer.Producer.Name}: {producer.Disposition}; "
+                    + $"examined {producer.Coverage.Examined} of "
+                    + $"{producer.Coverage.Considered} candidates, "
+                    + $"{producer.Coverage.Unavailable} unavailable, "
+                    + $"{producer.Coverage.Limited} limited."
+                    + (details.Length == 0 ? "" : $" {details}"));
+        }
+    }
+
+    private static bool TrySelectTypeRelationCandidates(
+        TypeOptions options,
+        IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates,
+        bool implementers,
+        bool derivedTypes,
+        out IReadOnlyList<WorkspaceTypeRelationCandidateRow> selected)
+    {
+        var results = new List<WorkspaceTypeRelationCandidateRow>();
+        foreach ((SubjectRelationForm Form, string Name) section in
+            new[]
+            {
+                (SubjectRelationForm.Interface, SectionNames.Implementers),
+                (SubjectRelationForm.BaseType, SectionNames.DerivedTypes),
+            })
+        {
+            if (section.Form == SubjectRelationForm.Interface
+                    ? !implementers
+                    : !derivedTypes)
+            {
+                continue;
+            }
+
+            WorkspaceTypeRelationCandidateRow[] sectionRows =
+            [
+                .. candidates
+                    .Where(row => row.Form == section.Form),
+            ];
+            if (!CliSemanticRowSelection.TrySelect(
+                    options.TypeRelationsRowSelection,
+                    sectionRows,
+                    section.Name,
+                    failure =>
+                        $"Type relation row selection stage "
+                        + $"{failure.Failure.StageNumber} for "
+                        + $"'{failure.Identity}' requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} candidate rows "
+                        + "are available.",
+                    out IReadOnlyList<
+                        WorkspaceTypeRelationCandidateRow> selectedRows))
+            {
+                selected = [];
+                return false;
+            }
+            results.AddRange(selectedRows);
+        }
+
+        selected = results;
+        return true;
+    }
+
+    private static IReadOnlyList<WorkspaceTypeRelationCandidateRow>
+        OrderTypeRelationCandidates(
+            IReadOnlyList<WorkspaceTypeRelationCandidateRow> candidates,
+            bool implementers,
+            bool derivedTypes)
+    {
+        var results = new List<WorkspaceTypeRelationCandidateRow>();
+        foreach (SubjectRelationForm form in new[]
+        {
+            SubjectRelationForm.Interface,
+            SubjectRelationForm.BaseType,
+        })
+        {
+            if (form == SubjectRelationForm.Interface
+                    ? !implementers
+                    : !derivedTypes)
+            {
+                continue;
+            }
+
+            results.AddRange(
+                candidates
+                    .Where(row => row.Form == form)
+                    .OrderBy(
+                        TypeRelationCandidateName,
+                        StringComparer.Ordinal));
+        }
+
+        return results;
+    }
+
+    private sealed record CliTypeRelationsRequest(
+        TypeRelationsInspectionRequest Inspection,
+        string Type,
+        string Source,
+        string? SourceVersion,
+        IEmbeddedContentProvider? EmbeddedContent = null);
+
+    private static async Task<CliTypeRelationsRequest?>
+        CreateSubjectRelationsTypeRequestAsync(
+        TypeOptions options,
+        WorkspaceContextLoadOptions capabilities,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(options.PlatformAssembly)
+            && string.IsNullOrWhiteSpace(options.PackagePath)
+            && options.AssemblyPath is null
+            && options.ProjectPath is null
+            && options.ProjectAssetsPath is null
+            && options.WorkspacePacket is null
+            && !string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            var (assemblyPath, resolvedFamily, platformVersion, error) =
+                await PlatformResolver.ResolveAssemblyAsync(
+                        options.PlatformAssembly,
+                        capabilities.HttpClient,
+                        capabilities.Log,
+                        options.PlatformFramework,
+                        sourceOptions: options.SourceOptions)
+                    .ConfigureAwait(false);
+            if (assemblyPath is null
+                || string.IsNullOrWhiteSpace(resolvedFamily)
+                || string.IsNullOrWhiteSpace(platformVersion)
+                || error is not null)
+            {
+                throw new InvalidOperationException(
+                    error
+                    ?? $"Could not resolve platform library "
+                        + $"'{options.PlatformAssembly}'.");
+            }
+            string framework = options.Tfm
+                ?? ApiSourceResolver.TryGetReferencePackTargetFramework(
+                    assemblyPath)
+                ?? PlatformTargetFramework(platformVersion);
+            return new(
+                new(
+                    new WorkspaceContextInput
+                    {
+                        Framework = framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Platform(
+                                resolvedFamily,
+                                options.PlatformAssembly,
+                                version: platformVersion,
+                                framework: framework),
+                        ],
+                    },
+                    options.TypeName),
+                options.TypeName,
+                resolvedFamily,
+                platformVersion);
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.AssemblyPath)
+            && string.IsNullOrWhiteSpace(options.PackagePath)
+            && options.PlatformAssembly is null
+            && options.ProjectPath is null
+            && options.ProjectAssetsPath is null
+            && options.WorkspacePacket is null
+            && !string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            return await CreateEmbeddedTypeRelationsRequestAsync(
+                    [options.AssemblyPath],
+                    options.TypeName,
+                    SourceKind.Library,
+                    sourceVersion: null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.ProjectPath)
+            && string.IsNullOrWhiteSpace(options.PackagePath)
+            && options.AssemblyPath is null
+            && options.PlatformAssembly is null
+            && options.WorkspacePacket is null
+            && !string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            if (!ProjectAssetsParser.TryFindAssets(
+                    options.ProjectPath,
+                    out string? assetsPath,
+                    out ProjectAssetsStatus assetsStatus))
+            {
+                throw new InvalidOperationException(
+                    ProjectAssetsParser.DescribeMissingAssets(
+                        options.ProjectPath,
+                        assetsStatus));
+            }
+            string[] assemblies =
+            [
+                .. ProjectAssetsParser.Parse(
+                        assetsPath,
+                        options.Tfm,
+                        log: null)
+                    .Select(static asset => asset.Path)
+                    .Distinct(StringComparer.Ordinal),
+            ];
+            return await CreateEmbeddedTypeRelationsRequestAsync(
+                    assemblies,
+                    options.TypeName,
+                    SourceKind.Project,
+                    options.Tfm,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(options.PackagePath)
+            || File.Exists(options.PackagePath)
+            || options.PackagePath.Contains("::", StringComparison.Ordinal)
+            || options.PackageRangeAddress is not null
+            || options.AssemblyPath is not null
+            || options.PlatformAssembly is not null
+            || options.PlatformFramework is not null
+            || options.ProjectPath is not null
+            || options.ProjectAssetsPath is not null
+            || options.WorkspacePacket is not null
+            || string.IsNullOrWhiteSpace(options.Tfm)
+            || options.Tfm.Equals(
+                "all",
+                StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(options.TypeName))
+        {
+            return null;
+        }
+
+        (string packageId, string? version) =
+            PackageExtractor.ParsePackageReference(options.PackagePath);
+        if (string.IsNullOrWhiteSpace(packageId)
+            || string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        try
+        {
+            return new(
+                new(
+                    new WorkspaceContextInput
+                    {
+                        Framework = options.Tfm,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Package(
+                                packageId,
+                                version,
+                                options.Tfm),
+                        ],
+                    },
+                    options.TypeName),
+                options.TypeName,
+                packageId,
+                version);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<CliTypeRelationsRequest>
+        CreateEmbeddedTypeRelationsRequestAsync(
+            IReadOnlyList<string> assemblyPaths,
+            string type,
+            string source,
+            string? sourceVersion,
+            CancellationToken cancellationToken)
+    {
+        if (assemblyPaths.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "The selected source contains no managed assemblies.");
+        }
+
+        var content = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var members = new List<WorkspaceMemberCoordinate>(
+            assemblyPaths.Count);
+        for (int index = 0; index < assemblyPaths.Count; index++)
+        {
+            string path = assemblyPaths[index];
+            byte[] bytes = await File.ReadAllBytesAsync(
+                    path,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            string declaredName =
+                System.Reflection.AssemblyName.GetAssemblyName(path).Name
+                ?? throw new BadImageFormatException(
+                    $"The selected library '{path}' has no assembly name.");
+
+            string contentRef = $"assemblies/{index:D4}.dll";
+            string digest = Convert.ToHexString(
+                    SHA256.HashData(bytes))
+                .ToLowerInvariant();
+            content.Add(contentRef, bytes);
+            members.Add(
+                WorkspaceMemberCoordinate.Embedded(
+                    contentRef,
+                    digest,
+                    declaredName));
+        }
+
+        return new(
+            new(
+                new WorkspaceContextInput
+                {
+                    Members = [.. members],
+                },
+                type),
+            type,
+            source,
+            sourceVersion,
+            new CliEmbeddedContentProvider(content));
+    }
+
+    private sealed class CliEmbeddedContentProvider(
+        IReadOnlyDictionary<string, byte[]> content)
+        : IEmbeddedContentProvider
+    {
+        public bool TryOpenContent(
+            string contentRef,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out Stream? contentStream)
+        {
+            if (content.TryGetValue(contentRef, out byte[]? bytes))
+            {
+                contentStream = new MemoryStream(
+                    bytes,
+                    writable: false);
+                return true;
+            }
+
+            contentStream = null;
+            return false;
+        }
+    }
+
+    private static string PlatformTargetFramework(string platformVersion)
+    {
+        if (!NuGetVersion.TryParse(
+                platformVersion,
+                out NuGetVersion? version))
+        {
+            throw new InvalidOperationException(
+                $"Platform version '{platformVersion}' cannot be mapped "
+                    + "to a target framework.");
+        }
+        return $"net{version.Major}.{version.Minor}";
+    }
+
+    private static TypeRelationResult ToTypeRelationResult(
+        WorkspaceTypeRelationCandidateRow candidate,
+        WorkspaceTypeHierarchyRelationsResult relations,
+        CliTypeRelationsRequest request)
+    {
+        var sourceType =
+            (InspectionGraphTypeIdentity.AcquiredDefinition)
+                candidate.Candidate.Identity;
+        WorkspaceTypeHierarchyRelationSource source =
+            relations.Sources.Single(sourceCandidate =>
+                ReferenceEquals(
+                    sourceCandidate.Registration,
+                    sourceType.Registration));
+        return new(
+            TypeRelationCandidateName(candidate),
+            candidate.Form == SubjectRelationForm.Interface
+                ? "interface"
+                : "base type",
+            source.Assembly.Name,
+            request.Source,
+            request.SourceVersion);
+    }
+
+    private static string TypeRelationCandidateName(
+        WorkspaceTypeRelationCandidateRow candidate) =>
+        MetadataTypeNameFormatter.FormatFullName(
+            ((InspectionGraphTypeIdentity.AcquiredDefinition)
+                candidate.Candidate.Identity).Type);
+
+    private static TypeRelationsResultView BuildTypeRelationsView(
+        string targetType,
+        List<TypeRelationResult> results,
+        bool implementers,
+        bool derivedTypes,
+        bool evidenceComplete)
+    {
+        List<TypeRelationRow> Rows(SubjectRelationForm form) =>
+        [
+            .. results
+                .Where(result =>
+                    form == SubjectRelationForm.Interface
+                        ? result.Relationship == "interface"
+                        : result.Relationship == "base type")
+                .OrderBy(
+                    static result => result.Type,
+                    StringComparer.Ordinal)
+                .Select(result => new TypeRelationRow(
+                    MarkoutInline.Code(result.Type),
+                    result.Relationship,
+                    result.Library,
+                    SourceColumn.Format(
+                        result.Source,
+                        result.SourceVersion))),
+        ];
+
+        List<TypeRelationRow>? interfaceRows =
+            implementers
+                ? Rows(SubjectRelationForm.Interface)
+                : null;
+        List<TypeRelationRow>? baseRows =
+            derivedTypes
+                ? Rows(SubjectRelationForm.BaseType)
+                : null;
+        return new()
+        {
+            Title = $"Relations for {targetType}",
+            Description = results.Count == 0
+                ? evidenceComplete
+                    ? "No matching type relations found."
+                    : "No matching type relations were found in the "
+                        + "available candidate evidence; inspection was "
+                        + "incomplete."
+                : null,
+            Implementers = interfaceRows,
+            DerivedTypes = baseRows,
+        };
+    }
 
     internal static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,

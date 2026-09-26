@@ -1,7 +1,7 @@
 ---
 id: project-context-search
 description: Search, inspect, and map APIs in restored project dependencies and build output
-commands: [find, type, member, implements, extensions, depends]
+commands: [find, type, member, extensions, depends]
 areas: [find, type, member, relationships, project, bin, dependencies]
 ---
 
@@ -164,15 +164,16 @@ Run 'dotnet restore'.
 > Goal: Search package-bound relationship shapes without naming each package
 > directly.
 
-### 3a. Find types by implemented interface
+### 3a. Find subclasses in restored dependencies
 
 ```bash
-dotnet-inspect implements IEquatable \
-  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" -v:q
+dotnet-inspect type System.CommandLine.Symbol \
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" \
+  -S "Derived Types" -v:q
 ```
 
 ```expect
-Markout
+System.CommandLine.Command
 ```
 
 ### 3b. Find extension methods from referenced packages

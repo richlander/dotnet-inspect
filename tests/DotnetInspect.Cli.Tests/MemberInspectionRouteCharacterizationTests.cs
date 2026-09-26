@@ -315,7 +315,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:78:B24E7AB4A368]",
+                "ApiMember[schema:83:871DD6C6D4D1]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
@@ -339,7 +339,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:187:366C2AA0A209]",
+                "ApiType[schema:192:CD9001330327]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

@@ -356,6 +356,7 @@ public record TypeOptions : ApiOptions
 
     public bool EnvelopeOutput { get; init; }
     public RowSelectionIntent<string>? TypeListingRowSelection { get; init; }
+    public RowSelectionIntent<string>? TypeRelationsRowSelection { get; init; }
     internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
