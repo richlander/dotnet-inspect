@@ -895,7 +895,7 @@ public sealed class InspectionGraphCommandTests
                 .Parse(
                     [
                         "library",
-                        "coordinate",
+                        "address",
                         $"{evidenceToken}+{ilOffset}",
                         "--library",
                         consumer,

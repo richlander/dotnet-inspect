@@ -265,6 +265,13 @@ internal static class ReleaseCandidateWorkflowContract
                 "Deep Inspect must not independently schedule release certification.");
 
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "Deep Inspect workflow");
+        YamlMappingNode platformTest =
+            GetRequiredMapping(jobs, "platform-test", "Deep Inspect jobs");
+        RequireScalarValue(
+            platformTest,
+            "timeout-minutes",
+            "240",
+            "Deep Inspect platform-test");
         string[] requiredJobs =
         [
             "test",

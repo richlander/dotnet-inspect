@@ -438,7 +438,7 @@ public partial class CommandExecutionTests
                 "find",
                 "graph libraries",
                 "library",
-                "library coordinate",
+                "library address",
                 "member",
                 "package",
                 "package activity",
@@ -610,7 +610,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ProjectedJsonRoutingAudit_LibraryCoordinateFileFailsClosed()
+    public async Task ProjectedJsonRoutingAudit_LibraryAddressFileFailsClosed()
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -623,7 +623,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library",
-                "coordinate",
+                "address",
                 "--file",
                 path,
                 "--platform",

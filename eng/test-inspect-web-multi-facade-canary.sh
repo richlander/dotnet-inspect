@@ -2,8 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-canary="$repo_root/inspect-web/multi-facade-canary"
-host="$canary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj"
+managed_canary="$repo_root/tests/InspectWeb.MultiFacadeCanary"
+frontend_canary="$repo_root/inspect-web/multi-facade-canary"
+host="$managed_canary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj"
 verifier="$repo_root/inspect-web/scripts/verify-multi-facade-canary.ts"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
@@ -51,7 +52,7 @@ DOTNET="$dotnet" NODE="$node" TSC="$tsc" \
 
 if [[ "$mode" == comprehensive ]]; then
   mkdir -p "$scratch/stale-facades" "$scratch/missing-facade"
-  cp "$canary/facades/"*.ts "$scratch/stale-facades/"
+  cp "$frontend_canary/facades/"*.ts "$scratch/stale-facades/"
   printf '\n// stale\n' >> "$scratch/stale-facades/alpha.ts"
   expect_failure \
     stale-alpha-facade \
@@ -63,7 +64,7 @@ if [[ "$mode" == comprehensive ]]; then
     TSC="$tsc" \
     "$repo_root/eng/generate-inspect-web-multi-facade-canary.sh" \
     --check
-  cp "$canary/facades/alpha.ts" "$scratch/missing-facade/"
+  cp "$frontend_canary/facades/alpha.ts" "$scratch/missing-facade/"
   expect_failure \
     missing-beta-facade \
     "beta.ts is stale" \
@@ -82,6 +83,7 @@ runtime_pack_directory=$(
   "$dotnet" msbuild \
     "$host" \
     -nologo \
+    -property:InspectWebIncludeFrontend=true \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
   | "$node" -e '
@@ -98,8 +100,11 @@ process.stdout.write(matches[0].PackageDirectory);
 )
 
 mkdir -p "$scratch/source/facades" "$scratch/source/_framework"
-cp "$canary/facades/"*.ts "$scratch/source/facades/"
-cp "$canary/coordinator.ts" "$canary/exercise.ts" "$scratch/source/"
+cp "$frontend_canary/facades/"*.ts "$scratch/source/facades/"
+cp \
+  "$frontend_canary/coordinator.ts" \
+  "$frontend_canary/exercise.ts" \
+  "$scratch/source/"
 cp \
   "$runtime_pack_directory/runtimes/browser-wasm/native/dotnet.d.ts" \
   "$scratch/source/_framework/"
@@ -126,12 +131,12 @@ JSON
 
 clear_canary_build_outputs() {
   rm -rf \
-    "$canary/Alpha/bin/Release/net11.0" \
-    "$canary/Alpha/obj/Release/net11.0" \
-    "$canary/Beta/bin/Release/net11.0" \
-    "$canary/Beta/obj/Release/net11.0" \
-    "$canary/Host/bin/Release/net11.0" \
-    "$canary/Host/obj/Release/net11.0"
+    "$managed_canary/Alpha/bin/Release/net11.0" \
+    "$managed_canary/Alpha/obj/Release/net11.0" \
+    "$managed_canary/Beta/bin/Release/net11.0" \
+    "$managed_canary/Beta/obj/Release/net11.0" \
+    "$managed_canary/Host/bin/Release/net11.0" \
+    "$managed_canary/Host/obj/Release/net11.0"
 }
 
 publish_canary() {
@@ -154,6 +159,7 @@ publish_canary() {
     "$host" \
     -c Release \
     --output "$output" \
+    -p:InspectWebIncludeFrontend=true \
     -p:CanaryModulesDir="$scratch/modules" \
     -p:UseMonoRuntime="$use_mono_runtime" \
     ${runtime_properties[@]+"${runtime_properties[@]}"} \

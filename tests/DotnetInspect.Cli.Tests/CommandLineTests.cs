@@ -40,7 +40,7 @@ public class CommandLineTests
     [InlineData("library", "Example.dll")]
     [InlineData("type", "JsonReader", "--package", "Newtonsoft.Json")]
     [InlineData("member", "JsonReader", "Read:1", "--package", "Newtonsoft.Json")]
-    [InlineData("library", "coordinate", "0x06000001+0x0", "--library", "Example.dll")]
+    [InlineData("library", "address", "0x06000001+0x0", "--library", "Example.dll")]
     public async Task RenderedUrlPreference_ReplacesLegacyFlags(params string[] arguments)
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -716,9 +716,27 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void LibraryCoordinateCommand_UsesFocusFirstGrammar()
+    public void LibraryAddressCommand_UsesFocusFirstGrammar()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "library",
+                "address",
+                "0x06000001+0x5",
+                "--library",
+                "MyLib.dll",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("address", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void LibraryCommand_DoesNotRegisterRetiredCoordinateChild()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var library = root.Subcommands.Single(command => command.Name == "library");
+        var result = root.Parse(
             [
                 "library",
                 "coordinate",
@@ -727,17 +745,22 @@ public class CommandLineTests
                 "MyLib.dll",
             ]);
 
-        Assert.Empty(result.Errors);
-        Assert.Equal("coordinate", result.CommandResult.Command.Name);
+        Assert.Contains(
+            library.Subcommands,
+            command => command.Name == "address");
+        Assert.DoesNotContain(
+            library.Subcommands,
+            command => command.Name == "coordinate");
+        Assert.NotEmpty(result.Errors);
     }
 
     [Fact]
-    public void LibraryCoordinateCommand_RejectsPositionalLibrarySource()
+    public void LibraryAddressCommand_RejectsPositionalLibrarySource()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             [
                 "library",
-                "coordinate",
+                "address",
                 "0x06000001+0x5",
                 "MyLib.dll",
             ]);
@@ -1412,7 +1435,7 @@ public class CommandLineTests
             [
                 "library",
                 option,
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",
@@ -1423,7 +1446,7 @@ public class CommandLineTests
                 "library",
                 option[..^1],
                 "",
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",
@@ -1438,9 +1461,9 @@ public class CommandLineTests
             [
                 "library",
                 "--type",
-                "coordinate",
+                "address",
                 "--package=",
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",
@@ -1450,10 +1473,10 @@ public class CommandLineTests
             [
                 "library",
                 "--type",
-                "coordinate",
+                "address",
                 "--package",
                 "",
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",
