@@ -1341,7 +1341,7 @@ internal static class InspectWebDeploymentWorkflowContract
         string command =
             GetRequiredScalar(step, "run", context).Trim();
         string expected =
-            "dotnet publish inspect-web/msdl-proxy/MsdlProxy.csproj "
+            "dotnet publish src/MsdlProxy/MsdlProxy.csproj "
             + $"-c Release --output {output}";
         if (command != expected)
         {
@@ -1384,7 +1384,7 @@ internal static class InspectWebDeploymentWorkflowContract
             "if [[ \"${1:-}\" == \"--compare\" ]]",
             "commonTopLevel(compiler)",
             "compiler.assemblies.map(commonAssembly)",
-            "\"$repo_root/inspect-web/scripts/verify-async-lowering.cs\"",
+            "\"$repo_root/tools/InspectWeb.AsyncLoweringVerifier/verify-async-lowering.cs\"",
             "-getProperty:VersionPrefix",
             "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
             "\"$declarations\" \\\n  \"$version_prefix\"",

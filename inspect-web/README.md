@@ -782,8 +782,8 @@ fall back to decompilation.
 
 MSDL's redirect omits CORS headers, so the Browser host rewrites only the exact
 MSDL symbol-request shape to the current site's absolute `/api/msdl/...` URL.
-Each Free Static Web App deploys the small anonymous managed Function in
-`msdl-proxy`; the fixed upstream host and independent path-segment validator
+Each Free Static Web App deploys the small anonymous managed Function from
+`src/MsdlProxy`; the fixed upstream host and independent path-segment validator
 keep it from becoming a caller-directed proxy. The function enforces the same
 8 MiB portable-PDB ceiling as the Browser consumer.
 
@@ -1343,8 +1343,10 @@ activation. Lifecycle composition, production Source activation, and direct
 page-runtime retirement remain focused follow-on slices under #5418, #5987,
 and #5420.
 
-The purpose-built `multi-facade-canary` proves that this lifecycle composes
-across independently generated modules. Its Alpha and Beta assemblies
+The purpose-built `multi-facade-canary` pairs managed consumer projects under
+`tests/InspectWeb.MultiFacadeCanary` with frontend assets under
+`inspect-web/multi-facade-canary`. It proves that this lifecycle composes across
+independently generated modules. Its Alpha and Beta assemblies
 deliberately use the same namespace, declaring-type names, method names,
 overload shapes, record name, and enum name. Each checked-in facade is generated
 from only its own assembly and acquires only that assembly's export root. A
@@ -1377,10 +1379,13 @@ check and one Mono runtime execution. The complete mutation set and both
 runtimes run daily in the Deep Inspect `inspect-web` lane and on PRs that
 change the generator or canary owners.
 
-The purpose-built `managed-operation-bridge-canary` directly drives the product
-`BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
-controlled feature bodies expose synchronous progress, keyed cancellation, and
-terminal release without reproducing lifecycle logic in the harness.
+The purpose-built `managed-operation-bridge-canary` pairs managed consumer
+projects under `tests/InspectWeb.ManagedOperationBridgeCanary` with frontend
+assets under `inspect-web/managed-operation-bridge-canary`. It directly drives
+the product `BrowserManagedOperationBridge` through a generated `[JSExport]`
+facade. Its controlled feature bodies expose synchronous progress, keyed
+cancellation, and terminal release without reproducing lifecycle logic in the
+harness.
 `eng/test-inspect-web-managed-operation-bridge-canary.sh` publishes and runs the
 host under both Mono and CoreCLR Browser/Wasm. It proves distinct-operation
 cancellation routing, all six normalized reasons, concrete fulfilled result
@@ -1771,7 +1776,8 @@ because the site is deployed from that copy rather than from the source file.
 The word "static" there is a real boundary, not hedging. Azure Static Web Apps
 does not apply `globalHeaders` to responses produced by the managed functions
 under `/api/*`, which carry whatever headers the function sets for itself. The
-MSDL proxy sets its own [response headers](msdl-proxy/README.md#response-security)
+MSDL proxy sets its own
+[response headers](../src/MsdlProxy/README.md#response-security)
 for function-produced responses, with a separate gate in `MsdlProxyFunctionTests`.
 
 Prism is delivered through the same npm/Vite pipeline as mermaid, marked, and

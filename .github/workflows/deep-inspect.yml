@@ -198,9 +198,11 @@ jobs:
           - os: ubuntu-26.04
             rid: linux-x64
     runs-on: ${{ matrix.os }}
-    # Windows has measured as high as 57 minutes (#4350). macOS now needs more
-    # than 90 minutes after suite growth; retain a 30-minute variance margin.
-    timeout-minutes: 120
+    # The complete CLI phase exceeded 113 minutes on every platform in
+    # run 36254577017, exhausting the prior 120-minute whole-job budget before
+    # the remaining reduced suite could run. Retain two hours for those suites
+    # and runner variance without removing cross-platform coverage.
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
 

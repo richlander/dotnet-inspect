@@ -123,7 +123,7 @@ if [[ -z "$version_prefix" ]]; then
 fi
 
 "$dotnet" run \
-  "$repo_root/inspect-web/scripts/verify-async-lowering.cs" \
+  "$repo_root/tools/InspectWeb.AsyncLoweringVerifier/verify-async-lowering.cs" \
   -- \
   "$assembly" \
   "$lowering" \
