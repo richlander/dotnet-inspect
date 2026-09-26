@@ -14,6 +14,23 @@ public enum MetadataMethodReceiver
     Extension,
 }
 
+public enum MetadataMethodAccessibilityFilter
+{
+    Public,
+    Protected,
+    Internal,
+    Private,
+    All,
+}
+
+public enum MetadataMethodReceiverFilter
+{
+    All,
+    This,
+    Static,
+    Extension,
+}
+
 public enum MetadataMethodGroupInspectionBound
 {
     Members,
@@ -74,6 +91,8 @@ internal static class MetadataMethodGroupInspection
         int startOrdinal,
         int maximumRows,
         bool materializeRows,
+        MetadataMethodAccessibilityFilter accessibility,
+        MetadataMethodReceiverFilter receiver,
         int maximumMembers,
         int maximumRetainedTextCharacters)
     {
@@ -83,6 +102,20 @@ internal static class MetadataMethodGroupInspection
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
+        if (!Enum.IsDefined(accessibility))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(accessibility),
+                accessibility,
+                "Unknown Method-group accessibility filter.");
+        }
+        if (!Enum.IsDefined(receiver))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(receiver),
+                receiver,
+                "Unknown Method-group receiver filter.");
+        }
         ArgumentOutOfRangeException.ThrowIfNegative(maximumMembers);
         ArgumentOutOfRangeException.ThrowIfNegative(
             maximumRetainedTextCharacters);
@@ -120,6 +153,8 @@ internal static class MetadataMethodGroupInspection
                 materializeRows
                     ? []
                     : null;
+            bool groupExists = false;
+            bool? extensionContainerForFilter = null;
             foreach (MethodDefinitionHandle handle in type.GetMethods())
             {
                 if (accessors.Contains(handle))
@@ -131,8 +166,20 @@ internal static class MetadataMethodGroupInspection
                         reader.GetString(method.Name),
                         methodName,
                         StringComparison.Ordinal)
-                    || !IsOrdinaryMethodName(methodName)
-                    || !IsPublic(method.Attributes))
+                    || !IsOrdinaryMethodName(methodName))
+                {
+                    continue;
+                }
+                groupExists = true;
+                if (!MatchesAccessibility(
+                        method.Attributes,
+                        accessibility)
+                    || !MatchesReceiver(
+                        reader,
+                        type,
+                        method,
+                        receiver,
+                        ref extensionContainerForFilter))
                 {
                     continue;
                 }
@@ -153,7 +200,7 @@ internal static class MetadataMethodGroupInspection
                 }
             }
 
-            if (matchCount == 0)
+            if (!groupExists)
             {
                 return new MetadataMethodGroupInspectionOutcome
                     .MemberGroupNotFound();
@@ -178,7 +225,12 @@ internal static class MetadataMethodGroupInspection
             try
             {
                 extensionContainer =
-                    rowCount != 0
+                    receiver
+                        is MetadataMethodReceiverFilter.Static
+                            or MetadataMethodReceiverFilter.Extension
+                    ? extensionContainerForFilter ?? false
+                    : receiver is MetadataMethodReceiverFilter.All
+                        && rowCount != 0
                     && AttributeReader.HasExtensionAttribute(
                         reader,
                         type.GetCustomAttributes());
@@ -205,17 +257,27 @@ internal static class MetadataMethodGroupInspection
                     rowHandles![indexInGroup];
                 MethodDefinition method =
                     reader.GetMethodDefinition(handle);
-                bool extension;
+                MetadataMethodReceiver rowReceiver;
                 MetadataMethodDeclaration declaration;
                 MemberAnchor anchor;
                 try
                 {
-                    extension =
-                        extensionContainer
-                        && (method.Attributes & MethodAttributes.Static) != 0
-                        && AttributeReader.HasExtensionAttribute(
-                            reader,
-                            method.GetCustomAttributes());
+                    rowReceiver = receiver switch
+                    {
+                        MetadataMethodReceiverFilter.This =>
+                            MetadataMethodReceiver.This,
+                        MetadataMethodReceiverFilter.Static =>
+                            MetadataMethodReceiver.Static,
+                        MetadataMethodReceiverFilter.Extension =>
+                            MetadataMethodReceiver.Extension,
+                        MetadataMethodReceiverFilter.All =>
+                            ClassifyReceiver(
+                                reader,
+                                method,
+                                extensionContainer),
+                        _ => throw new InvalidOperationException(
+                            "Unknown Method-group receiver filter."),
+                    };
                     declaration =
                         MetadataDeclarationQuery.GetMethod(
                             reader,
@@ -226,7 +288,8 @@ internal static class MetadataMethodGroupInspection
                             reader,
                             typeHandle,
                             method,
-                            extension);
+                            rowReceiver
+                                is MetadataMethodReceiver.Extension);
                 }
                 catch (Exception exception) when (
                     exception is BadImageFormatException
@@ -268,11 +331,7 @@ internal static class MetadataMethodGroupInspection
                         anchor.CanonicalSignature,
                         anchor.Fingerprint,
                         declaration.Accessibility,
-                        extension
-                            ? MetadataMethodReceiver.Extension
-                            : declaration.IsStatic
-                                ? MetadataMethodReceiver.Static
-                                : MetadataMethodReceiver.This));
+                        rowReceiver));
             }
 
             int nextOrdinal = checked(startOrdinal + rowCount);
@@ -306,12 +365,12 @@ internal static class MetadataMethodGroupInspection
         failure = methodSemantics switch
         {
             MetadataMethodSemanticsAssociationResult.Rejected
-                {
-                    Failure.Reason:
+            {
+                Failure.Reason:
                         MetadataMethodSemanticsFailureReason.BudgetExceeded,
-                    Failure.BudgetLimit: long limit,
-                    Failure.RowsVisited: int rowsVisited,
-                } =>
+                Failure.BudgetLimit: long limit,
+                Failure.RowsVisited: int rowsVisited,
+            } =>
                 new MetadataMethodGroupInspectionOutcome.Incomplete(
                     MetadataMethodGroupInspectionBound
                         .MethodSemanticsAssociations,
@@ -410,9 +469,82 @@ internal static class MetadataMethodGroupInspection
                     role));
     }
 
-    private static bool IsPublic(MethodAttributes attributes) =>
-        (attributes & MethodAttributes.MemberAccessMask)
-            is MethodAttributes.Public;
+    private static bool MatchesAccessibility(
+        MethodAttributes attributes,
+        MetadataMethodAccessibilityFilter filter)
+    {
+        MethodAttributes accessibility =
+            attributes & MethodAttributes.MemberAccessMask;
+        MetadataMethodAccessibilityFilter actual =
+            accessibility switch
+            {
+                MethodAttributes.Public =>
+                    MetadataMethodAccessibilityFilter.Public,
+                MethodAttributes.Family
+                    or MethodAttributes.FamANDAssem
+                    or MethodAttributes.FamORAssem =>
+                    MetadataMethodAccessibilityFilter.Protected,
+                MethodAttributes.Assembly =>
+                    MetadataMethodAccessibilityFilter.Internal,
+                MethodAttributes.Private
+                    or MethodAttributes.PrivateScope =>
+                    MetadataMethodAccessibilityFilter.Private,
+                _ => throw new BadImageFormatException(
+                    "The MethodDef accessibility is invalid."),
+            };
+        return filter is MetadataMethodAccessibilityFilter.All
+            || filter == actual;
+    }
+
+    private static bool MatchesReceiver(
+        MetadataReader reader,
+        TypeDefinition type,
+        MethodDefinition method,
+        MetadataMethodReceiverFilter filter,
+        ref bool? extensionContainer)
+    {
+        if (filter is MetadataMethodReceiverFilter.All)
+            return true;
+
+        bool isStatic =
+            (method.Attributes & MethodAttributes.Static) != 0;
+        if (filter is MetadataMethodReceiverFilter.This)
+            return !isStatic;
+        if (!isStatic)
+            return false;
+
+        extensionContainer ??=
+            AttributeReader.HasExtensionAttribute(
+                reader,
+                type.GetCustomAttributes());
+        bool isExtension =
+            extensionContainer.Value
+            && AttributeReader.HasExtensionAttribute(
+                reader,
+                method.GetCustomAttributes());
+        return filter switch
+        {
+            MetadataMethodReceiverFilter.Static => !isExtension,
+            MetadataMethodReceiverFilter.Extension => isExtension,
+            _ => throw new InvalidOperationException(
+                "Unknown Method-group receiver filter."),
+        };
+    }
+
+    private static MetadataMethodReceiver ClassifyReceiver(
+        MetadataReader reader,
+        MethodDefinition method,
+        bool extensionContainer)
+    {
+        if ((method.Attributes & MethodAttributes.Static) == 0)
+            return MetadataMethodReceiver.This;
+        return extensionContainer
+            && AttributeReader.HasExtensionAttribute(
+                reader,
+                method.GetCustomAttributes())
+            ? MetadataMethodReceiver.Extension
+            : MetadataMethodReceiver.Static;
+    }
 
     private static bool IsOrdinaryMethodName(string name) =>
         name is not ".ctor" and not ".cctor"

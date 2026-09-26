@@ -12,6 +12,8 @@ public sealed record LibraryMethodGroupInspectionRequest
         int startOrdinal,
         int maximumRows,
         bool materializeRows,
+        MetadataMethodAccessibilityFilter accessibility,
+        MetadataMethodReceiverFilter receiver,
         ApiSurfaceExtractionBounds bounds,
         Guid? expectedModuleVersionId = null)
     {
@@ -22,6 +24,20 @@ public sealed record LibraryMethodGroupInspectionRequest
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
+        if (!Enum.IsDefined(accessibility))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(accessibility),
+                accessibility,
+                "Unknown Method-group accessibility filter.");
+        }
+        if (!Enum.IsDefined(receiver))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(receiver),
+                receiver,
+                "Unknown Method-group receiver filter.");
+        }
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
         if (expectedModuleVersionId == Guid.Empty)
@@ -35,6 +51,8 @@ public sealed record LibraryMethodGroupInspectionRequest
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
         MaterializeRows = materializeRows;
+        Accessibility = accessibility;
+        Receiver = receiver;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
@@ -44,6 +62,8 @@ public sealed record LibraryMethodGroupInspectionRequest
     public int StartOrdinal { get; }
     public int MaximumRows { get; }
     public bool MaterializeRows { get; }
+    public MetadataMethodAccessibilityFilter Accessibility { get; }
+    public MetadataMethodReceiverFilter Receiver { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public Guid? ExpectedModuleVersionId { get; }
 }
@@ -219,6 +239,8 @@ public static class LibraryMethodGroupInspection
                     request.MaximumRows,
                     request.MaterializeRows
                         && !staleContinuation,
+                    request.Accessibility,
+                    request.Receiver,
                     request.Bounds.MaxMembers,
                     request.Bounds.MaxRetainedTextCharacters);
             cancellationToken.ThrowIfCancellationRequested();

@@ -24,6 +24,23 @@ public enum MemberReceiver
     Extension,
 }
 
+public enum MemberOverloadAccessibilityFilter
+{
+    Public,
+    Protected,
+    Internal,
+    Private,
+    All,
+}
+
+public enum MemberOverloadReceiverFilter
+{
+    All,
+    This,
+    Static,
+    Extension,
+}
+
 public sealed record MemberGroupSubject
 {
     public MemberGroupSubject(
@@ -77,7 +94,11 @@ public sealed record MemberOverloadPopulationBinding
         string name,
         MemberGroupCategory category,
         MemberGroupRole role,
-        MemberOverloadOrdering ordering)
+        MemberOverloadOrdering ordering,
+        MemberOverloadAccessibilityFilter accessibility =
+            MemberOverloadAccessibilityFilter.Public,
+        MemberOverloadReceiverFilter receiver =
+            MemberOverloadReceiverFilter.All)
     {
         if (moduleVersionId == Guid.Empty)
         {
@@ -111,6 +132,20 @@ public sealed record MemberOverloadPopulationBinding
                 ordering,
                 "Unknown exact-Member ordering.");
         }
+        if (!Enum.IsDefined(accessibility))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(accessibility),
+                accessibility,
+                "Unknown exact-Member accessibility filter.");
+        }
+        if (!Enum.IsDefined(receiver))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(receiver),
+                receiver,
+                "Unknown exact-Member receiver filter.");
+        }
 
         ModuleVersionId = moduleVersionId;
         TypeDefinitionToken = typeDefinitionToken;
@@ -118,6 +153,8 @@ public sealed record MemberOverloadPopulationBinding
         Category = category;
         Role = role;
         Ordering = ordering;
+        Accessibility = accessibility;
+        Receiver = receiver;
     }
 
     public Guid ModuleVersionId { get; }
@@ -127,6 +164,8 @@ public sealed record MemberOverloadPopulationBinding
     public MemberGroupCategory Category { get; }
     public MemberGroupRole Role { get; }
     public MemberOverloadOrdering Ordering { get; }
+    public MemberOverloadAccessibilityFilter Accessibility { get; }
+    public MemberOverloadReceiverFilter Receiver { get; }
 }
 
 public sealed record MemberOverloadContinuation
@@ -176,20 +215,42 @@ public sealed record MemberOverloadPopulationRequest
 {
     public MemberOverloadPopulationRequest(
         MemberOverloadCountRequest? count,
-        MemberOverloadRowsRequest? rows = null)
+        MemberOverloadRowsRequest? rows = null,
+        MemberOverloadAccessibilityFilter accessibility =
+            MemberOverloadAccessibilityFilter.Public,
+        MemberOverloadReceiverFilter receiver =
+            MemberOverloadReceiverFilter.All)
     {
         if (count is null && rows is null)
         {
             throw new ArgumentException(
                 "An exact-Member population must request Count, Rows, or both.");
         }
+        if (!Enum.IsDefined(accessibility))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(accessibility),
+                accessibility,
+                "Unknown exact-Member accessibility filter.");
+        }
+        if (!Enum.IsDefined(receiver))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(receiver),
+                receiver,
+                "Unknown exact-Member receiver filter.");
+        }
 
         Count = count;
         Rows = rows;
+        Accessibility = accessibility;
+        Receiver = receiver;
     }
 
     public MemberOverloadCountRequest? Count { get; }
     public MemberOverloadRowsRequest? Rows { get; }
+    public MemberOverloadAccessibilityFilter Accessibility { get; }
+    public MemberOverloadReceiverFilter Receiver { get; }
 }
 
 public sealed record MemberOverloadPopulationInspectionPlan

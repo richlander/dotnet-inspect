@@ -129,6 +129,24 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                     incompatible.Overloads.Rows)
                 .Reason);
 
+        MemberOverloadPopulationContent changedFilter =
+            Available(
+                Execute(
+                    library,
+                    "Serialize",
+                    count: false,
+                    new(
+                        maximumRows: 3,
+                        continuation:
+                            firstContinuation),
+                    accessibility:
+                        MemberOverloadAccessibilityFilter.All));
+        Assert.Equal(
+            MemberOverloadRowsRejection.IncompatibleContinuation,
+            Assert.IsType<MemberOverloadRowsOutcome.Rejected>(
+                    changedFilter.Overloads.Rows)
+                .Reason);
+
         await library.RetireAsync();
     }
 
@@ -177,6 +195,174 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             static row =>
                 row.Receiver
                     is MemberReceiver.This);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealDeserialize_ReceiverFiltersApplyToCountAndRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        foreach ((
+            MemberOverloadReceiverFilter filter,
+            int expectedCount) in new[]
+            {
+                (MemberOverloadReceiverFilter.All, 40),
+                (MemberOverloadReceiverFilter.Static, 25),
+                (MemberOverloadReceiverFilter.Extension, 15),
+                (MemberOverloadReceiverFilter.This, 0),
+            })
+        {
+            MemberOverloadPopulationContent counted =
+                Available(
+                    Execute(
+                        library,
+                        "Deserialize",
+                        count: true,
+                        rows: null,
+                        receiver: filter));
+            Assert.Equal(
+                expectedCount,
+                Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                        counted.Overloads.Count)
+                    .Value);
+            Assert.Null(counted.Overloads.Rows);
+            Assert.Equal(
+                filter,
+                counted.Overloads.Binding.Receiver);
+
+            MemberOverloadPopulationContent read =
+                Available(
+                    Execute(
+                        library,
+                        "Deserialize",
+                        count: false,
+                        new(maximumRows: 100),
+                        receiver: filter));
+            Assert.Null(read.Overloads.Count);
+            MemberOverloadRowsOutcome.Read rows =
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    read.Overloads.Rows);
+            Assert.True(rows.IsComplete);
+            Assert.Equal(expectedCount, rows.Items.Length);
+            Assert.Equal(
+                filter,
+                read.Overloads.Binding.Receiver);
+            if (filter is not MemberOverloadReceiverFilter.All)
+            {
+                MemberReceiver expectedReceiver = filter switch
+                {
+                    MemberOverloadReceiverFilter.Static =>
+                        MemberReceiver.Static,
+                    MemberOverloadReceiverFilter.This =>
+                        MemberReceiver.This,
+                    MemberOverloadReceiverFilter.Extension =>
+                        MemberReceiver.Extension,
+                    _ => throw new InvalidOperationException(),
+                };
+                Assert.All(
+                    rows.Items,
+                    row => Assert.Equal(
+                        expectedReceiver,
+                        row.Receiver));
+            }
+        }
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSystemTextJson_AccessibilityFiltersApplyToCountAndRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        (
+            MetadataTypeDefinitionName DeclaringType,
+            string MethodName,
+            MemberOverloadAccessibilityFilter Accessibility,
+            int ExpectedCount)[] cases =
+        {
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "Parse",
+                MemberOverloadAccessibilityFilter.Public,
+                5),
+            (
+                Name(
+                    "System.Text.Json.Serialization.Metadata",
+                    "JsonTypeInfo"),
+                "CreateJsonPropertyInfo",
+                MemberOverloadAccessibilityFilter.Protected,
+                1),
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "ParseValue",
+                MemberOverloadAccessibilityFilter.Internal,
+                5),
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "Parse",
+                MemberOverloadAccessibilityFilter.Private,
+                2),
+            (
+                Name("System.Text.Json", "JsonDocument"),
+                "Parse",
+                MemberOverloadAccessibilityFilter.All,
+                7),
+        };
+        foreach (var @case in cases)
+        {
+            MemberOverloadPopulationContent counted =
+                Available(
+                    Execute(
+                        library,
+                        @case.MethodName,
+                        count: true,
+                        rows: null,
+                        accessibility: @case.Accessibility,
+                        declaringType: @case.DeclaringType));
+            Assert.Equal(
+                @case.ExpectedCount,
+                Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                        counted.Overloads.Count)
+                    .Value);
+            Assert.Null(counted.Overloads.Rows);
+            Assert.Equal(
+                @case.Accessibility,
+                counted.Overloads.Binding.Accessibility);
+
+            MemberOverloadPopulationContent read =
+                Available(
+                    Execute(
+                        library,
+                        @case.MethodName,
+                        count: false,
+                        new(maximumRows: 100),
+                        accessibility: @case.Accessibility,
+                        declaringType: @case.DeclaringType));
+            Assert.Null(read.Overloads.Count);
+            MemberOverloadRowsOutcome.Read rows =
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    read.Overloads.Rows);
+            Assert.True(rows.IsComplete);
+            Assert.Equal(@case.ExpectedCount, rows.Items.Length);
+            Assert.Equal(
+                @case.Accessibility,
+                read.Overloads.Binding.Accessibility);
+        }
 
         await library.RetireAsync();
     }
@@ -453,6 +639,35 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
 
     [Fact]
     public async Task
+        ReceiverFilteredCountRequiresValidExtensionEvidence()
+    {
+        byte[] content =
+            BuildMalformedExtensionAttributeImage();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionFailure.MalformedMetadata,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Failed>(
+                    Execute(
+                        library,
+                        "M",
+                        count: true,
+                        rows: null,
+                        declaringType: Name("N", "C"),
+                        receiver:
+                            MemberOverloadReceiverFilter.Extension)
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         DuplicateStandardAccessorRolesFailThePopulation()
     {
         byte[] content = BuildDuplicateGetterImage();
@@ -545,7 +760,11 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             bool count,
             MemberOverloadRowsRequest? rows,
             ApiSurfaceExtractionBounds? bounds = null,
-            MetadataTypeDefinitionName? declaringType = null) =>
+            MetadataTypeDefinitionName? declaringType = null,
+            MemberOverloadAccessibilityFilter accessibility =
+                MemberOverloadAccessibilityFilter.Public,
+            MemberOverloadReceiverFilter receiver =
+                MemberOverloadReceiverFilter.All) =>
         MemberOverloadPopulationInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -560,7 +779,9 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                         count
                             ? new MemberOverloadCountRequest()
                             : null,
-                        rows),
+                        rows,
+                        accessibility,
+                        receiver),
                     bounds ?? s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);

@@ -52,6 +52,8 @@ public sealed class MetadataDeclarationSession : IDisposable
         int startOrdinal,
         int maximumRows,
         bool materializeRows,
+        MetadataMethodAccessibilityFilter accessibility,
+        MetadataMethodReceiverFilter receiver,
         int maximumMembers,
         int maximumRetainedTextCharacters)
     {
@@ -68,6 +70,8 @@ public sealed class MetadataDeclarationSession : IDisposable
             startOrdinal,
             maximumRows,
             materializeRows,
+            accessibility,
+            receiver,
             maximumMembers,
             maximumRetainedTextCharacters);
     }

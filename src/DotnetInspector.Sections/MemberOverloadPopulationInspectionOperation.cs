@@ -33,7 +33,9 @@ public static class MemberOverloadPopulationInspectionOperation
                 || IsCompatible(
                     continuation.Binding,
                     request.Plan.Subject,
-                    rows.Ordering);
+                    rows.Ordering,
+                    request.Plan.Overloads.Accessibility,
+                    request.Plan.Overloads.Receiver);
             int startOrdinal =
                 compatibleContinuation
                     ? rows?.Continuation?.NextOrdinal ?? 0
@@ -49,6 +51,10 @@ public static class MemberOverloadPopulationInspectionOperation
                         materializeRows:
                             rows is not null
                             && compatibleContinuation,
+                        Accessibility(
+                            request.Plan.Overloads.Accessibility),
+                        Receiver(
+                            request.Plan.Overloads.Receiver),
                         request.Plan.Bounds,
                         expectedModuleVersionId:
                             compatibleContinuation
@@ -201,7 +207,9 @@ public static class MemberOverloadPopulationInspectionOperation
             subject.Name,
             subject.Category,
             subject.Role,
-            ordering);
+            ordering,
+            request.Plan.Overloads.Accessibility,
+            request.Plan.Overloads.Receiver);
         MemberOverloadCountOutcome? count =
             request.Plan.Overloads.Count is null
                 ? null
@@ -296,7 +304,9 @@ public static class MemberOverloadPopulationInspectionOperation
     private static bool IsCompatible(
         MemberOverloadPopulationBinding binding,
         MemberGroupSubject subject,
-        MemberOverloadOrdering ordering) =>
+        MemberOverloadOrdering ordering,
+        MemberOverloadAccessibilityFilter accessibility,
+        MemberOverloadReceiverFilter receiver) =>
         binding.DeclaringType == subject.DeclaringType
         && string.Equals(
             binding.Name,
@@ -304,7 +314,43 @@ public static class MemberOverloadPopulationInspectionOperation
             StringComparison.Ordinal)
         && binding.Category == subject.Category
         && binding.Role == subject.Role
-        && binding.Ordering == ordering;
+        && binding.Ordering == ordering
+        && binding.Accessibility == accessibility
+        && binding.Receiver == receiver;
+
+    private static MetadataMethodAccessibilityFilter Accessibility(
+        MemberOverloadAccessibilityFilter accessibility) =>
+        accessibility switch
+        {
+            MemberOverloadAccessibilityFilter.Public =>
+                MetadataMethodAccessibilityFilter.Public,
+            MemberOverloadAccessibilityFilter.Protected =>
+                MetadataMethodAccessibilityFilter.Protected,
+            MemberOverloadAccessibilityFilter.Internal =>
+                MetadataMethodAccessibilityFilter.Internal,
+            MemberOverloadAccessibilityFilter.Private =>
+                MetadataMethodAccessibilityFilter.Private,
+            MemberOverloadAccessibilityFilter.All =>
+                MetadataMethodAccessibilityFilter.All,
+            _ => throw new InvalidOperationException(
+                "Unknown exact-Member accessibility filter."),
+        };
+
+    private static MetadataMethodReceiverFilter Receiver(
+        MemberOverloadReceiverFilter receiver) =>
+        receiver switch
+        {
+            MemberOverloadReceiverFilter.All =>
+                MetadataMethodReceiverFilter.All,
+            MemberOverloadReceiverFilter.This =>
+                MetadataMethodReceiverFilter.This,
+            MemberOverloadReceiverFilter.Static =>
+                MetadataMethodReceiverFilter.Static,
+            MemberOverloadReceiverFilter.Extension =>
+                MetadataMethodReceiverFilter.Extension,
+            _ => throw new InvalidOperationException(
+                "Unknown exact-Member receiver filter."),
+        };
 
     private static InspectionEnvelope<
         MemberOverloadPopulationInspectionOutcome> Rejected(
