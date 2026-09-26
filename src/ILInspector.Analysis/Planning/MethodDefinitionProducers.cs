@@ -142,6 +142,8 @@ public readonly ref struct MethodDefinitionView
     /// <summary>The unit's MethodDef metadata token.</summary>
     public int Token => MetadataTokens.GetToken(_unit.MethodHandle);
 
+    internal MetadataReader Reader => _unit.Reader;
+
     internal TypeDefinitionHandle TypeHandle => _unit.TypeHandle;
 
     internal TypeDefinition TypeDefinition => _unit.TypeDefinition;
@@ -250,6 +252,8 @@ internal sealed class MethodDefinitionUnit(
     public MethodDefinition MethodDefinition { get; private set; }
 
     public LibraryMethodAnalysisRunner Lookup => lookup;
+
+    public MetadataReader Reader => reader;
 
     public void MoveTo(
         TypeDefinitionHandle typeHandle,
