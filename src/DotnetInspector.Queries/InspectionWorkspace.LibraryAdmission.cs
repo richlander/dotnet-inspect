@@ -477,6 +477,20 @@ public sealed partial class InspectionWorkspace
         }
     }
 
+    internal bool ContainsLibraryAdmission(
+        WorkspaceLibraryAdmissionReceipt receipt)
+    {
+        lock (_gate)
+        {
+            return ReferenceEquals(receipt.Workspace, _identity)
+                && _libraryAdmissions.Any(
+                    registration =>
+                        ReferenceEquals(
+                            registration.Receipt,
+                            receipt));
+        }
+    }
+
     static WorkspaceLibraryOperationIssueOutcome.Rejected Rejected(
         WorkspaceLibraryOperationRejection reason,
         LibraryContentOwnerState? ownerState = null) =>

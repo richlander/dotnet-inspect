@@ -99,53 +99,12 @@ internal static class PlatformTypeCatalogRouting
         ArgumentNullException.ThrowIfNull(sourceOptions);
         cancellationToken.ThrowIfCancellationRequested();
 
-        InstalledPlatformHouseAdapter? installed =
-            dotnetRoot is null
-                ? null
-                : CreateInstalledAdapter(dotnetRoot);
-        await using var packageRuntime =
-            new DesktopPlatformPackageSourceRuntime(
-                context.CreatePackageSourceComposition,
-                sourceOptions,
-                "inspect-cli-platform");
-        PackagePlatformHouseAdapter package =
-            packageRuntime.CreateAdapter("cli-platform-type-routing-package");
-        PlatformHouseRequest request =
-            CreateRequest(installed, package, cancellationToken);
-
-        List<PlatformTargetDiscoverySource> discoverySources = [];
-        List<PlatformReferencePopulationRealizationSource>
-            realizationSources = [];
-        if (installed is not null)
-        {
-            discoverySources.Add(
-                InstalledPlatformTargetDiscovery.CreateSource(installed));
-            realizationSources.Add(
-                InstalledPlatformSelectedReferencePopulationRealization
-                    .CreateSource(
-                        installed,
-                        PlatformHouseCandidateIdentity.Create(
-                            "cli-platform-installed-reference-population")));
-        }
-        discoverySources.Add(
-            PackagePlatformTargetDiscovery.CreateSource(
-                package,
-                packageRuntime.IssueOperation));
-        realizationSources.Add(
-            PackagePlatformSelectedReferencePopulationRealization
-                .CreateSource(
-                    package,
-                    packageRuntime.IssueOperation,
-                    PlatformHouseCandidateIdentity.Create(
-                        "cli-platform-package-reference-population")));
-
         PlatformPopulationArtifactMaterializationOutcome realization =
-            await PlatformHouseSelectedReferencePopulationExecutor
-                .ExecuteAsync(
-                    request,
-                    discoverySources,
-                    realizationSources,
-                    "cli-platform-type-routing")
+            await RealizePopulationAsync(
+                    dotnetRoot,
+                    context,
+                    sourceOptions,
+                    cancellationToken)
                 .ConfigureAwait(false);
         if (realization
             is PlatformPopulationArtifactMaterializationOutcome.Terminal
@@ -206,6 +165,63 @@ internal static class PlatformTypeCatalogRouting
             _ => throw new InvalidOperationException(
                 "Unknown Platform type catalog derivation outcome."),
         };
+    }
+
+    internal static async ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizePopulationAsync(
+            string? dotnetRoot,
+            CommandContext context,
+            NuGetSourceOptions sourceOptions,
+            CancellationToken cancellationToken)
+    {
+        InstalledPlatformHouseAdapter? installed =
+            dotnetRoot is null
+                ? null
+                : CreateInstalledAdapter(dotnetRoot);
+        await using var packageRuntime =
+            new DesktopPlatformPackageSourceRuntime(
+                context.CreatePackageSourceComposition,
+                sourceOptions,
+                "inspect-cli-platform");
+        PackagePlatformHouseAdapter package =
+            packageRuntime.CreateAdapter("cli-platform-type-routing-package");
+        PlatformHouseRequest request =
+            CreateRequest(installed, package, cancellationToken);
+
+        List<PlatformTargetDiscoverySource> discoverySources = [];
+        List<PlatformReferencePopulationRealizationSource>
+            realizationSources = [];
+        if (installed is not null)
+        {
+            discoverySources.Add(
+                InstalledPlatformTargetDiscovery.CreateSource(installed));
+            realizationSources.Add(
+                InstalledPlatformSelectedReferencePopulationRealization
+                    .CreateSource(
+                        installed,
+                        PlatformHouseCandidateIdentity.Create(
+                            "cli-platform-installed-reference-population")));
+        }
+        discoverySources.Add(
+            PackagePlatformTargetDiscovery.CreateSource(
+                package,
+                packageRuntime.IssueOperation));
+        realizationSources.Add(
+            PackagePlatformSelectedReferencePopulationRealization
+                .CreateSource(
+                    package,
+                    packageRuntime.IssueOperation,
+                    PlatformHouseCandidateIdentity.Create(
+                        "cli-platform-package-reference-population")));
+
+        return await PlatformHouseSelectedReferencePopulationExecutor
+                .ExecuteAsync(
+                    request,
+                    discoverySources,
+                    realizationSources,
+                    "cli-platform-type-routing")
+                .ConfigureAwait(false);
     }
 
     internal static InspectionEnvelope<PlatformTypeCatalogRouteOutcome> Resolve(
@@ -396,7 +412,7 @@ internal static class PlatformTypeCatalogRouting
             cancellationToken);
     }
 
-    private static CliPlatformTypeCatalogOutcome.NotCompleted HouseFailure(
+    internal static CliPlatformTypeCatalogOutcome.NotCompleted HouseFailure(
         PlatformPopulationArtifactMaterializationOutcome.Terminal terminal)
     {
         PlatformHouseOutcome<PlatformPopulationRealizationValue> outcome =
@@ -426,7 +442,7 @@ internal static class PlatformTypeCatalogRouting
             terminal.TerminalRealization.Receipt.HouseReceipt);
     }
 
-    private static async ValueTask<
+    internal static async ValueTask<
         ImmutableArray<PlatformHouseFailureKind>> RetireAsync(
             PlatformPopulationArtifactMaterializationOutcome.Completed
                 completed)

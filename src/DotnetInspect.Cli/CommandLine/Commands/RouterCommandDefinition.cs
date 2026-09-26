@@ -23,14 +23,29 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class RouterCommandDefinition
 {
+    private const string LegacyNonRuntimePlatformFramework =
+        "aspnetcore";
+    private static readonly string[] LegacyNonRuntimePlatformFrameworks =
+    [
+        LegacyNonRuntimePlatformFramework,
+    ];
+
     internal const string DeferredTypeOrMemberOptionName =
         "--router-deferred-type-or-member";
+    internal const string SuppressRuntimeTypeFallbackOptionName =
+        "--router-suppress-runtime-type-fallback";
 
     private static readonly string DeferredTypeOrMemberCapability =
+        Guid.NewGuid().ToString("N");
+    private static readonly string SuppressRuntimeTypeFallbackCapability =
         Guid.NewGuid().ToString("N");
 
     internal static bool IsDeferredTypeOrMemberCapability(string? value) =>
         value == DeferredTypeOrMemberCapability;
+
+    internal static bool IsSuppressRuntimeTypeFallbackCapability(
+        string? value) =>
+        value == SuppressRuntimeTypeFallbackCapability;
 
     internal static bool IsAcquisitionFreePackageRoute(string[] tokens, RootCommand rootCommand) =>
         RouterTokenRewriter.TryRewriteAcquisitionFree(
@@ -159,6 +174,25 @@ public static class RouterCommandDefinition
                     structuralSchema: true,
                     out string[] structuralRewrite))
             {
+                if (structuralRewrite.Contains(
+                        DeferredTypeOrMemberOptionName,
+                        StringComparer.Ordinal))
+                {
+                    // Member uses repeatable --project for caller scope; preserve the
+                    // Type source option's scalar diagnostic before the deferred rewrite.
+                    ParseResult typeInterpretation =
+                        rootCommand.Parse([TypeCommand.Name, .. tokens]);
+                    if (GetOptionParseError(
+                            typeInterpretation,
+                            typeArgs.ProjectOption) is { } projectError)
+                    {
+                        CommandError.Write(
+                            CommandLineBuilder.FormatParseError(
+                                projectError.Message));
+                        return 1;
+                    }
+                }
+
                 structuralRewrite =
                     CommandLineBuilder.PreprocessArgs(
                         structuralRewrite,
@@ -483,6 +517,15 @@ public static class RouterCommandDefinition
         ];
     }
 
+    private static ParseError? GetOptionParseError(
+        ParseResult parseResult,
+        Option option)
+    {
+        OptionResult? optionResult = parseResult.GetResult(option);
+        return parseResult.Errors.FirstOrDefault(error =>
+            IsWithin(error.SymbolResult, optionResult));
+    }
+
     private static bool IsWithin(SymbolResult? result, SymbolResult? ancestor)
     {
         for (; result != null; result = result.Parent)
@@ -612,24 +655,28 @@ public static class RouterCommandDefinition
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
+            bool completeLocatorMiss = false;
+            CliPlatformTypeLocatorOutcome.Completed? completedLocator =
+                null;
             if (!hasExplicitApiSource
                 && frameworkSpec is null
                 && !hasTypeOption
                 && !hasMemberOption)
             {
-                CliPlatformTypeCatalogOutcome catalogOutcome =
-                    await PlatformTypeCatalogRouting.LoadAsync(
+                CliPlatformTypeLocatorOutcome locatorOutcome =
+                    await PlatformTypeLocatorRouting.LocateAsync(
                         context,
                         sourceOptions,
+                        target,
                         cancellationToken);
-                switch (catalogOutcome)
+                switch (locatorOutcome)
                 {
-                    case CliPlatformTypeCatalogOutcome.Completed completed:
+                    case CliPlatformTypeLocatorOutcome.Completed completed:
+                        completedLocator = completed;
                         InspectionEnvelope<PlatformTypeCatalogRouteOutcome>
                             route =
-                            PlatformTypeCatalogRouting.Resolve(
-                                completed.Catalog,
-                                target,
+                            PlatformTypeLocatorRouting.ResolveType(
+                                completed,
                                 cancellationToken);
                         switch (route.Content)
                         {
@@ -652,10 +699,10 @@ public static class RouterCommandDefinition
                                 InspectionEnvelope<
                                     PlatformNamespaceDiscoveryOutcome>
                                     namespaceInspection =
-                                    PlatformNamespaceDiscoveryInspection
-                                        .Execute(
-                                            completed.Catalog,
-                                            new(target),
+                                    PlatformTypeLocatorRouting
+                                        .ResolveNamespace(
+                                            completed,
+                                            target,
                                             cancellationToken);
                                 switch (namespaceInspection.Content)
                                 {
@@ -680,6 +727,7 @@ public static class RouterCommandDefinition
                                         ];
                                     case PlatformNamespaceDiscoveryOutcome
                                         .Missing:
+                                        completeLocatorMiss = true;
                                         break;
                                     default:
                                         throw new InvalidOperationException(
@@ -688,17 +736,22 @@ public static class RouterCommandDefinition
                                 break;
                         }
                         break;
-                    case CliPlatformTypeCatalogOutcome.NotCompleted failure:
+                    case CliPlatformTypeLocatorOutcome.NotCompleted failure:
                         CommandError.Write(
-                            $"Platform type catalog routing failed ({failure.Kind}).");
+                            $"Platform type locator routing failed ({failure.Kind}).");
                         return tokens;
                 }
             }
 
-            var exactTypeLookup = LookupExactGenericPlatformType(
-                target,
-                allowSimpleName: hasTypeOption || hasMemberOption,
-                frameworkSpec: frameworkSpec);
+            string? compatibilityFrameworkSpec =
+                completeLocatorMiss
+                    ? LegacyNonRuntimePlatformFramework
+                    : frameworkSpec;
+            PlatformTypeLookupOutcome? exactTypeLookup =
+                LookupExactGenericPlatformType(
+                    target,
+                    allowSimpleName: hasTypeOption || hasMemberOption,
+                    frameworkSpec: compatibilityFrameworkSpec);
             if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
             {
                 return hasMemberOption
@@ -714,7 +767,9 @@ public static class RouterCommandDefinition
                         tail);
             }
 
-            if (LookupExactGenericPlatformMember(target, frameworkSpec)
+            if (LookupExactGenericPlatformMember(
+                    target,
+                    compatibilityFrameworkSpec)
                 is { } exactMember)
             {
                 if (exactMember.Lookup
@@ -739,18 +794,54 @@ public static class RouterCommandDefinition
             if (WritePlatformTypeLookupFailure(exactTypeLookup))
                 return tokens;
 
+            string[]? compatibilityPlatformFrameworks =
+                completeLocatorMiss
+                    ? LegacyNonRuntimePlatformFrameworks
+                    : null;
             string? platformLookupFailure = null;
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
                 target,
                 sourceOptions,
                 allowPlatformPrefixFallback,
-                message => platformLookupFailure ??= message);
+                message => platformLookupFailure ??= message,
+                allowRuntimeTypeFallback: !completeLocatorMiss);
             if (memberSplit != null)
             {
                 var probe = memberSplit.Value.Probe;
                 if (probe.Kind == SourceResolver.LocalSourceKind.Platform
                     && !await IsExactPlatformTypeAsync(probe, context))
                 {
+                    if (completeLocatorMiss
+                        && completedLocator is not null)
+                    {
+                        PlatformTypeCatalogRouteOutcome?
+                            compatibility =
+                                PlatformTypeLocatorRouting
+                                    .ResolveCompatibilityType(
+                                        completedLocator,
+                                        probe.Remainder,
+                                        cancellationToken);
+                        switch (compatibility)
+                        {
+                            case PlatformTypeCatalogRouteOutcome.Resolved
+                                resolved:
+                                return RoutePlatformCatalogCandidate(
+                                    resolved.Candidate,
+                                    resolved.Target,
+                                    memberSplit.Value.MemberName,
+                                    tail);
+                            case PlatformTypeCatalogRouteOutcome.Ambiguous
+                                ambiguous:
+                                CommandError.Write(
+                                    $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
+                                return tokens;
+                            case PlatformTypeCatalogRouteOutcome.Rejected
+                                rejected:
+                                CommandError.Write(
+                                    $"Platform type lookup failed ({rejected.Rejection}).");
+                                return tokens;
+                        }
+                    }
                     memberSplit = null;
                 }
             }
@@ -765,15 +856,18 @@ public static class RouterCommandDefinition
                 return ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
             }
 
-            // Runtime-catalog fallback can be ambiguous for types owned by another
-            // shared framework, so let the all-framework resolvers establish identity first.
-            var memberFind = await TypeFindIfMissResolver.ResolvePlatformMemberAsync(
-                target,
-                includeAll: false,
-                sourceOptions,
-                context.HttpClient,
-                context.Logger,
-                frameworkSpec);
+            // Preserve shared-framework routing while avoiding another scan of
+            // the runtime population already covered by the locator.
+            var memberFind =
+                await TypeFindIfMissResolver
+                    .ResolvePlatformMemberAsync(
+                        target,
+                        includeAll: false,
+                        sourceOptions,
+                        context.HttpClient,
+                        context.Logger,
+                        frameworkSpec,
+                        compatibilityPlatformFrameworks);
             if (memberFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = memberFind.TypeResolution.Match!;
@@ -799,13 +893,45 @@ public static class RouterCommandDefinition
                 target,
                 sourceOptions,
                 allowPlatformPrefixFallback,
-                message => platformLookupFailure ??= message);
+                message => platformLookupFailure ??= message,
+                allowRuntimeTypeFallback: !completeLocatorMiss);
             bool hasNonExactPlatformProbe = false;
             if (typeProbe != null)
             {
                 hasNonExactPlatformProbe =
                     typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
                     && !await IsExactPlatformTypeAsync(typeProbe, context);
+                if (hasNonExactPlatformProbe
+                    && completeLocatorMiss
+                    && completedLocator is not null)
+                {
+                    PlatformTypeCatalogRouteOutcome? compatibility =
+                        PlatformTypeLocatorRouting.ResolveCompatibilityType(
+                            completedLocator,
+                            typeProbe.Remainder,
+                            cancellationToken);
+                    switch (compatibility)
+                    {
+                        case PlatformTypeCatalogRouteOutcome.Resolved
+                            resolved:
+                            return RoutePlatformCatalogCandidate(
+                                resolved.Candidate,
+                                resolved.Target,
+                                memberSelector: null,
+                                tail);
+                        case PlatformTypeCatalogRouteOutcome.Ambiguous
+                            ambiguous:
+                            CommandError.Write(
+                                $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
+                            return tokens;
+                        case PlatformTypeCatalogRouteOutcome.Rejected
+                            rejected:
+                            CommandError.Write(
+                                $"Platform type lookup failed ({rejected.Rejection}).");
+                            return tokens;
+                    }
+
+                }
                 if (!hasNonExactPlatformProbe)
                 {
                     RouterDecisionLog.Record(
@@ -818,13 +944,15 @@ public static class RouterCommandDefinition
                 }
             }
 
-            var typeFind = await TypeFindIfMissResolver.ResolvePlatformAsync(
-                target,
-                includeAll: false,
-                sourceOptions,
-                context.HttpClient,
-                context.Logger,
-                frameworkSpec);
+            var typeFind =
+                await TypeFindIfMissResolver.ResolvePlatformAsync(
+                    target,
+                    includeAll: false,
+                    sourceOptions,
+                    context.HttpClient,
+                    context.Logger,
+                    frameworkSpec,
+                    compatibilityPlatformFrameworks);
             if (typeFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = typeFind.Match!;
@@ -844,17 +972,43 @@ public static class RouterCommandDefinition
             }
 
             if (hasNonExactPlatformProbe)
-                return ["type", target, .. tail];
+                return RouteTypeAfterLocator(
+                    target,
+                    tail,
+                    completeLocatorMiss);
 
             if (PlatformResolver.IsPlatformCandidate(target))
             {
                 if (await PackageExistsAsync(target, sourceOptions, context))
                     return ["package", .. tokens];
 
-                return ["type", target, .. tail];
+                return RouteTypeAfterLocator(
+                    target,
+                    tail,
+                    completeLocatorMiss);
             }
 
             return ["package", .. tokens];
+        }
+
+        private static string[] RouteTypeAfterLocator(
+            string target,
+            string[] tail,
+            bool completeLocatorMiss)
+        {
+            if (!completeLocatorMiss)
+                return ["type", target, .. tail];
+
+            RouterDecisionLog.Record(
+                "type-after-complete-platform-lookup",
+                target);
+            return [
+                "type",
+                target,
+                SuppressRuntimeTypeFallbackOptionName,
+                SuppressRuntimeTypeFallbackCapability,
+                .. tail,
+            ];
         }
 
         public static bool TryRewriteAcquisitionFree(
@@ -1448,15 +1602,26 @@ public static class RouterCommandDefinition
 
         private static string[] RoutePlatformCatalogResult(
             PlatformTypeCatalogRouteOutcome.Resolved resolved,
+            string[] tail) =>
+            RoutePlatformCatalogCandidate(
+                resolved.Candidate,
+                resolved.Target,
+                resolved.Request.MemberSelector,
+                tail);
+
+        private static string[] RoutePlatformCatalogCandidate(
+            PlatformTypeCatalogRouteCandidate candidate,
+            PlatformTypeCatalogRouteTarget target,
+            string? memberSelector,
             string[] tail)
         {
             string typeName =
                 MetadataTypeNameFormatter.FormatGenericTypeName(
-                    resolved.Candidate.Type.ToMetadataFullName());
+                    candidate.Type.ToMetadataFullName());
             string assemblyName =
-                resolved.Candidate.Assembly.Identity.Name;
-            string framework = PlatformFrameworkSpec(resolved.Target);
-            return resolved.Request.MemberSelector is null
+                candidate.Assembly.Identity.Name;
+            string framework = PlatformFrameworkSpec(target);
+            return memberSelector is null
                 ? [
                     "type",
                     typeName,
@@ -1474,7 +1639,7 @@ public static class RouterCommandDefinition
                     "--framework",
                     framework,
                     "-m",
-                    resolved.Request.MemberSelector,
+                    memberSelector,
                     .. tail,
                 ];
         }
