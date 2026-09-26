@@ -60,18 +60,24 @@ This owner composes existing contracts by their issued currencies:
   `Member Metrics` consumer of the same family operation. Its contract does
   not change.
 
-This design transfers one claim to the family query: the analyzed family is
-every same-name method declared on the Type, regardless of accessibility, and
-the result keeps the two sets apart by construction. Profiles of public roster
-members and relationships between roster members stay in their existing
-collections. Profiles of analyzed methods outside the roster, and relationships
-with at least one such endpoint, are issued in separate collections. A consumer
-that reads only the existing collections, such as the CLI `Member Metrics` rows,
-sees the same rows and relationships as before without refiltering. This design
-changes no other adjacent contract. The Analysis facade lowers the completed
-host-neutral envelope to an assembly-local generated wire contract. The Browser
-joins only owner-issued method tokens, module identities, Type definition IDs,
-stable Member selectors, and exact Library coordinates.
+This design transfers one claim to the family query: an available family
+result also carries a separate **analyzed-family record** covering every
+same-name method declared on the Type, regardless of accessibility. The record
+has its own profiles, relationships, coverage, and diagnostics, computed over
+the whole analyzed family.
+
+The existing result is unchanged. Its roster profiles, including their
+incoming and outgoing sibling counts, its relationships, its coverage, and its
+diagnostics are exactly what the roster-scoped analysis produces today; no
+analyzed-only body is decoded into them and no analyzed-only diagnostic enters
+them. A consumer that reads only the existing result, such as the CLI
+`Member Metrics` rows and diagnostic channel, is unaffected without
+refiltering. This design changes no other adjacent contract.
+
+The Analysis facade lowers the completed host-neutral envelope, including the
+analyzed-family record, to an assembly-local generated wire contract. The
+Browser joins only owner-issued method tokens, module identities, Type
+definition IDs, stable Member selectors, and exact Library coordinates.
 
 ## Supported scope
 
@@ -87,7 +93,7 @@ Two sets are distinct:
 - the **analyzed family** is every same-name method declared on the Type,
   regardless of accessibility.
 
-Profiles, sizes, and relationships cover the analyzed family. Non-public
+Heat and hub derivation read only the analyzed-family record. Non-public
 methods are never rows and never show heat or a hub strip, but they set the
 family maximum and take part in call relationships. A public overload is
 therefore not presented as large when a non-public implementation dwarfs it,
@@ -118,9 +124,11 @@ would add work without anything to show.
 The Browser bounds the second pass:
 
 - at most one family request is in flight;
-- when another family is expanded while one is in flight, the in-flight
-  request may settle its cache entry, and only the most recently expanded
-  family is queued behind it; intermediate families are dropped;
+- the member navigation list expands only the selected family, so at most
+  one family is expanded at a time; when another family is expanded while one
+  is in flight, the in-flight request may settle its cache entry, and only the
+  most recently expanded family is queued behind it; intermediate families,
+  which are no longer expanded, are dropped;
 - rows render immediately without heat, and heat appears when the family's
   result publishes; and
 - a producer-failed family is not retried by navigation. Retry is explicit.
@@ -222,10 +230,12 @@ its attributed physical profiles. Generated bodies contribute to their logical
 overload's evidence but do not replace the logical body's own measurement when
 that body is available.
 
-The **family maximum** is the largest size in the analyzed family, including
-non-public methods. When any analyzed body's size is unavailable or incomplete,
-the family is ready but incomplete and shows no heat, because the maximum is
-unknown.
+The **family maximum** is the largest size in the analyzed-family record,
+including non-public methods. A method declared without a body, such as an
+abstract or extern method, has no size and does not affect the maximum; it is
+recorded as declared without a body, not as an unavailable body. When the
+record has an unavailable-body receipt or an incomplete profile for any
+analyzed method, the maximum is unknown and the family shows no heat.
 
 An overload is a **hub** when all of the following hold:
 
@@ -234,6 +244,11 @@ An overload is a **hub** when all of the following hold:
 - no owner-issued relationship has any of this overload's physical bodies as
   its caller and another analyzed-family method as its callee; and
 - every attributed physical profile is complete.
+
+These conditions use the analyzed-family record's relationships. Hub state is
+shown for an overload whose own profiles are complete even when another
+analyzed body is incomplete: a missing relationship from an incomplete body
+can only withhold a hub strip, never add one.
 
 The member list keeps public API roster order. Heat and hub state annotate
 rows; they never reorder them.
@@ -316,8 +331,10 @@ The expanded family distinguishes:
   without heat and the parent row shows a quiet progress cue;
 - **ready**: heat and hub state are shown and no relevant coverage failure is
   present;
-- **ready but incomplete**: heat and hub state are shown only for overloads
-  whose evidence is complete; the parent row marks the family as incomplete,
+- **ready but incomplete**: the analyzed-family record has an unavailable body
+  or incomplete profile; no heat is shown, hub strips are shown only for
+  overloads whose own evidence is complete, the parent row marks the family as
+  incomplete,
   and the Member detail lists profile, coverage, Analysis, API-surface, or
   envelope diagnostics;
 - **empty**: the completed available inspection has no applicable physical
@@ -392,11 +409,13 @@ method, so the family shows neither channel.
 
 The following gates enforce this design:
 
-1. Family-query tests prove that the analyzed family for `JsonDocument.Parse`
-   includes its non-public same-name methods with profiles and relationships
-   in the separate analyzed-only collections, and that the existing roster
-   collections are unchanged. The existing CLI `Member Metrics` gates continue
-   to pass unchanged.
+1. Family-query tests prove that the analyzed-family record for
+   `JsonDocument.Parse` includes its non-public same-name methods with
+   profiles, relationships, and coverage, and that the existing result is
+   unchanged. Newtonsoft.Json 13.0.3 `JsonConvert.ToString` pins the counts:
+   `ToString(string, char)` keeps `Incoming Overloads = 1` in the existing
+   result while two internal overloads call it in the analyzed-family record.
+   The existing CLI `Member Metrics` gates continue to pass unchanged.
 2. Analysis-facade projection tests compare package and platform wire results
    with the completed host-neutral envelope, including Content outcome, raw
    metrics, logical and physical tokens, public anchors, coverage,
