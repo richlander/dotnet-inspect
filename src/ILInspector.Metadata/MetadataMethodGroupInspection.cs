@@ -142,6 +142,7 @@ internal static class MetadataMethodGroupInspection
                     reader,
                     typeHandle,
                     type,
+                    methodName,
                     methodSemantics,
                     out HashSet<MethodDefinitionHandle> accessors,
                     out MetadataMethodGroupInspectionOutcome? failure))
@@ -157,19 +158,17 @@ internal static class MetadataMethodGroupInspection
             bool? extensionContainerForFilter = null;
             foreach (MethodDefinitionHandle handle in type.GetMethods())
             {
-                if (accessors.Contains(handle))
-                    continue;
-
                 MethodDefinition method =
                     reader.GetMethodDefinition(handle);
-                if (!string.Equals(
-                        reader.GetString(method.Name),
-                        methodName,
-                        StringComparison.Ordinal)
+                if (!reader.StringComparer.Equals(
+                        method.Name,
+                        methodName)
                     || !IsOrdinaryMethodName(methodName))
                 {
                     continue;
                 }
+                if (accessors.Contains(handle))
+                    continue;
                 groupExists = true;
                 if (!MatchesAccessibility(
                         method.Attributes,
@@ -357,6 +356,7 @@ internal static class MetadataMethodGroupInspection
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         TypeDefinition type,
+        string methodName,
         MetadataMethodSemanticsAssociationResult methodSemantics,
         out HashSet<MethodDefinitionHandle> accessors,
         out MetadataMethodGroupInspectionOutcome? failure)
@@ -389,17 +389,28 @@ internal static class MetadataMethodGroupInspection
             return false;
         }
 
-        var propertyRows = new HashSet<int>();
+        int firstPropertyRow = 0;
+        int lastPropertyRow = 0;
         foreach (PropertyDefinitionHandle handle in type.GetProperties())
-            propertyRows.Add(MetadataTokens.GetRowNumber(handle));
-        var eventRows = new HashSet<int>();
+        {
+            int row = MetadataTokens.GetRowNumber(handle);
+            if (firstPropertyRow == 0)
+                firstPropertyRow = row;
+            lastPropertyRow = row;
+        }
+        int firstEventRow = 0;
+        int lastEventRow = 0;
         foreach (EventDefinitionHandle handle in type.GetEvents())
-            eventRows.Add(MetadataTokens.GetRowNumber(handle));
-        var standardRoles = new HashSet<
-            (
-                MetadataMethodSemanticsAssociationKind Kind,
-                int Row,
-                ushort Role)>();
+        {
+            int row = MetadataTokens.GetRowNumber(handle);
+            if (firstEventRow == 0)
+                firstEventRow = row;
+            lastEventRow = row;
+        }
+        MetadataMethodSemanticsAssociationKind? standardRoleKind =
+            null;
+        int standardRoleAssociationRow = 0;
+        ushort standardRoles = 0;
         foreach (MetadataMethodSemanticsAssociation row
             in success.Associations)
         {
@@ -407,40 +418,61 @@ internal static class MetadataMethodGroupInspection
                 row.AssociationKind switch
                 {
                     MetadataMethodSemanticsAssociationKind.Property =>
-                        propertyRows.Contains(
-                            row.AssociationRowNumber),
+                        IsInRange(
+                            row.AssociationRowNumber,
+                            firstPropertyRow,
+                            lastPropertyRow),
                     MetadataMethodSemanticsAssociationKind.Event =>
-                        eventRows.Contains(
-                            row.AssociationRowNumber),
+                        IsInRange(
+                            row.AssociationRowNumber,
+                            firstEventRow,
+                            lastEventRow),
                     _ => false,
                 };
+            MethodDefinition method =
+                reader.GetMethodDefinition(row.Method);
             bool methodBelongsToType =
-                reader.GetMethodDefinition(row.Method)
-                    .GetDeclaringType() == typeHandle;
+                method.GetDeclaringType() == typeHandle;
             if (!associationBelongsToType
                 && !methodBelongsToType)
                 continue;
             if (!associationBelongsToType
                 || !methodBelongsToType
-                || !TryValidateRole(row, standardRoles))
+                || !TryValidateRole(
+                    row,
+                    ref standardRoleKind,
+                    ref standardRoleAssociationRow,
+                    ref standardRoles))
             {
                 failure =
                     new MetadataMethodGroupInspectionOutcome.Failed();
                 return false;
             }
 
-            accessors.Add(row.Method);
+            if (reader.StringComparer.Equals(
+                    method.Name,
+                    methodName))
+            {
+                accessors.Add(row.Method);
+            }
         }
 
         return true;
     }
 
+    private static bool IsInRange(
+        int row,
+        int firstRow,
+        int lastRow) =>
+        firstRow != 0
+        && row >= firstRow
+        && row <= lastRow;
+
     private static bool TryValidateRole(
         MetadataMethodSemanticsAssociation row,
-        HashSet<(
-            MetadataMethodSemanticsAssociationKind Kind,
-            int Row,
-            ushort Role)> standardRoles)
+        ref MetadataMethodSemanticsAssociationKind? standardRoleKind,
+        ref int standardRoleAssociationRow,
+        ref ushort standardRoles)
     {
         const ushort Setter = 0x0001;
         const ushort Getter = 0x0002;
@@ -461,12 +493,22 @@ internal static class MetadataMethodGroupInspection
                     role is Adder or Remover or Raiser,
                 _ => false,
             };
-        return recognized
-            && standardRoles.Add(
-                (
-                    row.AssociationKind,
-                    row.AssociationRowNumber,
-                    role));
+        if (!recognized)
+            return false;
+        if (standardRoleKind != row.AssociationKind
+            || standardRoleAssociationRow
+                != row.AssociationRowNumber)
+        {
+            standardRoleKind = row.AssociationKind;
+            standardRoleAssociationRow =
+                row.AssociationRowNumber;
+            standardRoles = 0;
+        }
+        if ((standardRoles & role) != 0)
+            return false;
+
+        standardRoles |= role;
+        return true;
     }
 
     private static bool MatchesAccessibility(

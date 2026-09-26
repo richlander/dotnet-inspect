@@ -498,6 +498,50 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
 
     [Fact]
     public async Task
+        CountDoesNotRetainUnrelatedTypeAccessorPopulation()
+    {
+        const int accessorCount = 4_096;
+        const int iterations = 8;
+        byte[] targetAccessorContent =
+            BuildAccessorHeavyMethodGroupImage(
+                accessorCount,
+                accessorsOnTarget: true);
+        byte[] neighboringAccessorContent =
+            BuildAccessorHeavyMethodGroupImage(
+                accessorCount,
+                accessorsOnTarget: false);
+        await using LibraryInspectionTestLibrary targetAccessors =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                targetAccessorContent,
+                LibraryInspectionTestLibrary.Identity(
+                    targetAccessorContent));
+        await using LibraryInspectionTestLibrary neighboringAccessors =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                neighboringAccessorContent,
+                LibraryInspectionTestLibrary.Identity(
+                    neighboringAccessorContent));
+
+        _ = CountAllocations(targetAccessors, iterations: 2);
+        _ = CountAllocations(neighboringAccessors, iterations: 2);
+
+        long neighboringAllocation =
+            CountAllocations(neighboringAccessors, iterations);
+        long targetAllocation =
+            CountAllocations(targetAccessors, iterations);
+
+        Assert.True(
+            targetAllocation
+                <= neighboringAllocation + 512 * 1024,
+            $"Count retained the unrelated Type accessor population: "
+                + $"target={targetAllocation:N0} bytes, "
+                + $"neighbor={neighboringAllocation:N0} bytes.");
+
+        await targetAccessors.RetireAsync();
+        await neighboringAccessors.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         BoundedRowsRetainOnlyTheRequestedSegment()
     {
         byte[] content =
@@ -1014,6 +1058,160 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 : MetadataTokens.MemberReferenceHandle(2),
             attributeValue);
         return Serialize(metadata);
+    }
+
+    private static byte[] BuildAccessorHeavyMethodGroupImage(
+        int accessorCount,
+        bool accessorsOnTarget)
+    {
+        var metadata = new MetadataBuilder();
+        AddAssembly(metadata);
+        AddModuleType(metadata);
+        int secondTypeFirstMethod =
+            accessorsOnTarget
+                ? accessorCount + 2
+                : 2;
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle neighbor =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("D"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(
+                    secondTypeFirstMethod));
+        var getterSignature = new BlobBuilder();
+        getterSignature.WriteByte(0x20);
+        getterSignature.WriteByte(0x00);
+        getterSignature.WriteByte(0x08);
+        BlobHandle getterSignatureHandle =
+            metadata.GetOrAddBlob(getterSignature);
+        BlobHandle methodSignatureHandle =
+            metadata.GetOrAddBlob(VoidMethodSignature());
+        var getters =
+            new MethodDefinitionHandle[accessorCount];
+        if (accessorsOnTarget)
+        {
+            AddGetters(
+                metadata,
+                getters,
+                getterSignatureHandle);
+            AddMethod(
+                metadata,
+                "M",
+                methodSignatureHandle);
+        }
+        else
+        {
+            AddMethod(
+                metadata,
+                "M",
+                methodSignatureHandle);
+            AddGetters(
+                metadata,
+                getters,
+                getterSignatureHandle);
+        }
+
+        var propertySignature = new BlobBuilder();
+        propertySignature.WriteByte(0x28);
+        propertySignature.WriteByte(0x00);
+        propertySignature.WriteByte(0x08);
+        BlobHandle propertySignatureHandle =
+            metadata.GetOrAddBlob(propertySignature);
+        PropertyDefinitionHandle firstProperty = default;
+        for (int index = 0; index < accessorCount; index++)
+        {
+            PropertyDefinitionHandle property =
+                metadata.AddProperty(
+                    PropertyAttributes.None,
+                    metadata.GetOrAddString($"P{index}"),
+                    propertySignatureHandle);
+            if (index == 0)
+                firstProperty = property;
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Getter,
+                getters[index]);
+        }
+        metadata.AddPropertyMap(
+            accessorsOnTarget ? target : neighbor,
+            firstProperty);
+        return Serialize(metadata);
+    }
+
+    private static void AddGetters(
+        MetadataBuilder metadata,
+        MethodDefinitionHandle[] getters,
+        BlobHandle signature)
+    {
+        for (int index = 0; index < getters.Length; index++)
+        {
+            getters[index] =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.HideBySig,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString($"get_P{index}"),
+                    signature,
+                    bodyOffset: -1,
+                    parameterList:
+                        MetadataTokens.ParameterHandle(1));
+        }
+    }
+
+    private static void AddMethod(
+        MetadataBuilder metadata,
+        string name,
+        BlobHandle signature) =>
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            signature,
+            bodyOffset: -1,
+            parameterList:
+                MetadataTokens.ParameterHandle(1));
+
+    private static long CountAllocations(
+        LibraryInspectionTestLibrary library,
+        int iterations)
+    {
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int total = 0;
+        for (int index = 0; index < iterations; index++)
+        {
+            MemberOverloadPopulationContent result =
+                Available(
+                    Execute(
+                        library,
+                        "M",
+                        count: true,
+                        rows: null,
+                        bounds: new(
+                            maxTypes: 5_000,
+                            maxMembers: 1,
+                            maxInspectionFailures: 1_000,
+                            maxTypeForwarders: 10_000,
+                            maxMetadataRows: 100_000,
+                            maxRetainedTextCharacters: 0),
+                        declaringType: Name("N", "C")));
+            total +=
+                Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                        result.Overloads.Count)
+                    .Value;
+        }
+        Assert.Equal(iterations, total);
+        return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
     private static byte[] BuildDuplicateGetterImage()
