@@ -61,18 +61,24 @@ public abstract class MethodDefinitionProducer<TFact, TResult>
         : IMethodDefinitionProducerRun
     {
         readonly List<TFact> _facts = [];
-        TFact _current = default!;
+        readonly Dictionary<int, TFact> _factsByUnit = [];
 
         public ProducerDeclaration Producer => producer;
 
         public bool Visit(scoped MethodDefinitionView view)
         {
-            _current = producer.Visit(view);
-            _facts.Add(_current);
-            return producer.Settles(_current);
+            TFact fact = producer.Visit(view);
+            _facts.Add(fact);
+            _factsByUnit[view.Token] = fact;
+            return producer.Settles(fact);
         }
 
-        public object? CurrentFact => _current;
+        public bool TryGetFact(int unitToken, out object? fact)
+        {
+            bool found = _factsByUnit.TryGetValue(unitToken, out TFact? value);
+            fact = value;
+            return found;
+        }
 
         public object? Complete(MethodDefinitionCompletionView completion) =>
             producer.Complete(_facts, completion);
@@ -92,7 +98,7 @@ internal interface IMethodDefinitionProducerRun
 
     bool Visit(scoped MethodDefinitionView view);
 
-    object? CurrentFact { get; }
+    bool TryGetFact(int unitToken, out object? fact);
 
     object? Complete(MethodDefinitionCompletionView completion);
 }
@@ -160,7 +166,7 @@ public readonly ref struct MethodDefinitionView
         _producer.Require(
             dependency,
             ProducerDependencyKind.VisitNeedsVisit);
-        return (TFact)_producer.Execution.CurrentFact(dependency)!;
+        return (TFact)_producer.Execution.FactFor(dependency, Token)!;
     }
 
     /// <summary>The completed result of a declared result dependency.</summary>

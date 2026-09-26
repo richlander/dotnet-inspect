@@ -26,6 +26,12 @@ public enum ProducerRejectionReason
     DependencyCycle,
     UpwardTierDependency,
     ConflictingParameters,
+
+    /// <summary>
+    /// Two distinct declarations share an identity and parameters. Planning
+    /// never merges or drops a declaration, so the request is rejected.
+    /// </summary>
+    DuplicateDeclaration,
 }
 
 /// <summary>One typed reason a request was rejected as a whole.</summary>
@@ -213,15 +219,14 @@ public static class ProducerPlanner
             if (byIdentity.TryGetValue(producer.Identity, out var other)
                 && !ReferenceEquals(other, producer))
             {
-                if (!string.Equals(
+                rejections.Add(new(
+                    producer.Identity,
+                    string.Equals(
                         other.Parameters,
                         producer.Parameters,
-                        StringComparison.Ordinal))
-                {
-                    rejections.Add(new(
-                        producer.Identity,
-                        ProducerRejectionReason.ConflictingParameters));
-                }
+                        StringComparison.Ordinal)
+                        ? ProducerRejectionReason.DuplicateDeclaration
+                        : ProducerRejectionReason.ConflictingParameters));
                 return;
             }
 

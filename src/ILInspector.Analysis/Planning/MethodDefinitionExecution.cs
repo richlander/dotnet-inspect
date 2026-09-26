@@ -135,8 +135,12 @@ public sealed class MethodDefinitionExecution
         };
     }
 
-    internal object? CurrentFact(ProducerDeclaration producer) =>
-        _states[producer].Run.CurrentFact;
+    internal object? FactFor(ProducerDeclaration producer, int unitToken) =>
+        _states[producer].Run.TryGetFact(unitToken, out object? fact)
+            ? fact
+            : throw new ProducerContractException(
+                $"Producer '{producer.Identity}' has no fact for unit "
+                + $"0x{unitToken:X8}.");
 
     int VisitUnits(
         MetadataReader reader,
@@ -225,8 +229,23 @@ public sealed class MethodDefinitionExecution
             return;
         }
 
-        state.Result = state.Run.Complete(
-            new MethodDefinitionCompletionView(state));
+        try
+        {
+            state.Result = state.Run.Complete(
+                new MethodDefinitionCompletionView(state));
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                0,
+                "(completion)",
+                $"{ex.GetType().Name}: {ex.Message}");
+            state.IsActive = false;
+            return;
+        }
+
         state.Outcome ??= ProducerOutcome.Complete;
         state.IsActive = false;
     }
