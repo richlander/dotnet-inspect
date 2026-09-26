@@ -741,9 +741,10 @@ it.
 ### Example
 
 Library discovery asks whether System.Text.Json contains any unsafe evidence.
-The work description names one producer, unsafe-evidence presence, with one
-request: every method definition at declaration depth, plus body depth for
-each definition that has a managed IL body, with an Exists terminal. The
+The work description names one producer, unsafe-evidence presence. Its
+request covers every method definition at declaration depth, with body depth
+as an optional request for definitions that have a managed IL body, the
+module-metadata lookup as a library-scope input, and an Exists terminal. The
 reference execution visits definitions in metadata order. When the producer
 publishes its first evidence, the Exists terminal is settled, and the
 remaining work stops with the stopped outcome. If a definition's analysis is
@@ -765,29 +766,44 @@ that definition's diagnostic, and the answer is not reported as absent.
    that stops at its first finding does not pay to decode the rest of the
    body. Decoded instructions and control-flow graphs become layers when a
    producer slice first requests them.
-3. **Borrowed views.** A producer receives each layer as a snapshot-callback
+3. **Layer order within a unit.** The body layer is an optional request.
+   Within a unit, the declaration layer is visited first. The body is
+   acquired only when the producer asks for it during that visit, after the
+   declaration check has not settled the unit. A failure to acquire the body
+   is an incomplete unit. An unsafe declaration therefore yields evidence
+   even when its body cannot be read, as today.
+4. **Module-metadata lookup.** Following a call token into method,
+   member-reference, and method-specification metadata, and same-image
+   correspondence, read metadata outside the unit. The source supplies these
+   reads as a library-scope input, owned by Metadata and this owner's
+   existing resolvers: a borrowed lookup view that resolves tokens and
+   correspondence, never a bare reader. The presence work budget and the
+   signature-marker and resolution caches are execution-scoped state owned
+   by the executor. They are created for one run of the work description,
+   charged by each visit, and never held by the producer across units.
+5. **Borrowed views.** A producer receives each layer as a snapshot-callback
    borrow through a scoped `readonly ref struct` view, so retaining the view
-   is a compile error. A producer that did not request the body layer cannot
-   obtain it.
-4. **Interim executor.** Until level 2 exists
+   is a compile error. A producer cannot obtain a layer, lookup, or result it
+   did not declare.
+6. **Interim executor.** Until level 2 exists
    ([#8577](https://github.com/richlander/dotnet-inspect/issues/8577)), this
    owner provides the serial reference executor for the method-definition
    source. It implements the reference passes exactly, stops at a settled
    Exists terminal, and records participation. It is not an optimization
    and makes no parallel or collapse claim.
-5. **Producer algorithm.** Unsafe-evidence presence keeps the existing probe
+7. **Producer algorithm.** Unsafe-evidence presence keeps the existing probe
    algorithm unchanged: the declaration check, the unsafe local-signature
    check, and the instruction scan with its call probe. It keeps the
    existing presence work budget and its bounds.
-6. **Failure.** In metadata order, the first definition whose analysis is
+8. **Failure.** In metadata order, the first definition whose analysis is
    incomplete before any evidence is found fails the producer with that
    diagnostic. Evidence found first settles the terminal, and later
    definitions are not visited. This matches the retired probe.
-7. **Retirement.** `LibraryBodyIndex.HasUnsafeEvidence` and the builder's
+9. **Retirement.** `LibraryBodyIndex.HasUnsafeEvidence` and the builder's
    presence loop are removed, and `UnsafeEvidencePresenceQuery` reads the
    producer's result. `DotnetInspector.Queries` then has no dependency on
    `LibraryBodyIndex`.
-8. **Coexistence.** The fused execution for all other producers is unchanged
+10. **Coexistence.** The fused execution for all other producers is unchanged
    and shares no mutable state with the planned execution.
 
 ### Gates
@@ -805,8 +821,16 @@ These gates land with the implementing slice and run in Release:
   evidence.
 - **Failure:** an incomplete definition before any evidence yields the failed
   outcome, not an absent answer.
-- **Undeclared layer:** a producer that requested only the declaration layer
-  cannot obtain the body layer.
+- **Undeclared access:** a producer that requested only the declaration layer
+  cannot obtain the body layer, and a producer cannot read another
+  producer's result without declaring the dependency.
+- **Declaration first:** an unsafe declaration whose body cannot be read
+  yields evidence, not a failure.
+- **Minimal description:** a single-producer request's work description and
+  receipt contain no other producer, layer, or lookup.
+- **Failure containment:** with test declarations, a failing producer leaves
+  an independent producer's result unchanged and gives a dependent a typed
+  prerequisite failure.
 
 This slice makes no claim about fusing several producers, parallel execution,
 or request collapse. Those belong to later producer slices and to level 2.
