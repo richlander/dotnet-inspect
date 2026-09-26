@@ -37,17 +37,18 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     static string ExternalFocusRole(
         InspectionGraphDocument document,
         InspectionGraphEdge edge) =>
-        Assert.IsType<InspectionGraphValue.Token>(
-            Assert.Single(
-                document.Characteristics,
-                characteristic =>
-                    ReferenceEquals(
-                        characteristic.Descriptor,
-                        ExternalFocusedCallGraphInspectionCatalog.EdgeRole)
-                    && characteristic.Target
-                        == InspectionGraphTarget.Edge(edge.Id))
-                .Value)
-            .Value;
+        Assert.Single(
+            Assert.IsType<InspectionGraphValue.TokenSet>(
+                Assert.Single(
+                    document.Characteristics,
+                    characteristic =>
+                        ReferenceEquals(
+                            characteristic.Descriptor,
+                            InspectionGraphFocusCatalog.Role)
+                        && characteristic.Target
+                            == InspectionGraphTarget.Edge(edge.Id))
+                    .Value)
+                .Values);
 
     [Fact]
     public async Task
@@ -72,7 +73,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             (
                 Member(document.Nodes[edge.FromNodeId]).Name,
                 Member(document.Nodes[edge.ToNodeId]).Name));
-        Assert.Equal("boundary", ExternalFocusRole(document, edge));
+        Assert.Equal("exit", ExternalFocusRole(document, edge));
         Assert.Equal(
             [
                 (edge.FromNodeId, "callgraph.caller"),
@@ -219,8 +220,8 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             document.Limits,
             limit => ReferenceEquals(
                 limit.Descriptor,
-                ExternalFocusedCallGraphInspectionCatalog
-                    .BoundaryClassificationIncomplete));
+                InspectionGraphFocusCatalog
+                    .ScopeClassificationIncomplete));
         Assert.Equal(
             [(edge.FromNodeId, "callgraph.forwarding.root")],
             nodePackages.Select(item =>
