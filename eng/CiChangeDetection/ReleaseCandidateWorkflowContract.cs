@@ -150,6 +150,16 @@ internal static class ReleaseCandidateWorkflowContract
 
         YamlMappingNode buildSite =
             GetRequiredMapping(jobs, "build-site", "release candidate jobs");
+        string publishSite = GetRequiredScalar(
+            FindStep(buildSite, "Publish browser app"),
+            "run",
+            "release candidate site publish");
+        RequireContains(
+            publishSite,
+            "src/DotnetInspect.Web/DotnetInspect.Web.csproj");
+        RequireContains(
+            publishSite,
+            "-p:InspectWebIncludeFrontend=true");
         YamlMappingNode verifySite =
             FindStep(buildSite, "Verify production site");
         RequireScalarValue(

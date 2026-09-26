@@ -187,8 +187,9 @@ TMPDIR="$repo_root/artifacts" \
 
 runtime_pack_directory=$(
   "$dotnet" msbuild \
-    "$repo_root/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
+    "$repo_root/src/DotnetInspect.Web/DotnetInspect.Web.csproj" \
     -nologo \
+    -property:InspectWebIncludeFrontend=true \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
   | "$node" -e '
@@ -330,10 +331,11 @@ if [[ "$lowering" == "runtime" ]]; then
   graph_properties+=("-p:Features=runtime-async=on")
 fi
 "$dotnet" msbuild \
-  "$repo_root/inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj" \
+  "$repo_root/src/DotnetInspect.Web/DotnetInspect.Web.csproj" \
   -t:GenerateRestoreGraphFile \
   -p:RestoreGraphOutputPath="$graph" \
   -p:Configuration=Release \
+  -p:InspectWebIncludeFrontend=true \
   -p:MSBuildEnableWorkloadResolver=false \
   "${graph_properties[@]}" \
   -nologo \
