@@ -854,41 +854,7 @@ public sealed class LibraryBodyIndex
     /// stay bounded and same-type generic self-calls are excluded.
     /// </summary>
     public ImmutableArray<CalledTypeSummary> CalledTypes(Func<MethodIdentity, bool> callerScope)
-    {
-        ArgumentNullException.ThrowIfNull(callerScope);
-
-        return
-        [
-            .. DirectCalls
-                .Where(call => callerScope(call.Caller))
-                .Where(call => call.Callee.Kind != MemberKind.Unsupported)
-                .Where(call => !IsObjectConstructor(call.Callee))
-                .Select(call => new
-                {
-                    Call = call,
-                    CalledType = GenericMemberIdentity.OpenDeclaringType(call.Callee.DeclaringType),
-                    CallerType = GenericMemberIdentity.OpenDeclaringType(call.Caller.DeclaringType),
-                    CalleeKey = GraphNodeIdentity.FromMember(call.Callee),
-                })
-                .Where(item => !item.CalledType.Equals(item.CallerType))
-                .GroupBy(item => item.CalledType)
-                .Select(group =>
-                {
-                    var type = group.Key;
-                    return new CalledTypeSummary(
-                        type,
-                        FormatCalledTypeAssembly(type.Assembly),
-                        Calls: group.Count(),
-                        Members: group.Select(item => item.CalleeKey).Distinct().Count(),
-                        CallKinds: [.. group
-                            .Select(item => item.Call.Kind)
-                            .Distinct()
-                            .OrderBy(kind => kind)]);
-                })
-                .OrderByDescending(summary => summary.Calls)
-                .ThenBy(summary => summary.Type.ToQualifiedDisplayString(), StringComparer.Ordinal)
-        ];
-    }
+        => _callGraph.CalledTypes(callerScope);
 
     /// <summary>
     /// Requires-unsafe methods whose signature carries no pointer — the unsafe
@@ -967,17 +933,4 @@ public sealed class LibraryBodyIndex
             maxDepth,
             maxNodes);
     }
-
-    static string FormatCalledTypeAssembly(string assembly)
-        => string.IsNullOrEmpty(assembly) || assembly == TypeRef.CoreLibrary ? "" : assembly;
-
-    static bool IsObjectConstructor(MemberRef member)
-        => member is
-        {
-            Name: ".ctor",
-            DeclaringType.Kind: TypeRefKind.Definition,
-            DeclaringType.Assembly: TypeRef.CoreLibrary,
-            DeclaringType.Namespace: "System",
-            DeclaringType.Name: "Object"
-        };
 }

@@ -121,6 +121,14 @@ npm test
 npm run lint
 ```
 
+The WebAssembly host is part of the normal solution graph, but its default
+build compiles only managed code and does not invoke Node. Build the frontend
+first and pass `-p:InspectWebIncludeFrontend=true` for a complete browser build
+or publish; publishing without that explicit opt-in fails rather than producing
+an incomplete site. The managed and WebAssembly modes use isolated restore and
+artifact paths: Release outputs are under `artifacts/*/DotnetInspect.Web/release`
+and `artifacts/*/DotnetInspect.Web/release_browser-wasm`, respectively.
+
 The managed suite is an xUnit Microsoft Testing Platform executable. Use
 `--filter-class` and `--filter-method` after `--` for focused selections. It
 covers the `DotnetInspect.Web` host, shared Sections and Networking
@@ -156,6 +164,18 @@ dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 This Microsoft Testing Platform executable owns semantic row shaping and the
 cross-host completed-inspection envelope, portable-share, contained-diagnostic,
 and JSON round-trip contracts.
+
+### QueryOverflow tests
+
+Run the resumable QuerySpace execution suite from the repository root:
+
+```bash
+dotnet run --project tests/QueryOverflow.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns QueryOverflow plan admission,
+bounded candidate demand, cross-batch Rows and Count equivalence, terminal
+state, detached output, and the independent-consumer boundary.
 
 ### Persistent-cache tests
 

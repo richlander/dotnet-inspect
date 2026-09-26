@@ -42,12 +42,12 @@ public sealed record PlatformTypeCatalogRouteRequest
             TargetKind = PlatformTypeCatalogRouteTargetKind.Member;
         }
         if (!string.Equals(
-                originalQuery,
-                expectedQuery,
+                originalQuery.Trim(),
+                expectedQuery.Trim(),
                 StringComparison.Ordinal))
         {
             throw new ArgumentException(
-                "The original query must exactly match the supplied Type and member target.",
+                "The original query must match the supplied Type and member target after trimming surrounding whitespace.",
                 nameof(originalQuery));
         }
 

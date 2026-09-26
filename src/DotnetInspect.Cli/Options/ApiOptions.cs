@@ -360,6 +360,7 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
+    internal bool RouterCompletedPlatformLookup { get; init; }
     public InspectionEnvelope<CSharpTypeDocumentOutcome>?
         TypeDocumentInspection
     {

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
+using DotnetInspector.LibraryMetadata;
 
 namespace DotnetInspector.Queries;
 
@@ -186,7 +187,16 @@ public sealed class WorkspaceDeclarationLocator
                 lock (_gate)
                 {
                     _reserved--;
-                    current.Entry.Reusable = outcome is WorkspaceDeclarationInventoryOutcome.Inspected;
+                    current.Entry.Reusable =
+                        outcome
+                            is WorkspaceDeclarationInventoryOutcome.Inspected
+                            or WorkspaceDeclarationInventoryOutcome
+                                .LibraryInspected
+                                {
+                                    Outcome:
+                                        LibraryTypeDeclarationInventoryInspectionOutcome
+                                            .Completed,
+                                };
                     if (current.Entry.Reusable)
                         _retained++;
                     current.Entry.Completion.SetResult(outcome);

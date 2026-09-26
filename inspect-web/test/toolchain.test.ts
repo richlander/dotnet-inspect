@@ -547,7 +547,7 @@ test("facade compilation replaces stale transient inventories", () => {
 test("MSBuild admits only the exact generated facade modules after derivation", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const project = readFileSync(
-    resolve(root, "DotnetInspect.Web/DotnetInspect.Web.csproj"),
+    resolve(root, "../src/DotnetInspect.Web/DotnetInspect.Web.csproj"),
     "utf8",
   );
   const configuredModules = [
@@ -562,7 +562,7 @@ test("MSBuild admits only the exact generated facade modules after derivation", 
   assert.deepEqual(
     configuredModules,
     publishedFacadeModules.map(path =>
-      path.replace("DotnetInspect.Web/", "")),
+      `../../inspect-web/${path}`),
   );
   assert.ok(
     project.includes('<Content Remove="wwwroot\\inspect-web-*.js" />'),
@@ -575,7 +575,7 @@ test("MSBuild admits only the exact generated facade modules after derivation", 
   const target = targetMatch[0];
   const generation = target.indexOf("<Exec ");
   const admission = target.indexOf(
-    '<Content Include="@(_InspectWebGeneratedFacadeModule)" />',
+    '<Content Include="@(_InspectWebGeneratedFacadeModule)" Link="wwwroot\\%(Filename)%(Extension)" />',
   );
   assert.ok(generation >= 0 && admission > generation,
     "MSBuild must admit the exact facade set only after derivation");

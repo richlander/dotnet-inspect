@@ -25,7 +25,7 @@
     <InternalsVisibleTo Include="InspectWeb.ManagedOperationBridge.BrowserCanary" />
     <InternalsVisibleTo Include="TsJsExport.MultiFacade.Alpha" />
     <InternalsVisibleTo Include="TsJsExport.MultiFacade.Beta" />
-    <AdditionalFiles Include="..\..\inspect-web\DotnetInspect.Web\BannedSymbols.txt" />
+    <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformHouse.Execution.Packages\DotnetInspector.PlatformHouse.Execution.Packages.csproj" />

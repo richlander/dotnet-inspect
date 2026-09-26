@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using DotnetInspector.LibraryMetadata;
+using DotnetInspector.Libraries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -103,10 +105,26 @@ public sealed class WorkspaceDeclarationContext
     {
         Receipt = receipt;
         Group = group;
+        LibraryOccurrences = [];
+    }
+
+    internal WorkspaceDeclarationContext(
+        WorkspaceDeclarationContextReceipt receipt,
+        ImmutableArray<WorkspaceLibraryOccurrence> libraryOccurrences,
+        LibraryTypeDeclarationInventoryInspectionBounds libraryInspectionBounds)
+    {
+        Receipt = receipt;
+        LibraryOccurrences = libraryOccurrences;
+        LibraryInspectionBounds = libraryInspectionBounds;
     }
 
     public WorkspaceDeclarationContextReceipt Receipt { get; }
     public AssemblyContextGroup? Group { get; }
+    internal ImmutableArray<WorkspaceLibraryOccurrence> LibraryOccurrences
+    { get; }
+    internal LibraryTypeDeclarationInventoryInspectionBounds?
+        LibraryInspectionBounds
+    { get; }
 
     /// <summary>The original loader result, when admitted by the context loader.</summary>
     public WorkspaceContextLoadOutcome? ContextLoadOutcome { get; }
@@ -175,8 +193,36 @@ public abstract class WorkspaceDeclarationInventoryOutcome
 
     public sealed class Inspected : WorkspaceDeclarationInventoryOutcome
     {
-        internal Inspected(AssemblyTypeDeclarationInventoryOutcome outcome) => Outcome = outcome;
+        internal Inspected(
+            AssemblyTypeDeclarationInventoryOutcome outcome,
+            Guid moduleVersionId)
+        {
+            Outcome = outcome;
+            ModuleVersionId = moduleVersionId;
+        }
+
         public AssemblyTypeDeclarationInventoryOutcome Outcome { get; }
+        public Guid ModuleVersionId { get; }
+    }
+
+    public sealed class LibraryInspected :
+        WorkspaceDeclarationInventoryOutcome
+    {
+        internal LibraryInspected(
+            LibraryTypeDeclarationInventoryInspectionOutcome outcome) =>
+            Outcome = outcome;
+
+        public LibraryTypeDeclarationInventoryInspectionOutcome Outcome
+        { get; }
+    }
+
+    public sealed class InventoryRejected :
+        WorkspaceDeclarationInventoryOutcome
+    {
+        internal InventoryRejected(CandidateOpenFailure failure) =>
+            Failure = failure;
+
+        public CandidateOpenFailure Failure { get; }
     }
 
     public sealed class AcquisitionRejected : WorkspaceDeclarationInventoryOutcome
@@ -212,14 +258,14 @@ public sealed class WorkspaceDeclarationPopulation
     readonly InspectionWorkspace _workspace;
     readonly IReadOnlyDictionary<
         WorkspaceDeclarationOccurrence,
-        (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)> _access;
+        WorkspaceDeclarationMemberAccess> _access;
 
     internal WorkspaceDeclarationPopulation(
         InspectionWorkspace workspace,
         WorkspaceDeclarationPopulationReceipt receipt,
         IReadOnlyDictionary<
             WorkspaceDeclarationOccurrence,
-            (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)> access)
+            WorkspaceDeclarationMemberAccess> access)
     {
         _workspace = workspace;
         Receipt = receipt;
@@ -249,16 +295,14 @@ public sealed class WorkspaceDeclarationPopulation
 
         try
         {
-            var result = access.Group.UseAssemblySession(
-                access.Assembly, static session => session.TypeDeclarations());
-            cancellationToken.ThrowIfCancellationRequested();
-            return result switch
+            return access switch
             {
-                AssemblyImageAccessResult<AssemblyTypeDeclarationInventoryOutcome>.Available available =>
-                    new WorkspaceDeclarationInventoryOutcome.Inspected(available.Value),
-                AssemblyImageAccessResult<AssemblyTypeDeclarationInventoryOutcome>.Rejected rejected =>
-                    new WorkspaceDeclarationInventoryOutcome.AcquisitionRejected(rejected.Failure),
-                _ => throw new InvalidOperationException("Unknown assembly-image access result."),
+                WorkspaceDeclarationMemberAccess.AssemblyContext group =>
+                    ReadFromAssemblyContext(group, cancellationToken),
+                WorkspaceDeclarationMemberAccess.LibraryOccurrence library =>
+                    ReadFromLibraryOccurrence(library, cancellationToken),
+                _ => throw new InvalidOperationException(
+                    "Unknown Workspace declaration member access."),
             };
         }
         catch (ObjectDisposedException exception)
@@ -269,4 +313,78 @@ public sealed class WorkspaceDeclarationPopulation
                 WorkspaceDeclarationPopulationFailure.ContextUnavailable);
         }
     }
+
+    static WorkspaceDeclarationInventoryOutcome ReadFromAssemblyContext(
+        WorkspaceDeclarationMemberAccess.AssemblyContext access,
+        CancellationToken cancellationToken)
+    {
+        var result = access.Group.UseAssemblySession(
+            access.Assembly,
+            static session =>
+                (session.ModuleVersionId(), session.TypeDeclarations()));
+        cancellationToken.ThrowIfCancellationRequested();
+        return result switch
+        {
+            AssemblyImageAccessResult<
+                (Guid ModuleVersionId,
+                    AssemblyTypeDeclarationInventoryOutcome Outcome)>
+                .Available available =>
+                    new WorkspaceDeclarationInventoryOutcome.Inspected(
+                        available.Value.Outcome,
+                        available.Value.ModuleVersionId),
+            AssemblyImageAccessResult<
+                (Guid ModuleVersionId,
+                    AssemblyTypeDeclarationInventoryOutcome Outcome)>
+                .Rejected rejected =>
+                    new WorkspaceDeclarationInventoryOutcome
+                        .AcquisitionRejected(rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-image access result."),
+        };
+    }
+
+    WorkspaceDeclarationInventoryOutcome ReadFromLibraryOccurrence(
+        WorkspaceDeclarationMemberAccess.LibraryOccurrence access,
+        CancellationToken cancellationToken)
+    {
+        WorkspaceLibraryOperationIssueOutcome issued =
+            _workspace.IssueLibraryOperation(access.Occurrence);
+        if (issued is not WorkspaceLibraryOperationIssueOutcome.Issued
+            available)
+        {
+            return new WorkspaceDeclarationInventoryOutcome.Unavailable(
+                WorkspaceDeclarationPopulationFailure.ContextUnavailable);
+        }
+
+        using (available.Lease)
+        {
+            LibraryTypeDeclarationInventoryInspectionOutcome outcome =
+                LibraryTypeDeclarationInventoryInspection.Execute(
+                    new(
+                        access.Occurrence.Library,
+                        access.Bounds),
+                    available.Lease,
+                    cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new WorkspaceDeclarationInventoryOutcome
+                .LibraryInspected(outcome);
+        }
+    }
+}
+
+internal abstract record WorkspaceDeclarationMemberAccess
+{
+    private WorkspaceDeclarationMemberAccess()
+    {
+    }
+
+    internal sealed record AssemblyContext(
+        AssemblyContextGroup Group,
+        ResolvedAssemblyReference Assembly)
+        : WorkspaceDeclarationMemberAccess;
+
+    internal sealed record LibraryOccurrence(
+        WorkspaceLibraryOccurrence Occurrence,
+        LibraryTypeDeclarationInventoryInspectionBounds Bounds)
+        : WorkspaceDeclarationMemberAccess;
 }

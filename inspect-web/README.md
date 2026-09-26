@@ -47,7 +47,7 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
 The rule is enforced by the compiler, not by a convention.
-`DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
+`src/DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
 factories, and the group's image and retained-descriptor accessors in this
 project, and `Directory.Build.targets` already escalates `RS0030` to an error
@@ -1305,8 +1305,9 @@ managed runtime.
 After a Release publish, run the native binding gate:
 
 ```bash
-dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
-  -c Release --output artifacts/inspect-web-publish
+dotnet publish src/DotnetInspect.Web/DotnetInspect.Web.csproj \
+  -c Release --output artifacts/inspect-web-publish \
+  -p:InspectWebIncludeFrontend=true
 cd inspect-web
 INSPECT_WEB_WORKER_SOURCE_DLL=\
 ../artifacts/bin/TsJsExport.Contracts/release/TsJsExport.Contracts.dll \
@@ -1656,7 +1657,8 @@ do diverge — an authored `src/bin/probe.html`, say — the set comparison fail
 loudly rather than passing quietly. The `bin` and `obj` entries matter only once
 the engine project has been built, which is why they went unnoticed locally and
 surfaced on CI: without them html-validate was linting
-`DotnetInspect.Web/bin/**` and `DotnetInspect.Web/obj/**` — MSBuild
+`../artifacts/bin/DotnetInspect.Web/**` and
+`../artifacts/obj/DotnetInspect.Web/**` — MSBuild
 static-web-asset placeholders and copied `wwwroot` output that no one authored
 and no one can fix.
 
