@@ -1359,6 +1359,13 @@ public static class TypeCommand
             return 1;
         }
 
+        bool evidenceComplete =
+            available.Relations.Relations.Evidence.IsComplete;
+        if (!evidenceComplete)
+        {
+            WriteIncompleteTypeRelationEvidence(
+                available.Relations.Relations.Evidence);
+        }
         if (available.Relations.Population.Rows
             is not SubjectRelationPopulationRowsOutcome.Read)
         {
@@ -1379,7 +1386,8 @@ public static class TypeCommand
             request.Type,
             [.. results],
             implementers,
-            derivedTypes);
+            derivedTypes,
+            evidenceComplete);
         if (options.JsonOutput
             && (options.Columns is { Length: > 0 }
                 || options.Fields is { Length: > 0 }))
@@ -1396,9 +1404,7 @@ public static class TypeCommand
                         SearchViewContext.Default,
                         writerOptions),
                 !options.CompactJson);
-            return available.Relations.Relations.Evidence.HasUsableRows
-                ? 0
-                : 1;
+            return evidenceComplete ? 0 : 1;
         }
         if (options.JsonOutput)
         {
@@ -1408,9 +1414,7 @@ public static class TypeCommand
                 TypeRelationsCompactJsonContext.Default
                     .ListTypeRelationResult,
                 options.CompactJson);
-            return available.Relations.Relations.Evidence.HasUsableRows
-                ? 0
-                : 1;
+            return evidenceComplete ? 0 : 1;
         }
 
         if (options.Tabular)
@@ -1441,9 +1445,40 @@ public static class TypeCommand
                     SearchViewContext.Default,
                     writerOptions));
         }
-        return available.Relations.Relations.Evidence.HasUsableRows
-            ? 0
-            : 1;
+        return evidenceComplete ? 0 : 1;
+    }
+
+    private static void WriteIncompleteTypeRelationEvidence(
+        SubjectRelationPopulationEvidence evidence)
+    {
+        CommandError.Write(
+            "Subject Relations results are incomplete; returned rows do not "
+                + "establish an exhaustive result.");
+        foreach (SubjectRelationProducerOutcome producer
+            in evidence.Producers.Where(producer =>
+                producer.Disposition
+                    != SubjectRelationProducerDisposition.Complete))
+        {
+            string details = string.Join(
+                " ",
+                producer.Diagnostics
+                    .Select(static diagnostic =>
+                        diagnostic.Evidence switch
+                        {
+                            Exception exception => exception.Message,
+                            _ => diagnostic.Evidence.ToString(),
+                        })
+                    .Where(static detail =>
+                        !string.IsNullOrWhiteSpace(detail))
+                    .Distinct(StringComparer.Ordinal));
+            CommandError.Write(
+                $"{producer.Producer.Name}: {producer.Disposition}; "
+                    + $"examined {producer.Coverage.Examined} of "
+                    + $"{producer.Coverage.Considered} candidates, "
+                    + $"{producer.Coverage.Unavailable} unavailable, "
+                    + $"{producer.Coverage.Limited} limited."
+                    + (details.Length == 0 ? "" : $" {details}"));
+        }
     }
 
     private static bool TrySelectTypeRelationCandidates(
@@ -1780,7 +1815,8 @@ public static class TypeCommand
         string targetType,
         List<TypeRelationResult> results,
         bool implementers,
-        bool derivedTypes)
+        bool derivedTypes,
+        bool evidenceComplete)
     {
         List<TypeRelationRow> Rows(SubjectRelationForm form) =>
         [
@@ -1813,7 +1849,11 @@ public static class TypeCommand
         {
             Title = $"Relations for {targetType}",
             Description = results.Count == 0
-                ? "No matching type relations found."
+                ? evidenceComplete
+                    ? "No matching type relations found."
+                    : "No matching type relations were found in the "
+                        + "available candidate evidence; inspection was "
+                        + "incomplete."
                 : null,
             Implementers = interfaceRows,
             DerivedTypes = baseRows,

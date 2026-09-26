@@ -224,9 +224,15 @@ public sealed class WorkspaceDeclarationPopulation
         _workspace = workspace;
         Receipt = receipt;
         _access = access;
+        RelationAuthority =
+            SubjectRelationPopulationAuthority.Capture(
+                StructuralSubjectIdentity.ForWorkspace(receipt.Workspace),
+                receipt.Identity);
     }
 
     public WorkspaceDeclarationPopulationReceipt Receipt { get; }
+
+    internal SubjectRelationPopulationAuthority RelationAuthority { get; }
 
     internal WorkspaceDeclarationPopulationFailure? Availability() =>
         _workspace.DeclarationPopulationAvailability();

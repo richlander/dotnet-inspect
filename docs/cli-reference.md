@@ -1250,9 +1250,12 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 sections also treat `-n`, `--tail`, and `--rows A..B` as semantic Type-candidate
 selection before Count or rendering. Multiple constructed forms of one generic
 interface remain evidence for one implementing Type row rather than duplicate
-rows. Other exact-type selected-section, discovery, shape, match, and ambiguous
-commandless modes retain rendered-line fallback. Numeric `-t` is a literal Type
-filter, not a row-count spelling.
+rows. If any candidate hierarchy cannot be inspected or resolved, Rows remain
+usable but the command reports the incomplete producer evidence on stderr and
+exits nonzero; an empty partial result is not presented as exact absence. Other
+exact-type selected-section, discovery, shape, match, and ambiguous commandless
+modes retain rendered-line fallback. Numeric `-t` is a literal Type filter, not
+a row-count spelling.
 
 With exact `member -S Calls`, `-n`, `--tail`, and strict `--rows A..B`
 select complete direct call-site rows after analysis of the selected overload

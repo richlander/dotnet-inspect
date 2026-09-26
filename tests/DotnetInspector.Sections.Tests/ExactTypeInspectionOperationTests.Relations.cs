@@ -133,6 +133,102 @@ public sealed partial class ExactTypeInspectionOperationTests
             candidate.Evidence.Length);
     }
 
+    [Fact]
+    public async Task RelationRowsContinueAcrossTheCapturedPopulation()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", BuildHierarchyAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        var input = new WorkspaceContextInput
+        {
+            Framework = Framework,
+            Members =
+            [
+                WorkspaceMemberCoordinate.Package(
+                    PackageId,
+                    Version,
+                    Framework),
+            ],
+        };
+        await using var workspace =
+            new InspectionWorkspace(new WorkspacePlan([], [input]));
+        WorkspaceDeclarationContext context =
+            await WorkspaceContextLoader.LoadDeclarationContextAsync(
+                workspace,
+                input,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        WorkspaceDeclarationPopulation population =
+            Assert.IsType<WorkspaceDeclarationPopulationCapture.Captured>(
+                workspace.CaptureDeclarationPopulation([context]))
+                .Population;
+        var focus = Assert.IsType<WorkspaceExactTypeFocusOutcome.Found>(
+            WorkspaceExactTypeFocusQuery.Execute(
+                population,
+                "Relations.IContract",
+                ExactTypeSelectionKind.Query,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "interface"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        WorkspaceTypeRelationsInspectionResult first =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                focus,
+                plan,
+                rows: new SubjectRelationPopulationRowsRequest(1),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        var firstRows = Assert.IsType<
+            SubjectRelationPopulationRowsOutcome.Read>(
+                first.Population.Rows);
+        SubjectRelationPopulationContinuation continuation =
+            Assert.IsType<SubjectRelationPopulationContinuation>(
+                firstRows.Continuation);
+
+        WorkspaceTypeRelationsInspectionResult second =
+            WorkspaceTypeRelationsInspectionOperation.Execute(
+                workspace,
+                population,
+                focus,
+                plan,
+                rows: new SubjectRelationPopulationRowsRequest(
+                    1,
+                    continuation: continuation),
+                continuationAuthority: Assert.IsType<
+                    SubjectRelationPopulationContinuationAuthority>(
+                        first.ContinuationAuthority),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Single(
+            Assert.IsType<SubjectRelationPopulationRowsOutcome.Read>(
+                second.Population.Rows).Items);
+        Assert.Single(second.Candidates);
+        Assert.NotEqual(
+            first.Candidates[0].Candidate,
+            second.Candidates[0].Candidate);
+    }
+
     static byte[] BuildHierarchyAssembly()
     {
         var metadata = new MetadataBuilder();

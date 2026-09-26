@@ -1,3 +1,7 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspect.Cli;
 using DotnetInspector.Services;
@@ -257,6 +261,73 @@ public sealed class TypeRelationsCommandTests
             result.Error);
     }
 
+    [Fact]
+    public async Task IncompleteHierarchyEvidenceRemainsVisible()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"partial-relations-{Guid.NewGuid():N}.dll");
+        await File.WriteAllBytesAsync(
+            path,
+            BuildPartialHierarchyAssembly(includeValidImplementer: false),
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var json = await ExecuteAsync(
+                "type",
+                "Probe.IContract",
+                "--library",
+                path,
+                "-S",
+                "Implementers",
+                "--json");
+            var markdown = await ExecuteAsync(
+                "type",
+                "Probe.IContract",
+                "--library",
+                path,
+                "-S",
+                "Implementers");
+            await File.WriteAllBytesAsync(
+                path,
+                BuildPartialHierarchyAssembly(includeValidImplementer: true),
+                TestContext.Current.CancellationToken);
+            var partialRows = await ExecuteAsync(
+                "type",
+                "Probe.IContract",
+                "--library",
+                path,
+                "-S",
+                "Implementers",
+                "--json");
+
+            Assert.Equal(1, json.ExitCode);
+            Assert.Equal([], ReadJsonTypes(json.Output));
+            Assert.Contains(
+                "Subject Relations results are incomplete",
+                json.Error);
+            Assert.Contains("1 unavailable", json.Error);
+            Assert.Equal(1, markdown.ExitCode);
+            Assert.Contains(
+                "available candidate evidence; inspection was incomplete",
+                markdown.Output);
+            Assert.Contains(
+                "Subject Relations results are incomplete",
+                markdown.Error);
+            Assert.Equal(1, partialRows.ExitCode);
+            Assert.Equal(
+                ["Probe.Good"],
+                ReadJsonTypes(partialRows.Output));
+            Assert.Contains(
+                "Subject Relations results are incomplete",
+                partialRows.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData("--table")]
     [InlineData("--tsv")]
@@ -371,6 +442,63 @@ public sealed class TypeRelationsCommandTests
                 .EnumerateArray()
                 .Select(row => row.GetProperty("type").GetString()!),
         ];
+    }
+
+    private static byte[] BuildPartialHierarchyAssembly(
+        bool includeValidImplementer)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Partial.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Partial"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        TypeDefinitionHandle AddType(
+            string name,
+            TypeAttributes attributes) =>
+            metadata.AddTypeDefinition(
+                attributes,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString(name),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        AddType("<Module>", default);
+        TypeDefinitionHandle contract = AddType(
+            "IContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        if (includeValidImplementer)
+        {
+            metadata.AddInterfaceImplementation(
+                AddType("Good", TypeAttributes.Public),
+                contract);
+        }
+        TypeSpecificationHandle malformed =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(new byte[] { 0xff }));
+        metadata.AddInterfaceImplementation(
+            AddType("Bad", TypeAttributes.Public),
+            malformed);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
     }
 }
 

@@ -95,9 +95,7 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 focusSelection.Type);
         }
         SubjectRelationPopulationAuthority populationAuthority =
-            SubjectRelationPopulationAuthority.Capture(
-                workspaceSubject,
-                population.Receipt.Identity);
+            population.RelationAuthority;
 
         var scans = new List<ParticipantScan>();
         foreach (IGrouping<
