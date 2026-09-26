@@ -1164,6 +1164,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LinkedSinkCancellationPreservesTimeoutClassification()
     {
         await using var fixture = new SemanticFindSourceFixture();
