@@ -268,7 +268,7 @@ internal static class ChangePlanTestSuite
             "inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
             "inspect-web/scripts/verify-multi-facade-canary.ts",
             "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
-            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "src/DotnetInspect.Web/InspectWebJsExportContext.cs",
             "src/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
             "src/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
             "src/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",

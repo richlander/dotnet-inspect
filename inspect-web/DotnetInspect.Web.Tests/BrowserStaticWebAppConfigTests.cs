@@ -6,6 +6,90 @@ namespace DotnetInspect.Web.Tests;
 public class BrowserStaticWebAppConfigTests
 {
     [Fact]
+    public void FrontendIntegrationIsExplicitAndRequiredForPublish()
+    {
+        XDocument project = XDocument.Load(EngineProjectPath());
+        XElement property = Assert.Single(
+            project.Descendants("InspectWebIncludeFrontend"));
+        Assert.Equal("false", property.Value.Trim());
+        Assert.Equal(
+            "'$(InspectWebIncludeFrontend)' == ''",
+            (string?)property.Attribute("Condition"));
+
+        XElement restoreIsolation = Assert.Single(
+            project.Descendants("MSBuildProjectExtensionsPath"));
+        Assert.Equal(
+            @"$(MSBuildThisFileDirectory)..\..\artifacts\obj\DotnetInspect.Web\browser-wasm\",
+            restoreIsolation.Value.Trim());
+        Assert.Equal(
+            "'$(InspectWebIncludeFrontend)' == 'true'",
+            (string?)restoreIsolation.Attribute("Condition"));
+
+        XElement outputPathIsolation = Assert.Single(
+            project.Descendants("AppendRuntimeIdentifierToOutputPath"));
+        Assert.Equal("true", outputPathIsolation.Value.Trim());
+        Assert.Equal(
+            "'$(InspectWebIncludeFrontend)' == 'true'",
+            (string?)outputPathIsolation.Attribute("Condition"));
+
+        XElement[] sdkImports = [.. project.Root!.Elements("Import")];
+        Assert.Collection(
+            sdkImports,
+            webAssemblyProps => AssertSdkImport(
+                webAssemblyProps,
+                "Sdk.props",
+                "Microsoft.NET.Sdk.WebAssembly",
+                "'$(InspectWebIncludeFrontend)' == 'true'"),
+            managedProps => AssertSdkImport(
+                managedProps,
+                "Sdk.props",
+                "Microsoft.NET.Sdk",
+                "'$(InspectWebIncludeFrontend)' != 'true'"),
+            webAssemblyTargets => AssertSdkImport(
+                webAssemblyTargets,
+                "Sdk.targets",
+                "Microsoft.NET.Sdk.WebAssembly",
+                "'$(InspectWebIncludeFrontend)' == 'true'"),
+            managedTargets => AssertSdkImport(
+                managedTargets,
+                "Sdk.targets",
+                "Microsoft.NET.Sdk",
+                "'$(InspectWebIncludeFrontend)' != 'true'"));
+
+        XElement validation = Target(project, "ValidateInspectWebIncludeFrontend");
+        Assert.Equal(
+            "PrepareForBuild;PrepareForPublish",
+            (string?)validation.Attribute("BeforeTargets"));
+        XElement invalidValueError = Assert.Single(validation.Elements("Error"));
+        Assert.Equal(
+            "'$(InspectWebIncludeFrontend)' != 'true' And '$(InspectWebIncludeFrontend)' != 'false'",
+            (string?)invalidValueError.Attribute("Condition"));
+
+        XElement publishGuard = Target(project, "RequireInspectWebFrontendForPublish");
+        Assert.Equal(
+            "PrepareForPublish",
+            (string?)publishGuard.Attribute("BeforeTargets"));
+        Assert.Equal(
+            "'$(InspectWebIncludeFrontend)' != 'true'",
+            (string?)publishGuard.Attribute("Condition"));
+
+        XElement[] frontendTargets =
+        [
+            Target(project, "GenerateInspectWebEngineFacades"),
+            Target(project, "ValidateInspectWebFrontendBundle"),
+            Target(project, "PublishInspectWebFrontendIndex"),
+            Target(project, "PublishInspectWebRuntimeLoader"),
+            Target(project, "PublishInspectWebContentSecurityPolicy"),
+            Target(project, "VerifyPublishedInspectWebSite"),
+        ];
+        Assert.All(
+            frontendTargets,
+            target => Assert.Equal(
+                "'$(InspectWebIncludeFrontend)' == 'true'",
+                (string?)target.Attribute("Condition")));
+    }
+
+    [Fact]
     public void EntryDocumentsAreNotCachedAndConfigIsPublished()
     {
         string repository = RepositoryRoot();
@@ -36,16 +120,12 @@ public class BrowserStaticWebAppConfigTests
                 .GetProperty("apiRuntime")
                 .GetString());
 
-        XDocument project = XDocument.Load(Path.Combine(
-            repository,
-            "inspect-web",
-            "DotnetInspect.Web",
-            "DotnetInspect.Web.csproj"));
+        XDocument project = XDocument.Load(EngineProjectPath());
         XElement content = Assert.Single(
             project.Descendants("Content"),
             element =>
                 (string?)element.Attribute("Include") ==
-                @"..\staticwebapp.config.json");
+                @"..\..\inspect-web\staticwebapp.config.json");
 
         Assert.Equal(
             @"wwwroot\staticwebapp.config.json",
@@ -105,6 +185,28 @@ public class BrowserStaticWebAppConfigTests
             "$(PublishDir)wwwroot",
             (string?)verificationCommand.Attribute("Command"));
     }
+
+    private static XElement Target(XDocument project, string name) =>
+        Assert.Single(
+            project.Descendants("Target"),
+            element => (string?)element.Attribute("Name") == name);
+
+    private static void AssertSdkImport(
+        XElement import,
+        string project,
+        string sdk,
+        string condition)
+    {
+        Assert.Equal(project, (string?)import.Attribute("Project"));
+        Assert.Equal(sdk, (string?)import.Attribute("Sdk"));
+        Assert.Equal(condition, (string?)import.Attribute("Condition"));
+    }
+
+    private static string EngineProjectPath() => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web",
+        "DotnetInspect.Web.csproj");
 
     [Fact]
     public void RouteKeysAreUnique()
@@ -183,10 +285,9 @@ public class BrowserStaticWebAppConfigTests
         string repository = RepositoryRoot();
         string engineDirectory = Path.Combine(
             repository,
-            "inspect-web",
+            "src",
             "DotnetInspect.Web");
-        XDocument project = XDocument.Load(
-            Path.Combine(engineDirectory, "DotnetInspect.Web.csproj"));
+        XDocument project = XDocument.Load(EngineProjectPath());
 
         string[] scripts =
         [
@@ -200,7 +301,7 @@ public class BrowserStaticWebAppConfigTests
         foreach (string script in scripts)
         {
             Assert.True(
-                File.Exists(Path.Combine(engineDirectory, script)),
+                File.Exists(Path.GetFullPath(Path.Combine(engineDirectory, script))),
                 $"The engine project runs 'node \"{script}\"', but that file does not " +
                 "exist relative to the project directory.");
         }

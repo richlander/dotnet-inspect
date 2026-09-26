@@ -624,9 +624,10 @@ jobs:
         run: |
           set -uo pipefail
           dotnet publish \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
-            --output artifacts/inspect-web-publish &
+            --output artifacts/inspect-web-publish \
+            -p:InspectWebIncludeFrontend=true &
           publish_pid=$!
           (
             cd inspect-web

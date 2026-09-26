@@ -349,17 +349,41 @@ internal static partial class WorkflowContract
             published,
             "steps",
             "jobs.inspect-web-published");
+        List<YamlMappingNode> publishSteps = [];
         List<YamlMappingNode> testSteps = [];
         foreach (YamlNode stepNode in steps.Children)
         {
             YamlMappingNode step = RequireMapping(
                 stepNode,
                 "jobs.inspect-web-published step");
-            if (GetOptionalScalar(step, "name") ==
-                "Test published browser application")
+            string? name = GetOptionalScalar(step, "name");
+            if (name == "Publish browser app and install Firefox")
+                publishSteps.Add(step);
+            else if (name == "Test published browser application")
             {
                 testSteps.Add(step);
             }
+        }
+
+        if (publishSteps.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.inspect-web-published publish step.");
+        }
+        string publishRun = GetRequiredScalar(
+            publishSteps[0],
+            "run",
+            "jobs.inspect-web-published publish step");
+        if (!publishRun.Contains(
+                "src/DotnetInspect.Web/DotnetInspect.Web.csproj",
+                StringComparison.Ordinal)
+            || !publishRun.Contains(
+                "-p:InspectWebIncludeFrontend=true",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Published browser application must use the relocated host "
+                + "and explicitly include the frontend.");
         }
 
         if (testSteps.Count != 1)
