@@ -396,11 +396,12 @@ already flagged.
 
 ### Discovery lists catalog analyses, not producers
 
-**Rule.** Producer declarations are not capability registrations. `explain`,
-capability search, and `-D` list catalog analyses and routes registered
-through [capability modules](inspection-capability-composition.md), and a
-catalog analysis binds to the declarations that produce it. No declaration,
-work description, or receipt becomes a discovery identity. A host may show a
+**Rule.** Producer declarations are not capability registrations. Discovery
+surfaces such as `explain`, capability search, and `-D` draw on the
+registrations of [capability modules](inspection-capability-composition.md)
+and on catalog analyses, each as its owner defines, and a catalog analysis
+binds to the declarations that produce it. No declaration, work
+description, or receipt is registered with or listed by a discovery surface. A host may show a
 work description or receipt as execution evidence, and an explanation of a
 catalog analysis may describe the work its bound declarations imply. Neither
 adds a discoverable name.
@@ -485,7 +486,7 @@ decided when the second tier adopts it.
 | --- | --- |
 | [Library body Analysis service](library-body-analysis-service.md) | First adopter. Its producer coordination, features, and fixed result slots become declarations and a work description; its focused result types are unchanged. |
 | [Analysis catalog and operation participation](analysis-surfaces-and-universes.md#operation-participation) | Selects manifest-grade analyses and binds each to declarations. It owns cost, defaults, and discovery. |
-| [Inspection capability composition](inspection-capability-composition.md) | Registers catalog analyses and routes for `explain`, capability search, and `-D`. Producer declarations are not registered there. |
+| [Inspection capability composition](inspection-capability-composition.md) | Owns the capability registrations that discovery surfaces draw on. Producer declarations are not registered there. |
 | [Assembly image lifetime](assembly-image-lifetime.md) and [resource ownership](resource-ownership-and-borrowing.md) | Level 1. Supplies and tracks the borrowed subject. |
 | [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Level 2. Owns request meaning, collapse, and completion evidence, and plans reads against sources. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requests in a work description. |
