@@ -1073,13 +1073,18 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
     }
 
     internal BrowserTypeFindCapturedDestination? ResolveTypeFindAction(
-        string action) =>
-        _typeFind.ResolveAction(action);
+        string action)
+    {
+        BrowserTypeFindOperation typeFind;
+        lock (_gate)
+            typeFind = _typeFind;
+        return typeFind.ResolveAction(action);
+    }
 
     void InitializeTypeFind() =>
         _typeFind = new BrowserTypeFindOperation(_host);
 
-    void ReplaceTypeFindHost()
+    void ReplaceTypeFindOperation()
     {
         _typeFind.Dispose();
         InitializeTypeFind();

@@ -1307,7 +1307,7 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             else if (!_closing)
             {
                 _host = _hostFactory();
-                ReplaceTypeFindHost();
+                ReplaceTypeFindOperation();
             }
             _deactivationSettlementFailed = false;
         }
@@ -1566,6 +1566,8 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 publicationOrdinal,
                 predecessor,
                 navigationCleanup);
+            if (_active is not null)
+                ReplaceTypeFindOperation();
             _active = posting;
             return new BrowserRetainedWorkspaceCommitResult.Committed(
                 activated,

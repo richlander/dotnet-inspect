@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotnetInspector.Queries;
@@ -60,6 +61,17 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.Equal(
                 answer.Candidates.Length,
                 managed.Result.Activations.Length);
+            Assert.Equal(
+                2,
+                answer.Candidates
+                    .Select(candidate => candidate.Observation.ContextOrder)
+                    .Distinct()
+                    .Count());
+            Assert.All(
+                answer.Candidates,
+                candidate => Assert.Equal(
+                    answer.Candidates[0].Coordinate,
+                    candidate.Coordinate));
             Assert.All(
                 managed.Result.Activations,
                 candidate =>
@@ -208,6 +220,118 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 Assert.NotNull(
                     owner.ResolveTypeFindAction(activation.Action!));
             });
+    }
+
+    [Fact]
+    public async Task ManagedTypeFind_ReplacementInvalidatesCapturedActions()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting first =
+            await ActivateAsync(owner, "first-type-find", Packet());
+        BrowserTypeFindExecutionResult.Completed firstFind =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                await owner.FindTypesAsync(
+                    first.RetainedDefinitionId,
+                    first.RealizationId,
+                    "JsonSerializer",
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        string action = firstFind.Result.Activations
+            .First(activation => activation.Action is not null)
+            .Action!;
+        Assert.NotNull(owner.ResolveTypeFindAction(action));
+
+        BrowserRetainedWorkspacePosting replacement =
+            await ActivateAsync(owner, "replacement-type-find", Packet());
+
+        Assert.Null(owner.ResolveTypeFindAction(action));
+        Assert.IsType<BrowserTypeFindExecutionResult.Unavailable>(
+            await owner.FindTypesAsync(
+                first.RetainedDefinitionId,
+                first.RealizationId,
+                "JsonSerializer",
+                resultGeneration: 2,
+                TestContext.Current.CancellationToken));
+        Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+            await owner.FindTypesAsync(
+                replacement.RetainedDefinitionId,
+                replacement.RealizationId,
+                "JsonSerializer",
+                resultGeneration: 1,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ManagedTypeFind_ReusesAdmittedDeclarationPopulation()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "reused-type-find", Packet());
+
+        BrowserTypeFindExecutionResult.Completed first =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                await owner.FindTypesAsync(
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    "JsonSerializer",
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        Assert.NotEmpty(first.Result.Activations);
+        ImmutableArray<WorkspaceDeclarationContext> admitted;
+        using (WorkspaceRealizationOperationLease operation =
+            await EnterAsync(owner, posting.RetainedDefinitionId))
+        {
+            admitted = operation.Workspace.GetDeclarationContextsSnapshot();
+        }
+        Assert.Equal(2, admitted.Length);
+
+        BrowserTypeFindExecutionResult.Completed second =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                await owner.FindTypesAsync(
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    "JsonDocument",
+                    resultGeneration: 2,
+                    TestContext.Current.CancellationToken));
+        Assert.NotEmpty(second.Result.Activations);
+        using WorkspaceRealizationOperationLease later =
+            await EnterAsync(owner, posting.RetainedDefinitionId);
+        ImmutableArray<WorkspaceDeclarationContext> reused =
+            later.Workspace.GetDeclarationContextsSnapshot();
+        Assert.Equal(admitted.Length, reused.Length);
+        for (int index = 0; index < admitted.Length; index++)
+            Assert.Same(admitted[index], reused[index]);
+    }
+
+    [Fact]
+    public async Task ManagedTypeFind_NoMatchReturnsEmptyCompletedVector()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "empty-vector-type-find", Packet());
+
+        BrowserTypeFindExecutionResult.Completed completed =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                await owner.FindTypesAsync(
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    "ThisTypeDoesNotExistAnywhere",
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        TypeDeclarationLocatorSectionResult.Evaluated content =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                completed.Result.Find.Content);
+        Assert.Empty(Assert.Single(content.Answers).Candidates);
+        Assert.Empty(completed.Result.Activations);
     }
 
     [Fact]
