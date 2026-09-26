@@ -21,8 +21,8 @@ function keyedElementMap(root: ParentNode): Map<string, HTMLElement> {
 }
 
 function synchronizeAttributes(
-  current: HTMLElement,
-  replacement: HTMLElement,
+  current: Element,
+  replacement: Element,
 ): void {
   for (const attribute of Array.from(current.attributes)) {
     if (!replacement.hasAttribute(attribute.name)) {
@@ -34,14 +34,54 @@ function synchronizeAttributes(
   }
 }
 
+function synchronizeNode(
+  current: ChildNode,
+  replacement: ChildNode,
+): void {
+  if (current.nodeType !== replacement.nodeType) {
+    current.replaceWith(replacement);
+    return;
+  }
+  if (current instanceof Element && replacement instanceof Element) {
+    if (current.namespaceURI !== replacement.namespaceURI
+      || current.tagName !== replacement.tagName) {
+      current.replaceWith(replacement);
+      return;
+    }
+    synchronizeAttributes(current, replacement);
+    synchronizeChildren(current, replacement);
+    return;
+  }
+  if (current.nodeValue !== replacement.nodeValue) {
+    current.nodeValue = replacement.nodeValue;
+  }
+}
+
+function synchronizeChildren(
+  current: Element,
+  replacement: Element,
+): void {
+  const currentChildren = Array.from(current.childNodes);
+  const replacementChildren = Array.from(replacement.childNodes);
+  const sharedCount = Math.min(
+    currentChildren.length,
+    replacementChildren.length,
+  );
+  for (let index = 0; index < sharedCount; index++) {
+    synchronizeNode(currentChildren[index]!, replacementChildren[index]!);
+  }
+  for (const child of currentChildren.slice(sharedCount)) child.remove();
+  for (const child of replacementChildren.slice(sharedCount)) {
+    current.append(child);
+  }
+}
+
 function synchronizeElement(
   current: HTMLElement,
   replacement: HTMLElement,
 ): void {
   synchronizeAttributes(current, replacement);
-  if (current.innerHTML !== replacement.innerHTML) {
-    current.innerHTML = replacement.innerHTML;
-  }
+  synchronizeChildren(current, replacement);
 }
 
 function pathFromRoot(root: Node, descendant: Node): HTMLElement[] | null {

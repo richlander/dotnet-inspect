@@ -1037,6 +1037,57 @@ test("duplicate runtime Type discovery preserves one pending Space activation", 
   );
 });
 
+test("framework Library metadata refresh preserves native pointer activation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {
+    libraryPending: true,
+  });
+  await openInstalledPlatform(page, true);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+  );
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("System.Text.Json");
+  const result = page.locator(
+    '[data-sl-framework-lib="System.Text.Json"]',
+  );
+  await expect(result).not.toContainText("loaded");
+  const name = result.locator(".spotlight-item-name");
+  const resultHandle = await result.elementHandle();
+  const nameHandle = await name.elementHandle();
+  expect(resultHandle).not.toBeNull();
+  expect(nameHandle).not.toBeNull();
+  const box = await name.boundingBox();
+  if (!box) throw new Error("Framework Library result has no browser geometry.");
+  await page.mouse.move(
+    box.x + box.width / 2,
+    box.y + box.height / 2,
+  );
+  await page.mouse.down();
+
+  await releaseFacade(page, "finish-platform-library");
+  await expect(result).toContainText("loaded");
+  expect(await resultHandle.evaluate(element =>
+    document.querySelector('[data-sl-framework-lib="System.Text.Json"]')
+      === element)).toBe(true);
+  expect(await nameHandle.evaluate(element =>
+    document.querySelector(
+      '[data-sl-framework-lib="System.Text.Json"] .spotlight-item-name',
+    ) === element)).toBe(true);
+  await page.mouse.up();
+
+  await expect(page.locator("#spotlight-backdrop")).toHaveCount(0);
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
 test("catalog-only Platform retains its Workspace identity and canonical URL across another Workspace", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => localStorage.setItem(

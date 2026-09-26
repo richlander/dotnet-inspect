@@ -747,7 +747,10 @@ outcomes.
     matching. Confirm that production composition renders one exact result,
     then hold Space across an asynchronous result refresh and confirm that the
     same focused control activates once.
-19. Repeat while removing the pressed result identity and confirm that release
+19. Press a framework-Library result on its descendant label while ordinary
+    acquisition changes that result's visible metadata. Confirm that the
+    button and pressed descendant remain connected and release activates once.
+20. Repeat while removing the pressed result identity and confirm that release
     does not activate the result that inherited its former array position.
 
 ### Local Open
