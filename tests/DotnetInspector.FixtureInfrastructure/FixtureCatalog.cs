@@ -59,6 +59,7 @@ public static class FixtureIds
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataEnablements = "metadata.enablements";
     public const string MetadataInterfaceImplContracts =
         "metadata.interfaceimpl.contracts";
     public const string MetadataInterfaceImplFixtures =
@@ -322,6 +323,13 @@ public static class FixtureCatalog
         "ILInspector.Metadata.MemorySafetyFixtures.dll",
         Boundaries(FixtureBoundary.ModuleAttribute),
         "metadata", "memory-safety", "layout");
+
+    public static readonly FixtureDefinition MetadataEnablements = Fixture(
+        FixtureIds.MetadataEnablements,
+        "ILInspector.Metadata.EnablementFixtures",
+        "ILInspector.Metadata.EnablementFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "metadata", "enablements", "runtime-async");
 
     public static readonly FixtureDefinition MetadataInterfaceImplContracts =
         Fixture(
@@ -1074,6 +1082,7 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
+        MetadataEnablements,
         MetadataInterfaceImplContracts,
         MetadataInterfaceImplFixtures,
         MetadataMethodImplContracts,
@@ -1497,6 +1506,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.EnablementFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.EnablementFixtures",
             "ILInspector.Metadata.InterfaceImplContracts" =>
                 "fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts",
             "ILInspector.Metadata.InterfaceImplFixtures" =>
