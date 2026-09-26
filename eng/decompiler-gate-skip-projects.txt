@@ -144,6 +144,7 @@ tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
 tests/DecompilerHarness.Tests
 tests/DotnetInspect.Cli.Tests
+tests/DotnetInspect.Web.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
 tests/DotnetInspector.Cache.Tests
 tests/DotnetInspector.DependencyManifests.Tests

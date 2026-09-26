@@ -409,7 +409,7 @@ assemblies that receive a .NET platform lookup on click.
 | `DotnetInspect.Web.Interop.Source` | source, annotated-source, method-body, and source-comparison exports and wire contracts |
 | `DotnetInspect.Web.Interop.CallGraph` | package and platform call-graph exports and wire contracts |
 | `DotnetInspect.Web.Interop.Catalog` | vocabulary, home-demo, and workspace-share exports and wire contracts |
-| `DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
+| `tests/DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -1978,7 +1978,7 @@ npm test
 npx playwright install firefox
 npm run test:browser
 cd ..
-dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
@@ -2015,15 +2015,16 @@ The shared product paths are gated by:
   from a path-less, stream-backed assembly reference, and supplying the
   whole-assembly analysis context that path-keyed resolution cannot provide.
 
-`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` gates the layering
+`BrowserEngineLayeringTests` in `tests/DotnetInspect.Web.Tests` gates the layering
 rule described above on every browser-engine CI run.
 
-Pull requests that change Inspect Web, its shared annotated-source
-viewer, product dependencies, or repository build inputs run the `inspect-web`
-CI job. That job installs the locked Node dependencies, checks and bundles the
-TypeScript/JavaScript frontend, rejects unused authored files, exports, and
-dependencies, compiles the platform-index generator, publishes the Release Wasm
-bundle, runs the browser-engine tests, and runs both frontend test suites.
+Pull requests that change Inspect Web, its shared annotated-source viewer,
+product dependencies, or repository build inputs run the `inspect-web` CI
+fan-out. The managed test job runs from the normal solution graph without Node
+or the WebAssembly workload. Separate frontend jobs install the locked Node
+dependencies, check and bundle the TypeScript/JavaScript frontend, reject unused
+authored files, exports, and dependencies, publish the Release Wasm bundle, and
+run the frontend and browser suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
