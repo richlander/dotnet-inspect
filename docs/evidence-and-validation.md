@@ -77,6 +77,47 @@ insufficient. If there is no such trigger, omit the extra claim and gate.
   property must name the gate that enforces it, or explicitly mark the
   property as unverified.
 
+## NativeAOT before/after for modernization
+
+Every modernization or legacy-path replacement requires before/after
+performance evidence from exact NativeAOT production binaries. Measure every
+terminal supported by the adopted surface, like Count. A terminal omitted
+from the report is unverified and prevents a merge-readiness claim for that
+adoption.
+
+Compare the exact effective base with the exact candidate head. Run the
+complete production-host command or operation, including startup, acquisition,
+planning, execution, and output consumption. A lower-level benchmark may
+explain the result, but it does not replace the end-to-end comparison.
+
+The report must identify:
+
+- the base and head commits, product versions, NativeAOT target, and binary
+  identities;
+- the pinned real assets, exact commands or requests, and every measured
+  terminal;
+- representative zero, small, and population-sensitive scenarios when work
+  scales with candidate or result count;
+- warmup, sample count, execution ordering or interleaving, host, and relevant
+  machine state;
+- median and tail latency for base and head; and
+- expected and observed cardinality plus a stable content or identity check
+  where result values are produced.
+
+Interpret the result against the modernization's stated intent. Separate
+startup and fixed acquisition cost from work that grows with the population
+when that distinction matters. A slower result is not dismissed because the
+implementation follows the new architecture: explain it through changed
+behavior or work, show that it remains inside the named product target, and
+show that the overall intent still holds. Otherwise the candidate is not
+merge-ready.
+
+Use [#8411](https://github.com/richlander/dotnet-inspect/pull/8411) as the
+reporting precedent. It compared exact NativeAOT base/head apphosts for every
+supported terminal, verified result cardinality, reported median and p95, and
+explained a bounded terminal tradeoff alongside substantial end-to-end
+improvements.
+
 ## Use evidence envelopes during command development
 
 `EvidenceInspectionEnvelope<TContent, TEvidence>` is the shared shape for
