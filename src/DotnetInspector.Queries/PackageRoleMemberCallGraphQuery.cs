@@ -65,7 +65,9 @@ public abstract record PackageRoleMemberCallGraphOutcome
 
     public sealed record Available(
         InspectionGraphDocument Document,
-        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt
+            IntrinsicCoreLibraryIneligibility)
         : PackageRoleMemberCallGraphOutcome;
 
     public sealed record Unavailable(
@@ -157,6 +159,9 @@ public static class PackageRoleMemberCallGraphQuery
             ?? projection.SurfaceRole;
         ImmutableArray<PackageAssemblyRoleParticipant> participants =
             role.Participants;
+        PackageIntrinsicCoreLibraryIneligibilityReceipt
+            intrinsicCoreLibraryIneligibility =
+                role.IntrinsicCoreLibraryIneligibility;
 
         return role.Use<PackageRoleMemberCallGraphOutcome>(group =>
         {
@@ -164,7 +169,7 @@ public static class PackageRoleMemberCallGraphQuery
                 ImmutableArray.CreateBuilder<
                     PackageAssemblyRoleParticipant>();
             foreach (PackageAssemblyRoleParticipant participant
-                in role.Participants)
+                in participants)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!ReferenceEquals(
@@ -260,7 +265,8 @@ public static class PackageRoleMemberCallGraphQuery
                     cancellationToken);
             return new PackageRoleMemberCallGraphOutcome.Available(
                 document,
-                NodePackages(document, nodePackages));
+                NodePackages(document, nodePackages),
+                intrinsicCoreLibraryIneligibility);
         });
     }
 
@@ -278,10 +284,10 @@ public static class PackageRoleMemberCallGraphQuery
         {
             Analysis.GraphNodeIdentity identity = node.Subject
                 is InspectionGraphSubject.MemberSubject
-                {
-                    Identity:
+            {
+                Identity:
                         InspectionGraphMemberIdentity.CallGraph callGraph,
-                }
+            }
                     ? callGraph.Identity
                     : throw new InvalidOperationException(
                         "A package-role member call graph contained a non-member node.");

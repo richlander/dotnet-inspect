@@ -64,7 +64,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             TargetV2Path);
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
-                nodePackages) =
+                nodePackages,
+            PackageIntrinsicCoreLibraryIneligibilityReceipt
+                coreLibraryIneligibility) =
             await ExecuteAsync(caller, target, versionSkewedTarget);
         InspectionGraphEdge edge = Assert.Single(document.Edges);
         Assert.Equal(
@@ -81,6 +83,20 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             nodePackages
                 .OrderBy(item => item.NodeId)
                 .Select(item => (item.NodeId, item.Package.PackageId)));
+        Assert.Equal(
+            [
+                "callgraph.caller",
+                "callgraph.target",
+                "callgraph.target.v2",
+            ],
+            coreLibraryIneligibility.Participants.Select(
+                participant => participant.Package.PackageId));
+        Assert.Equal(
+            coreLibraryIneligibility.Participants.Length,
+            coreLibraryIneligibility.Participants
+                .Select(participant => participant.Registration)
+                .Distinct(ReferenceEqualityComparer.Instance)
+                .Count());
     }
 
     [Fact]
@@ -93,7 +109,8 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
-                nodePackages) =
+                nodePackages,
+            _) =
             await ExecuteAsync(root);
 
         Assert.Empty(document.Edges);
@@ -122,7 +139,8 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
-                nodePackages) =
+                nodePackages,
+            _) =
             await ExecuteWithPolicyAsync(
                 root,
                 PackageSupplyChainBaseline.Self,
@@ -164,7 +182,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 new WorkspaceRegistration.Ecosystem(ecosystem),
             ]);
 
-        (InspectionGraphDocument document, _) =
+        (InspectionGraphDocument document, _, _) =
             await ExecuteWithPolicyAsync(
                 root,
                 PackageSupplyChainBaseline
@@ -196,7 +214,8 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
-                nodePackages) =
+                nodePackages,
+            _) =
             await ExecuteCoreAsync(
                 root,
                 CallerBindingCallerPath,
@@ -264,7 +283,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
     private static async Task<(
         InspectionGraphDocument Document,
-        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt
+            CoreLibraryIneligibility)>
         ExecuteAsync(
             PackageRootBinding caller,
             params PackageRootBinding[] packages)
@@ -277,7 +298,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
     private static async Task<(
         InspectionGraphDocument Document,
-        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt
+            CoreLibraryIneligibility)>
         ExecuteWithPolicyAsync(
             PackageRootBinding caller,
             PackageSupplyChainBaseline baseline,
@@ -294,7 +317,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
     private static async Task<(
         InspectionGraphDocument Document,
-        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt
+            CoreLibraryIneligibility)>
         ExecuteAsync(
             PackageRootBinding caller,
             string focusAssemblyPath,
@@ -311,20 +336,22 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 packages);
 
     private static async Task<(
-            InspectionGraphDocument Document,
-            ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
-            ExecuteCoreAsync(
-                PackageRootBinding caller,
-                string focusAssemblyPath,
-                string focusTypeName,
-                string focusMethodName,
-                PackageSupplyChainBaseline baseline,
-                WorkspacePlan plan,
-                params PackageRootBinding[] packages)
+        InspectionGraphDocument Document,
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt
+            CoreLibraryIneligibility)>
+        ExecuteCoreAsync(
+            PackageRootBinding caller,
+            string focusAssemblyPath,
+            string focusTypeName,
+            string focusMethodName,
+            PackageSupplyChainBaseline baseline,
+            WorkspacePlan plan,
+            params PackageRootBinding[] packages)
     {
-            ImmutableArray<PackageRootBinding> bindings =
-                [caller, .. packages];
-            await using var workspace = new InspectionWorkspace(plan);
+        ImmutableArray<PackageRootBinding> bindings =
+            [caller, .. packages];
+        await using var workspace = new InspectionWorkspace(plan);
         WorkspaceScopeSnapshot empty =
             Assert.IsType<WorkspaceScopeReadResult.Available>(
                 await workspace.GetScopeSnapshotAsync()).Snapshot;
@@ -373,7 +400,43 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 unavailable?.Failure.ToString());
             var available =
                 (PackageRoleMemberCallGraphOutcome.Available)outcome;
-            return (available.Document, available.NodePackages);
+            PackageAssemblyContextRoleProjection role =
+                projection.ImplementationRole
+                ?? projection.SurfaceRole;
+            Assert.Same(
+                role.GroupIdentity,
+                available.IntrinsicCoreLibraryIneligibility.Group);
+            Assert.Same(
+                role.Use(group => group.BindingPolicyVersion),
+                available.IntrinsicCoreLibraryIneligibility
+                    .BindingPolicyVersion);
+            Assert.Equal(
+                role.Participants.Length,
+                available.IntrinsicCoreLibraryIneligibility
+                    .Participants.Length);
+            Assert.All(
+                role.Participants.Zip(
+                    available.IntrinsicCoreLibraryIneligibility
+                        .Participants),
+                pair =>
+                {
+                    Assert.Same(
+                        pair.First.Package,
+                        pair.Second.Package);
+                    Assert.Same(
+                        pair.First.Asset,
+                        pair.Second.Asset);
+                    Assert.Same(
+                        pair.First.Participant.Assembly.Registration,
+                        pair.Second.Registration);
+                    Assert.IsType<
+                        AssemblyResolutionProvenance.PackageAsset>(
+                            pair.First.Participant.Assembly.Provenance);
+                });
+            return (
+                available.Document,
+                available.NodePackages,
+                available.IntrinsicCoreLibraryIneligibility);
         }
         finally
         {
