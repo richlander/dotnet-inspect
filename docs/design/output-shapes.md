@@ -201,7 +201,7 @@ The adopting Release gate assignments are:
   owns complete Outcome and endpoint-issue serialization and round trips.
 - [`AssemblyResolutionProvenanceJsonTests.cs`](../../tests/ILInspector.Metadata.Tests/AssemblyResolutionProvenanceJsonTests.cs)
   owns round-trip coverage for all six provenance cases.
-- [`BrowserEngineBoundaryTypeDependencyTests.cs`](../../inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTypeDependencyTests.cs)
+- [`BrowserEngineBoundaryTypeDependencyTests.cs`](../../tests/DotnetInspect.Web.Tests/BrowserEngineBoundaryTypeDependencyTests.cs)
   test `QueryTypeProjection_RetainsDependencySubjectWireFacts` owns the real
   Browser managed-export boundary: subject identity and provenance survive
   without test-deserializer compensation.

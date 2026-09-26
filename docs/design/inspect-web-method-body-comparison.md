@@ -258,7 +258,7 @@ under the new headings.
 | --- | --- |
 | Release `AssemblyContextMethodAddressQueryTests` | Owner-issued module association, MethodDef validation, and typed context failures. |
 | Release `BrowserMethodBodyOperationTests` | Different/same pairs, reference-token drift, explicit accessors, missing/wrong context, original query failures, native body failure, platform retention, protected-use release, removal-requested and ambiguous retained contexts, and coexistence with Source acquisition. |
-| `generate-inspect-web-engine-facade.sh --check`, Release `ProductionFacadeContextTests` | Compiler-derived typed transport in the existing seven-root facade set. |
+| `generate-inspect-web-engine-facade.sh --check`, Release `ProductionFacadeContextTests`, and `generated-facade-contract.test.ts` | Compiler-derived typed transport in the existing seven-root facade set. |
 | `browser/method-body-production.spec.ts` against published Wasm | Actual generated-facade and shared-query results for the public package and compiled reference/implementation fixture, including bodyless and accessor neighbors. |
 
 The compiled input is `FixtureCatalog.InspectWebMethodBodies`, including its
