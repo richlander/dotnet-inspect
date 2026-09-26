@@ -156,9 +156,6 @@ public sealed class MethodDefinitionExecution
             foreach (MethodDefinitionHandle methodHandle
                      in typeDefinition.GetMethods())
             {
-                if (!visiting.Any(static state => state.IsActive))
-                    return visited;
-
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
                 foreach (ProducerState state in visiting)
@@ -168,6 +165,12 @@ public sealed class MethodDefinitionExecution
                         continue;
                     VisitUnit(unit, state);
                 }
+
+                // Stop before advancing either enumerator: the next read is
+                // untrusted metadata that could throw and replace an answer
+                // or diagnostic that is already settled.
+                if (!visiting.Any(static state => state.IsActive))
+                    return visited;
             }
         }
 

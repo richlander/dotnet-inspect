@@ -50,6 +50,32 @@ public static class MetadataMethodPtrFixture
         return image;
     }
 
+    /// <summary>
+    /// MethodPtr rows [2, 1] with the first type's MethodList starting at 2 and
+    /// the second's at 4: the first enumerated method is MethodDef 1
+    /// (<c>&lt;Module&gt;::M0</c>) with <paramref name="firstMethodBody"/>, and
+    /// advancing past it reads beyond the MethodPtr table.
+    /// </summary>
+    public static byte[] BuildTrailingOutOfRange(
+        ReadOnlySpan<byte> firstMethodBody)
+    {
+        byte[] image = Build(2, 1);
+        WriteMethodListStart(image, typeDefRow: 0, start: 2);
+        WriteMethodListStart(image, typeDefRow: 1, start: 4);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int rva = peReader.GetMetadataReader()
+            .GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(1))
+            .RelativeVirtualAddress;
+        SectionHeader section = peReader.PEHeaders.SectionHeaders.Single(
+            header => rva >= header.VirtualAddress
+                && rva < header.VirtualAddress + header.VirtualSize);
+        firstMethodBody.CopyTo(
+            image.AsSpan(
+                rva - section.VirtualAddress + section.PointerToRawData));
+        return image;
+    }
+
     public static byte[] Build(params ushort[] rows)
     {
         ArgumentNullException.ThrowIfNull(rows);

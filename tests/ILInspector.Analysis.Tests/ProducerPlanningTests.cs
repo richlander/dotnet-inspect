@@ -450,6 +450,25 @@ public sealed class ProducerPlanningTests
         Assert.Equal("ZDependent", cascaded.FailedPrerequisite);
     }
 
+    [Fact]
+    public void Presence_SettledAnswerIsNotReplacedByTheNextMetadataRead()
+    {
+        ImmutableArray<byte> localloc = ImmutableArray.Create(
+            DotnetInspector.Fixtures.MetadataMethodPtrFixture
+                .BuildTrailingOutOfRange([0x0A, 0xFE, 0x0F]));
+        Assert.True(UnsafeEvidencePresence.HasEvidence("Fixture.dll", localloc));
+
+        ImmutableArray<byte> invalidHeader = ImmutableArray.Create(
+            DotnetInspector.Fixtures.MetadataMethodPtrFixture
+                .BuildTrailingOutOfRange([0x00]));
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => UnsafeEvidencePresence.HasEvidence(
+                    "Fixture.dll",
+                    invalidHeader));
+        Assert.Contains("<Module>::M0", exception.Message, StringComparison.Ordinal);
+    }
+
     static WorkDescription Plan(params ProducerRequest[] requests) =>
         Assert.IsType<ProducerPlanResult.Accepted>(
             ProducerPlanner.Plan(requests)).Description;
