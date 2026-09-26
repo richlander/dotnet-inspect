@@ -280,10 +280,11 @@ population has one explicit terminal outcome.
 
 ## Library facts
 
-A Library fact is a scalar that the exact Library image determines by itself:
-equal bytes produce equal facts whether the Library was realized from
-nuget.org, a Platform pack, a direct file, or a Browser upload. Facts are
-requested in closed groups because their costs differ:
+A Library fact is a scalar determined by the Library's exact assembly contents
+in their roles, and by nothing else: equal assembly bytes serving equal roles
+produce equal facts whether the Library was realized from nuget.org, a
+Platform pack, a direct file, or a Browser upload. Facts are requested in
+closed groups because their costs differ:
 
 - **Image** — image byte length, target framework attribute, compilation form
   (IL or ReadyToRun), PE machine architecture, strong-name signed flag, and the
@@ -327,11 +328,14 @@ These related values are deliberately not Library facts:
   and is not reported.
 
 The real scenario is `System.Net.Sockets.dll` in
-`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`. Requesting
-Image, Description, and Enablements returns `.NETCoreApp,Version=v11.0`,
-ReadyToRun, signed, reproducible, the Microsoft description text, and AOT plus
-Runtime Async enabled. Inspecting the same bytes as a direct file returns
-equal facts.
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`, inspected as
+a Library whose one runtime-pack assembly serves both roles. Requesting Image,
+Description, and Enablements returns `.NETCoreApp,Version=v11.0`, ReadyToRun,
+signed, reproducible, the Microsoft description text, and AOT plus Runtime
+Async enabled. Inspecting the same bytes as a direct file returns equal facts.
+A Platform Library that pairs the reference-pack assembly with this
+implementation reports its Image and Description from the reference assembly
+and the same Enablements.
 
 ## Population identity
 
@@ -727,8 +731,8 @@ The design and implementation slices require Release gates for:
   unrequested Rows;
 - requested fact groups are present and unrequested groups are absent, and a
   facts-only request executes no population work;
-- the same Library bytes realized from a package and as a direct file produce
-  equal fact groups;
+- the same assembly bytes serving the same roles, realized from a package and
+  as a direct file, produce equal fact groups;
 - a Platform `System.Net.Sockets` Library carrying reference-pack and
   runtime-pack contents reports Image facts from the reference assembly and
   AOT plus Runtime Async Enabled from the implementation, while the same
