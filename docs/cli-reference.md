@@ -271,6 +271,7 @@ stderr rather than mixed into structured output.
 | `graph calls TYPE MEMBER` | Explain one package member's supply-chain exits across its dependency graph, retaining highlighted boundaries and their shortest baseline connectors. |
 | `graph libraries` | Discover deterministic direct-use clusters and exact cross-library relationships between two local Libraries. |
 | `graph cluster N` | Inspect exact calls and optional public-entrypoint paths for one pair-local Direct-Use Cluster ordinal. |
+| `graph structure` | Show one library's namespace layering: dependency levels, namespace call cycles, namespace and external edges with their strongest type edge, and a completeness qualification (`--library PATH` or `--package ID[@VERSION] [--tfm TFM]`). `-S` selects `Namespaces`, `Namespace Edges`, `Cycles` (default), `External Dependencies`, or `Type Edges`. `--json` emits the complete Content, and `--envelope` adds Share and diagnostics; neither combines with `-S`. `--out` writes any format to a file. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |

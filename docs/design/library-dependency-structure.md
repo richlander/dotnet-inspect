@@ -525,10 +525,14 @@ cache.
    execution with `LibraryMetricsQuery` when both are selected, consumes only
    focused Analysis results, and exposes the issued rows through QuerySpace
    (see [Modern infrastructure only](#modern-infrastructure-only)).
-3. **CLI:** an exact-name-only `library` section, `Dependency Structure`,
-   outside the default `-v:m` view. It uses Markout for tables and the Mermaid
-   graph lowering, and `--envelope` carries the complete Content with Share
-   and diagnostics.
+3. **CLI:** a `graph structure` route (`--library` or `--package`), modelled
+   on `graph libraries`. It uses Markout for tables, `--json` for complete
+   Content, and `--envelope` for complete Content with Share and diagnostics.
+   QuerySpace row selection over the issued rows follows as its own slice.
+   The route replaced an earlier plan for a `library` section: that path can
+   only be reached through the legacy `LibraryMetadataService` and
+   `LibraryInspection` host, which [Modern infrastructure
+   only](#modern-infrastructure-only) excludes (operator decision).
 4. **Browser/Wasm:** the Library Metrics lens adds a levelized namespace view
    with cycles marked and drill-down from edge to explaining type edges to
    Type. It uses the same managed query and does no topology work in
