@@ -507,7 +507,7 @@ public sealed class ProducerPlanningTests
         Func<IReadOnlyList<ProducerDependency>>? dependencies = null,
         string? parameters = null,
         int failAtUnit = 0)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier,
@@ -522,10 +522,15 @@ public sealed class ProducerPlanningTests
             return 1;
         }
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Sum();
+            accumulator;
     }
 
     /// <summary>Reads another producer's completed result during its visits.</summary>
@@ -533,7 +538,7 @@ public sealed class ProducerPlanningTests
         string identity,
         CountingProducer source,
         bool declare)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -545,15 +550,20 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.ResultOf(source).Value;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Sum();
+            accumulator;
     }
 
     /// <summary>Publishes each unit's MethodDef row number.</summary>
     sealed class RowProducer(string identity)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -562,10 +572,15 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Token & 0x00FF_FFFF;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Count;
+            accumulator;
     }
 
     /// <summary>
@@ -576,7 +591,7 @@ public sealed class ProducerPlanningTests
         string identity,
         RowProducer rows,
         CountingProducer guard)
-        : MethodDefinitionProducer<int, string>(
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -590,15 +605,23 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.FactOf(rows);
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
-            string.Join(",", facts);
+            string.Join(",", accumulator);
     }
 
     /// <summary>Visits normally, then fails recoverably in its completion.</summary>
     sealed class CompletionFailingProducer(string identity)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -606,8 +629,13 @@ public sealed class ProducerPlanningTests
     {
         internal override int Visit(scoped MethodDefinitionView view) => 1;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
             throw new BadImageFormatException("injected completion failure");
     }
@@ -616,7 +644,7 @@ public sealed class ProducerPlanningTests
     sealed class SettlingProducer(
         string identity,
         Func<IReadOnlyList<ProducerDependency>> dependencies)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -625,10 +653,15 @@ public sealed class ProducerPlanningTests
     {
         internal override int Visit(scoped MethodDefinitionView view) => 1;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Sum();
+            accumulator;
 
         internal override bool Settles(int fact) => true;
     }
@@ -637,8 +670,8 @@ public sealed class ProducerPlanningTests
     sealed class RowReadingProducer(
         string identity,
         Func<IReadOnlyList<ProducerDependency>> dependencies,
-        Func<MethodDefinitionProducer<int, string>> source)
-        : MethodDefinitionProducer<int, string>(
+        Func<MethodDefinitionProducer<int, List<int>, string>> source)
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -648,10 +681,18 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.FactOf(source());
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
-            string.Join(",", facts);
+            string.Join(",", accumulator);
     }
 
     /// <summary>
@@ -662,7 +703,7 @@ public sealed class ProducerPlanningTests
         string identity,
         Func<IReadOnlyList<ProducerDependency>> dependencies,
         RowReadingProducer reader)
-        : MethodDefinitionProducer<int, string>(
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -672,15 +713,23 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Token & 0x00FF_FFFF;
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
-            $"rows={facts.Count};second={completion.ResultOf(reader).Value}";
+            $"rows={accumulator.Count};second={completion.ResultOf(reader).Value}";
     }
 
     /// <summary>Publishes row numbers per unit, then fails recoverably in its completion.</summary>
     sealed class CompletionFailingRowProducer(string identity)
-        : MethodDefinitionProducer<int, string>(
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -689,8 +738,16 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Token & 0x00FF_FFFF;
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
             throw new BadImageFormatException("injected completion failure");
     }
@@ -699,7 +756,7 @@ public sealed class ProducerPlanningTests
     sealed class ResultConsumingProducer(
         string identity,
         RowReadingProducer source)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -708,15 +765,20 @@ public sealed class ProducerPlanningTests
     {
         internal override int Visit(scoped MethodDefinitionView view) => 0;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
             completion.ResultOf(source).Value?.Length ?? -1;
     }
 
     /// <summary>Declares only the declaration layer, then asks for the module lookup.</summary>
     sealed class LookupReadingProducer()
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             "LookupReader",
             version: 1,
             tier: 0,
@@ -725,15 +787,20 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Lookup is null ? 0 : 1;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Count;
+            accumulator;
     }
 
     /// <summary>Declares only the declaration layer, then asks for the body.</summary>
     sealed class BodyReadingProducer()
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             "BodyReader",
             version: 1,
             tier: 0,
@@ -742,10 +809,15 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.GetBody().Size;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Count;
+            accumulator;
     }
 
     sealed record Method(
