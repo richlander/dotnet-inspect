@@ -44,6 +44,9 @@ affects every variant equally. A cell is the median of its round medians.
 Ratios divide by the oracle measured by the same binary in the same run.
 Every variant's answer was compared on every assembly, and no cell disagreed.
 
+**Layout control.** The padding experiment is run `presence-layout-padding` in
+the data, with variants `pad40` and `pad97`.
+
 **Exclusions.** A run is excluded, but kept in the data with its reason, when
 another workload loaded the machine: async count step 3 on fernie (load 22 to
 29), shared classification on fernie (load 10 to 12), scope guards on merritt
@@ -250,9 +253,16 @@ machines, and the cause is not yet known.
 
 ## Open items
 
-- fernie runs 2% to 8% above the original loop for some builds of unsafe
-  presence and not others, including a build without the closed-query kernel.
-  It is under investigation as a code-layout effect.
+- fernie runs above the original loop for some builds of unsafe presence and
+  not others, including a build without the closed-query kernel. Rebuilding
+  `c20817038` with inert padding methods, which shift code layout without
+  changing logic, moved CoreLib from 1.068× to 1.066× with one padding and to
+  0.996× with another, so that outlier is code layout. fernie's i9-9900K is
+  affected by the jump-conditional-code erratum, whose microcode mitigation
+  makes branch alignment matter; hardware counters would confirm it, but
+  unprivileged `perf` is disabled on the host. The remaining 1% to 2.5% on
+  other assemblies persisted under both paddings and is unexplained. merritt
+  measured 0.96–1.02× in the same run.
 - merritt's kernel ratios are consistently the highest of the four machines.
 - About 50 KB of planned-path allocation over the original loop is
   unexplained.
