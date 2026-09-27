@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Cache;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -163,6 +164,68 @@ public class FindMatchTierTests
         Assert.DoesNotContain("## Members", output);
         Assert.Contains("| StringBuilder |", output);
     }
+
+    [Fact]
+    public async Task Find_RowSelectionHeadSelectsMembersBeforeTypes()
+    {
+        var options = new FindOptions
+        {
+            Pattern = "Parse",
+            PlatformFrameworks = ["runtime"],
+            RowSelection = RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Head(2)]),
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(2, MemberRows(output).Length);
+        Assert.DoesNotContain("## Results", output);
+    }
+
+    [Fact]
+    public async Task Find_RowSelectionWindowCrossesFromMembersIntoTypes()
+    {
+        var unselected = new FindOptions
+        {
+            Pattern = "Parse",
+            PlatformFrameworks = ["runtime"],
+        };
+        var (_, all, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(unselected));
+        int memberCount = MemberRows(all).Length;
+        Assert.True(memberCount > 0, all);
+        Assert.Contains("## Results", all);
+
+        var windowed = unselected with
+        {
+            RowSelection = RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Window(
+                        memberCount,
+                        memberCount + 1),
+                ]),
+        };
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => FindCommand.ExecuteAsync(windowed));
+
+        Assert.Equal(0, exit);
+        Assert.Single(MemberRows(output));
+        int results = output.IndexOf("## Results", StringComparison.Ordinal);
+        Assert.True(results >= 0, output);
+        Assert.Single(
+            output[results..].Split('\n'),
+            static line => line.StartsWith("| ", StringComparison.Ordinal)
+                && !line.StartsWith("| Type", StringComparison.Ordinal)
+                && !line.StartsWith("| -", StringComparison.Ordinal));
+    }
+
+    private static string[] MemberRows(string output) =>
+    [
+        .. output.Split('\n').Where(static line =>
+            line.StartsWith("| Parse |", StringComparison.Ordinal)),
+    ];
 
     [Fact]
     [Trait("Speed", "Slow")]

@@ -116,32 +116,38 @@ public class FindCommand
             List<TypeFindResult> results =
                 WithoutSupersededWeakRows(search.Rows, members);
             int observedRowCount = results.Count;
-            if (!TrySelectRows(
-                    rowSelection,
-                    results,
-                    "type",
-                    out IReadOnlyList<TypeFindResult> selectedTypes))
-            {
-                WriteUnmatchedPatternWarning(search);
-                return new(1, RowCount: null);
-            }
-            results = [.. selectedTypes];
-            WriteUnmatchedPatternWarning(search);
-            var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
             bool rendersMembers =
                 !options.Count
                 && !options.JsonOutput
                 && !options.Tabular;
-            if (members.Count > 0 && options.Count)
+            if (options.Count
+                && (members.Count > 0
+                    || memberTier?.HasFailures is true
+                    || memberTier?.SourceSelectionIncomplete is true))
             {
                 CommandError.Write(
                     "Cannot count Find rows because the answer includes "
-                    + "member matches. Count Types with a wildcard pattern "
-                    + "or members with --members.");
+                    + "member matches or an incomplete member search. Count "
+                    + "Types with a wildcard pattern or members with --members.");
+                return new(1, RowCount: null);
+            }
+
+            if (!TrySelectAnswerRows(
+                    rowSelection,
+                    rendersMembers ? members : [],
+                    results,
+                    out List<MemberFindResult> selectedMembers,
+                    out List<TypeFindResult> selectedTypes))
+            {
+                WriteUnmatchedPatternWarning(search);
                 return new(1, RowCount: null);
             }
             if (members.Count > 0 && !rendersMembers)
                 WriteOmittedMembersNote(members);
+            members = selectedMembers;
+            results = selectedTypes;
+            WriteUnmatchedPatternWarning(search);
+            var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
 
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request
@@ -234,6 +240,61 @@ public class FindCommand
             logger,
             httpClient,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Applies semantic row selection to the answer in presented order: the
+    /// broadened band's member rows, then Type rows
+    /// (find-search-service.md#result-and-presentation-boundary).
+    /// </summary>
+    private static bool TrySelectAnswerRows(
+        RowSelectionIntent<string>? intent,
+        List<MemberFindResult> members,
+        List<TypeFindResult> types,
+        out List<MemberFindResult> selectedMembers,
+        out List<TypeFindResult> selectedTypes)
+    {
+        selectedMembers = [];
+        selectedTypes = [];
+        if (members.Count == 0)
+        {
+            if (!TrySelectRows(
+                    intent,
+                    types,
+                    "type",
+                    out IReadOnlyList<TypeFindResult> typeRows))
+            {
+                return false;
+            }
+
+            selectedTypes = [.. typeRows];
+            return true;
+        }
+
+        List<(MemberFindResult? Member, TypeFindResult? Type)> answer =
+        [
+            .. members.Select(static member =>
+                ((MemberFindResult?)member, (TypeFindResult?)null)),
+            .. types.Select(static type =>
+                ((MemberFindResult?)null, (TypeFindResult?)type)),
+        ];
+        if (!TrySelectRows(
+                intent,
+                answer,
+                "find",
+                out IReadOnlyList<(MemberFindResult? Member, TypeFindResult? Type)> selected))
+        {
+            return false;
+        }
+
+        foreach ((MemberFindResult? member, TypeFindResult? type) in selected)
+        {
+            if (member is not null)
+                selectedMembers.Add(member);
+            else
+                selectedTypes.Add(type!);
+        }
+        return true;
     }
 
     /// <summary>

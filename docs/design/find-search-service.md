@@ -424,17 +424,26 @@ previously unreachable, and dotted namespace-prefix rows previously carried
 under [CLI change classification](cli-change-classification.md), with no
 compatibility alias. Prefix and Substring rows carry similarity `1.0`.
 
-`FindSearchResult<TypeFindResult>` gains the broadened band's member rows as a
-separate `FindSearchResult<MemberFindResult>` component, retaining its own
-failures and completion. Default Markdown renders them as a `Members` section
-after `Results`, using the Member Find view. This section enters the default
-`-v:m` view only because it is the command's single high-value section when
-it appears: it is present only when no Direct, Namespace, or Prefix Type
+The command composes the Type search result with the broadened band's member
+rows as a separate `FindSearchResult<MemberFindResult>` component, retaining
+its own failures and completion. Default Markdown renders them as a `Members`
+section before `Results`, using the Member Find view. This section enters the
+default `-v:m` view only because it is the command's single high-value section
+when it appears: it is present only when no Direct, Namespace, or Prefix Type
 exists. Plain `--json` keeps its root `TypeFindResult` array, so a
 member-only broadened answer appears there as an empty array; machine
 consumers that want members keep using `--members` or the leading-dot
 shorthand. `--count` counts Type rows and rejects a broadened answer that
-contains member rows rather than silently counting only one kind.
+contains member rows, or whose member source failed or was incomplete,
+rather than silently counting only one kind.
+
+Semantic row selection (`-n`, `--tail`, `--rows`) selects from the whole
+answer in presented order: member rows first, then Type rows. `find Parse -n 2`
+therefore shows the first two `Parse` members and no Type rows, and a window
+that crosses the boundary keeps the tail of `Members` and the head of
+`Results`. Formats that omit member rows (plain `--json` and table formats)
+select over the Type rows they present. The reported row count is the number
+of selected rows presented.
 
 ### Cost
 
