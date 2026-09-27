@@ -42,7 +42,12 @@ median, the 10th and 90th percentiles, and allocated bytes per call. Each run
 rotates its binaries and variants through six or eight rounds, so that drift
 affects every variant equally. A cell is the median of its round medians.
 Ratios divide by the oracle measured by the same binary in the same run.
-Every variant's answer was compared on every assembly, and no cell disagreed.
+Every variant's answer was compared on every assembly. Variants of the same
+question agreed in every cell. The one disagreement is between contracts: on
+Roslyn C#, unsafe presence (the original loop and every planned variant)
+stops at an unreadable method body before it finds evidence and reports
+`incomplete`, while the legacy rows path contains that failure per method and
+answers `true`.
 
 **Layout control.** The padding experiment is run `presence-layout-padding` in
 the data, with variants `pad40` and `pad97`.
@@ -74,18 +79,24 @@ another workload loaded the machine: async count step 3 on fernie (load 22 to
 ## Unsafe presence: rows, then check, against Exists
 
 The legacy question built rows for every method and then checked whether any
-existed. The Exists terminal answers the same question.
+existed. The Exists terminal answers the same question. Both columns come
+from run `presence-rows-vs-exists` (mac, 2026-09-26, build `f7f1468c0`),
+variants `rows` and `head`:
 
 | Assembly | Rows, then check (ms) | Exists (ms) | Speedup |
 | --- | ---: | ---: | ---: |
-| CommandLine | 71.28 | 8.47 | 8.4× |
-| Humanizer | 40.50 | 5.56 | 7.3× |
-| Mono.Cecil | 75.59 | 14.05 | 5.4× |
-| Newtonsoft.Json | 172.50 | 5.74 | 30.0× |
-| System.Text.Json | 139.50 | 0.18 | 758.2× |
-| NuGet.Packaging | 186.62 | 7.37 | 25.3× |
-| Roslyn C# | 1695.21 | 20.27 | 83.7× |
-| CoreLib | 1760.57 | 2.70 | 652.2× |
+| CommandLine | 71.28 | 8.83 | 8.1× |
+| Humanizer | 40.50 | 5.67 | 7.1× |
+| Mono.Cecil | 75.59 | 14.37 | 5.3× |
+| Newtonsoft.Json | 172.50 | 5.99 | 28.8× |
+| System.Text.Json | 139.50 | 0.19 | 738.1× |
+| NuGet.Packaging | 186.62 | 7.65 | 24.4× |
+| Roslyn C# | 1695.21 | 22.70, `incomplete` | not comparable |
+| CoreLib | 1760.57 | 2.79 | 631.9× |
+
+On Roslyn C#, Exists stops at an unreadable method body and reports the
+failure, while the rows path contains it and answers `true`. The two
+executions answer different questions, so no speedup is claimed.
 
 ## Unsafe presence: the reference executor and its changes
 
@@ -342,7 +353,7 @@ first, then doing less per unit, then doing it faster.
 | 3 | Source-native answers: counts from table sizes, random access, reverse order, and reference-table presence checks | A self-typed source, as in NLinq, can answer a closing without visiting | QuerySpace (#8577) | None for authors; per source |
 | 4 | Scope at coarser grains | Type scope already skips whole types; assemblies and packages are next | Producer Planning, QuerySpace | One predicate per grain |
 | 5 | Merge requests across consumers into one traversal | Planned subsets beat the superset scan 2–5×; merging keeps that when several sections ask | QuerySpace (#8574) | None |
-| 5a | Typed results for request sets: a stream lowering, and a document lowering that publishes shared rows with derived keyed views (GroupBy, CountBy), as the .NET CVE schema does | The website's member chips and family rows are keyed counts over rows it already displays; #8728 requires them to equal `--count`. Package-version `--count` is lowered by hand in four places into `InspectionEnvelope<int>`, with no canonical share; as a Count closing it is one generic lowering and a small first adopter outside method definitions | Producer Planning, QuerySpace, output shapes, static workspace bundles | Less than today: consumers read views instead of querying |
+| 5a | Typed results for request sets: a stream lowering, and a result-set lowering that publishes shared rows with derived keyed views (GroupBy, CountBy), as the .NET CVE schema does | The website's member chips and family rows are keyed counts over rows it already displays; #8728 requires them to equal `--count`. Package-version `--count` is lowered by hand in four places into `InspectionEnvelope<int>`, with no canonical share; as a Count closing it is one generic lowering and a small first adopter outside method definitions | Producer Planning, QuerySpace, output shapes, static workspace bundles | Less than today: consumers read views instead of querying |
 | 6 | The classified-methods migration as the first production caller of scope guards and type scope, with the Async Methods section as the demo | Guards and type scope have no production caller yet | Producer Planning, CLI sections | None for consumers |
 | 7 | Typed fused kernels in production, generated, with per-question outcomes and an equivalence gate | 1.01–1.05× of the hand-fused loop against 1.2–1.6× interpreted | Producer Planning | None if generated |
 | 8 | Memoize call resolution in the unsafe probe | 26 MB per CommandLine scan; call sites repeat targets 2.4–5.9× | Analysis | None |
@@ -379,9 +390,10 @@ condition per phase), and with the names settled on 2026-09-27:
   selected units, testing only the predicate, and hands the live cursor to the
   next phase.
 - **Window(A..B)**, for `--rows A..B`, is Skip(A - 1) followed by
-  Head(B - A + 1) over one cursor. When fewer than A units exist, proving the
-  window fails requires exhausting the source, and that failure stays the row
-  selection owner's decision, reported as evidence.
+  B - A + 1 rows over one cursor. It is strict: unlike Head, it succeeds only
+  by reaching position B. Exhaustion before B, in either phase, is the row
+  selection owner's strict-window failure, reported as evidence, and never
+  a truncated success. Every window measured here reached B.
 - **Tail(N)** keeps only the last N selected units and projects them at the
   end. It stops early only on a source that can traverse in reverse.
 - **Stop policies**, first proposed as `CountExitOracle` and declared as
