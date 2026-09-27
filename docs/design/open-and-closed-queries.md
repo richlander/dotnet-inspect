@@ -86,6 +86,8 @@ A **closed query** is an open query with a terminal:
 | Head(N) | The first N selected units' projections | Yes, at the Nth |
 | Window(A..B) | The selected units at positions A through B | Yes, at position B |
 | Tail(N) | The last N selected units' projections | No, unless the source can traverse in reverse |
+| GroupBy(key) | The selected units' identities, keyed by a declared key | No |
+| CountBy(key) | How many selected units share each key | No |
 | Fold | An owner-defined aggregation, such as a call graph | No |
 
 Head, Window, Tail, and Top mean what
@@ -93,7 +95,9 @@ Head, Window, Tail, and Top mean what
 clamp, and a strict Window fails when its start does not exist. This pattern
 expresses them as closings; it does not redefine them.
 
-Rows derives Count, Count derives AtLeast(N), and Exists is AtLeast(1). Closings of the same open query at different thresholds merge to
+Rows derives Count, Count derives AtLeast(N), and Exists is AtLeast(1). Rows
+also derives GroupBy(key) for any key its rows carry, and GroupBy(key) derives
+CountBy(key), whose counts are its lists' lengths. Closings of the same open query at different thresholds merge to
 the largest. Fold derives nothing, because its aggregation belongs to its
 owner. When several consumers close the same open query, the most expansive
 closing is executed and the others are derived.
@@ -166,6 +170,45 @@ Names differ by layer. Commands and authors use the closing names. The plan
 uses processors, conditions, and phases. Kernels take each processor and
 condition as a struct type parameter, and a sequence of phases becomes a small
 state machine in one loop.
+
+## Typed results
+
+The planner is not only a reducer. It produces a typed result for a declared
+request set, and the result's shape is known when the request is planned,
+before any subject is read:
+
+| Shape | Closings |
+| --- | --- |
+| Scalar | Count, Exists, AtLeast(N) |
+| Vector | GroupBy(key), CountBy(key), or one projected field of Rows |
+| Table | Rows, Head(N), Window(A..B), Tail(N) |
+| Document | A request set: shared rows plus each closing derived from them |
+
+A request set lowers one of two ways:
+
+- **Stream.** Each closing runs as phases and kernels and stops as early as
+  its phases allow. It suits one-shot answers, counts over large
+  populations, and windows.
+- **Document.** The most expansive closing runs once, and every other closing
+  is derived from its rows and published beside them as a keyed view. It
+  suits consumers that display the rows and ask many questions of them, such
+  as an interactive page or a static bundle. Because every view derives from
+  the same rows, the numbers agree by construction.
+
+The document lowering has prior art in the
+[.NET CVE schema](https://github.com/dotnet/designs/blob/main/accepted/2025/cve-schema/cve_schema.md):
+flat denormalized rows as a first layer, and computed indexes, keyed lists of
+identities, as a second layer that turns joins into lookups. Its indexes are
+chosen by hand for anticipated questions. Here the request set declares the
+questions, so the planner materializes exactly the views it is asked for.
+
+This inverts the [output-shape ladder](output-shapes.md#the-shape-ladder)
+without changing its shapes. Today a command builds its Document and a
+request narrows it to a Table, Vector, or Scalar afterward. Planned, the
+requested shape decides what is produced: a Scalar request produces a scalar
+without building rows, and a Document request produces rows once with its
+views. Consumers read results through typed claim checks, so a Count yields
+an integer and Rows yields its row type, with nothing cast or recomputed.
 
 ## Lowering
 
@@ -253,5 +296,7 @@ one read.
 - **Derivation.** Count derived from Rows, and Exists derived from Count, match
   their own reference executions, including a failure after an Exists was
   settled. This is **unverified**.
+- **Document results.** Every keyed view in a document equals the same closing
+  run alone. This is **unverified**.
 - **Merging.** Closings merged across consumers each receive the shape they
   asked for. This is **unverified** until level 2 adopts closing (#8574).
