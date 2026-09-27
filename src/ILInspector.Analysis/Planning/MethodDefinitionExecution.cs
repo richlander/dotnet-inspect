@@ -66,6 +66,7 @@ public sealed class MethodDefinitionExecution
             for (int j = 0; j < runs.Length; j++)
                 runs[j] = execution._states[state.Dependencies[j]].Run;
             state.DependencyRuns = runs;
+            execution.BindScopeGuards(state);
         }
 
         if (!peReader.HasMetadata)
@@ -152,6 +153,40 @@ public sealed class MethodDefinitionExecution
     }
 
     /// <summary>
+    /// Binds a producer's scope guards: same-pass visit dependencies on a
+    /// producer that classifies units.
+    /// </summary>
+    void BindScopeGuards(ProducerState state)
+    {
+        ImmutableArray<ProducerDependency> declared = state.Run.Producer.Dependencies;
+        var runs = new List<IMethodDefinitionProducerRun>();
+        var accepted = new List<ulong>();
+        for (int j = 0; j < declared.Length; j++)
+        {
+            ProducerDependency dependency = declared[j];
+            if (!dependency.IsScopeGuard)
+                continue;
+            IMethodDefinitionProducerRun guard = state.DependencyRuns[j];
+            if (dependency.Kind != ProducerDependencyKind.VisitNeedsVisit
+                || !guard.ClassifiesUnits
+                || _description.VisitPassOf(dependency.Producer)
+                    != _description.VisitPassOf(state.Run.Producer))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{state.Run.Producer.Identity}' declares a scope guard on "
+                    + $"'{dependency.Producer.Identity}', which must be a same-pass visit "
+                    + "dependency on a producer that classifies units.");
+            }
+
+            runs.Add(guard);
+            accepted.Add(dependency.AcceptedUnitClasses);
+        }
+
+        state.GuardRuns = [.. runs];
+        state.GuardClasses = [.. accepted];
+    }
+
+    /// <summary>
     /// The same-unit fact of a declared visit dependency, found through the
     /// dependent's own dependency runs.
     /// </summary>
@@ -202,6 +237,7 @@ public sealed class MethodDefinitionExecution
             {
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
+                int unitToken = MetadataTokens.GetToken(methodHandle);
                 bool anyActive = false;
                 foreach (ProducerState state in visiting)
                 {
@@ -211,6 +247,14 @@ public sealed class MethodDefinitionExecution
                         FailIfPrerequisiteFailed(state);
                     if (!state.IsActive)
                         continue;
+
+                    // A unit outside a declared scope guard is not visited.
+                    if (state.GuardRuns.Length != 0 && !InScope(state, unitToken))
+                    {
+                        anyActive = true;
+                        continue;
+                    }
+
                     VisitUnit(ref unit, state);
                     anyActive |= state.IsActive;
                 }
@@ -226,6 +270,19 @@ public sealed class MethodDefinitionExecution
         }
 
         return visited;
+    }
+
+    static bool InScope(ProducerState state, int unitToken)
+    {
+        IMethodDefinitionProducerRun[] guards = state.GuardRuns;
+        ulong[] accepted = state.GuardClasses;
+        for (int i = 0; i < guards.Length; i++)
+        {
+            if (!guards[i].UnitClassIn(unitToken, accepted[i]))
+                return false;
+        }
+
+        return true;
     }
 
     void VisitUnit(ref MethodDefinitionUnit unit, ProducerState state)
@@ -417,6 +474,11 @@ public sealed class MethodDefinitionExecution
 
         /// <summary>The dependencies' runs, aligned with the declared dependencies.</summary>
         public IMethodDefinitionProducerRun[] DependencyRuns { get; set; } = [];
+
+        /// <summary>The scope guards' runs and the unit classes each accepts.</summary>
+        public IMethodDefinitionProducerRun[] GuardRuns { get; set; } = [];
+
+        public ulong[] GuardClasses { get; set; } = [];
 
         public bool HasBodyLayer { get; } =
             (declaration.Layers & MethodDefinitionLayers.Body) != 0;
