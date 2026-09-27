@@ -509,6 +509,7 @@ async function installGalleryRoutes(
 
 declare global {
   interface Window {
+    __spotlightPressedResult?: Element;
     __adoption?: {
       queryPackage(
         packageId: string,
@@ -1780,6 +1781,304 @@ test.describe("Package Activity website over real Wasm", () => {
 
 test.describe("artifact-backed package scope adoption over real Wasm", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("preserves a pressed Spotlight result across package search publication", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    const searchRequested = deferred<void>();
+    const releaseSearch = deferred<void>();
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequested.resolve();
+      await releaseSearch.promise;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({
+          totalHits: 1,
+          data: [{
+            id: "InspectWeb.Adoption.Neighbor",
+            version,
+            description: "Result publication fixture.",
+            owners: ["Fixture"],
+            totalDownloads: 1,
+            verified: false,
+          }],
+        }),
+      });
+    });
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("InspectWeb.Adoption");
+    await searchRequested.promise;
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    const box = await recent.boundingBox();
+    if (!box) throw new Error("Recent package result has no browser geometry.");
+    await page.mouse.move(
+      box.x + box.width / 2,
+      box.y + box.height / 2,
+    );
+    await page.mouse.down();
+    releaseSearch.resolve();
+
+    await expect(page.locator(
+      '[data-sl-pkg-load="InspectWeb.Adoption.Neighbor"]',
+    )).toBeVisible();
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await page.mouse.up();
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.get("package"))
+      .toBe(healthy.packageId);
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("preserves a Space-pressed Spotlight result across package search publication", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    const searchRequested = deferred<void>();
+    const releaseSearch = deferred<void>();
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequested.resolve();
+      await releaseSearch.promise;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({
+          totalHits: 1,
+          data: [{
+            id: "InspectWeb.Adoption.Neighbor",
+            version,
+            description: "Result publication fixture.",
+            owners: ["Fixture"],
+            totalDownloads: 1,
+            verified: false,
+          }],
+        }),
+      });
+    });
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("InspectWeb.Adoption");
+    await searchRequested.promise;
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.focus();
+    await expect(recent).toBeFocused();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    await page.keyboard.down("Space");
+    releaseSearch.resolve();
+
+    await expect(page.locator(
+      '[data-sl-pkg-load="InspectWeb.Adoption.Neighbor"]',
+    )).toBeVisible();
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await expect(recent).toBeFocused();
+    await page.keyboard.up("Space");
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.get("package"))
+      .toBe(healthy.packageId);
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("preserves Space activation and focus across whole-app rendering", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill(healthy.packageId);
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.focus();
+    await expect(recent).toBeFocused();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    await page.keyboard.down("Space");
+
+    await page.evaluate(() => {
+      const theme = document.querySelector<HTMLButtonElement>("#home-theme");
+      if (!theme) throw new Error("Home theme control is unavailable.");
+      theme.click();
+    });
+
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await expect(recent).toBeFocused();
+    await page.keyboard.up("Space");
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("modal whole-app rendering does not steal a pending Space activation", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
+
+    await page.goto("/demos");
+    await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+      .toBeVisible({ timeout: 120_000 });
+    await page.keyboard.press("Control+p");
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.focus();
+    await expect(recent).toBeFocused();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    await page.keyboard.down("Space");
+
+    await page.evaluate(() => {
+      const theme = document.querySelector<HTMLButtonElement>("#home-theme");
+      if (!theme) throw new Error("Demos theme control is unavailable.");
+      theme.click();
+    });
+    await page.evaluate(() => new Promise<void>(complete =>
+      requestAnimationFrame(() => requestAnimationFrame(() => complete()))));
+
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await expect(recent).toBeFocused();
+    await page.keyboard.up("Space");
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("does not transfer a pressed Spotlight result after its identity disappears", async ({
+    page,
+    context,
+  }) => {
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill(healthy.packageId);
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    const box = await recent.boundingBox();
+    if (!box) throw new Error("Recent package result has no browser geometry.");
+    await page.mouse.move(
+      box.x + box.width / 2,
+      box.y + box.height / 2,
+    );
+    await page.mouse.down();
+    await search.evaluate(element => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new TypeError("Spotlight input is not an input element.");
+      }
+      const input = element;
+      input.value = "NoMatchingPackage";
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+      }));
+    });
+    await expect(recent).toHaveCount(0);
+    await page.mouse.up();
+
+    await expect(page.locator(".inspected-target")).toHaveCount(0);
+    await expect(page.locator("#package-query-heading")).toHaveCount(0);
+    expect(new URL(page.url()).pathname).toBe("/");
+  });
 
   test("returns compact typed platform documentation through the production Worker", async ({
     page,

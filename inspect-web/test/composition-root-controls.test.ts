@@ -839,7 +839,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /bindHomeShell\(document, homeShellActions\)[\s\S]*spotlight\.bind\(document, "inline"\)[\s\S]*#spotlight-input/);
   assert.match(
     loadingBinding,
-    /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
+    /replaceChildrenPreservingRenderedInteractions\(app, `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
     /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*render\(\);[\s\S]*focusContentNavigation\(document\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
@@ -1610,10 +1610,10 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
     directWorkbenchCalls.indexOf("bindSettingsPanelEvents") + 1);
   const metadataRenderStatements = renderMetadata.body.body;
   const replacementIndex = metadataRenderStatements.findIndex(
-    statement => statement.type === "ExpressionStatement"
-      && statement.expression.type === "AssignmentExpression"
-      && statement.expression.operator === "="
-      && sourceText(statement.expression.left) === "app.innerHTML");
+    statement =>
+      directCallExpression(
+        statement,
+        "replaceChildrenPreservingRenderedInteractions") !== null);
   const binderIndex = metadataRenderStatements.findIndex(
     statement => directCallExpression(statement, "bindMetadataViewerEvents"));
   assert.notEqual(replacementIndex, -1);
