@@ -114,9 +114,9 @@ A caller can open an existing pathless `ResolvedAssemblyReference` with
 acquired PDB content with `LoadPdbFromStream`. Metadata consumes that stream
 and retains its existing identity, read-failure, and cleanup behavior.
 `PdbLoadStatus` distinguishes a loaded PDB, identity mismatch, unsupported
-format, Windows PDB, malformed content, and suppressed read failure without
-requiring consumers to parse diagnostic text. Loading updates SourceLink's
-cached map and document state before the next query.
+format, Windows PDB, malformed or truncated content, and suppressed read
+failure without requiring consumers to parse diagnostic text. Loading updates
+SourceLink's cached map and document state before the next query.
 This path does not activate embedded or adjacent PDB discovery; callers that
 want embedded symbols continue to select the existing bounded embedded-PDB
 operation explicitly.

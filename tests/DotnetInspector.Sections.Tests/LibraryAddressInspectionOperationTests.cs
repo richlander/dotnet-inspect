@@ -468,6 +468,69 @@ public sealed class LibraryAddressInspectionOperationTests
         Assert.NotNull(resolved.Projection.Line);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task TruncatedPortablePdbIsFormatFailureForExactAndPopulation(
+        int length)
+    {
+        byte[] implementation =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        (int methodToken, int ilOffset) =
+            FirstMethodAddress(implementation);
+        byte[] content =
+            [(byte)'B', (byte)'S', (byte)'J'];
+        byte[] malformedPdb = content[..length];
+
+        await using LibraryInspectionTestLibrary exactLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation),
+                implementation,
+                malformedPdb);
+        InspectionEnvelope<LibraryAddressInspectionOutcome> exact =
+            Execute(
+                exactLibrary,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities.SourceLocation));
+        Assert.Equal(
+            LibraryAddressInspectionFailure.MalformedMetadata,
+            Assert.IsType<LibraryAddressInspectionOutcome.Failed>(
+                    exact.Content)
+                .Reason);
+        Assert.NotEmpty(exact.Diagnostics);
+
+        await using LibraryInspectionTestLibrary populationLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation),
+                implementation,
+                malformedPdb);
+        InspectionEnvelope<LibraryAddressInspectionOutcome> population =
+            Execute(
+                populationLibrary,
+                new LibraryAddressIntent.Population(
+                    [
+                        new LibraryAddressPopulationRecord.Coordinate(
+                            1,
+                            $"0x{methodToken:X8}+0x{ilOffset:X}",
+                            label: null,
+                            methodToken,
+                            ilOffset),
+                    ],
+                    ILOffsetProjectionCapabilities.SourceLocation));
+        Assert.Equal(
+            LibraryAddressInspectionFailure.MalformedMetadata,
+            Assert.IsType<LibraryAddressInspectionOutcome.Failed>(
+                    population.Content)
+                .Reason);
+        Assert.NotEmpty(population.Diagnostics);
+    }
+
     [Fact]
     public async Task MalformedPortablePdbIsFormatFailureForExactAndPopulation()
     {

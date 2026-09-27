@@ -837,6 +837,15 @@ public class PdbContext : IDisposable
                         "Portable PDB content must be readable and seekable.");
                 }
 
+                if (pdbStream.Length < 4)
+                {
+                    LastPdbLoadStatus = PdbLoadStatus.Malformed;
+                    LastPdbLoadError =
+                        "Portable PDB content is shorter than its four-byte signature.";
+                    _log?.Invoke(LastPdbLoadError);
+                    return;
+                }
+
                 // Check for Portable PDB magic header (BSJB)
                 byte[] header = new byte[4];
                 pdbStream.ReadExactly(header, 0, 4);

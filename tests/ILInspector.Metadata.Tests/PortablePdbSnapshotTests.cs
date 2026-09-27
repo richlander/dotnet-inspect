@@ -64,6 +64,32 @@ public class PortablePdbSnapshotTests
         Assert.Null(context.GetPortablePdbImage());
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void TruncatedPortablePdbRetainsMalformedLoadStatus(int length)
+    {
+        string assemblyPath = typeof(PdbContext).Assembly.Location;
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assemblyPath);
+        byte[] content =
+            [(byte)'B', (byte)'S', (byte)'J'];
+
+        context.LoadPdbFromStream(
+            new MemoryStream(
+                content[..length],
+                writable: false));
+
+        Assert.False(context.HasPdb);
+        Assert.Equal(
+            PdbLoadStatus.Malformed,
+            context.LastPdbLoadStatus);
+        Assert.NotNull(context.LastPdbLoadError);
+        Assert.Null(context.GetPortablePdbImage());
+    }
+
     [Fact]
     public void MalformedPortablePdbRetainsTypedLoadStatus()
     {
