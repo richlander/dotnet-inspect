@@ -22095,9 +22095,7 @@ window.addEventListener("popstate", () => {
       outlineTop: 0,
     };
   }
-  let leftPackageQueryForWorkspaceSuccessor = false;
-  let unavailableWorkspaceAdmissionRejected = false;
-  const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
+  let leftPackageActivityForWorkspaceSuccessor = false;
   if (state.packageActivityOpen
     && !isPackageActivityPath(location.pathname)) {
     state.packageActivityOpen = false;
@@ -22107,9 +22105,12 @@ window.addEventListener("popstate", () => {
       && isPackageActivityPredecessor(
         history.state,
         state.packageActivityPredecessorEntryId);
-    leftPackageQueryForWorkspaceSuccessor =
+    leftPackageActivityForWorkspaceSuccessor =
       !state.packageActivityReturnFocusPending;
   }
+  let leftPackageQueryForWorkspaceSuccessor = false;
+  let unavailableWorkspaceAdmissionRejected = false;
+  const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
   invalidateMemberDestinationWork(state);
   const historyWorkspaceId =
     retainedWorkspaceIdFromHistory(history.state);
@@ -22307,6 +22308,9 @@ window.addEventListener("popstate", () => {
     leftPackageQueryForWorkspaceSuccessor =
       !state.packageQueryReturnFocusPending;
   }
+  leftPackageQueryForWorkspaceSuccessor =
+    leftPackageQueryForWorkspaceSuccessor
+    || leftPackageActivityForWorkspaceSuccessor;
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();
     if (!clearWorkspaceRouteFailure()) {
