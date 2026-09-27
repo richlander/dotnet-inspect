@@ -11,6 +11,7 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
+    <EventSourceSupport Condition="'$(ProbeProfile)' == 'true'">true</EventSourceSupport>
     <NoWarn>$(NoWarn);CS1591;CS8618;CS8603;CS8601;CS8604;IDE0005</NoWarn>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
