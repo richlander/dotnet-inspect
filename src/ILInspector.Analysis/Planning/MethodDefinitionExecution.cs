@@ -74,10 +74,8 @@ public sealed class MethodDefinitionExecution
         using LibraryBodyAnalysisBuilder? builder = lookupDeclared
             ? new LibraryBodyAnalysisBuilder(sourceName, reader, peReader)
             : null;
-        var unit = new MethodDefinitionUnit(
-            reader,
-            peReader,
-            builder is null ? null : new LibraryMethodAnalysisRunner(builder));
+        LibraryMethodAnalysisRunner? lookup =
+            builder is null ? null : new LibraryMethodAnalysisRunner(builder);
         int unitsVisited = 0;
 
         foreach (PlannedPass pass in description.Passes)
@@ -96,7 +94,8 @@ public sealed class MethodDefinitionExecution
             {
                 int passUnits = execution.VisitUnits(
                     reader,
-                    unit,
+                    peReader,
+                    lookup,
                     visiting);
                 unitsVisited = Math.Max(unitsVisited, passUnits);
             }
@@ -160,9 +159,11 @@ public sealed class MethodDefinitionExecution
 
     int VisitUnits(
         MetadataReader reader,
-        MethodDefinitionUnit unit,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
         ProducerState[] visiting)
     {
+        var unit = new MethodDefinitionUnit(reader, peReader, lookup);
         int visited = 0;
         foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
         {
@@ -179,7 +180,7 @@ public sealed class MethodDefinitionExecution
                     FailIfPrerequisiteFailed(state);
                     if (!state.IsActive)
                         continue;
-                    VisitUnit(unit, state);
+                    VisitUnit(ref unit, state);
                     anyActive |= state.IsActive;
                 }
 
@@ -196,13 +197,13 @@ public sealed class MethodDefinitionExecution
         return visited;
     }
 
-    void VisitUnit(MethodDefinitionUnit unit, ProducerState state)
+    void VisitUnit(ref MethodDefinitionUnit unit, ProducerState state)
     {
         state.UnitsAttempted++;
         bool settled;
         try
         {
-            settled = state.Run.Visit(new MethodDefinitionView(unit, state));
+            settled = state.Run.Visit(new MethodDefinitionView(ref unit, state));
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))

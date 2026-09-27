@@ -135,14 +135,14 @@ internal interface IMethodDefinitionProducerRun
 /// </summary>
 public readonly ref struct MethodDefinitionView
 {
-    readonly MethodDefinitionUnit _unit;
+    readonly ref MethodDefinitionUnit _unit;
     readonly MethodDefinitionExecution.ProducerState _producer;
 
     internal MethodDefinitionView(
-        MethodDefinitionUnit unit,
+        ref MethodDefinitionUnit unit,
         MethodDefinitionExecution.ProducerState producer)
     {
-        _unit = unit;
+        _unit = ref unit;
         _producer = producer;
     }
 
@@ -243,11 +243,19 @@ public readonly ref struct MethodDefinitionCompletionView
     }
 }
 
-internal sealed class MethodDefinitionUnit(
+/// <summary>
+/// The executor's cursor over method definitions. It is a struct local to the
+/// visiting loop, so advancing it writes only to the stack; views borrow it by
+/// reference for one visit.
+/// </summary>
+internal struct MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
     LibraryMethodAnalysisRunner? lookup)
 {
+    readonly MetadataReader _reader = reader;
+    readonly PEReader _peReader = peReader;
+    readonly LibraryMethodAnalysisRunner? _lookup = lookup;
     MethodBodyBlock? _body;
 
     public TypeDefinitionHandle TypeHandle { get; private set; }
@@ -259,11 +267,11 @@ internal sealed class MethodDefinitionUnit(
     public MethodDefinition MethodDefinition { get; private set; }
 
     /// <summary>The module lookup; present whenever a planned producer declared it.</summary>
-    public LibraryMethodAnalysisRunner Lookup =>
-        lookup ?? throw new InvalidOperationException(
+    public readonly LibraryMethodAnalysisRunner Lookup =>
+        _lookup ?? throw new InvalidOperationException(
             "The module lookup was not built because no planned producer declared it.");
 
-    public MetadataReader Reader => reader;
+    public readonly MetadataReader Reader => _reader;
 
     public void MoveTo(
         TypeDefinitionHandle typeHandle,
@@ -273,17 +281,17 @@ internal sealed class MethodDefinitionUnit(
         TypeHandle = typeHandle;
         TypeDefinition = typeDefinition;
         MethodHandle = methodHandle;
-        MethodDefinition = reader.GetMethodDefinition(methodHandle);
+        MethodDefinition = _reader.GetMethodDefinition(methodHandle);
         _body = null;
     }
 
     public MethodBodyBlock GetBody() =>
-        _body ??= peReader.GetMethodBody(
+        _body ??= _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
 
-    public string Label =>
+    public readonly string Label =>
         LibraryMethodAnalysisRunner.MethodLabel(
-            reader,
+            _reader,
             TypeHandle,
             MethodHandle);
 }
