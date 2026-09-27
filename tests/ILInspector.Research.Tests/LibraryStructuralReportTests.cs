@@ -197,7 +197,7 @@ public sealed class LibraryStructuralReportTests
             static relationship =>
                 relationship.Source.Name == "Consumer"
                 && relationship.Target.Name == "Helper"
-                && relationship.CallSiteCount == 1);
+                && relationship.CallSiteCount == 2);
         Assert.DoesNotContain(
             available.Document.EntangledRelationships,
             static relationship =>
