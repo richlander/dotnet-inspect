@@ -394,6 +394,34 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
+    public void Planner_RetainsUnitFactsOnlyAsLongAsTheirReadersNeedThem()
+    {
+        var rows = new RowProducer("Rows");
+        var guard = new CountingProducer("Guard");
+        var samePass = new GuardedRowsProducer("SamePass", new RowParityProducer("Parity"), acceptedClasses: 0b11);
+        var laterPass = new RowAfterGuardProducer("LaterPass", rows, guard);
+
+        WorkDescription description = Plan(
+            new ProducerRequest(samePass),
+            new ProducerRequest(laterPass));
+
+        // Read only by a reader in a later pass: every unit's fact is kept.
+        Assert.Equal(UnitFactRetention.AllUnits, RetentionOf(description, rows));
+        // Read only by a reader in its own pass: the current unit's fact.
+        Assert.Equal(
+            UnitFactRetention.CurrentUnit,
+            RetentionOf(description, samePass.Dependencies[0].Producer));
+        // Read by no one: nothing is kept.
+        Assert.Equal(UnitFactRetention.None, RetentionOf(description, guard));
+        Assert.Equal(UnitFactRetention.None, RetentionOf(description, laterPass));
+
+        static UnitFactRetention RetentionOf(WorkDescription description, ProducerDeclaration producer) =>
+            description.TryGetIndex(producer, out int index)
+                ? description.FactRetention[index]
+                : throw new InvalidOperationException($"{producer} is not planned.");
+    }
+
+    [Fact]
     public void Planner_RejectsDistinctDeclarationsWithTheSameIdentity()
     {
         var first = new CountingProducer("Same", parameters: "p");
