@@ -16,12 +16,12 @@ export interface OverviewSurfaceOptions {
   escapeHtml: (value: unknown) => string;
 }
 
-export interface OverviewEnablement {
+interface OverviewEnablement {
   id: string;
   label: string;
 }
 
-export function renderOverviewEnablements(
+function renderOverviewEnablements(
   enablements: readonly OverviewEnablement[],
   escapeHtml: (value: unknown) => string,
 ): string {
