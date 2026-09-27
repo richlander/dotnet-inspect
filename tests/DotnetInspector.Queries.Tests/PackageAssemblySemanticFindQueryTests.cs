@@ -1164,13 +1164,14 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task LinkedSinkCancellationPreservesTimeoutClassification()
     {
         await using var fixture = new SemanticFindSourceFixture();
         await fixture.CacheAssemblyAsync(
             "Contoso.First",
             NoMatchImage);
-        TimeSpan timeout = TimeSpan.FromSeconds(1);
+        TimeSpan timeout = TimeSpan.FromSeconds(5);
         PackageSourceOperationLease operation =
             fixture.Root.IssueOperationLease(
                 TestContext.Current.CancellationToken,
