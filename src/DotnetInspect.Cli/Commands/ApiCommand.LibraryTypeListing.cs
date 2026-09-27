@@ -67,7 +67,7 @@ public static partial class ApiCommand
         if (result.Rows.IsEmpty)
         {
             string @namespace =
-                result.Document.Types.Binding.Namespace
+                result.Document.Types!.Binding.Namespace
                 ?? throw new InvalidOperationException(
                     "Namespace Type listing output requires a namespace binding.");
             view.DescriptionText =
@@ -115,7 +115,7 @@ public static partial class ApiCommand
         TypeOptions options)
     {
         LibraryTypePopulationCountOutcome.Counted count =
-            document.Types.Count
+            document.Types!.Count
                 as LibraryTypePopulationCountOutcome.Counted
             ?? throw new InvalidOperationException(
                 "Library Type Count output requires a counted outcome.");

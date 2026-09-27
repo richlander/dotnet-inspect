@@ -479,6 +479,16 @@ public sealed class AssemblyInspectionSession :
         return LibraryEnablementFacts.Read(_image.PEReader);
     }
 
+    /// <summary>
+    /// Image and Description facts read from this image alone
+    /// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+    /// </summary>
+    public AssemblyLibraryFactsObservation LibraryFacts()
+    {
+        _image.EnsureAlive();
+        return AssemblyLibraryFactsObservation.Read(_image.PEReader);
+    }
+
     /// <summary>Presence flags for assembly-level features.</summary>
     public PresenceFlags PresenceFlags()
         => AssemblyDetailScanner.ScanPresenceFlags(_image.PEReader);
