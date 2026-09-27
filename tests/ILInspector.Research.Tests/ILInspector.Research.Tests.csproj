@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\fixtures\research\ResearchTargetCorrespondenceFixtures.V1\ResearchTargetCorrespondenceFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\research\ResearchTargetCorrespondenceFixtures.V2\ResearchTargetCorrespondenceFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CalleeResolutionFixtures\ILInspector.Analysis.CalleeResolutionFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
