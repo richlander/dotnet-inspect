@@ -177,7 +177,10 @@ public sealed class MethodDefinitionExecution
                 bool anyActive = false;
                 foreach (ProducerState state in visiting)
                 {
-                    FailIfPrerequisiteFailed(state);
+                    // Only a producer with dependencies can gain a failed
+                    // prerequisite between units; the plan says which do.
+                    if (state.HasDependencies)
+                        FailIfPrerequisiteFailed(state);
                     if (!state.IsActive)
                         continue;
                     VisitUnit(ref unit, state);
@@ -381,6 +384,8 @@ public sealed class MethodDefinitionExecution
 
         /// <summary>The dependency targets, by index into the execution's states.</summary>
         public ImmutableArray<int> Dependencies => dependencies;
+
+        public bool HasDependencies { get; } = !dependencies.IsEmpty;
 
         public bool HasBodyLayer { get; } =
             (declaration.Layers & MethodDefinitionLayers.Body) != 0;
