@@ -40,7 +40,7 @@ public static class AsyncMethodScope
 }
 
 /// <summary>Count terminal: how many async methods.</summary>
-public sealed class AsyncMethodCountProducer : MethodDefinitionProducer<bool, int>
+public sealed class AsyncMethodCountProducer : MethodDefinitionProducer<bool, int, int>
 {
     AsyncMethodCountProducer()
         : base("Experiment.AsyncMethodCount", version: 1, tier: 0, MethodDefinitionLayers.Declaration)
@@ -52,21 +52,15 @@ public sealed class AsyncMethodCountProducer : MethodDefinitionProducer<bool, in
     internal override bool Visit(scoped MethodDefinitionView view) =>
         AsyncMethodScope.IsCounted(view.Reader, view.TypeDefinition, view.MethodDefinition);
 
-    internal override int Complete(IReadOnlyList<bool> facts, MethodDefinitionCompletionView completion)
-    {
-        int count = 0;
-        for (int i = 0; i < facts.Count; i++)
-        {
-            if (facts[i])
-                count++;
-        }
+    internal override int Seed() => 0;
 
-        return count;
-    }
+    internal override int Accumulate(int accumulator, bool fact) => fact ? accumulator + 1 : accumulator;
+
+    internal override int Complete(int accumulator, MethodDefinitionCompletionView completion) => accumulator;
 }
 
 /// <summary>Exists terminal with the same signature as unsafe presence (bool, bool).</summary>
-public sealed class AsyncMethodPresenceProducer : MethodDefinitionProducer<bool, bool>
+public sealed class AsyncMethodPresenceProducer : MethodDefinitionProducer<bool, bool, bool>
 {
     AsyncMethodPresenceProducer()
         : base("Experiment.AsyncMethodPresence", version: 1, tier: 0, MethodDefinitionLayers.Declaration)
@@ -78,16 +72,11 @@ public sealed class AsyncMethodPresenceProducer : MethodDefinitionProducer<bool,
     internal override bool Visit(scoped MethodDefinitionView view) =>
         AsyncMethodScope.IsCounted(view.Reader, view.TypeDefinition, view.MethodDefinition);
 
-    internal override bool Complete(IReadOnlyList<bool> facts, MethodDefinitionCompletionView completion)
-    {
-        for (int i = 0; i < facts.Count; i++)
-        {
-            if (facts[i])
-                return true;
-        }
+    internal override bool Seed() => false;
 
-        return false;
-    }
+    internal override bool Accumulate(bool accumulator, bool fact) => accumulator | fact;
+
+    internal override bool Complete(bool accumulator, MethodDefinitionCompletionView completion) => accumulator;
 
     internal override bool Settles(bool fact) => fact;
 }

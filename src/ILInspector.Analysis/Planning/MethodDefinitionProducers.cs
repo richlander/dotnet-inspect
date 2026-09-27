@@ -30,9 +30,10 @@ public enum MethodDefinitionLayers
 /// A producer over method-definition units, the first unit kind adopted under
 /// <c>docs/design/library-body-analysis-service.md#producer-planning-adoption</c>.
 /// The declaration is stateless; per-execution state lives in the run the
-/// executor creates.
+/// executor creates. Unit facts fold into an accumulator as they are visited,
+/// so no execution retains facts its terminal does not need.
 /// </summary>
-public abstract class MethodDefinitionProducer<TFact, TResult>
+public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     : ProducerDeclaration<TResult>, IMethodDefinitionProducer
 {
     private protected MethodDefinitionProducer(
@@ -53,9 +54,15 @@ public abstract class MethodDefinitionProducer<TFact, TResult>
     /// <summary>Visits one unit and returns its fact. Throwing a recoverable failure fails the producer at this unit.</summary>
     internal abstract TFact Visit(scoped MethodDefinitionView view);
 
-    /// <summary>Folds the facts of the visited units into the published result.</summary>
+    /// <summary>The accumulator before any unit is visited; called once per execution.</summary>
+    internal abstract TAccumulator Seed();
+
+    /// <summary>Folds one visited unit's fact into the accumulator.</summary>
+    internal abstract TAccumulator Accumulate(TAccumulator accumulator, TFact fact);
+
+    /// <summary>Produces the published result from the folded accumulator.</summary>
     internal abstract TResult Complete(
-        IReadOnlyList<TFact> facts,
+        TAccumulator accumulator,
         MethodDefinitionCompletionView completion);
 
     /// <summary>Whether a unit fact settles an Exists terminal for this producer.</summary>
@@ -66,11 +73,11 @@ public abstract class MethodDefinitionProducer<TFact, TResult>
         new Run(this, keepUnitFacts);
 
     internal sealed class Run(
-        MethodDefinitionProducer<TFact, TResult> producer,
+        MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
         bool keepUnitFacts)
         : IMethodDefinitionProducerRun
     {
-        readonly List<TFact> _facts = [];
+        TAccumulator _accumulator = producer.Seed();
 
         // Retained by unit only when the plan has a producer that reads them.
         readonly Dictionary<int, TFact>? _factsByUnit =
@@ -81,7 +88,7 @@ public abstract class MethodDefinitionProducer<TFact, TResult>
         public bool Visit(scoped MethodDefinitionView view)
         {
             TFact fact = producer.Visit(view);
-            _facts.Add(fact);
+            _accumulator = producer.Accumulate(_accumulator, fact);
             if (_factsByUnit is not null)
                 _factsByUnit[view.Token] = fact;
             return producer.Settles(fact);
@@ -101,7 +108,7 @@ public abstract class MethodDefinitionProducer<TFact, TResult>
         }
 
         public object? Complete(MethodDefinitionCompletionView completion) =>
-            producer.Complete(_facts, completion);
+            producer.Complete(_accumulator, completion);
     }
 }
 
@@ -196,8 +203,8 @@ public readonly ref struct MethodDefinitionView
     }
 
     /// <summary>The same-unit fact of a declared visit dependency.</summary>
-    public TFact FactOf<TFact, TResult>(
-        MethodDefinitionProducer<TFact, TResult> dependency)
+    public TFact FactOf<TFact, TAccumulator, TResult>(
+        MethodDefinitionProducer<TFact, TAccumulator, TResult> dependency)
     {
         _producer.Require(
             dependency,

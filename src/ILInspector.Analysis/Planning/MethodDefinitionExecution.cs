@@ -142,12 +142,12 @@ public sealed class MethodDefinitionExecution
         };
     }
 
-    internal TFact FactFor<TFact, TResult>(
-        MethodDefinitionProducer<TFact, TResult> producer,
+    internal TFact FactFor<TFact, TAccumulator, TResult>(
+        MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
         int unitToken)
     {
         if (_description.TryGetIndex(producer, out int index)
-            && _states[index].Run is MethodDefinitionProducer<TFact, TResult>.Run run
+            && _states[index].Run is MethodDefinitionProducer<TFact, TAccumulator, TResult>.Run run
             && run.TryGetFact(unitToken, out TFact fact))
         {
             return fact;
