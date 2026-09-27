@@ -80,13 +80,16 @@ A **closed query** is an open query with a terminal:
 | Terminal | Answer | May stop early |
 | --- | --- | --- |
 | Exists | Whether any selected unit satisfies the predicate | Yes, at the first |
+| Count at least N | Whether N selected units satisfy it | Yes, at the Nth |
 | Count | How many selected units satisfy it | No |
 | Rows | The selected units' projections, in unit order | No |
 | Fold | An owner-defined aggregation, such as a call graph | No |
 
-Rows derives Count, and Count derives Exists. Fold derives nothing, because
-its aggregation belongs to its owner. When several consumers close the same
-open query, the most expansive closing is executed and the others are derived.
+Rows derives Count, Count derives Count at least N, and Exists is Count at
+least one. Closings of the same open query at different thresholds merge to
+the largest. Fold derives nothing, because its aggregation belongs to its
+owner. When several consumers close the same open query, the most expansive
+closing is executed and the others are derived.
 The work may stop early only when every closing executed for that open query
 permits it.
 
@@ -97,12 +100,31 @@ execution would have stopped there before reaching the failure.
 
 ## Lowering
 
+Lowering follows one rule: carry type currency from the request through the
+pass, and exchange it for plan data only where requests must merge, never
+once per unit. The plan stays data, so requests can be validated, merged,
+explained, and carried between hosts. Execution becomes types wherever the
+shape is known.
+
 A closed query may be lowered to a **kernel**: one loop specialized to its
-predicate and its terminal, with nothing else to coordinate in its pass. A
-closed query written as a constant in code is a concrete instantiation decided
-at compile time. A closed query composed at runtime selects a kernel once per
-execution, never once per unit. Closed queries fused into one pass run their
-shared open-query work once per unit and feed each terminal.
+predicate or projection and its terminal, with nothing else to coordinate in
+its pass. A closed query written as a constant in code is a concrete
+instantiation decided at compile time. A closed query composed at runtime
+selects a kernel once per execution, never once per unit.
+
+Several closed queries fused into one pass run their shared open-query work,
+such as a classification, once per unit and feed each terminal. When the
+combination is a constant in code, it lowers to a **typed fused kernel**: the
+shared work and the terminals compose into one nested type, so the pass is one
+specialized loop. When the combination is known only at runtime, the pass is
+interpreted over typed leaves. It crosses from plan data into typed code once
+per leaf per unit, or once per batch of units.
+
+A kernel's speed must not depend on how many producers exist elsewhere in the
+program. Whole-program devirtualization is not a substitute for
+specialization: it gives up as implementations accumulate. The per-unit
+members of a kernel's predicate, projection, classifier, and terminals are
+small enough to inline into its loop, and are declared so.
 
 A kernel substitutes for the reference execution, so it keeps the reference
 execution's semantics: failure containment, stopping before the next untrusted
@@ -120,9 +142,13 @@ defeats merging and duplicates the predicate.
 
 NLinq separates the pipeline, `Where` and `Select`, from the terminal, `Count`,
 `Any`, and `ToList`, and specializes each terminal's fold to a struct
-predicate. Kernels borrow that. NLinq composes the whole pipeline as a type at
-one call site, which is what makes merging across consumers impossible there,
-so open queries stay data until the planner closes them. In SQL, a `SELECT`
+predicate. Kernels borrow that, and typed fused kernels borrow its nesting of
+stages into one type. NLinq's self-typed enumerator also lets a source override
+a terminal, such as a list answering `Count` from its length. That is the
+pushdown point for sources that can answer a closing natively. NLinq composes
+the whole pipeline as a type at one call site, which is what makes merging
+across consumers impossible there, so open queries stay data until the planner
+closes them. In SQL, a `SELECT`
 closes one query; shared scans and multi-query optimization close many against
 one read.
 
@@ -134,6 +160,15 @@ one read.
   and out of scope, and an empty image. The gate is
   `ProducerPlanningTests.ClosedQueryKernel_MatchesTheInterpretedExecutor`, on
   the experiment branch.
+- **Thresholds and Rows.** Count at least N and Rows kernels match the
+  reference execution under the same gate, in
+  `ProducerPlanningTests.ClosedQueryKernel_MatchesTheInterpretedExecutor` and
+  `RowsKernel_MatchesTheInterpretedExecutor`, on the experiment branch; merged
+  thresholds are gated by
+  `Planner_MergesExistsThresholdsToTheLargestAndAllDominates`.
+- **Typed fused kernels.** A typed fused kernel matches the interpreted fused
+  pass's results and outcomes. This is **unverified**: the first typed fused
+  kernel fails the whole request on a unit failure rather than each question.
 - **Derivation.** Count derived from Rows, and Exists derived from Count, match
   their own reference executions, including a failure after an Exists was
   settled. This is **unverified**.
