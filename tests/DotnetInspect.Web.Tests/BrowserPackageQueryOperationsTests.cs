@@ -47,6 +47,74 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void CapabilitySearch_UsesTheRegisteredBrowserBinding()
+    {
+        InspectionEnvelope<CapabilityCatalogSearchDocument> envelope =
+            BrowserCapabilityCatalogSearch.Search(
+                "literal",
+                CapabilityCatalogSearchRequest.DefaultMaximumResults);
+
+        CapabilityCatalogSearchResult result =
+            envelope.Content.Results[0];
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            result.ResourcePath);
+        CapabilityCatalogSearchBinding binding =
+            Assert.Single(result.ProductionBindings);
+        Assert.Equal(
+            PackageQueryCapabilityBinding.Binding.Descriptor.Identity,
+            binding.Identity);
+        Assert.Equal(InspectionConsumerKind.Browser, binding.ConsumerKind);
+        Assert.Equal(
+            PackageQueryCapabilityBinding.Binding.Descriptor.Gesture,
+            binding.Gesture);
+    }
+
+    [Fact]
+    public void CapabilitySearchExport_ReturnsTheSharedInspectionEnvelope()
+    {
+        string json = PackageExports.SearchCapabilities(
+            "litteral",
+            maximumResults: 1);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement content =
+            document.RootElement.GetProperty("content");
+        Assert.Equal("litteral", content.GetProperty("query").GetString());
+        Assert.Equal(
+            1,
+            content.GetProperty("returnedCount").GetInt32());
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            content.GetProperty("results")[0]
+                .GetProperty("resourcePath")
+                .GetString());
+        Assert.Equal(
+            "CanonicalKey",
+            content.GetProperty("results")[0]
+                .GetProperty("matchSource")
+                .GetString());
+        Assert.Equal(
+            "QueryFacet",
+            content.GetProperty("results")[0]
+                .GetProperty("resourceIdentity")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Equal(
+            "Browser",
+            content.GetProperty("results")[0]
+                .GetProperty("productionBindings")[0]
+                .GetProperty("consumerKind")
+                .GetString());
+        Assert.Equal(
+            "nonProjectable",
+            document.RootElement
+                .GetProperty("share")
+                .GetProperty("kind")
+                .GetString());
+    }
+
+    [Fact]
     public void LibraryLiteralPlan_UsesNormalPlanAndComposesWithOrdinaryTerms()
     {
         const string literal = " \r\nmarker ";

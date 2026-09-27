@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections;
 
+[JsonConverter(typeof(JsonStringEnumConverter<InspectionConsumerKind>))]
 public enum InspectionConsumerKind
 {
     Cli,
