@@ -1369,27 +1369,11 @@ window.rerenderProductNavigationProbe = () => {
     "[data-product-navigation-button]");
   const menu = document.querySelector<HTMLElement>(
     "[data-product-navigation-menu]");
-  const productNavigationHadFocus =
-    document.activeElement === button
-    || (document.activeElement instanceof Node
-      && menu?.contains(document.activeElement) === true);
   menu?.remove();
   if (!button)
     throw new Error("The product-navigation shell is unavailable.");
   button.outerHTML = renderBrand();
   productNavigationBinding.afterRender();
-  const replacementButton = document.querySelector<HTMLElement>(
-    "[data-product-navigation-button]");
-  const replacementMenu = document.querySelector<HTMLElement>(
-    "[data-product-navigation-menu]");
-  const activeElement = document.activeElement;
-  const replacementOwnsFocus =
-    activeElement === replacementButton
-    || (activeElement instanceof Node
-      && replacementMenu?.contains(activeElement) === true);
-  if (productNavigationHadFocus && !replacementOwnsFocus) {
-    replacementButton?.focus();
-  }
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
 window.beginContentFrameReplacementProbe = () => {
