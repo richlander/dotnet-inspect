@@ -433,7 +433,7 @@ import {
   type ContentFrameFocusTarget,
   type ContentFramePane,
 } from "./content-frame.ts";
-import { createMemberListRevealer } from "./member-list-reveal.ts";
+import { createNavigationScrollKeeper } from "./member-list-reveal.ts";
 import {
   bindTypePanel,
   createMemberSourcePartSelector,
@@ -738,7 +738,7 @@ import type {
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
 
-const memberListRevealer = createMemberListRevealer();
+const navigationScrollKeeper = createNavigationScrollKeeper();
 
 type ProductionEngineWorkerModule =
   typeof import("./engine-worker-client.ts");
@@ -6866,11 +6866,12 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   productNavigationBinding.beforeRender();
+  navigationScrollKeeper.beforeRender(document);
   try {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
-    memberListRevealer.afterRender(document);
+    navigationScrollKeeper.afterRender(document);
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),

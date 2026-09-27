@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  MEMBER_LIST_SELECTOR,
-  createMemberListRevealer,
+  captureMemberFocus as captureMemberFocusImpl,
+  createMemberFocusRestorer,
+} from "../src/member-focus.ts";
+import {
+  NAVIGATION_LIST_SELECTOR,
+  createNavigationScrollKeeper,
   revealRowAtTop,
   type RevealableDocument,
   type RevealableList,
@@ -11,158 +15,199 @@ import {
 } from "../src/member-list-reveal.ts";
 
 const ROW_HEIGHT = 24;
+const LIST_TOP = 100;
 
-// A member list whose rows sit at fixed offsets inside a scrollable viewport, like
-// `#type-list.member-list`. Row rectangles move with `scrollTop`, as the browser's do.
-function memberList(options: {
+interface ListSpec {
   scope: string;
+  member: boolean;
   rows: number;
   viewportRows: number;
+  // The row carrying `.active-group`/`.selected`, or null when nothing is selected yet.
   revealedRow: number | null;
-  scrollTop?: number;
-}): RevealableList {
-  const listTop = 100;
-  const list: RevealableList = {
-    dataset: { navScope: options.scope },
-    scrollTop: options.scrollTop ?? 0,
-    scrollHeight: options.rows * ROW_HEIGHT,
-    clientHeight: options.viewportRows * ROW_HEIGHT,
-    getBoundingClientRect: () => ({ top: listTop }),
-    querySelector(selector: string): RevealableRow | null {
-      assert.equal(selector, ".active-group, .selected");
-      const index = options.revealedRow;
-      return index === null
-        ? null
-        : { getBoundingClientRect: () => ({ top: listTop + index * ROW_HEIGHT - list.scrollTop }) };
-    },
-  };
-  return list;
+  selection?: string;
 }
 
-function documentWith(list: RevealableList | null): RevealableDocument {
-  return {
+interface MockList extends RevealableList {
+  readonly dataset: { navScope?: string; navSelection?: string };
+  readonly id: string;
+  isConnected: boolean;
+  focus(): void;
+}
+
+// The page as `render()` leaves it: each render rebuilds `#type-list` from markup, so the new
+// element starts at scrollTop 0 exactly as an innerHTML replacement does in the browser.
+function createPage() {
+  let list: MockList | null = null;
+  const listeners = new Map<string, Array<() => void>>();
+  const body = { id: "", dataset: {}, isConnected: true, scrollTop: 0, focus() {} };
+  const document = {
+    activeElement: body,
+    body,
     querySelector(selector: string) {
-      assert.equal(selector, MEMBER_LIST_SELECTOR);
+      return selector === NAVIGATION_LIST_SELECTOR ? list : null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+    addEventListener(type: string, listener: () => void) {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+    },
+  };
+  const keeper = createNavigationScrollKeeper();
+  const restorer = createMemberFocusRestorer();
+  const frames: FrameRequestCallback[] = [];
+  const revealable: RevealableDocument = document;
+  // member-focus.ts reads the `Document` subset this page models.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const domDocument = document as unknown as Document;
+
+  const build = (spec: ListSpec): MockList => {
+    const built: MockList = {
+      id: "type-list",
+      isConnected: true,
+      focus() {},
+      dataset: {
+        navScope: spec.scope,
+        navSelection: spec.selection ?? (spec.revealedRow === null ? "" : `member:${spec.revealedRow}`),
+      },
+      classList: {
+        contains: token => token === "member-list" && spec.member,
+      },
+      scrollTop: 0,
+      scrollHeight: spec.rows * ROW_HEIGHT,
+      clientHeight: spec.viewportRows * ROW_HEIGHT,
+      getBoundingClientRect: () => ({ top: LIST_TOP }),
+      querySelector(selector: string): RevealableRow | null {
+        assert.equal(selector, ".active-group, .selected");
+        const index = spec.revealedRow;
+        return index === null
+          ? null
+          : { getBoundingClientRect: () => ({ top: LIST_TOP + index * ROW_HEIGHT - built.scrollTop }) };
+      },
+    };
+    return built;
+  };
+
+  return {
+    get list() {
+      assert.ok(list);
       return list;
     },
+    render(spec: ListSpec | null) {
+      keeper.beforeRender(revealable);
+      if (list) list.isConnected = false;
+      list = spec === null ? null : build(spec);
+      keeper.afterRender(revealable);
+    },
+    // renderPreservingMemberFocus: capture, render, then restore in the next frame.
+    renderPreservingFocus(spec: ListSpec) {
+      const snapshot = restorer.resolve(captureMemberFocusImpl(domDocument), null);
+      this.render(spec);
+      restorer.schedule(domDocument, snapshot, callback => frames.push(callback));
+    },
+    flushFrames() {
+      for (const callback of frames.splice(0)) callback(0);
+    },
+    userInput(type: "pointerdown" | "keydown") {
+      for (const listener of listeners.get(type) ?? []) listener();
+    },
   };
 }
 
-test("a restored member selection scrolls to the top of its member list", () => {
-  // JsonElement restored from a URL with a member 30 rows down a 62-row list.
-  const list = memberList({
-    scope: "members:System.Text.Json.JsonElement",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 30,
-  });
+const jsonElement = (revealedRow: number | null): ListSpec => ({
+  scope: "members:System.Text.Json.JsonElement",
+  member: true,
+  rows: 62,
+  viewportRows: 20,
+  revealedRow,
+});
 
-  createMemberListRevealer().afterRender(documentWith(list));
+test("a restored selection stays at the top through the member detail renders that follow", () => {
+  // The reported URL: JsonElement restored with a member 30 rows down. Documentation and
+  // declaration loading each re-render with focus preservation before the next frame.
+  const page = createPage();
+  page.render(jsonElement(30));
+  page.renderPreservingFocus(jsonElement(30));
+  page.renderPreservingFocus(jsonElement(30));
+  page.flushFrames();
 
-  assert.equal(list.scrollTop, 30 * ROW_HEIGHT);
+  assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
 });
 
 test("a selection near the end scrolls only as far as the list allows", () => {
-  const list = memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 58,
-  });
+  const page = createPage();
+  page.render(jsonElement(58));
 
-  createMemberListRevealer().afterRender(documentWith(list));
-
-  assert.equal(list.scrollTop, (62 - 20) * ROW_HEIGHT);
+  assert.equal(page.list.scrollTop, (62 - 20) * ROW_HEIGHT);
 });
 
-test("a selection in a list shorter than its viewport does not scroll", () => {
-  const list = memberList({
-    scope: "members:Example.Small",
-    rows: 8,
-    viewportRows: 20,
-    revealedRow: 5,
-  });
+test("a selection that arrives after the list is revealed on that render", () => {
+  // A graph-member deep link renders the member list before the graph member's row exists.
+  const page = createPage();
+  page.render(jsonElement(null));
+  page.render(jsonElement(30));
 
-  createMemberListRevealer().afterRender(documentWith(list));
-
-  assert.equal(list.scrollTop, 0);
+  assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
 });
 
-test("later renders of the same member list keep the reader's scroll position", () => {
-  const revealer = createMemberListRevealer();
-  const first = memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 30,
-  });
-  revealer.afterRender(documentWith(first));
+test("user input cancels a pending reveal", () => {
+  const page = createPage();
+  page.render(jsonElement(null));
+  page.list.scrollTop = 96;
+  page.userInput("pointerdown");
+  page.render(jsonElement(44));
 
-  // A click selects another member in the same list; the list must not jump.
-  const clicked = memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 44,
-    scrollTop: 400,
-  });
-  revealer.afterRender(documentWith(clicked));
-
-  assert.equal(clicked.scrollTop, 400);
+  assert.equal(page.list.scrollTop, 96);
 });
 
-test("a member list that first appears without a selection is not moved later", () => {
-  const revealer = createMemberListRevealer();
-  revealer.afterRender(documentWith(memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: null,
-  })));
+test("selecting another member keeps the reader's scroll position across renders", () => {
+  const page = createPage();
+  page.render(jsonElement(30));
+  page.list.scrollTop = 400;
+  page.userInput("keydown");
+  page.renderPreservingFocus({ ...jsonElement(44), selection: "member:44" });
+  page.flushFrames();
 
-  const clicked = memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 44,
-    scrollTop: 400,
-  });
-  revealer.afterRender(documentWith(clicked));
-
-  assert.equal(clicked.scrollTop, 400);
+  assert.equal(page.list.scrollTop, 400);
 });
 
-test("returning to a type after leaving the member list reveals its selection again", () => {
-  const revealer = createMemberListRevealer();
-  revealer.afterRender(documentWith(memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 30,
-  })));
-  revealer.afterRender(documentWith(null));
+test("a hidden member list keeps its reveal pending until it has a height", () => {
+  const page = createPage();
+  page.render({ ...jsonElement(30), viewportRows: 0 });
+  assert.equal(page.list.scrollTop, 0);
 
-  const restored = memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 30,
-  });
-  revealer.afterRender(documentWith(restored));
+  page.render(jsonElement(30));
 
-  assert.equal(restored.scrollTop, 30 * ROW_HEIGHT);
+  assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
+});
+
+test("returning to a type after leaving its member list reveals the selection again", () => {
+  const page = createPage();
+  page.render(jsonElement(30));
+  page.render({ scope: "types", member: false, rows: 90, viewportRows: 20, revealedRow: 12 });
+  page.render(jsonElement(30));
+
+  assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
+});
+
+test("the type list keeps its scroll position across renders without revealing", () => {
+  const page = createPage();
+  const types: ListSpec = { scope: "types", member: false, rows: 90, viewportRows: 20, revealedRow: 70 };
+  page.render(types);
+  assert.equal(page.list.scrollTop, 0);
+
+  page.list.scrollTop = 312;
+  page.render(types);
+
+  assert.equal(page.list.scrollTop, 312);
 });
 
 test("revealRowAtTop measures from the list's current scroll position", () => {
-  const list = memberList({
-    scope: "members:Example.Type",
-    rows: 62,
-    viewportRows: 20,
-    revealedRow: 30,
-    scrollTop: 240,
-  });
-  const row = list.querySelector(".active-group, .selected");
-  assert.ok(row);
+  const page = createPage();
+  page.render(jsonElement(null));
+  const list = page.list;
+  list.scrollTop = 240;
+  const row = { getBoundingClientRect: () => ({ top: LIST_TOP + 30 * ROW_HEIGHT - list.scrollTop }) };
 
   revealRowAtTop(list, row);
 
