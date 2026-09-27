@@ -344,6 +344,9 @@ public sealed partial class SourceLinkService : IDisposable
     public PdbContext Context => _context;
     public bool HasPdb => _context.HasPdb;
     public bool NeedsPdb => _context.NeedsPdb;
+    public PdbLoadStatus LastPdbLoadStatus =>
+        _context.LastPdbLoadStatus;
+    public string? LastPdbLoadError => _context.LastPdbLoadError;
     public bool HasSourceLink
     {
         get
