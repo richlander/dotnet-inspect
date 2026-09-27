@@ -69,19 +69,23 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     internal virtual bool Settles(TFact fact) => false;
 
     IMethodDefinitionProducerRun IMethodDefinitionProducer.CreateRun(
-        bool keepUnitFacts) =>
-        new Run(this, keepUnitFacts);
+        UnitFactRetention retention) =>
+        new Run(this, retention);
 
     internal sealed class Run(
         MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
-        bool keepUnitFacts)
+        UnitFactRetention retention)
         : IMethodDefinitionProducerRun
     {
         TAccumulator _accumulator = producer.Seed();
 
-        // Retained by unit only when the plan has a producer that reads them.
+        // The plan decides retention: the current unit's fact in one slot
+        // when every reader visits in the same pass, every unit's otherwise.
+        readonly bool _keepCurrent = retention == UnitFactRetention.CurrentUnit;
         readonly Dictionary<int, TFact>? _factsByUnit =
-            keepUnitFacts ? [] : null;
+            retention == UnitFactRetention.AllUnits ? [] : null;
+        int _currentToken;
+        TFact _currentFact = default!;
 
         public ProducerDeclaration Producer => producer;
 
@@ -89,13 +93,27 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         {
             TFact fact = producer.Visit(view);
             _accumulator = producer.Accumulate(_accumulator, fact);
-            if (_factsByUnit is not null)
+            if (_keepCurrent)
+            {
+                _currentToken = view.Token;
+                _currentFact = fact;
+            }
+            else if (_factsByUnit is not null)
+            {
                 _factsByUnit[view.Token] = fact;
+            }
+
             return producer.Settles(fact);
         }
 
         public bool TryGetFact(int unitToken, out TFact fact)
         {
+            if (_keepCurrent && _currentToken == unitToken && unitToken != 0)
+            {
+                fact = _currentFact;
+                return true;
+            }
+
             if (_factsByUnit is not null
                 && _factsByUnit.TryGetValue(unitToken, out TFact? value))
             {
@@ -116,7 +134,7 @@ internal interface IMethodDefinitionProducer
 {
     MethodDefinitionLayers Layers { get; }
 
-    IMethodDefinitionProducerRun CreateRun(bool keepUnitFacts);
+    IMethodDefinitionProducerRun CreateRun(UnitFactRetention retention);
 }
 
 internal interface IMethodDefinitionProducerRun
