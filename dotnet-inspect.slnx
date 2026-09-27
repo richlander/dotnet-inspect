@@ -15,6 +15,7 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTargetV2/ILInspector.Analysis.CallerGraphTargetV2.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures/ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures/ILInspector.Analysis.CallGenericScopeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CalleeResolutionFixtures/ILInspector.Analysis.CalleeResolutionFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures/ILInspector.Analysis.CallOverloadFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />

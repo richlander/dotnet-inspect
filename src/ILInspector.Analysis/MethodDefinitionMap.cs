@@ -57,11 +57,22 @@ internal sealed class MethodDefinitionMap
         => call.Callee.Kind != MemberKind.Unsupported
             && _signatureComparer.CanResolveToCurrentModule(call.Callee.DeclaringType);
 
+    public bool CanResolveToCurrentModule(TypeRef declaringType)
+        => _signatureComparer.CanResolveToCurrentModule(declaringType);
+
     public int Resolve(DirectCall call)
+        => ResolveTyped(call).Token;
+
+    /// <summary>
+    /// Resolves a direct call to a current-module definition, retaining why an
+    /// unresolved call failed. <see cref="Resolve(DirectCall)"/> is this outcome's token.
+    /// </summary>
+    public MethodResolution ResolveTyped(DirectCall call)
     {
         MethodIdentity scope = call.EvidenceMethod;
-        if (scope.HasInvalidGenericParameterDeclaration
-            || !TryGetDeclaringTypeParameterCount(
+        if (scope.HasInvalidGenericParameterDeclaration)
+            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.InvalidGenericDeclaration);
+        if (!TryGetDeclaringTypeParameterCount(
                 scope.DeclaringType,
                 out int callerTypeParameterCount)
             || SignatureTypeFacts.IsMalformed(
@@ -69,7 +80,7 @@ internal sealed class MethodDefinitionMap
                 callerTypeParameterCount,
                 scope.GenericArity))
         {
-            return 0;
+            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.MalformedSignature);
         }
         return ResolveCore(
             call.CalleeDefinitionToken,
@@ -89,10 +100,10 @@ internal sealed class MethodDefinitionMap
         }
         return ResolveCore(
             calleeDefinitionToken,
-            callee);
+            callee).Token;
     }
 
-    int ResolveCore(
+    MethodResolution ResolveCore(
         int calleeDefinitionToken,
         MemberRef callee)
     {
@@ -101,20 +112,21 @@ internal sealed class MethodDefinitionMap
         {
             return _invalidMethodTokens.Contains(
                     calleeDefinitionToken)
-                ? 0
-                : calleeDefinitionToken;
+                ? MethodResolution.Fail(DirectCallTargetUnresolvedReason.InvalidGenericDeclaration)
+                : MethodResolution.Resolved(calleeDefinitionToken);
         }
-        if (callee.Kind == MemberKind.Unsupported
-            || !_signatureComparer.CanResolveToCurrentModule(
+        if (callee.Kind == MemberKind.Unsupported)
+            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.UnsupportedSignature);
+        if (!_signatureComparer.CanResolveToCurrentModule(
                 callee.DeclaringType))
         {
-            return 0;
+            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.Unmatched);
         }
 
         return ResolveBySignature(callee);
     }
 
-    int ResolveBySignature(MemberRef callee)
+    MethodResolution ResolveBySignature(MemberRef callee)
     {
         TypeRef declaring = callee.DeclaringType;
         TypeRef definition = Definition(declaring);
@@ -129,13 +141,13 @@ internal sealed class MethodDefinitionMap
                 && typeArguments.Length
                     != declaringTypeParameterCount))
         {
-            return 0;
+            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.MalformedSignature);
         }
         if (!_methodsByDeclaringTypeAndName.TryGetValue(
                 (definition, callee.Name),
                 out List<MethodIdentity>? candidates))
         {
-            return 0;
+            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.Unmatched);
         }
 
         int resolvedToken = 0;
@@ -149,11 +161,13 @@ internal sealed class MethodDefinitionMap
                 continue;
             }
             if (resolvedToken != 0)
-                return 0;
+                return MethodResolution.Fail(DirectCallTargetUnresolvedReason.Ambiguous);
             resolvedToken = candidate.MetadataToken;
         }
 
-        return resolvedToken;
+        return resolvedToken != 0
+            ? MethodResolution.Resolved(resolvedToken)
+            : MethodResolution.Fail(DirectCallTargetUnresolvedReason.Unmatched);
     }
 
     bool SignatureMatches(
@@ -298,4 +312,14 @@ internal sealed class MethodDefinitionMap
             return true;
         }
     }
+}
+
+/// <summary>A current-module definition token, or why no definition was bound.</summary>
+internal readonly record struct MethodResolution(
+    int Token,
+    DirectCallTargetUnresolvedReason Reason)
+{
+    public static MethodResolution Resolved(int token) => new(token, default);
+
+    public static MethodResolution Fail(DirectCallTargetUnresolvedReason reason) => new(0, reason);
 }

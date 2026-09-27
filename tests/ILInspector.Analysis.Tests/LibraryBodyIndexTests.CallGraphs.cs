@@ -331,6 +331,7 @@ public partial class LibraryBodyIndexTests
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_declaredMethodMap",
+            "_declaredMethodsByToken",
             "_methodMap",
             "_rootPathGraph",
         ];
@@ -420,6 +421,12 @@ public partial class LibraryBodyIndexTests
                 ],
                 new(0, 1, 1, 1));
             _ = index.GetDirectCallsByEvidenceMethod();
+            Assert.IsType<DirectCallTarget.CurrentModule>(
+                index.CallGraphAnalysis.ResolveTarget(
+                    index.CallGraphAnalysis.DirectCalls.First(call =>
+                        index.CallGraphAnalysis.DeclaredMethods.Any(method =>
+                            method.MetadataToken
+                                == call.CalleeDefinitionToken))));
             _ = index.ImplementationProfiles();
             // The retained half of the contract is only gated on caches this workload actually
             // populates, and the call-tree builders alone reach just one of the seven. Touch the
