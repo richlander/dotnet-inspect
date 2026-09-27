@@ -107,7 +107,7 @@ function createPage() {
     flushFrames() {
       for (const callback of frames.splice(0)) callback(0);
     },
-    userInput(type: "pointerdown" | "keydown") {
+    userInput(type: "pointerdown" | "keydown" | "wheel") {
       for (const listener of listeners.get(type) ?? []) listener();
     },
   };
@@ -215,6 +215,37 @@ test("a hidden member list keeps its reveal pending until it has a height", () =
   page.render(jsonElement(30));
 
   assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
+});
+
+test("a narrow layout reveals when the reader's input shows the hidden list", () => {
+  // At phone widths the navigation pane is hidden until the reader opens it.
+  const page = createPage();
+  const hidden = { ...jsonElement(30), viewportRows: 0 };
+  page.render(hidden);
+  page.renderPreservingFocus(hidden);
+  page.flushFrames();
+  page.userInput("pointerdown");
+  page.render(jsonElement(30));
+
+  assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
+});
+
+test("a deferred reveal is dropped when the selection changes before the list is shown", () => {
+  const page = createPage();
+  page.render({ ...jsonElement(30), viewportRows: 0 });
+  page.userInput("pointerdown");
+  page.render({ ...jsonElement(44), selection: "member:44" });
+
+  assert.equal(page.list.scrollTop, 0);
+});
+
+test("wheel scrolling ends a held reveal", () => {
+  const page = createPage();
+  page.render(jsonElement(30));
+  page.userInput("wheel");
+  page.render(jsonElement(30));
+
+  assert.equal(page.list.scrollTop, 0);
 });
 
 test("returning to a type after leaving its member list reveals the selection again", () => {
