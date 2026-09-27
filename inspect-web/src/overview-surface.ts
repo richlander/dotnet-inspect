@@ -4,6 +4,8 @@ export interface OverviewSurfaceOptions {
   displayName: string;
   iconHtml: string;
   details?: readonly string[];
+  /** Enabled Library enablements; Not enabled and Unavailable are never passed. */
+  enablements?: readonly OverviewEnablement[];
   packageId: string;
   packageVersion: string;
   activeFramework: string;
@@ -12,6 +14,21 @@ export interface OverviewSurfaceOptions {
   coordinateFieldsHtml?: string;
   contentHtml: string;
   escapeHtml: (value: unknown) => string;
+}
+
+interface OverviewEnablement {
+  id: string;
+  label: string;
+}
+
+function renderOverviewEnablements(
+  enablements: readonly OverviewEnablement[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (enablements.length === 0) return "";
+  return `<ul class="overview-enablements" aria-label="Enabled">${enablements
+    .map(enablement => `<li class="overview-enablement" data-enablement="${escapeHtml(enablement.id)}">${escapeHtml(enablement.label)}</li>`)
+    .join("")}</ul>`;
 }
 
 export interface PackageOverviewContentOptions {
@@ -52,7 +69,7 @@ export function renderOverviewSurface(
   options: OverviewSurfaceOptions,
 ): string {
   const {
-    subject, subjectLabel, displayName, iconHtml, details = [],
+    subject, subjectLabel, displayName, iconHtml, details = [], enablements = [],
     packageId, packageVersion, activeFramework, totalTypes, totalMembers,
     coordinateFieldsHtml, contentHtml, escapeHtml,
   } = options;
@@ -72,6 +89,7 @@ export function renderOverviewSurface(
           <p class="overview-subject-label">${escapeHtml(subjectLabel)}</p>
           <h1 id="${subject}-overview-title">${escapeHtml(displayName)}</h1>
           ${details.map(detail => `<p class="overview-identity-detail">${escapeHtml(detail)}</p>`).join("")}
+          ${renderOverviewEnablements(enablements, escapeHtml)}
         </div>
       </header>
       ${contentHtml}
