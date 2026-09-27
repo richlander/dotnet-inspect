@@ -50,7 +50,7 @@ type PackageOperations =
   | "runPackageQuery"
   | "searchTypes";
 
-type LibraryOperations = "openUploadedLibrary";
+type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
