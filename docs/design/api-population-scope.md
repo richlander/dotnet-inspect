@@ -44,6 +44,22 @@ source API endpoint may use `--all` while a destination or correspondence
 operation retains its own declaration contract. A route must document any
 asymmetry rather than imply that one flag changes every nested operation.
 
+### Implementation operations with named API roots
+
+An implementation operation may begin by resolving a user-written Type or
+Member selector through an API declaration population. That initial lookup and
+the later body analysis are separate population decisions:
+
+1. Root resolution uses the ordinary public-facing API population by default.
+   `--all` is required when the named root is non-public, hidden, or obsolete.
+2. After the root is resolved, the operation analyzes its complete admitted
+   implementation population by default. `--all` does not widen traversal,
+   select more relationships, remove work bounds, or request every analysis.
+
+The presence of `--all` on a body-oriented command therefore does not make
+implementation completeness opt-in. It widens only the API boundary used to
+resolve the requested root.
+
 ### Implementation population scope
 
 Implementation analysis answers questions about bodies or physical evidence
@@ -73,6 +89,7 @@ the implementation analysis complete.
 | --- | --- | --- |
 | Which API declarations should an API inventory show? | The ordinary public-facing API | Include the command's non-public, hidden, and obsolete declarations |
 | Which declarations should an API comparison match? | The comparison's ordinary API population | Widen the API population where that comparison admits the option |
+| Which named root should a body operation resolve? | Roots in the ordinary public-facing API | Include a non-public, hidden, or obsolete root; the resulting implementation analysis is unchanged |
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |
 | Which bodies should a type/member metric or call analysis inspect? | Every admitted body under the selected typed root | Not a substitute for selecting the root or changing its API visibility |
 
@@ -122,6 +139,12 @@ compiler-generated bodies in its metric population. If a user follows a
 metric result into an API-level command, that separate command may require
 `--all` to resolve a non-public declaration. That is a navigation concern, not
 a change to the aggregate report's denominator.
+
+The same phase distinction applies within one command. For example,
+`graph calls` may require `--all` to resolve a non-public starting member.
+After resolution, the call graph still analyzes the complete admitted body
+population and applies its ordinary traversal, relationship, and work-bound
+request.
 
 ## Boundaries
 
