@@ -214,6 +214,7 @@ public static class LibraryAddressInspectionOperation
             source = OpenSource(
                 descriptor,
                 snapshot.PortablePdb,
+                IncludesSource(point.Capabilities),
                 limits);
             if (snapshot.PortablePdb is not null
                 && !source.HasPdb)
@@ -325,6 +326,7 @@ public static class LibraryAddressInspectionOperation
             source = OpenSource(
                 descriptor,
                 snapshot.PortablePdb,
+                IncludesSource(population.Capabilities),
                 limits);
             if (snapshot.PortablePdb is not null
                 && !source.HasPdb)
@@ -497,14 +499,24 @@ public static class LibraryAddressInspectionOperation
                     point.Root is MetadataRootKind.Cli
                         ? LibraryHeapAddressFailure.MetadataUnavailable
                         : LibraryHeapAddressFailure.RootUnavailable;
+                string detail =
+                    point.Root is MetadataRootKind.Cli
+                        ? "The implementation assembly carries no CLI metadata."
+                        : "The implementation assembly carries no ReadyToRun manifest metadata.";
                 return Completed(
                     new LibraryAddressDocument.HeapPoint(
                         HeapUnresolved(
                             point,
                             reason,
+                            detail)),
+                    [
+                        new(
                             point.Root is MetadataRootKind.Cli
-                                ? "The implementation assembly carries no CLI metadata."
-                                : "The implementation assembly carries no ReadyToRun manifest metadata.")));
+                                ? "library-address.heap.metadata-unavailable"
+                                : "library-address.heap.root-unavailable",
+                            InspectionDiagnosticSeverity.Error,
+                            detail),
+                    ]);
             }
 
             MetadataValue value = root.HeapValue(
@@ -597,6 +609,7 @@ public static class LibraryAddressInspectionOperation
     private static SourceLinkService OpenSource(
         ResolvedAssemblyReference descriptor,
         byte[]? portablePdb,
+        bool includeSource,
         LibraryAddressInspectionLimits limits)
     {
         var readLimits = new SourceLinkReadLimits(
@@ -605,6 +618,14 @@ public static class LibraryAddressInspectionOperation
             limits.MaximumSourceLinkMappings,
             new PdbExpansionBudget(
                 limits.MaximumPortablePdbBytes));
+        if (!includeSource)
+        {
+            return SourceLinkService.OpenMetadataOnly(
+                descriptor,
+                log: null,
+                cache: null,
+                readLimits);
+        }
         if (portablePdb is null)
         {
             return SourceLinkService.OpenEmbeddedPdbOnly(

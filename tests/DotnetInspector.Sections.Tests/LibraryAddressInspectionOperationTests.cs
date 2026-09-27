@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -115,6 +116,7 @@ public sealed class LibraryAddressInspectionOperationTests
         Assert.Equal(
             LibraryHeapAddressFailure.RootUnavailable,
             unresolved.Reason);
+        Assert.NotEmpty(envelope.Diagnostics);
     }
 
     [Fact]
@@ -464,6 +466,63 @@ public sealed class LibraryAddressInspectionOperationTests
                 document.Result);
         Assert.NotNull(resolved.Projection.File);
         Assert.NotNull(resolved.Projection.Line);
+    }
+
+    [Fact]
+    public async Task NonSourceRequestsDoNotLoadEmbeddedPortablePdb()
+    {
+        byte[] implementation =
+            await File.ReadAllBytesAsync(
+                FixtureCatalog.InspectWebSourceComparisonV1
+                    .AssemblyPath(),
+                TestContext.Current.CancellationToken);
+        (int methodToken, int ilOffset) =
+            FirstMethodAddress(implementation);
+        await using LibraryInspectionTestLibrary exactLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation));
+        var limits = new LibraryAddressInspectionLimits(
+            maximumPortablePdbBytes: 0);
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> exact =
+            LibraryAddressInspectionOperation.Execute(
+                new(
+                    exactLibrary.Reference,
+                    new LibraryAddressIntent.IlPoint(
+                        methodToken,
+                        ilOffset,
+                        ILOffsetProjectionCapabilities.InstructionContext),
+                    limits),
+                exactLibrary.IssueOperation(),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<LibraryAddressInspectionOutcome.Completed>(
+            exact.Content);
+
+        await using LibraryInspectionTestLibrary populationLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation));
+        InspectionEnvelope<LibraryAddressInspectionOutcome> population =
+            LibraryAddressInspectionOperation.Execute(
+                new(
+                    populationLibrary.Reference,
+                    new LibraryAddressIntent.Population(
+                        [
+                            new LibraryAddressPopulationRecord.Coordinate(
+                                1,
+                                $"0x{methodToken:X8}+0x{ilOffset:X}",
+                                label: null,
+                                methodToken,
+                                ilOffset),
+                        ],
+                        ILOffsetProjectionCapabilities
+                            .InstructionContext),
+                    limits),
+                populationLibrary.IssueOperation(),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<LibraryAddressInspectionOutcome.Completed>(
+            population.Content);
     }
 
     [Fact]
