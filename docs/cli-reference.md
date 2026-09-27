@@ -520,6 +520,11 @@ not adopted this transport.
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
+`--offline` is the only way to guarantee no network dependence. Without it,
+any command may acquire packages and PDBs to answer the request. The
+[network policy](design/progressive-disclosure.md#network-policy) owns this
+rule and its adoption status.
+
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
