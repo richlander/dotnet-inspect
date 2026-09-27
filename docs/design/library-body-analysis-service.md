@@ -265,6 +265,16 @@ of the published result and does not require `LibraryBodyIndex`.
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
 
+`LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
+publishes the same declared-source association that `DirectCall.Caller`
+already carries, for any method, including call targets and methods that make
+no calls. It returns the declared source only where Analysis authenticates the
+association: lifted lambdas, local functions, and async `MoveNext`. For every
+other method, including sync iterators and state-machine or display-class
+constructors, it returns `null`. The compatibility index forwards to it. Its
+first production consumer is Library Dependency Structure, which uses it to
+attribute call targets.
+
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
 until their focused owner and consumer move. The adapter must not become the

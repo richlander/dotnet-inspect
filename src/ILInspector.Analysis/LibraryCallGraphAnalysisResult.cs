@@ -207,7 +207,17 @@ public sealed class LibraryCallGraphAnalysisResult
         _rootPathGraph ??=
             LibraryBodyRootPathAnalysis.BuildLocalGraph(this);
 
-    internal MethodIdentity? ResolveDeclaredMethod(
+    /// <summary>
+    /// The Analysis-issued declared source of a compiler-lifted body (a lambda,
+    /// local function, or async <c>MoveNext</c>), or <see langword="null"/> when
+    /// Analysis issues no association for <paramref name="caller"/>. The
+    /// association is issued only where Analysis authenticates it; sync
+    /// iterators and state-machine or display-class constructors keep their
+    /// physical declaring type. <see cref="DirectCall.Caller"/> already carries
+    /// this association for call sources; use this for call targets and for
+    /// methods that make no calls.
+    /// </summary>
+    public MethodIdentity? ResolveDeclaredMethod(
         MethodIdentity caller)
     {
         if (_declaredSources.TryGetValue(
