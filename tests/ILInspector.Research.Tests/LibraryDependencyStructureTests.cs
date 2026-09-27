@@ -75,12 +75,78 @@ public sealed class LibraryDependencyStructureTests
             document.TypeEdges,
             edge => edge.SourceTypeKey == "Lifted.Owner"
                 && edge.TargetTypeKey == "Epsilon.E");
-        Assert.Equal(3, owner.Counts.Invocations);
+        Assert.Equal(5, owner.Counts.Invocations);
         Assert.Contains(
             document.TypeEdges,
             edge => edge.SourceTypeKey.StartsWith("Lifted.Owner+<Iterator>", StringComparison.Ordinal)
                 && edge.TargetTypeKey == "Epsilon.E");
-        Assert.Equal(4, NamespaceEdge(document, "Lifted", "Epsilon").Counts.Invocations);
+        Assert.Equal(6, NamespaceEdge(document, "Lifted", "Epsilon").Counts.Invocations);
+    }
+
+    [Fact]
+    public void LibraryDependencyStructure_AcceptsDistinctLiftedBodiesAtEqualOffsets()
+    {
+        LibraryCallGraphAnalysisResult callGraph = LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.ResearchDependencyStructure.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(LibraryBodyAnalysisFeatures.MethodEvidence))
+            .CallGraph;
+        DirectCall[] lambdaCalls =
+        [
+            .. callGraph.DirectCalls.Where(static call =>
+                call.Caller.Name == "TwoLambdas"
+                && call.Callee.Name == "Value"),
+        ];
+
+        Assert.Equal(2, lambdaCalls.Length);
+        Assert.Equal(lambdaCalls[0].ILOffset, lambdaCalls[1].ILOffset);
+        Assert.NotEqual(
+            lambdaCalls[0].EvidenceMethod.MetadataToken,
+            lambdaCalls[1].EvidenceMethod.MetadataToken);
+        Assert.IsType<LibraryDependencyStructureResult.Available>(
+            LibraryDependencyStructure.Execute(callGraph));
+    }
+
+    [Fact]
+    public void LibraryDependencyStructure_ResolvesCallsThroughGenericInstantiations()
+    {
+        LibraryDependencyStructureDocument document = Document();
+
+        LibraryDependencyTypeEdge user = Assert.Single(
+            document.TypeEdges,
+            static edge => edge.SourceTypeKey == "BoxUser.User"
+                && edge.TargetTypeKey == "Boxes.Box`1");
+        Assert.Equal(4, user.Counts.Invocations);
+        Assert.Equal(
+            2,
+            Assert.Single(document.Types, static node => node.TypeKey == "Boxes.Box`1")
+                .IntraTypeRelationshipCount);
+        Assert.Equal(4, NamespaceEdge(document, "BoxUser", "Boxes").Counts.Invocations);
+    }
+
+    [Fact]
+    public void LibraryDependencyStructure_KeysExternalNodesByExactReference()
+    {
+        LibraryDependencyStructureDocument document = Document();
+
+        LibraryDependencyExternalNode[] referenced =
+        [
+            .. document.ExternalNamespaceEdges
+                .Where(static edge => edge.SourceNamespace == "Referenced")
+                .Select(edge => Assert.Single(
+                    document.ExternalNodes,
+                    node => node.Key == edge.ExternalKey)),
+        ];
+
+        LibraryDependencyExternalNode task = Assert.Single(
+            referenced,
+            static node => node.Namespace == "System.Threading.Tasks");
+        LibraryDependencyExternalNode list = Assert.Single(
+            referenced,
+            static node => node.Namespace == "System.Collections.Generic");
+        // Exactly as referenced: no forwarding to, or folding into, the core library.
+        Assert.Equal("System.Runtime", task.Assembly!.Name);
+        Assert.Equal("System.Collections", list.Assembly!.Name);
+        Assert.NotEqual(task.Key, list.Key);
     }
 
     [Fact]

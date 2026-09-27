@@ -31,6 +31,53 @@ namespace Lifted
         {
             yield return Epsilon.E.Value();
         }
+
+        // Two lifted bodies whose calls sit at the same IL offset.
+        public static int TwoLambdas()
+        {
+            Func<int> first = static () => Epsilon.E.Value();
+            Func<int> second = static () => Epsilon.E.Value();
+            return first() + second();
+        }
+    }
+}
+
+namespace Boxes
+{
+    public class Box<T>
+    {
+        T _value = default!;
+
+        public T Get() => _value;
+
+        public T Twice()
+        {
+            Get();
+            return Get();
+        }
+    }
+}
+
+namespace BoxUser
+{
+    // Calls through generic instantiations are MemberRefs on TypeSpecs.
+    public static class User
+    {
+        public static int Closed() => new Boxes.Box<int>().Get();
+
+        public static T Open<T>() => new Boxes.Box<T>().Twice();
+    }
+}
+
+namespace Referenced
+{
+    // Task lives in System.Runtime and List<T> in System.Collections, as
+    // referenced; neither is folded into the core library.
+    public static class Refs
+    {
+        public static System.Threading.Tasks.Task Yield() => System.Threading.Tasks.Task.CompletedTask;
+
+        public static int Count(List<int> items) => items.Count;
     }
 }
 

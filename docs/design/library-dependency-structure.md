@@ -470,10 +470,11 @@ executable over a compiled fixture library under `fixtures/research/`:
   generic type through an instantiation, produce internal edges rather than
   unresolved counts.
 - `LibraryDependencyStructure_KeysExternalNodesByExactReference`: calls into
-  types referenced through `System.Runtime` and `System.Runtime.Extensions`
-  yield distinct external nodes. A forwarded type stays with the referenced
-  facade, and a primitive declaring type maps to the intrinsic core library
-  node.
+  types referenced through `System.Runtime` and `System.Collections` yield
+  distinct external nodes. A type the runtime forwards to the core library
+  stays with the referenced facade (`System.Runtime`). The intrinsic
+  core-library node is **unverified**, because C# does not emit a member
+  reference whose parent has an intrinsic origin.
 - `LibraryDependencyStructure_ProjectsNestedAndGlobalNamespaces`: a nested
   type uses its outermost type's namespace, and the global namespace is an
   explicit node.
@@ -484,17 +485,27 @@ executable over a compiled fixture library under `fixtures/research/`:
   no edge to `Foo`'s namespace.
 - `LibraryDependencyStructure_DerivesCyclesAndLevels`: a three-namespace
   cycle plus an acyclic tail produce one cycle and the expected levels.
-- `LibraryDependencyStructure_QualifiesAbsenceUnderIncompleteEvidence`: an
-  otherwise acyclic graph with one Analysis-issued incomplete body issues
-  qualified absence, not unqualified acyclicity.
-- `LibraryDependencyStructure_CountsUnresolvedAndRejectsDuplicateOccurrence`:
-  `calli` is unresolved by reason, a multidimensional array accessor is
-  counted as runtime-provided and does not qualify absence, the four receipt
-  categories sum to the examined count, and a duplicated physical call-site
-  key fails visibly.
+- `LibraryDependencyStructure_QualifiesAbsenceUnderIncompleteEvidence`: a
+  graph with an unresolved `calli` is `Qualified`, and a fixture with no
+  unresolved calls and no diagnosed bodies is `Complete`. The same rule
+  qualifies on Analysis-diagnosed bodies. That branch is **unverified** by a
+  fixture, because no current compiler output yields a diagnosed body except
+  the budget case tracked by #8636.
+- `LibraryDependencyStructure_PartitionsExaminedCallsExactly`: `calli` is
+  unresolved by reason, a multidimensional array accessor is runtime-provided,
+  the four receipt categories sum to the examined count, and the type-level
+  edges and intra-type counts reconcile with the receipt. Rejecting a
+  duplicated physical call-site key is enforced in code and is **unverified**
+  by a gate, because Analysis never publishes duplicates.
 - `LibraryDependencyStructure_BoundsExplanationWithExactRemainder`: an edge
   with seven contributing type edges retains five in the specified order and a
   remainder of two.
+- `LibraryDependencyStructure_UsesLibraryMetricsTypeKeys`: every type node's
+  key is `LibraryStructuralReport.TypeKey`, and every type edge endpoint is a
+  node.
+- `NamespaceStructure_DerivesDeepChainsWithoutRecursion`: a
+  200,000-namespace chain ending in a two-namespace cycle derives its cycle
+  and levels without depending on call-stack depth.
 
 Real-asset probes are reproducible design evidence, not CI gates:
 FluentValidation 12.1.1 (net8.0), `dotnet-inspect.dll` at a pinned commit,
