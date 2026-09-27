@@ -434,8 +434,9 @@ changed.
 
 Adoption status: this policy leads the implementation. Today the CLI requests
 `PdbAcquire` only on exact section selection or `-v:d`, and nothing yet shows
-a single subject's docs or source by default. Until adoption lands, the
-current behavior is what ships.
+a single subject's docs or source by default. Until adoption
+([#8729](https://github.com/richlander/dotnet-inspect/issues/8729)) lands,
+the current behavior is what ships.
 
 ### Capability machinery
 
