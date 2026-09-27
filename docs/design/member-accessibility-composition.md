@@ -17,9 +17,14 @@ The operator approved this cross-owner scope.
 
 ## What the reader sees
 
-The counts this map connects (the accessibility chips, the Type row's member
-count, and the CLI's `--count`) are all of actual members: exact declarations,
-so each overload counts. None of them is a Member-group count.
+Every member count the product reports is of actual members: exact
+declarations, so each overload counts. That covers the accessibility chips, the
+Type row's member count (already public declarations, per
+[Library inspection](library-inspection-document.md#type-row-shape)), the Type
+API `Members` heading
+([Inspect Web presentation language](inspect-web-presentation-language.md#api-source-metadata-and-package-dependencies-lenses)),
+the CLI's Type tree headings, and the CLI's `--count`. No host reports a
+Member-group count.
 
 In Inspect Web, a reader opens System.Text.Json 10.0.0 `JsonDocument`. The
 accessibility chips state the whole admitted population before any non-public
@@ -36,16 +41,17 @@ between 8 rows and 16 members lives. It is a different channel from heat,
 which tints a row's background.
 
 The reader selects `private`. The Browser requests that Type's Rows under
-`accessibility = private` and shows the 27 private members, including a
-`Parse` family row with the two private overloads that the public view never
+`accessibility = private` and shows the 27 private members as 26 rows,
+including a `Parse` family row with the two private overloads that the public view never
 listed. The chips keep their counts, because the composition covers every
 bucket whatever bucket is selected. The selection stays for the session, so
 the next Type opens on `private` with its own truthful count, even when that
 count is 0.
 
 The CLI asks the same questions of the same population and reports the same
-counts. Its Type-subject Count is already a count of actual members (see
-[subject-default API count](progressive-disclosure.md#subject-default-api-count)):
+counts. Its Type-subject Count already counts actual members (see
+[subject-default API count](progressive-disclosure.md#subject-default-api-count)).
+After adoption:
 
 ```console
 $ dotnet-inspect type JsonDocument --package System.Text.Json@10.0.0 --count
@@ -66,7 +72,8 @@ rows it has loaded.
    counting.
 2. The Type document owner binds the `accessibility` and `receiver`
    projections to those facts. It returns Member-group Rows for one intent, or
-   the Composition Count for the whole population.
+   the Composition Count, whose declaration Counts total the nested overload
+   Counts of those Rows.
 3. The CLI lowers `--where "accessibility=…"`, `--all`, and `--count` to that
    request. Inspect Web lowers the chip selection to the same request.
 
@@ -121,12 +128,16 @@ the step says otherwise.
    kernel, and add the one-pass composition kernel.
 3. Deliver #8430 step 7 with the `accessibility` projection and Composition
    Count.
-4. CLI: route Type-subject Rows and `--count` through that population. This
-   retires the Type-subject materialize-then-count path and the Member Index
-   name heuristic.
+4. CLI: route Type-subject Rows and `--count` through that population, and
+   report actual members in Type tree headings (`Methods (10)` rather than
+   `Methods (6 logical, 10 overloads)`). This retires the Type-subject
+   materialize-then-count path, the Member Index name heuristic, and the
+   `N logical` heading.
 5. Inspect Web: show the Composition Count on the chips, and color overload
    family rows' names differently (a text-color rule for
-   [Inspect Web navigation presentation](inspect-web-navigation-presentation.md#type-navigation)).
+   [Inspect Web navigation presentation](inspect-web-navigation-presentation.md#type-navigation),
+   paired with the row's `5×` overload count so the cue does not rely on color
+   alone).
    Request Rows per selected bucket, and keep the selection for the session.
    This retires the host-side composition counting and role mapping.
 6. Implementation profiles: show heat on non-public rows (a separate focused
@@ -143,7 +154,5 @@ This map does not decide:
   ([Type API declarations](type-api-declarations.md)), which stays
   independent of the Member population's buckets;
 - Type importance ranking; or
-- any presentation beyond the chips' counts, the family-row name color, and the
-  session-sticky selection, including the Type API `Members` heading
-  ([Inspect Web presentation language](inspect-web-presentation-language.md))
-  and the CLI's Type tree headings.
+- any presentation beyond the member counts above, the family-row name color,
+  and the session-sticky selection.

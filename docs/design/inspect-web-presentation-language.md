@@ -252,7 +252,8 @@ underline on hover plus an explicit keyboard focus outline.
 ### API, Source, Metadata, and Package Dependencies lenses
 
 API renders a compact local heading followed by its primary content. Type API
-uses `Members` with the live visible/total member-group count. Member API uses
+uses `Members` with the live visible/total count of actual members (exact
+declarations, so each overload counts). Member API uses
 the exact local member name with its kind and overload count or ordinal. These
 headings use the same quiet label hierarchy as the navigation pane rather than
 competing with the subject path. Source is the full-area exception governed by
@@ -300,7 +301,7 @@ The compact API heading and full-area Source working surface do not repeat:
 - the package and version.
 
 Surface-local status is not repeated subject metadata. Type API may report the
-live visible/total member-group count and overload total; Member API may report
+live visible/total count of actual members; Member API may report
 the selected member kind and overload count or ordinal.
 
 The removed fields do not leave placeholders or reserved vertical space, and

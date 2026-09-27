@@ -116,7 +116,7 @@ static class System.Text.Json.JsonSerializer
 │  └─ System.Object
 ├─ Properties (1)
 │  └─ bool IsReflectionEnabledByDefault { get; }
-└─ Methods (10 logical, 107 overloads)
+└─ Methods (107)
    ├─ Deserialize (40 overloads)
    ├─ DeserializeAsync (10 overloads)
    ├─ DeserializeAsyncEnumerable (8 overloads)
@@ -594,17 +594,20 @@ Member-group rows it covers and does not substitute for any child's Count.
 
 A `TypeDocument` request may ask for its composition: a set of exact Counts of
 declarations (actual members, so each overload counts). A composition reports
-no Member-group Count.
+no Member-group Count. An intent's declaration Count is the total of the
+nested exact-overload Counts across its completely drained Member-group Rows,
+with a single-declaration row counting 1.
 
 - **Accessibility Counts** cover every bucket, whatever `accessibility` or
   `receiver` term the request itself carries. The picker therefore stays
-  truthful after the reader selects another bucket. Each bucket's Count equals the drained Rows of
-  `accessibility = <bucket>` under the request's hidden admission: hidden
+  truthful after the reader selects another bucket. Each bucket's Count is
+  the declaration Count of `accessibility = <bucket>` under the request's
+  hidden admission: hidden
   declarations are counted only when the request admits them, as `--all`
   does. A bucket with no declarations is published as 0.
 - **Receiver Counts** cover the declarations the request's own `accessibility`
   term admits, one per `receiver` form (`static`, `this`, and `extension`),
-  with an empty form published as 0. Each equals the drained Rows of that
+  with an empty form published as 0. Each is the declaration Count of that
   intent plus the `receiver` value.
 
 For example, System.Text.Json 10.0.0 `JsonDocument` has:
@@ -1148,8 +1151,9 @@ The implementation sequence must add Release gates proving:
   Member-group formation or row materialization;
 - `JsonDocument`'s Composition Count reports 16, 0, 44, and 27 declarations
   for `public`, `protected`, `internal`, and `private`, whatever bucket the
-  request selects. Each Count
-  equals the completely drained Rows of the same intent. One metadata pass
+  request selects. Each Count equals the total of nested exact-overload
+  Counts across the completely drained Member-group Rows of the same intent
+  (8 public rows totaling 16). One metadata pass
   produces the whole composition without constructing rows;
 - the private bucket includes ordinary private fields such as `s_nullLiteral`,
   which a name heuristic must not exclude;
