@@ -36,9 +36,9 @@ authorities, and root-local limitations. The
 [Library Body Analysis Service](library-body-analysis-service.md) owns the
 shared execution and detached result association.
 
-The existing ArrayPool lifecycle analyzer supplies compatibility evidence, not
-the generic contract. It remains independently executable until a later
-focused cutover proves sufficient fidelity and retires it.
+The former ArrayPool lifecycle analyzer supplied compatibility evidence, not
+the generic contract. A focused cutover proved sufficient fidelity and retired
+that implementation.
 
 ## Request and execution boundary
 
@@ -146,14 +146,14 @@ release. A handler with a path that bypasses release is indeterminate: the root
 gains an exception-flow limitation and the boundary produces no speculative
 exceptional-cleanup outcome.
 
-Resource Triage preserves its legacy ArrayPool boundary contract through a
-narrow compatibility walk over the root local's reaching-definition uses. The
-walk reuses the established ArrayPool use classifier and downstream
-setup-boundary traversal so transparent framework wrappers retain their
-reported boundary sequence. Legacy setup classification controls traversal,
-not no-throw proof: only an exact `throws=never` effect or a narrow intrinsic
-rule suppresses a throwing boundary, and an otherwise fallible setup makes the
-root incomplete. The intrinsic rule matches only the exact static,
+Resource Triage preserves its established ArrayPool boundary behavior through
+a narrow typed walk over the root local's reaching-definition uses. The walk
+reuses the ArrayPool use classifier and downstream setup-boundary traversal so
+transparent framework wrappers retain their reported boundary sequence. Setup
+classification controls traversal, not no-throw proof: only an exact
+`throws=never` effect or a narrow intrinsic rule suppresses a throwing
+boundary, and an otherwise fallible setup makes the root incomplete. The
+intrinsic rule matches only the exact static,
 non-generic, default-convention `void System.GC.KeepAlive(object)` call.
 Intrinsically nonthrowing setup calls, address-taken flows, and method-group or
 indirect-dispatch shapes encountered after the tracked load remain suppressed
@@ -180,9 +180,9 @@ empty lifecycle census.
 
 The Library Resource Triage section requests lifecycle analysis with the
 shipped typed ArrayPool model and consumes
-`LibraryResourceLifecycleAnalysisResult` directly. It no longer requests
-`LibraryBodyAnalysisFeatures.LeakTriage`, materializes `LibraryBodyIndex`, or
-opens a second analysis execution.
+`LibraryResourceLifecycleAnalysisResult` directly. It does not use a
+compatibility feature, materialize `LibraryBodyIndex`, or open a second
+analysis execution.
 
 The query projects only `ExceptionalCleanupMissing` outcomes into its existing
 `ResourceLifecycleOccurrence` Finding payload:
@@ -227,16 +227,13 @@ The motivating production assets remain the pinned Resource Triage corpus:
 - Npgsql 8.0.4; and
 - Pipelines.Sockets.Unofficial 2.2.8.
 
-The existing ArrayPool analyzer is the final fidelity oracle for these assets.
-This slice keeps that implementation and its tests unchanged. The generic
-producer and migrated Resource Triage path do not call the legacy analyzer or
-adapt its result. The query gate compares the complete legacy and generic
-Finding populations, including every payload field, boundary sequence, and
-candidate identity.
-
-Retirement is a later focused change after production corpus comparison. No
-source-text absence gate is added for hidden API-specific branches; behavioral
-parity and review own that transition.
+The former ArrayPool analyzer served as the final fidelity oracle for these
+assets. The generic producer and migrated Resource Triage path never called
+that analyzer or adapted its result. The retirement gate compared the complete
+legacy and generic Finding populations, including every payload field,
+boundary sequence, and candidate identity, before removing the predecessor.
+The durable comparison is recorded in
+[ArrayPool ownership retirement](../evidence/arraypool-ownership-retirement.md).
 
 ## Evidence
 
@@ -251,20 +248,20 @@ The Release `ILInspector.Analysis.Tests` gate establishes:
 - simultaneous normal and exceptional unreleased exits;
 - unsupported conditional release completion;
 - unprotected roots remain reportable beside unrelated or leading
-  method-group construction while the legacy-suppressed trailing shape remains
-  incomplete;
+  method-group construction while the conservatively suppressed trailing
+  shape remains incomplete;
 - exact boundary suppression for `throws=never`;
-- legacy suppression for address-taken and indirect-dispatch shapes;
+- conservative suppression for address-taken and indirect-dispatch shapes;
 - invalid storage and caller-return transfer;
 - two roots with one incomplete root retaining the other's result; and
-- unchanged legacy ArrayPool lifecycle tests.
+- scenario-adjacent generic ArrayPool lifecycle tests.
 
 The Release `DotnetInspector.Queries.Tests` and `DotnetInspect.Cli.Tests` gates
 establish:
 
 - unchanged complete Resource Triage Finding population, payload, boundary
   sequence, and candidate identity;
-- legacy normal-first Resource Triage projection for simultaneous normal and
+- normal-first Resource Triage projection for simultaneous normal and
   exceptional terminal leaks;
 - one shared body-analysis execution for selected migrated sections; and
 - no `LibraryBodyIndex` materialization by Resource Triage.

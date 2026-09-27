@@ -495,71 +495,6 @@ Deep Inspect's census lane runs the generated-fixture catalogue, corpus stabilit
 and paydirt recall gate. Precision labeling, baseline refreshes, and recall-reference
 edits remain maintainer-owned upkeep: they are documented conventions, not automatic CI gates.
 
-## Leak triage corpus sensor (#1992)
-
-`--leak-triage` sweeps the fail-closed ArrayPool leak-triage analyzer
-(`LeakTriageAnalyzer`) over a corpus and reports where it fires, plus
-measurement-only candidate/suppression buckets, as a
-[Markout](https://github.com/richlander/markout) card:
-
-```bash
-dotnet run eng/prepare-resource-triage-corpus.cs -- /tmp/resource-triage-assemblies.txt
-dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --top 5
-dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --tsv
-dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --jsonl
-```
-
-The card has five sections — a **Summary** (assemblies / opened / failed / timed out / total
-findings / total candidates), a **By shape** histogram (`arraypool-rent-not-returned`,
-`arraypool-use-after-return`, `arraypool-double-return`), **Findings** (assembly / shape / method,
-`--top` bounding examples per assembly), **Candidate buckets**, and **Candidates**. In structured
-output, **Candidates** also carries the analyzer evidence plus the rent and use offsets (`rent_offset`
-/ `il_offset` in JSONL) so precision samples can jump directly to the relevant IL. Candidate buckets
-are not product findings; they measure recall gates such as
-`normal-path-leak-candidate`, `exception-path-leak-candidate`,
-`use-after-return-candidate`, `ownership-transfer-suppressed`,
-`alias-or-field-suppressed`, `cross-method-suppressed`, and
-`incomplete-cfg-or-rd-suppressed`. Candidate rows can overlap: for example, a cross-method
-suppression can also carry an exception-path candidate when the normal path may still release or
-transfer ownership but an unprotected call boundary can throw first. The exception-path candidate
-bucket suppresses known nonthrowing setup calls such as `GC.KeepAlive`, `Array.Copy`,
-`Array.Clear`, `MemoryExtensions.AsSpan`, `Span<T>.Clear`, and array-to-`Span<T>` conversion that
-feeds an immediate `Span<T>.CopyTo`; these remain cross-method suppressions rather than product
-findings. One declarative Markout model renders the dense Markdown table and decomposes into
-section-tagged TSV/JSONL. It is a single-run census with no baseline, so it uses plain sectioned
-rows, not composite/delta cells; a `--diff-baseline` mode against a committed snapshot is the
-natural home for those (`Change`/`[MarkoutDelta]`). Each assembly is bounded by a per-assembly
-timeout, and any per-assembly input failure (a directory path, a truncated PE) becomes an
-`Opened=false` row rather than crashing the sweep.
-
-This remains the evidence engine for any correctness-oriented `Leak Triage` section: the analyzer
-fails closed on incomplete CFG/RD, non-`Shared` pools, aliases, field stores, cross-method
-ownership, and ambiguous uses, so an **empty findings card on real code means recall is the next
-lever**. Use the candidate buckets to decide which correctness gate to model next.
-
-A 2026-07-17 run over the .NET 11 daily shared framework
-(`Microsoft.NETCore.App` + `Microsoft.AspNetCore.App`, 314 assemblies) produced **0 findings**
-across `arraypool-rent-not-returned`, `arraypool-use-after-return`, and
-`arraypool-double-return`. Its 519 measurement rows comprised 364
-`ownership-transfer-suppressed`, 122 `cross-method-suppressed`, 25
-`exception-path-leak-candidate`, and 8 `alias-or-field-suppressed` rows. The fixture assembly's
-three known-misuse methods still surface exactly once each. The broad real-code result does not
-justify promoting any of these three strict shapes into product output; the separate
-`Resource Triage` section uses the actionability contract below rather than reinterpreting these
-rows as correctness findings.
-
-The shared framework is the false-positive gate, not the profitability corpus. The pinned
-ArrayPool-heavy community corpus prepared above contains the primary library from each of nine
-package roots. It produced **0 strict findings**, from 188 measurement rows: 145
-`ownership-transfer-suppressed`, 35 `cross-method-suppressed`, 7
-`exception-path-leak-candidate`, and 1 `alias-or-field-suppressed`.
-
-The assembly API delegates to a leak-only `LibraryBodyIndex` feature rather than reopening and
-enumerating the PE independently. Product commands can combine that feature with the other
-Analysis producers in one metadata/body acquisition; the Leak Triage producer still owns its
-specialized instruction, CFG, and reaching-definitions interpretation. The harness consumes this
-product acquisition path and does not reconstruct an assembly walk.
-
 ## Leak actionability corpus sensor (#2439)
 
 `--leak-actionability` reports Analysis-owned exception-path lifecycle observations by
@@ -573,9 +508,10 @@ dotnet "$DLL" --leak-actionability assemblies.txt --tsv        # section-tagged 
 dotnet "$DLL" --leak-actionability assemblies.txt --jsonl      # one JSON record per row
 ```
 
-The harness owns corpus orchestration and reporting only. `ResourceLifecycleAnalysis` consumes
-the same opt-in body-index producer as Leak Triage and attributes exact unprotected boundaries
-from the rented local's def-use evidence;
+The harness owns corpus orchestration and reporting only. It requests generic
+ArrayPool Resource Lifecycle analysis through `LibraryBodyAnalysisService`;
+`ResourceLifecycleAnalysis` converts that typed result into Findings and
+attributes exact unprotected boundaries from the rented local's def-use evidence.
 `ResourceTriageAnalysis` assesses that evidence by what each boundary touches:
 
 - `untrusted-actionable` — a boundary **reads/decodes/parses external input**
@@ -616,7 +552,8 @@ conversion and classify as trusted in-memory work.
 
 ## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
 
-`--memorypool-lifecycle` is the second resource family alongside the ArrayPool leak-triage work: a
+`--memorypool-lifecycle` is the second resource family alongside the generic
+ArrayPool lifecycle work: a
 **measurement-only** census of `MemoryPool<T>.Rent` sites, as a
 [Markout](https://github.com/richlander/markout) card.
 
@@ -640,7 +577,7 @@ reaching-definitions def/use web and buckets the site by how the owner is releas
 - `incomplete-or-ambiguous-suppressed` — incomplete CFG/RD, an address-taken or multiply-defined
   owner slot, or an unmodeled disposition: fail-closed.
 
-Like `--leak-triage` this changes no analyzer behavior and wires no product surface, and it is
+This changes no analyzer behavior and wires no product surface, and it is
 **precision-first**: anything not provably disposed or leaked is suppressed. A run over the .NET
 9.0.14 shared framework (`Microsoft.NETCore.App` + `Microsoft.AspNetCore.App`, 308 assemblies)
 found 19 `MemoryPool<T>.Rent` sites — **all 19 `ownership-transfer-suppressed`** (the owner is

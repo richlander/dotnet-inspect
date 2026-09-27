@@ -184,7 +184,9 @@ export function bindProductNavigation(
 ): ProductNavigationBinding {
   let replacement: {
     buttonId: string;
-    destination: ProductDestination;
+    focus:
+      | { kind: "button" }
+      | { kind: "destination"; destination: ProductDestination };
     currentDestination: ProductDestination | null;
   } | null = null;
   const currentOpenMenu = () =>
@@ -195,6 +197,13 @@ export function bindProductNavigation(
     return root.querySelector<HTMLElement>(
       `[data-product-navigation-button][aria-controls="${CSS.escape(id)}"]`);
   };
+  const synchronizeMenus = () => {
+    for (const menu of root.querySelectorAll<HTMLElement>(
+      "[data-product-navigation-menu]")) {
+      synchronizeProductNavigation(menu, actions);
+    }
+  };
+  synchronizeMenus();
   const closeOpenMenu = (restoreFocus: boolean) => {
     const menu = currentOpenMenu();
     if (!menu) return;
@@ -324,10 +333,34 @@ export function bindProductNavigation(
   return {
     beforeRender() {
       replacement = null;
+      const focused = root.ownerDocument.activeElement;
+      const focusedButton = focused instanceof Element
+        ? focused.closest<HTMLElement>("[data-product-navigation-button]")
+        : null;
+      if (focusedButton && root.contains(focusedButton)) {
+        const menu = buttonMenu(root, focusedButton);
+        const currentDestination = menu?.querySelector<HTMLElement>(
+          '[data-product-destination][aria-current="page"]')
+          ?.dataset.productDestination;
+        const renderedDestination = isProductDestination(currentDestination)
+          ? currentDestination
+          : null;
+        if (focusedButton.id
+          && actions.currentDestination() === renderedDestination) {
+          replacement = {
+            buttonId: focusedButton.id,
+            focus: { kind: "button" },
+            currentDestination: renderedDestination,
+          };
+        }
+        return;
+      }
       const menu = currentOpenMenu();
       if (!menu) return;
       const button = currentButton(menu);
-      const focused = menu.ownerDocument.activeElement;
+      const action = focused instanceof Element
+        ? focused.closest<HTMLElement>("[data-product-action]")
+        : null;
       const item = focused instanceof Element
         ? focused.closest<HTMLElement>("[data-product-destination]")
         : null;
@@ -335,23 +368,39 @@ export function bindProductNavigation(
       const currentDestination = menu.querySelector<HTMLElement>(
         '[data-product-destination][aria-current="page"]')
         ?.dataset.productDestination;
+      const renderedDestination = isProductDestination(currentDestination)
+        ? currentDestination
+        : null;
+      if (button?.id
+        && action
+        && menu.contains(action)
+        && isProductAction(action.dataset.productAction)
+        && actions.currentDestination() === renderedDestination) {
+        replacement = {
+          buttonId: button.id,
+          focus: { kind: "button" },
+          currentDestination: renderedDestination,
+        };
+        return;
+      }
       if (!button?.id
         || !item
         || !menu.contains(item)
         || !isProductDestination(destination)
-        || !isProductDestination(currentDestination)
-        || actions.currentDestination() !== currentDestination) {
+        || !isProductDestination(renderedDestination)
+        || actions.currentDestination() !== renderedDestination) {
         return;
       }
       replacement = {
         buttonId: button.id,
-        destination,
-        currentDestination,
+        focus: { kind: "destination", destination },
+        currentDestination: renderedDestination,
       };
     },
     afterRender() {
       const pending = replacement;
       replacement = null;
+      synchronizeMenus();
       if (!pending
         || actions.currentDestination() !== pending.currentDestination) {
         return;
@@ -359,10 +408,15 @@ export function bindProductNavigation(
       const button = root.querySelector<HTMLElement>(
         `#${CSS.escape(pending.buttonId)}[data-product-navigation-button]`);
       if (!button) return;
+      if (pending.focus.kind === "button") {
+        button.focus();
+        return;
+      }
+      const destination = pending.focus.destination;
       const menu = buttonMenu(root, button);
       const item = menu
         ? productItems(menu).find(candidate =>
-            candidate.dataset.productDestination === pending.destination)
+            candidate.dataset.productDestination === destination)
         : null;
       if (!menu || !item) return;
       setProductNavigationOpen(button, menu, true, actions);

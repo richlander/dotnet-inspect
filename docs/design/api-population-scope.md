@@ -44,6 +44,34 @@ source API endpoint may use `--all` while a destination or correspondence
 operation retains its own declaration contract. A route must document any
 asymmetry rather than imply that one flag changes every nested operation.
 
+### Accessibility within API visibility scope
+
+A Type's Member inventory is one declaration population with two independent
+visibility axes: accessibility and hidden status. Accessibility is the
+`api.accessibility` vocabulary's buckets (`public`, `protected`, `internal`,
+and `private`). A composite spelling such as `protected internal` belongs to
+the one bucket that vocabulary classifies it into. Hidden status marks
+declarations the public-facing default omits for reasons other than
+accessibility, such as `EditorBrowsable(Never)`. Obsolete declarations are not
+a separate axis: they are admitted and marked, as the default already does.
+
+- The default population is the `public` bucket without hidden declarations:
+  the ordinary public-facing API. The Metadata owner's admission decides its
+  exact members, including how explicit interface implementations and other
+  contract roles classify.
+- An `accessibility` term selects one or more buckets. By itself it does not
+  admit hidden declarations.
+- `--all` selects every bucket and admits hidden declarations into their
+  buckets. Combined with an `accessibility` term, the term narrows the buckets
+  and hidden declarations stay admitted.
+
+Every admitted declaration belongs to exactly one bucket, so Counts over the
+buckets of one population are truthful. They cover the same declarations,
+under the same admission rules, as the Rows each bucket would return. The
+Metadata owner's admission decides which declarations are compiler-generated.
+Those declarations are not API declarations and belong to no bucket. A host
+does not narrow the population further by name.
+
 ### Implementation operations with named API roots
 
 An implementation operation may begin by resolving a user-written Type or
@@ -88,6 +116,7 @@ the implementation analysis complete.
 | Question | Default population | Meaning of `--all` |
 | --- | --- | --- |
 | Which API declarations should an API inventory show? | The ordinary public-facing API | Include the command's non-public, hidden, and obsolete declarations |
+| Which accessibility should a Type's Member inventory show? | The `public` bucket without hidden declarations; an `accessibility` term selects other buckets, still without hidden declarations | Every bucket plus hidden declarations; an added `accessibility` term narrows the buckets and hidden declarations stay admitted |
 | Which declarations should an API comparison match? | The comparison's ordinary API population | Widen the API population where that comparison admits the option |
 | Which named root should a body operation resolve? | Roots in the ordinary public-facing API | Include a non-public, hidden, or obsolete root; the resulting implementation analysis is unchanged |
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |

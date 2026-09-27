@@ -113,6 +113,9 @@ public class PdbContextDescriptorTests
         Assert.Equal(
             PdbContext.MaxDebugDirectoryEntries * 28,
             directoryError.LimitBytes);
+        Assert.Equal(
+            PdbResourceLimitKind.DebugDirectory,
+            directoryError.Kind);
 
         byte[] oversizedCodeView = SetCodeViewDataSize(
             image,
@@ -127,6 +130,9 @@ public class PdbContextDescriptorTests
         Assert.Equal(
             PdbContext.MaxCodeViewDataBytes,
             codeViewError.LimitBytes);
+        Assert.Equal(
+            PdbResourceLimitKind.CodeViewRecord,
+            codeViewError.Kind);
     }
 
     [Theory]
@@ -175,6 +181,9 @@ public class PdbContextDescriptorTests
 
         Assert.Equal(Limit + 1, error.ActualBytes);
         Assert.Equal(Limit, error.LimitBytes);
+        Assert.Equal(
+            PdbResourceLimitKind.EmbeddedPortablePdb,
+            error.Kind);
     }
 
     [Fact]
@@ -206,6 +215,9 @@ public class PdbContextDescriptorTests
 
         Assert.True(error.ActualBytes > 0);
         Assert.Equal(0, error.LimitBytes);
+        Assert.Equal(
+            PdbResourceLimitKind.EmbeddedPortablePdb,
+            error.Kind);
     }
 
     [Fact]
@@ -241,6 +253,9 @@ public class PdbContextDescriptorTests
         Assert.Equal(embeddedPdbSize, budget.ReservedBytes);
         Assert.Equal(embeddedPdbSize, error.ActualBytes);
         Assert.Equal(0, error.LimitBytes);
+        Assert.Equal(
+            PdbResourceLimitKind.EmbeddedPortablePdb,
+            error.Kind);
     }
 
     [Fact]
