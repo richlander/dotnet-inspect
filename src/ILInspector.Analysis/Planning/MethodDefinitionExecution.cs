@@ -53,7 +53,7 @@ public sealed class MethodDefinitionExecution
             execution._states[i] = new ProducerState(
                 execution,
                 declaration,
-                declaration.CreateRun(description.UnitFactsRead[i]),
+                declaration.CreateRun(description.FactRetention[i]),
                 description.TerminalByIndex[i],
                 description.DependencyIndices[i]);
         }

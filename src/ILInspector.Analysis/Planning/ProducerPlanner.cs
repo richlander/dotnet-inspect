@@ -76,7 +76,7 @@ public sealed class WorkDescription
 
         var terminalsByIndex = new ProducerTerminal[producers.Length];
         var dependencies = new ImmutableArray<int>[producers.Length];
-        var unitFactsRead = new bool[producers.Length];
+        var unitFactRetention = new UnitFactRetention[producers.Length];
         for (int i = 0; i < producers.Length; i++)
         {
             ProducerDeclaration producer = producers[i];
@@ -88,7 +88,16 @@ public sealed class WorkDescription
                 int target = indices[dependency.Producer];
                 targets.Add(target);
                 if (dependency.Kind == ProducerDependencyKind.VisitNeedsVisit)
-                    unitFactsRead[target] = true;
+                {
+                    // A reader in the same pass reads the fact of the unit
+                    // being visited; one in a later pass needs every unit's.
+                    UnitFactRetention needed =
+                        visitPasses[producer] == visitPasses[dependency.Producer]
+                            ? UnitFactRetention.CurrentUnit
+                            : UnitFactRetention.AllUnits;
+                    if (needed > unitFactRetention[target])
+                        unitFactRetention[target] = needed;
+                }
             }
 
             dependencies[i] = targets.ToImmutable();
@@ -124,7 +133,7 @@ public sealed class WorkDescription
         _indices = indices;
         TerminalByIndex = ImmutableArray.Create(terminalsByIndex);
         DependencyIndices = ImmutableArray.Create(dependencies);
-        UnitFactsRead = ImmutableArray.Create(unitFactsRead);
+        FactRetention = ImmutableArray.Create(unitFactRetention);
         CompletionIndices = completionIndices.ToImmutable();
         Passes = passes.ToImmutable();
     }
@@ -144,10 +153,10 @@ public sealed class WorkDescription
     internal ImmutableArray<ImmutableArray<int>> DependencyIndices { get; }
 
     /// <summary>
-    /// Whether a planned producer reads each producer's per-unit facts; only
-    /// then must an execution retain them by unit.
+    /// How long an execution must retain each producer's per-unit facts for
+    /// the planned producers that read them.
     /// </summary>
-    internal ImmutableArray<bool> UnitFactsRead { get; }
+    internal ImmutableArray<UnitFactRetention> FactRetention { get; }
 
     /// <summary>The completion order, by index.</summary>
     internal ImmutableArray<int> CompletionIndices { get; }
@@ -187,6 +196,19 @@ public sealed class WorkDescription
 
     public int CompletionPassOf(ProducerDeclaration producer) =>
         _completionPasses[producer];
+}
+
+/// <summary>How long a producer's per-unit facts must outlive the unit's visit.</summary>
+internal enum UnitFactRetention : byte
+{
+    /// <summary>No planned producer reads them.</summary>
+    None,
+
+    /// <summary>Every reader visits in the same pass, after the producer, so only the current unit's fact is read.</summary>
+    CurrentUnit,
+
+    /// <summary>A reader visits in a later pass, so every unit's fact is read.</summary>
+    AllUnits,
 }
 
 /// <summary>One pass of a work description: producer indices in visit order and in completion order.</summary>
