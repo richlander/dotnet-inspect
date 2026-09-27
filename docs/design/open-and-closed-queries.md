@@ -96,9 +96,12 @@ clamp, and a strict Window fails unless position B exists. This pattern
 expresses them as closings; it does not redefine them.
 
 Rows derives Count, Count derives AtLeast(N), and Exists is AtLeast(1). Rows
-also derives GroupBy(key) for any key its rows carry, and GroupBy(key) derives
-CountBy(key), whose counts are its lists' lengths. Closings of the same open query at different thresholds merge to
-the largest. Fold derives nothing, because its aggregation belongs to its
+derives GroupBy(key) only when each row carries both the key and its unit's
+typed identity, because GroupBy returns identities and a projection alone may
+map two units to the same row; otherwise GroupBy runs as its own closing.
+GroupBy(key) derives CountBy(key), whose counts are its lists' lengths, and
+Rows derives CountBy(key) from any key its rows carry. Closings of the same
+open query at different thresholds merge to the largest. Fold derives nothing, because its aggregation belongs to its
 owner. When several consumers close the same open query, the most expansive
 closing is executed and the others are derived.
 The work may stop early only when every closing executed for that open query
@@ -202,11 +205,12 @@ A request set lowers one of two ways:
 - **Stream.** Each closing runs as phases and kernels and stops as early as
   its phases allow. It suits one-shot answers, counts over large
   populations, and windows.
-- **Result set.** The most expansive closing runs once, and every other
-  closing is derived from its rows and published beside them as a keyed view. It
-  suits consumers that display the rows and ask many questions of them, such
-  as an interactive page or a static bundle. Because every view derives from
-  the same rows, the numbers agree by construction.
+- **Result set.** The most expansive closing runs once, and every closing
+  derivable from its rows under the rules above is published beside them as a
+  view; a closing that is not derivable runs in the same pass as its own
+  closing. It suits consumers that display the rows and ask many questions of
+  them, such as an interactive page or a static bundle. Because the views
+  derive from the same rows, their numbers agree by construction.
 
 The result-set lowering has prior art in the
 [.NET CVE schema](https://github.com/dotnet/designs/blob/main/accepted/2025/cve-schema/cve_schema.md):
@@ -226,15 +230,20 @@ The planner produces the value; the
 [inspection envelope](inspection-envelope.md) owner keeps the service layer.
 A closing's typed result becomes an envelope's content, and the plan's receipt
 and completion evidence can travel as the envelope's typed evidence
-companion. A closing is also its own canonical share: the open query and its
-terminal, as portable query data, reproduce the result when run again.
+companion. A closing can also be its own canonical share, but only when the
+[portable query intent](portable-query-intent.md) owner admits a portable
+representation of its open query and terminal. Otherwise the envelope keeps
+its [non-projectable share outcome](inspection-envelope.md#share-outcome);
+the planner does not manufacture a share.
 
 Package-version `--count` shows what this replaces. Today four sites lower it
 by hand: they build every version row, apply the row selection, take the
 number of rows, and construct an `InspectionEnvelope<int>` from the row
 envelope, with a share marked as having no canonical projection. Planned, it
 is a Count closing over the version population: the planner produces the
-integer, the envelope carries it, and the closing is the share. For package
+integer and the envelope carries it. The closing becomes the share once the
+version population and Count have a portable representation; until then the
+share stays non-projectable, as today. For package
 versions the gain is one generic lowering instead of four, not speed, since a
 package has dozens to hundreds of versions. It is also a first adopter outside
 method definitions, which needs sources to be a general abstraction.
