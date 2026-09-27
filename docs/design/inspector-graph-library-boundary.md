@@ -49,21 +49,6 @@ product operation. `Inspector.Graph` retains the resulting topology,
 occurrence receipts, characteristics, limits, and failures without learning
 what a member, call, package, or external scope means.
 
-The neighboring demonstration is deliberately outside dotnet-inspect. An
-application defines ordinary records such as:
-
-```csharp
-record Service(string Name);
-record DependsOn(string Kind);
-record DependencyReceipt(string ConfigurationSource);
-```
-
-It uses those records directly as graph payloads. They implement no
-`Inspector.Graph` interface and carry no dotnet-inspect identity. The same
-carrier invariants apply. This direct consumer is what makes the extraction a
-real subject-neutral boundary rather than Queries types moved under a shorter
-namespace.
-
 ## Responsibility boundary
 
 ### `Inspector.Graph` owns
@@ -143,6 +128,28 @@ caller-owned discriminated unions. Graph retains them but does not branch on
 their cases. The product can therefore keep today’s Analysis, Metadata,
 CallGraph, package, Integration, and Research evidence as precise types rather
 than normalizing them into one universal graph evidence model.
+
+### Direct consumer boundary proof
+
+The direct consumer is a construction test, not a second product
+demonstration. It does not ask `Inspector.Graph` to discover subjects, derive
+relationships, resolve a provider, or traverse anything.
+
+A separately compiled fixture:
+
+1. defines one ordinary application record type for each of the six payload
+   planes;
+2. supplies a complete finite set of nodes, one directed edge, its occurrence,
+   and target-scoped characteristic, limit, and failure values;
+3. constructs the generic document directly; and
+4. verifies immutable snapshots, local references, and typed payload
+   preservation.
+
+`Inspector.Graph` processes only the supplied structure. The application owns
+how every value was discovered or calculated. The fixture proves that the
+carrier needs neither a dotnet-inspect identity nor a marker interface on
+consumer values; it does not establish the later provider or execution
+contract.
 
 ## Structural document
 
@@ -451,8 +458,9 @@ The implementation requires:
    constructor validation has one explicit structural or Queries-owned target
    gate before retirement.
 3. **Direct consumer.** A separately compiled fixture references only
-   `Inspector.Graph` and constructs nodes, relationships, occurrence evidence,
-   characteristics, limits, and failures from ordinary application records.
+   `Inspector.Graph`, defines ordinary application records for all six payload
+   planes, and directly constructs one already-formed finite document. It
+   exercises no discovery, provider, query, or traversal API.
 4. **Full dependency coverage.** One Release architecture test checks the
    evaluated transitive project closure and built assembly references.
 5. **Production binding.** Existing Queries tests preserve owner-issued member,
