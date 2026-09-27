@@ -31,6 +31,11 @@ they do not require `--all` for completeness. A follow-up API command may
 still need `--all` to resolve a non-public result identified by an aggregate
 analysis. These are separate gestures with separate contracts.
 
+An implementation operation that accepts a named Type or Member has both
+boundaries in one command. `--all` may widen the API lookup used to resolve a
+non-public root, but it does not widen the resulting body population, graph
+traversal, relationship set, or work bounds.
+
 See [API and implementation population scope](api-population-scope.md) for
 the normative distinction and the boundaries between API visibility,
 implementation completeness, and package-library selection.
