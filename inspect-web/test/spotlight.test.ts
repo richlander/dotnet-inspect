@@ -42,6 +42,7 @@ interface HarnessOptions {
   pickResult?: (result: SpotlightResult) => void;
   packageSearchError?: () => string;
   packageSearchLoading?: () => boolean;
+  typeSearchLoading?: () => boolean;
   typeSearchNotice?: () => string;
 }
 
@@ -89,6 +90,7 @@ function createHarness({
   pickResult = () => {},
   packageSearchError,
   packageSearchLoading = () => false,
+  typeSearchLoading,
   typeSearchNotice,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
@@ -117,6 +119,7 @@ function createHarness({
     resetPackageSearch: () => {},
     packageSearchLoading,
     ...(packageSearchError ? { packageSearchError } : {}),
+    ...(typeSearchLoading ? { typeSearchLoading } : {}),
     ...(typeSearchNotice ? { typeSearchNotice } : {}),
     packageCount: () => 1,
     render: () => {},
@@ -695,6 +698,18 @@ test("incomplete Type coverage qualifies empty and nonempty results", () => {
   const html = populated.spotlight.modalHtml();
   assert.match(html, /data-sl-managed-type="[^"]*candidate[^"]*"/);
   assert.match(html, /1 assembly could not be fully evaluated/);
+});
+
+test("pending Types-only search does not report a complete miss", () => {
+  const harness = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchLoading: () => true,
+  });
+
+  const html = harness.spotlight.modalHtml();
+  assert.match(html, /Searching/);
+  assert.doesNotMatch(html, /Nothing matches|No confirmed matches/);
 });
 
 test("Spotlight selection clamps without wrapping and scope cycling wraps", () => {

@@ -11,9 +11,9 @@ interface TypeFindCandidateName {
 
 interface TypeFindLibraryIdentity {
   readonly name: string;
-  readonly version: string | null;
-  readonly culture: string | null;
-  readonly public_key_token: string | null;
+  readonly version?: string | null;
+  readonly culture?: string | null;
+  readonly public_key_token?: string | null;
 }
 
 interface TypeFindCoordinate {
@@ -469,12 +469,9 @@ function isCoordinate(value: unknown): value is TypeFindCoordinate {
     && typeof value.kind === "string"
     && isRecord(value.library_identity)
     && typeof value.library_identity.name === "string"
-    && (typeof value.library_identity.version === "string"
-      || value.library_identity.version === null)
-    && (typeof value.library_identity.culture === "string"
-      || value.library_identity.culture === null)
-    && (typeof value.library_identity.public_key_token === "string"
-      || value.library_identity.public_key_token === null);
+    && optionalNullableString(value.library_identity.version)
+    && optionalNullableString(value.library_identity.culture)
+    && optionalNullableString(value.library_identity.public_key_token);
 }
 
 function isCandidateName(value: unknown): value is TypeFindCandidateName {
@@ -578,6 +575,10 @@ function diagnosticsNotice(
 
 function optionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
+}
+
+function optionalNullableString(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "string";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -11,16 +11,23 @@ import type {
 } from "../src/facades/inspect-web-metadata.d.ts";
 import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
-function candidate(packageVersion = "10.0.0") {
+function candidate(
+  packageVersion = "10.0.0",
+  libraryIdentity: {
+    name: string;
+    version?: string | null;
+    culture?: string | null;
+    public_key_token?: string | null;
+  } = {
+    name: "System.Text.Json",
+    version: "10.0.0.0",
+    public_key_token: "cc7b13ffcd2ddd51",
+  },
+) {
   return {
     coordinate: {
       kind: "package",
-      library_identity: {
-        name: "System.Text.Json",
-        version: "10.0.0.0",
-        culture: null,
-        public_key_token: "cc7b13ffcd2ddd51",
-      },
+      library_identity: libraryIdentity,
     },
     name: {
       namespace: "System.Text.Json",
@@ -44,6 +51,7 @@ function candidate(packageVersion = "10.0.0") {
 function result(
   action = "type-action",
   packageVersion = "10.0.0",
+  libraryIdentity?: Parameters<typeof candidate>[1],
 ): BrowserTypeFindResult {
   return {
     status: "Completed",
@@ -61,7 +69,7 @@ function result(
           }],
           answers: [{
             identity: { ordinal: 1 },
-            candidates: [candidate(packageVersion)],
+            candidates: [candidate(packageVersion, libraryIdentity)],
             is_complete: true,
           }],
         },
@@ -104,6 +112,16 @@ test("projects candidates with their exact opaque actions", () => {
     declarationKind: "Definition",
   });
   assert.equal(projection.notice, "");
+});
+
+test("accepts omitted nullable identity fields from canonical managed JSON", () => {
+  const wire = result("type-action", "10.0.0", {
+    name: "System.Text.Json",
+  });
+  const projection = projectSpotlightTypeFindResult(wire);
+
+  assert.equal(projection.candidates.length, 1);
+  assert.equal(projection.candidates[0]?.library, "System.Text.Json");
 });
 
 test("presentation identity does not depend on a replaceable action", () => {

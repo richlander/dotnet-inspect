@@ -506,7 +506,8 @@ export function createSpotlight(options: SpotlightOptions) {
         }
         return '<div class="spotlight-empty">Search packages, types, and members, or enter PackageId@Version.</div>';
       }
-      if (options.packageSearchLoading()) {
+      if ((packageSearch && options.packageSearchLoading())
+        || (typeSearch && options.typeSearchLoading?.())) {
         return '<div class="spotlight-empty">Searching…</div>';
       }
       const empty = typeNotice
