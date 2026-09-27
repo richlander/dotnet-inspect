@@ -1038,6 +1038,120 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
 });
 
+test("duplicate runtime Type discovery preserves one pending Space activation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  let reportSearchRequested!: () => void;
+  let releaseSearch!: () => void;
+  const searchRequested = new Promise<void>(complete => {
+    reportSearchRequested = complete;
+  });
+  const searchReleased = new Promise<void>(complete => {
+    releaseSearch = complete;
+  });
+  await page.route("https://azuresearch-usnc.nuget.org/**", async route => {
+    reportSearchRequested();
+    await searchReleased;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "access-control-allow-origin": "*" },
+      body: JSON.stringify({ totalHits: 0, data: [] }),
+    });
+  });
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await openInstalledPlatform(page, true);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.locator("[data-type-nav-back]").click();
+  await expect(subjectTab(page, "platform")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.keyboard.press("Control+p");
+  const input = page.locator("#spotlight-input");
+  await input.fill("Widget");
+  await searchRequested;
+  const resultSelector =
+    '[data-sl-type*="Example.Widget"][data-sl-pkg="Microsoft.NETCore.App"]:not([data-sl-member])';
+  const result = page.locator(resultSelector);
+  await expect(result).toHaveCount(1);
+  await result.focus();
+  await expect(result).toBeFocused();
+  const resultHandle = await result.elementHandle();
+  expect(resultHandle).not.toBeNull();
+  await page.keyboard.down("Space");
+
+  releaseSearch();
+  await expect(page.locator(".spotlight-hint")).toHaveCount(0);
+
+  expect(await resultHandle.evaluate((element, selector) =>
+    document.querySelector(selector) === element, resultSelector)).toBe(true);
+  await expect(result).toBeFocused();
+  await page.keyboard.up("Space");
+  await expect(subjectTab(page, "type")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
+test("framework Library metadata refresh preserves native pointer activation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page, surface, [], "ready", "ready", {
+    libraryPending: true,
+  });
+  await openInstalledPlatform(page, true);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-library-request",
+  );
+
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("System.Text.Json");
+  const result = page.locator(
+    '[data-sl-framework-lib="System.Text.Json"]',
+  );
+  await expect(result).not.toContainText("loaded");
+  const name = result.locator(".spotlight-item-name");
+  const resultHandle = await result.elementHandle();
+  const nameHandle = await name.elementHandle();
+  expect(resultHandle).not.toBeNull();
+  expect(nameHandle).not.toBeNull();
+  const box = await name.boundingBox();
+  if (!box) throw new Error("Framework Library result has no browser geometry.");
+  await page.mouse.move(
+    box.x + box.width / 2,
+    box.y + box.height / 2,
+  );
+  await page.mouse.down();
+
+  await releaseFacade(page, "finish-platform-library");
+  await expect(result).toContainText("loaded");
+  expect(await resultHandle.evaluate(element =>
+    document.querySelector('[data-sl-framework-lib="System.Text.Json"]')
+      === element)).toBe(true);
+  expect(await nameHandle.evaluate(element =>
+    document.querySelector(
+      '[data-sl-framework-lib="System.Text.Json"] .spotlight-item-name',
+    ) === element)).toBe(true);
+  await page.mouse.up();
+
+  await expect(page.locator("#spotlight-backdrop")).toHaveCount(0);
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
 test("catalog-only Platform retains its Workspace identity and canonical URL across another Workspace", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => localStorage.setItem(
