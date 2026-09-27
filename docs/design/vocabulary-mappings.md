@@ -43,6 +43,7 @@ It does not define:
 - JSON object properties, tuple positions, serialization direction, or JSON
   Schema;
 - Browser controls, CLI syntax, rendering, localization, or persistence;
+- inferring which vocabulary or map should drive a product feature;
 - runtime plugin discovery or reflection-based catalog construction; or
 - one global catalog into which every product identity must be registered.
 
@@ -86,7 +87,8 @@ VocabularyMap tierMap = snapshot.GetMap(
     "tier");
 ```
 
-The generated Browser contract then supports a generic TypeScript consumer:
+The generated Browser contract then supports the feature-bound TypeScript
+consumer:
 
 ```ts
 const choices = vocabulary.terms("csharp.style-choices");
@@ -164,6 +166,43 @@ The immutable snapshot supports exact vocabulary, term, map, and value lookup.
 An unknown identity is a visible miss; lookup does not normalize case, search
 labels, or choose a near match. Host search remains a projection over the
 complete content.
+
+## Discovery and semantic binding
+
+The API is structurally self-describing, not semantically self-applying.
+
+`csharp.style-choices` is a vocabulary identity. Values such as
+`prefer-long-literal-suffix` are term identities within that vocabulary.
+`tier` and `conflict_group` are map identities whose definitions describe
+their targets, cardinality, coverage, and display metadata.
+
+An unfamiliar consumer can enumerate vocabularies, display their terms, and
+inspect their maps without prior knowledge. It cannot infer that
+`csharp.style-choices` should drive a decompiler Settings control, that a
+Boolean scalar should become a badge, or that selecting one term should invoke
+a particular operation. Those are product-feature semantics rather than
+vocabulary structure.
+
+A feature-specific consumer therefore has an explicit semantic binding to the
+stable vocabulary and map identities it uses. The simplest binding is
+a priori knowledge in that feature's code. A broader capability owner may
+instead issue a typed consumer binding, but Vocabulary Mappings does not invent
+or discover that binding.
+
+The first Browser adopter intentionally knows:
+
+```text
+choice vocabulary: csharp.style-choices
+tier vocabulary:   csharp.style-tiers
+tier map:           tier
+conflict map:       conflict_group
+```
+
+This knowledge is part of the Settings feature contract. The Browser does not
+duplicate the terms, labels, summaries, order, map targets, cardinality, or
+coverage behind those identities. Product Vocabulary's `accepted_by` values
+may help people and discovery tools locate a likely consumer, but they do not
+authorize a host to synthesize that consumer or infer its behavior.
 
 ## Model
 
@@ -398,9 +437,9 @@ term IDs, labels, summaries, order, defaults, or map targets.
 
 The Browser replaces its generic `JsonElement` row handling and handwritten
 `StyleTier`/`StyleOption` semantic twins with the generated Vocabulary
-Mappings contract plus generic typed resolution. The Settings panel continues
-to present the same groups, labels, summaries, badges, conflicts, persistence,
-and selection behavior.
+Mappings contract plus typed resolution under its explicit stable-ID binding.
+The Settings panel continues to present the same groups, labels, summaries,
+badges, conflicts, persistence, and selection behavior.
 
 ## Rendering and host responsibilities
 
@@ -415,6 +454,8 @@ The snapshot is data, not rendered output.
 - Hosts may select, search, group, or omit terms for a specific experience.
   They do not rename identities, restate labels, invent mappings, or infer
   relationships from scalar equality.
+- A feature host may know the stable vocabulary and map identities it consumes.
+  It does not infer the feature's semantics from generic vocabulary metadata.
 
 This design neither bypasses Markout for a new CLI format nor turns Markout
 column labels into vocabulary identities.
@@ -455,9 +496,12 @@ The implementation must gate:
 - equal snapshots producing equal identities and one changed label, order,
   cardinality, or target producing a different identity;
 - Product Vocabulary's existing CLI formats and JSON remaining unchanged;
-- Inspect Web grouping every style choice through the declared tier map; and
+- Inspect Web grouping every style choice through the declared tier map;
 - removal or corruption of the tier map causing the Browser production gate to
-  fail rather than falling back to `choice.tier` string matching.
+  fail rather than falling back to `choice.tier` string matching; and
+- a generic catalog viewer rendering an unfamiliar vocabulary without claiming
+  feature behavior, while the Settings consumer resolves only its explicitly
+  bound vocabulary and maps.
 
 The typed construction and identity cases belong in a focused
 `DotnetInspector.Vocabulary` Release suite or the existing CLI suite until that
@@ -477,9 +521,10 @@ This shared substrate has a counted three-step path to both production hosts:
    its one term-and-map source while its Product Vocabulary adapter retains
    query-operator behavior.
 3. **Browser adoption and retirement.** Export the same snapshot through the
-   generated facade, migrate Settings to generic map resolution, and remove the
-   Browser-local semantic row interfaces, guards, double-materialized
-   `JsonElement` path, and any superseded internal `ListVocabulary` shape.
+   generated facade, migrate Settings to typed map resolution under its
+   explicit feature binding, and remove the Browser-local semantic row
+   interfaces, guards, double-materialized `JsonElement` path, and any
+   superseded internal `ListVocabulary` shape.
 
 Step 3 resolves the allocation follow-up in
 [#4494](https://github.com/richlander/dotnet-inspect/issues/4494) if its
@@ -498,6 +543,8 @@ snapshot. Other catalogs adopt one owner at a time.
 - Built-in `exactMatch`, hierarchy, transitivity, or inverse reasoning.
 - Cross-catalog fuzzy matching or automatic relationship discovery.
 - Accepting labels, aliases, CLR names, or JSON keys as term identities.
+- Automatic feature discovery, UI generation, or behavior inference from
+  generic vocabulary metadata.
 - Target-aware availability, counts, or rejection reasons.
 - Structural schema, JSON Schema, query execution, or progressive transport.
 - Arbitrary JSON values or owner-defined runtime types in the common map

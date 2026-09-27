@@ -115,6 +115,11 @@ compatibility projection. It additionally authenticates
 ordinary string field as an implicit foreign key. Other string-valued fields
 remain scalar until their owners publish a target vocabulary.
 
+Inspect Web still knows that its Settings feature consumes
+`csharp.style-choices`, `csharp.style-tiers`, and their relevant map identities.
+The general API makes those contracts resolvable and their contents
+discoverable; it does not infer which product feature should use them.
+
 Implementation and host migration remain tracked by
 [#8593](https://github.com/richlander/dotnet-inspect/issues/8593).
 
