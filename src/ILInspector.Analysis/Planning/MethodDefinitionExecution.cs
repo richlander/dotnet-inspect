@@ -50,22 +50,21 @@ public sealed class MethodDefinitionExecution
                     + "method-definition producer.");
             }
 
-            execution._states[i] = new ProducerState(
+            execution._states[i] = declaration.CreateState(
                 execution,
-                declaration,
-                declaration.CreateRun(description.FactRetention[i]),
                 description.TerminalByIndex[i],
-                description.DependencyIndices[i]);
+                description.DependencyIndices[i],
+                description.FactRetention[i]);
         }
 
-        // Each dependent reads its dependencies' runs directly, aligned with
-        // its declared dependencies, so a same-unit read needs no lookup.
+        // Each dependent reads its dependencies' states directly, aligned
+        // with its declared dependencies, so a same-unit read needs no lookup.
         foreach (ProducerState state in execution._states)
         {
-            var runs = new IMethodDefinitionProducerRun[state.Dependencies.Length];
-            for (int j = 0; j < runs.Length; j++)
-                runs[j] = execution._states[state.Dependencies[j]].Run;
-            state.DependencyRuns = runs;
+            var dependencies = new ProducerState[state.Dependencies.Length];
+            for (int j = 0; j < dependencies.Length; j++)
+                dependencies[j] = execution._states[state.Dependencies[j]];
+            state.DependencyStates = dependencies;
             execution.BindScopeGuards(state);
         }
 
@@ -108,8 +107,7 @@ public sealed class MethodDefinitionExecution
                 int passUnits;
                 if (visiting.Length != 1
                     || visiting[0].HasDependencies
-                    || !visiting[0].Declaration.TryRunKernel(
-                        visiting[0],
+                    || !visiting[0].TryRunKernel(
                         reader,
                         peReader,
                         lookup,
@@ -149,11 +147,11 @@ public sealed class MethodDefinitionExecution
                 + "description.");
         }
 
-        ProducerState state = _states[index];
+        var state = (ProducerState<TResult>)_states[index];
         return state.Outcome switch
         {
             ProducerOutcome.Complete or ProducerOutcome.Stopped =>
-                new(state.Outcome.Value, (TResult)state.Result!),
+                new(state.Outcome.Value, state.Result),
             ProducerOutcome.Failed =>
                 new(state.Outcome.Value, default, state.Failure),
             ProducerOutcome.PrerequisiteFailed =>
@@ -172,8 +170,7 @@ public sealed class MethodDefinitionExecution
     /// </summary>
     void BindScopeGuards(ProducerState state)
     {
-        ImmutableArray<ProducerDependency> declared = state.Run.Producer.Dependencies;
-        var runs = new List<IMethodDefinitionProducerRun>();
+        ImmutableArray<ProducerDependency> declared = state.Producer.Dependencies;
         var accepted = new List<ulong>();
         var guardStates = new List<ProducerState>();
         for (int j = 0; j < declared.Length; j++)
@@ -181,38 +178,36 @@ public sealed class MethodDefinitionExecution
             ProducerDependency dependency = declared[j];
             if (!dependency.IsScopeGuard)
                 continue;
-            IMethodDefinitionProducerRun guard = state.DependencyRuns[j];
+            ProducerState guard = state.DependencyStates[j];
             if (dependency.Kind != ProducerDependencyKind.VisitNeedsVisit
                 || !guard.ClassifiesUnits
                 || _description.VisitPassOf(dependency.Producer)
-                    != _description.VisitPassOf(state.Run.Producer))
+                    != _description.VisitPassOf(state.Producer))
             {
                 throw new ProducerContractException(
-                    $"Producer '{state.Run.Producer.Identity}' declares a scope guard on "
+                    $"Producer '{state.Producer.Identity}' declares a scope guard on "
                     + $"'{dependency.Producer.Identity}', which must be a same-pass visit "
                     + "dependency on a producer that classifies units.");
             }
 
-            runs.Add(guard);
             accepted.Add(dependency.AcceptedUnitClasses);
-            guardStates.Add(_states[state.Dependencies[j]]);
+            guardStates.Add(guard);
         }
 
-        state.GuardRuns = [.. runs];
         state.GuardClasses = [.. accepted];
         state.GuardStates = [.. guardStates];
     }
 
     /// <summary>
     /// The same-unit fact of a declared visit dependency, found through the
-    /// dependent's own dependency runs.
+    /// dependent's own dependency states.
     /// </summary>
     internal static TFact FactFor<TFact, TAccumulator, TResult>(
         ProducerState reader,
         MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
         int unitToken)
     {
-        ImmutableArray<ProducerDependency> declared = reader.Run.Producer.Dependencies;
+        ImmutableArray<ProducerDependency> declared = reader.Producer.Dependencies;
         for (int i = 0; i < declared.Length; i++)
         {
             if (!ReferenceEquals(declared[i].Producer, producer)
@@ -221,8 +216,8 @@ public sealed class MethodDefinitionExecution
                 continue;
             }
 
-            if (reader.DependencyRuns[i] is MethodDefinitionProducer<TFact, TAccumulator, TResult>.Run run
-                && run.TryGetFact(unitToken, out TFact fact))
+            if (reader.DependencyStates[i] is MethodDefinitionProducer<TFact, TAccumulator, TResult>.State dependency
+                && dependency.TryGetFact(unitToken, out TFact fact))
             {
                 return fact;
             }
@@ -233,7 +228,7 @@ public sealed class MethodDefinitionExecution
         }
 
         throw new ProducerContractException(
-            $"Producer '{reader.Run.Producer.Identity}' did not declare "
+            $"Producer '{reader.Producer.Identity}' did not declare "
             + $"a dependency on '{producer.Identity}'.");
     }
 
@@ -288,7 +283,7 @@ public sealed class MethodDefinitionExecution
                     // A unit outside the producer's type scope or a declared
                     // scope guard is not visited.
                     if (!state.TypeInScopeNow
-                        || (state.GuardRuns.Length != 0 && !InScope(state, unitToken)))
+                        || (state.GuardStates.Length != 0 && !InScope(state, unitToken)))
                     {
                         anyActive = true;
                         continue;
@@ -317,11 +312,11 @@ public sealed class MethodDefinitionExecution
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition)
     {
-        if (!state.Run.HasTypeScope)
+        if (!state.HasTypeScope)
             return true;
         try
         {
-            return state.Run.TypeInScope(reader, typeDefinition);
+            return state.TypeInScope(reader, typeDefinition);
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -338,7 +333,7 @@ public sealed class MethodDefinitionExecution
 
     static bool InScope(ProducerState state, int unitToken)
     {
-        IMethodDefinitionProducerRun[] guards = state.GuardRuns;
+        ProducerState[] guards = state.GuardStates;
         ulong[] accepted = state.GuardClasses;
         for (int i = 0; i < guards.Length; i++)
         {
@@ -355,7 +350,7 @@ public sealed class MethodDefinitionExecution
         bool settled;
         try
         {
-            settled = state.Run.Visit(new MethodDefinitionView(ref unit, state));
+            settled = state.Visit(new MethodDefinitionView(ref unit, state));
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -395,7 +390,7 @@ public sealed class MethodDefinitionExecution
                 or ProducerOutcome.PrerequisiteFailed)
             {
                 state.Outcome = ProducerOutcome.PrerequisiteFailed;
-                state.FailedPrerequisite = target.Run.Producer.Identity;
+                state.FailedPrerequisite = target.Producer.Identity;
                 state.IsActive = false;
                 return;
             }
@@ -431,8 +426,8 @@ public sealed class MethodDefinitionExecution
                         or ProducerOutcome.PrerequisiteFailed)
                     {
                         state.Outcome = ProducerOutcome.PrerequisiteFailed;
-                        state.FailedPrerequisite = target.Run.Producer.Identity;
-                        state.Result = null;
+                        state.FailedPrerequisite = target.Producer.Identity;
+                        state.ClearResult();
                         state.IsActive = false;
                         changed = true;
                         break;
@@ -454,8 +449,7 @@ public sealed class MethodDefinitionExecution
 
         try
         {
-            state.Result = state.Run.Complete(
-                new MethodDefinitionCompletionView(state));
+            state.Complete(new MethodDefinitionCompletionView(state));
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -503,10 +497,10 @@ public sealed class MethodDefinitionExecution
             }
 
             producers.Add(new ProducerParticipation(
-                state.Run.Producer.Identity,
+                state.Producer.Identity,
                 state.Outcome
                 ?? throw new InvalidOperationException(
-                    $"Producer '{state.Run.Producer.Identity}' has no outcome."),
+                    $"Producer '{state.Producer.Identity}' has no outcome."),
                 state.UnitsAttempted,
                 state.UnitsCompleted,
                 state.UnitsFailed,
@@ -516,32 +510,55 @@ public sealed class MethodDefinitionExecution
         return new(unitsVisited, producers.MoveToImmutable());
     }
 
-    internal sealed class ProducerState(
+    /// <summary>
+    /// A producer's per-execution bookkeeping. The executor holds every state
+    /// in one array; the per-unit operations are virtual members that the
+    /// typed state implements, so no unit crosses an interface dispatch.
+    /// </summary>
+    internal abstract class ProducerState(
         MethodDefinitionExecution execution,
-        IMethodDefinitionProducer declaration,
-        IMethodDefinitionProducerRun run,
+        ProducerDeclaration producer,
+        MethodDefinitionLayers layers,
         ProducerTerminal terminal,
         ImmutableArray<int> dependencies)
     {
         public MethodDefinitionExecution Execution => execution;
 
-        public IMethodDefinitionProducer Declaration => declaration;
-
-        public IMethodDefinitionProducerRun Run => run;
+        public ProducerDeclaration Producer => producer;
 
         public ProducerTerminal Terminal => terminal;
+
+        public abstract bool ClassifiesUnits { get; }
+
+        public abstract bool HasTypeScope { get; }
+
+        public abstract bool TypeInScope(MetadataReader reader, TypeDefinition type);
+
+        /// <summary>Whether this producer classified <paramref name="unitToken"/> into one of <paramref name="acceptedClasses"/>.</summary>
+        public abstract bool UnitClassIn(int unitToken, ulong acceptedClasses);
+
+        /// <summary>Runs this producer's whole pass as a closed-query kernel, when it has one.</summary>
+        public abstract bool TryRunKernel(
+            MetadataReader reader,
+            PEReader peReader,
+            LibraryMethodAnalysisRunner? lookup,
+            out int unitsVisited);
+
+        public abstract bool Visit(scoped MethodDefinitionView view);
+
+        public abstract void Complete(MethodDefinitionCompletionView completion);
+
+        public abstract void ClearResult();
 
         /// <summary>The dependency targets, by index into the execution's states.</summary>
         public ImmutableArray<int> Dependencies => dependencies;
 
         public bool HasDependencies { get; } = !dependencies.IsEmpty;
 
-        /// <summary>The dependencies' runs, aligned with the declared dependencies.</summary>
-        public IMethodDefinitionProducerRun[] DependencyRuns { get; set; } = [];
+        /// <summary>The dependencies' states, aligned with the declared dependencies.</summary>
+        public ProducerState[] DependencyStates { get; set; } = [];
 
-        /// <summary>The scope guards' runs and the unit classes each accepts.</summary>
-        public IMethodDefinitionProducerRun[] GuardRuns { get; set; } = [];
-
+        /// <summary>The unit classes each scope guard in <see cref="GuardStates"/> accepts.</summary>
         public ulong[] GuardClasses { get; set; } = [];
 
         public ProducerState[] GuardStates { get; set; } = [];
@@ -550,10 +567,10 @@ public sealed class MethodDefinitionExecution
         public bool TypeInScopeNow = true;
 
         public bool HasBodyLayer { get; } =
-            (declaration.Layers & MethodDefinitionLayers.Body) != 0;
+            (layers & MethodDefinitionLayers.Body) != 0;
 
         public bool HasLookupLayer { get; } =
-            (declaration.Layers & MethodDefinitionLayers.ModuleLookup) != 0;
+            (layers & MethodDefinitionLayers.ModuleLookup) != 0;
 
         public bool IsActive { get; set; } = true;
 
@@ -562,8 +579,6 @@ public sealed class MethodDefinitionExecution
         public ProducerFailure? Failure { get; set; }
 
         public string? FailedPrerequisite { get; set; }
-
-        public object? Result { get; set; }
 
         public int UnitsAttempted { get; set; }
 
@@ -600,7 +615,7 @@ public sealed class MethodDefinitionExecution
             ProducerDependencyKind? alternative = null)
         {
             ArgumentNullException.ThrowIfNull(dependency);
-            foreach (ProducerDependency declared in run.Producer.Dependencies)
+            foreach (ProducerDependency declared in producer.Dependencies)
             {
                 if (ReferenceEquals(declared.Producer, dependency)
                     && (declared.Kind == kind || declared.Kind == alternative))
@@ -610,8 +625,24 @@ public sealed class MethodDefinitionExecution
             }
 
             throw new ProducerContractException(
-                $"Producer '{run.Producer.Identity}' did not declare "
+                $"Producer '{producer.Identity}' did not declare "
                 + $"a dependency on '{dependency.Identity}'.");
         }
+    }
+
+    /// <summary>A producer state that holds its typed result, so publishing it boxes nothing.</summary>
+    internal abstract class ProducerState<TResult>(
+        MethodDefinitionExecution execution,
+        ProducerDeclaration producer,
+        MethodDefinitionLayers layers,
+        ProducerTerminal terminal,
+        ImmutableArray<int> dependencies)
+        : ProducerState(execution, producer, layers, terminal, dependencies)
+    {
+        public TResult? Result { get; private set; }
+
+        protected void SetResult(TResult result) => Result = result;
+
+        public override void ClearResult() => Result = default;
     }
 }

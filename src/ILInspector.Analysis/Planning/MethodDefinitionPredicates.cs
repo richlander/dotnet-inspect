@@ -128,7 +128,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
     Done:
         state.UnitsAttempted += attempted;
         state.UnitsCompleted += completed;
-        ((Run)state.Run).SetAccumulator(count);
+        ((State)state).SetAccumulator(count);
         unitsVisited = visited;
         return true;
     }
