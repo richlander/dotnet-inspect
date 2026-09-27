@@ -226,6 +226,56 @@ public sealed partial class PackageHouseExecutionTests
         await environment.AssertRootSettledAsync();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        ManifestListedUnreadablePortablePdbIsOmitted(
+            bool throwOnOpen)
+    {
+        byte[] assembly = ReadRealAsset("System.Text.Json.dll");
+        var content = new ManifestListedUnreadablePackageContent(
+            CreatePackageContent(
+                (MaterializedLibraryPath, assembly),
+                (
+                    "lib/net10.0/System.Text.Json.pdb",
+                    "listed but unavailable"u8.ToArray())),
+            "lib/net10.0/System.Text.Json.pdb",
+            throwOnOpen);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+
+        PackageHouseLibraryMaterializationOutcome.Completed completed =
+            Assert.IsType<
+                PackageHouseLibraryMaterializationOutcome.Completed>(
+                await PackageHouseLibraryMaterializer.MaterializeAsync(
+                    settlement,
+                    handoff,
+                    PackageHouseLibraryOptionalArtifacts
+                        .ImplementationPortablePdb,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageHouseLibraryOptionalArtifactOmissionKind.Unreadable,
+            completed.Receipt.ImplementationPortablePdbOmission);
+        Assert.DoesNotContain(
+            completed.Receipt.Library.Contents,
+            contentReference =>
+                contentReference.HasRole(
+                    LibraryContentRole.PortablePdb));
+        await completed.Owner.DisposeAsync();
+        await completed.Artifacts.DisposeAsync();
+        await environment.AssertRootSettledAsync();
+    }
+
     [Fact]
     public async Task ReferenceOnlyHandoffDoesNotInventImplementationContent()
     {
@@ -968,6 +1018,69 @@ public sealed partial class PackageHouseExecutionTests
             HideEntries
                 ? PackageContentEntryScanner.From([])
                 : inner.CreateEntryScanner();
+    }
+
+    private sealed class ManifestListedUnreadablePackageContent(
+        InMemoryPackageContent inner,
+        string unreadablePath,
+        bool throwOnOpen)
+        : IPackageContent, IPackageContentEntryManifest
+    {
+        public string? RootPath => inner.RootPath;
+        public string? NupkgPath => inner.NupkgPath;
+        public bool FromCache => inner.FromCache;
+        public string ProducerKey => inner.ProducerKey;
+        public bool RequiresArchiveTreeMatch =>
+            inner.RequiresArchiveTreeMatch;
+
+        public bool TryOpenArchive(
+            [NotNullWhen(true)] out Stream? stream) =>
+            inner.TryOpenArchive(out stream);
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream) =>
+            TryOpenEntry(relativePath, long.MaxValue, out stream);
+
+        public bool TryOpenEntry(
+            string relativePath,
+            long maxExpandedBytes,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            if (relativePath.Equals(
+                    unreadablePath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (throwOnOpen)
+                {
+                    throw new InvalidDataException(
+                        "The package entry could not be read.");
+                }
+
+                stream = null;
+                return false;
+            }
+
+            return inner.TryOpenEntry(
+                relativePath,
+                maxExpandedBytes,
+                out stream);
+        }
+
+        public IEnumerable<string> EnumerateEntries() =>
+            inner.EnumerateEntries();
+
+        public bool TryGetEntryLength(
+            string relativePath,
+            out long length) =>
+            inner.TryGetEntryLength(relativePath, out length);
+
+        public IReadOnlyList<PackageContentEntry>
+            EnumerateEntriesWithLengths() =>
+            inner.EnumerateEntriesWithLengths();
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            inner.CreateEntryScanner();
     }
 
     private sealed class ForwardOnlyPackageContent(
