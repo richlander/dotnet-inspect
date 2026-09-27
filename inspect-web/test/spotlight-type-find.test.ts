@@ -9,6 +9,36 @@ import type {
   BrowserTypeFindResult,
 } from "../src/facades/inspect-web-metadata.d.ts";
 
+function candidate(packageVersion = "10.0.0") {
+  return {
+    coordinate: {
+      kind: "package",
+      libraryIdentity: {
+        name: "System.Text.Json",
+        version: "10.0.0.0",
+        culture: null,
+        publicKeyToken: "cc7b13ffcd2ddd51",
+      },
+    },
+    name: {
+      namespace: "System.Text.Json",
+      segments: ["JsonSerializer"],
+    },
+    declarationKind: "Definition",
+    moduleVersionId: "mvid",
+    observation: {
+      contextOrder: 0,
+      memberOrder: 0,
+      realization: {
+        kind: "package",
+        packageId: "System.Text.Json",
+        version: packageVersion,
+        producer: "Microsoft",
+      },
+    },
+  };
+}
+
 function result(
   action = "type-action",
   packageVersion = "10.0.0",
@@ -21,33 +51,7 @@ function result(
           kind: "evaluated",
           answers: [{
             identity: { ordinal: 1 },
-            candidates: [{
-              coordinate: {
-                kind: "package",
-                libraryIdentity: {
-                  name: "System.Text.Json",
-                  version: "10.0.0.0",
-                  culture: null,
-                  publicKeyToken: "cc7b13ffcd2ddd51",
-                },
-              },
-              name: {
-                namespace: "System.Text.Json",
-                segments: ["JsonSerializer"],
-              },
-              declarationKind: "Definition",
-              moduleVersionId: "mvid",
-              observation: {
-                contextOrder: 0,
-                memberOrder: 0,
-                realization: {
-                  kind: "package",
-                  packageId: "System.Text.Json",
-                  version: packageVersion,
-                  producer: "Microsoft",
-                },
-              },
-            }],
+            candidates: [candidate(packageVersion)],
           }],
         },
         share: {
@@ -74,17 +78,10 @@ function result(
 
 test("projects candidates with their exact opaque actions", () => {
   const wire = result();
-  const content = wire.operation?.find.content;
-  if (typeof content !== "object"
-    || content === null
-    || !("answers" in content)
-    || !Array.isArray(content.answers)) {
-    throw new Error("Expected the Type Find fixture content.");
-  }
-  const wireCandidate = content.answers[0]?.candidates?.[0];
-  const [candidate] = projectSpotlightTypeFindResult(wire);
+  const wireCandidate = candidate();
+  const [projected] = projectSpotlightTypeFindResult(wire);
 
-  assert.deepEqual(candidate, {
+  assert.deepEqual(projected, {
     identity: JSON.stringify(wireCandidate),
     action: "type-action",
     reason: null,

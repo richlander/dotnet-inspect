@@ -4,6 +4,8 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
 
+export type JsonValueKind = number;
+
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
   readonly label: string;
@@ -1330,4 +1332,3 @@ export async function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRu
 export function validateRetainedWorkspaceNavigationAuthority(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): boolean {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ValidateRetainedWorkspaceNavigationAuthority.1044747233"](realizationId, publicationOrdinal, session, revision, intent, epoch);
 }
-

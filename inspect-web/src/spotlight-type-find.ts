@@ -65,7 +65,7 @@ export interface ManagedSpotlightTypeCandidate {
   readonly declarationKind: string;
 }
 
-export interface SpotlightTypeFindPosting {
+interface SpotlightTypeFindPosting {
   readonly retainedDefinitionId: string;
   readonly realizationId: string;
 }
