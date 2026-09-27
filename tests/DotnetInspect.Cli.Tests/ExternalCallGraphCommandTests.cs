@@ -935,6 +935,7 @@ public sealed class ExternalCallGraphCommandTests
                         [],
                         []),
                     [],
+                    [],
                     graph));
         return new InspectionEnvelope<
                 PackageDependencyMemberCallGraphInspectionOutcome>(

@@ -440,6 +440,7 @@ import {
   type ContentFrameFocusTarget,
   type ContentFramePane,
 } from "./content-frame.ts";
+import { createMemberListRevealer } from "./member-list-reveal.ts";
 import {
   bindTypePanel,
   createMemberSourcePartSelector,
@@ -743,6 +744,8 @@ import type {
   BrowserRetainedWorkspacePosting,
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
+
+const memberListRevealer = createMemberListRevealer();
 
 type ProductionEngineWorkerModule =
   typeof import("./engine-worker-client.ts");
@@ -7073,6 +7076,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
+    memberListRevealer.afterRender(document);
     scheduleTypeHeat();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
