@@ -208,6 +208,46 @@ on rather than copying it.
 
 Record drift found while working in an issue instead of copying it again.
 
+## Modernize for the intended production outcome
+
+Modern infrastructure is a means, not the acceptance criterion. A migration
+does not satisfy its contract merely because it uses the prescribed layers,
+types, QuerySpace vocabulary, host-neutral operation, or producer interface.
+It must deliver the intended production behavior and work reduction. A path
+that follows the architectural shape while still materializing the legacy
+population, repeating legacy acquisition, or moving the same cost behind a new
+abstraction has not completed modernization.
+
+Before implementation, state the production intent that distinguishes the new
+path from the legacy one: for example, which work reaches the producer, which
+materialization is avoided, which population is authoritative, or which hosts
+share one result. Preserve that intent through planning, implementation,
+testing, and review. Treat a performance result that scales with work the
+modern path was intended to avoid as an architectural failure, not as a
+benchmark footnote.
+
+Every modernization or legacy-path replacement must perform and report an
+exact base-versus-head NativeAOT comparison for every terminal the adopted
+surface supports, like Count. Exercise the complete production-host path,
+not only an internal kernel, and verify result cardinality and content so
+reduced work cannot be confused with reduced behavior. Use representative
+zero, small, and population-sensitive scenarios when input size can affect the
+design.
+
+The evidence must exist before merge readiness is claimed. A regression may be
+accepted only when the changed work or result explains it, the result remains
+within the named product target, and the tradeoff still satisfies the stated
+modernization intent. Otherwise fix the execution path or narrow the adoption
+boundary. Passing structural, correctness, and layering gates does not waive
+this requirement.
+
+[#8411](https://github.com/richlander/dotnet-inspect/pull/8411) is the reference
+adoption pattern: it used a narrow producer-owned path for eligible production
+modes, retained the existing path outside that boundary, measured exact
+NativeAOT base/head behavior, verified changed cardinality, and reported the
+one bounded tradeoff rather than treating architectural conformance as proof
+of success.
+
 ## Choose rendering strategy deliberately
 
 `dotnet-inspect` uses Markout as its default host-neutral rendering substrate

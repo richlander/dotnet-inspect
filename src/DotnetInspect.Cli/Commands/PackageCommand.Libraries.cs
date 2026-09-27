@@ -138,6 +138,28 @@ public partial class PackageCommand
         PackageExtractionResult extraction,
         InspectionOptions options)
     {
+        var packageReference = isLocalFile
+            ? packageArg
+            : !string.IsNullOrWhiteSpace(version)
+                ? $"{packageName}@{version}"
+                : packageName;
+        if (!Directory.EnumerateFiles(
+                    extractPath,
+                    "*.dll",
+                    SearchOption.AllDirectories).Any()
+            && LibraryCommand.GetToolPayloadPackageId(
+                extractPath,
+                packageName) is not null)
+        {
+            return await LibraryCommand.ExecuteResolvedPackageAsync(
+                CreateLibraryOptions(
+                    options.PackageLibrary,
+                    packageReference,
+                    options,
+                    options.Tfm),
+                extraction).ConfigureAwait(false);
+        }
+
         var selected = ResolvePackageLibrary(
             extractPath,
             packageName,
@@ -146,12 +168,6 @@ public partial class PackageCommand
             options);
         if (selected == null)
             return 1;
-
-        var packageReference = isLocalFile
-            ? packageArg
-            : !string.IsNullOrWhiteSpace(version)
-                ? $"{packageName}@{version}"
-                : packageName;
 
         return await LibraryCommand.ExecuteResolvedPackageAsync(
             CreateLibraryOptions(
@@ -876,10 +892,10 @@ public partial class PackageCommand
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
             TypeFilter = options.TypeFilter,
-            CoordinateRequest =
-                options.LibraryCoordinateRequest,
-            CoordinateRowSelection =
-                options.LibraryCoordinateRowSelection,
+            AddressRequest =
+                options.LibraryAddressRequest,
+            AddressRowSelection =
+                options.LibraryAddressRowSelection,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,
             EnvelopeOutput = options.EnvelopeOutput,

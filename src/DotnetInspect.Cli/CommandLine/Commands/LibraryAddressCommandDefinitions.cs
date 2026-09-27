@@ -11,7 +11,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
 
-internal static class LibraryCoordinateCommandDefinitions
+internal static class LibraryAddressCommandDefinitions
 {
     internal static Command Create(
         SharedOptions opts,
@@ -20,29 +20,29 @@ internal static class LibraryCoordinateCommandDefinitions
         Option<string?> metadataRootOption)
     {
         var command = new Command(
-            "coordinate",
-            "Inspect exact coordinates within a selected .NET Library");
-        var coordinateArgument = new Argument<string?>("coordinate")
+            "address",
+            "Inspect exact addresses within a selected .NET Library");
+        var addressArgument = new Argument<string?>("address")
         {
             Description =
                 "MethodDef token plus IL offset, or metadata heap plus address "
                 + "(for example, 0x06000001+0x5 or #Strings:0x1a4)",
             Arity = ArgumentArity.ZeroOrOne,
         };
-        coordinateArgument.DefaultValueFactory = _ => null;
-        coordinateArgument.Validators.Add(result =>
+        addressArgument.DefaultValueFactory = _ => null;
+        addressArgument.Validators.Add(result =>
         {
             if (result.Tokens.Count == 0)
                 return;
 
             string value = result.Tokens[^1].Value;
-            if (!TryParseCoordinate(value, out _, out string? error))
+            if (!TryParseAddress(value, out _, out string? error))
                 result.AddError(error!);
         });
         var fileOption = new Option<string?>("--file")
         {
             Description =
-                "Text file of up to 1,024 sparse MethodDef token plus IL offset coordinates",
+                "Text file of up to 1,024 sparse MethodDef token plus IL offset addresses",
         };
 
         var libraryOption = new Option<string?>("--library")
@@ -80,7 +80,7 @@ internal static class LibraryCoordinateCommandDefinitions
             Description = "Select a package Library by TFM (for example, net8.0)",
         };
 
-        command.Arguments.Add(coordinateArgument);
+        command.Arguments.Add(addressArgument);
         command.Options.Add(libraryOption);
         command.Options.Add(packageOption);
         command.Options.Add(platformOption);
@@ -138,8 +138,8 @@ internal static class LibraryCoordinateCommandDefinitions
             if (result.GetResult(parentSourceArgument) is { Tokens.Count: > 0 })
             {
                 result.AddError(
-                    "A Library inspection source cannot precede library coordinate; "
-                    + "place 'coordinate' immediately after 'library'.");
+                    "A Library inspection source cannot precede library address; "
+                    + "place 'address' immediately after 'library'.");
             }
 
             Option? unsupportedParentOption =
@@ -150,25 +150,25 @@ internal static class LibraryCoordinateCommandDefinitions
             {
                 result.AddError(
                     $"{unsupportedParentOption.Name} cannot be combined with "
-                    + "library coordinate.");
+                    + "library address.");
             }
         });
 
         command.SetAction(async (parseResult, _) =>
         {
-            string? coordinate =
-                parseResult.GetValue(coordinateArgument);
-            string? coordinateFile =
+            string? address =
+                parseResult.GetValue(addressArgument);
+            string? addressFile =
                 parseResult.GetValue(fileOption);
-            bool hasCoordinate = !string.IsNullOrWhiteSpace(coordinate);
-            bool hasCoordinateFile = !string.IsNullOrWhiteSpace(coordinateFile);
-            if (hasCoordinate == hasCoordinateFile)
+            bool hasAddress = !string.IsNullOrWhiteSpace(address);
+            bool hasAddressFile = !string.IsNullOrWhiteSpace(addressFile);
+            if (hasAddress == hasAddressFile)
             {
                 CommandError.Write(
-                    hasCoordinate
-                        ? "library coordinate accepts either one exact coordinate "
+                    hasAddress
+                        ? "library address accepts either one exact address "
                             + "or --file, not both."
-                        : "library coordinate requires one exact coordinate or "
+                        : "library address requires one exact address or "
                             + "--file <path>.");
                 return 1;
             }
@@ -177,10 +177,10 @@ internal static class LibraryCoordinateCommandDefinitions
             bool selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect =
                 select is { Length: > 0 } || selectDefault;
-            if (hasCoordinateFile && hasExplicitSelect)
+            if (hasAddressFile && hasExplicitSelect)
             {
                 CommandError.Write(
-                    "-S/--select is not available with library coordinate "
+                    "-S/--select is not available with library address "
                     + "--file, which renders its own payload rather than "
                     + "sections.");
                 return 1;
@@ -189,7 +189,7 @@ internal static class LibraryCoordinateCommandDefinitions
             if (!CliRowSelectionCommandRegistry
                     .TryGetPreparedSemanticIntent(
                         parseResult,
-                        "IL coordinate",
+                        "IL address",
                         out RowSelectionIntent<string>? rowSelection,
                         out string? rowSelectionError))
             {
@@ -204,14 +204,14 @@ internal static class LibraryCoordinateCommandDefinitions
             string? version = parseResult.GetValue(versionOption);
             string? tfm = parseResult.GetValue(tfmOption);
             bool includePrerelease = parseResult.GetValue(prereleaseOption);
-            LibraryCoordinateRequest? coordinateRequest = null;
-            if (hasCoordinate
-                && !TryParseCoordinate(
-                    coordinate!,
-                    out coordinateRequest,
-                    out string? coordinateError))
+            LibraryAddressRequest? addressRequest = null;
+            if (hasAddress
+                && !TryParseAddress(
+                    address!,
+                    out addressRequest,
+                    out string? addressError))
             {
-                CommandError.Write(coordinateError!);
+                CommandError.Write(addressError!);
                 return 1;
             }
 
@@ -242,10 +242,10 @@ internal static class LibraryCoordinateCommandDefinitions
 
             bool structuralDiscovery =
                 IsStructuralDiscovery(opts, parseResult);
-            if (hasCoordinateFile && !structuralDiscovery)
+            if (hasAddressFile && !structuralDiscovery)
             {
                 ILCoordinatePopulationOutcome population =
-                    ILOffsetQuery.ReadPopulation(coordinateFile!);
+                    ILOffsetQuery.ReadPopulation(addressFile!);
                 if (!population.Succeeded)
                 {
                     CommandError.Write(
@@ -254,16 +254,16 @@ internal static class LibraryCoordinateCommandDefinitions
                     return 1;
                 }
 
-                coordinateRequest =
-                    new LibraryCoordinateRequest.FilePopulation(
-                        coordinateFile!,
+                addressRequest =
+                    new LibraryAddressRequest.FilePopulation(
+                        addressFile!,
                         population.Population);
             }
-            else if (hasCoordinateFile)
+            else if (hasAddressFile)
             {
-                coordinateRequest =
-                    new LibraryCoordinateRequest.FilePopulation(
-                        coordinateFile!,
+                addressRequest =
+                    new LibraryAddressRequest.FilePopulation(
+                        addressFile!,
                         Population: null);
             }
             OutputFormat format = opts.ResolveFormat(parseResult);
@@ -289,7 +289,7 @@ internal static class LibraryCoordinateCommandDefinitions
                 PlatformFramework = framework,
                 PlatformVersion = version,
                 Tfm = tfm,
-                CoordinateRequest = coordinateRequest,
+                AddressRequest = addressRequest,
                 MetadataRoot = metadataRoot,
                 PreferRenderedUrls =
                     parseResult.GetValue(opts.PreferRenderedUrls),
@@ -331,7 +331,7 @@ internal static class LibraryCoordinateCommandDefinitions
                 JsonArray = parseResult.GetValue(opts.JsonArray),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
-                CoordinateRowSelection = rowSelection,
+                AddressRowSelection = rowSelection,
                 Rows = rowSelection is null
                     ? opts.ParseRows(parseResult)
                     : null,
@@ -345,9 +345,9 @@ internal static class LibraryCoordinateCommandDefinitions
         return command;
     }
 
-    private static bool TryParseCoordinate(
+    private static bool TryParseAddress(
         string value,
-        out LibraryCoordinateRequest? request,
+        out LibraryAddressRequest? request,
         out string? error)
     {
         if (ILOffsetQuery.TryParse(
@@ -356,7 +356,7 @@ internal static class LibraryCoordinateCommandDefinitions
                 out int ilOffset))
         {
             request =
-                new LibraryCoordinateRequest.IlPoint(
+                new LibraryAddressRequest.IlPoint(
                     value,
                     methodToken,
                     ilOffset);
@@ -371,7 +371,7 @@ internal static class LibraryCoordinateCommandDefinitions
                 out string? heapError))
         {
             request =
-                new LibraryCoordinateRequest.HeapPoint(
+                new LibraryAddressRequest.HeapPoint(
                     value,
                     heap,
                     address);
@@ -382,12 +382,12 @@ internal static class LibraryCoordinateCommandDefinitions
         request = null;
         if (LooksLikeHeapCoordinate(value))
         {
-            error = $"Invalid coordinate '{value}': {heapError}";
+            error = $"Invalid address '{value}': {heapError}";
             return false;
         }
 
         error =
-            $"Invalid coordinate '{value}'. Expected a MethodDef token plus "
+            $"Invalid address '{value}'. Expected a MethodDef token plus "
             + "IL offset (0x06000001+0x5) or a metadata heap plus address "
             + "(#Strings:0x1a4).";
         return false;
@@ -450,7 +450,7 @@ internal static class LibraryCoordinateCommandDefinitions
         if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
         {
             error =
-                "library coordinate requires one selected Library; "
+                "library address requires one selected Library; "
                 + "--tfm all selects multiple Libraries.";
             return false;
         }
@@ -461,7 +461,7 @@ internal static class LibraryCoordinateCommandDefinitions
             && !structuralDiscovery)
         {
             error =
-                "library coordinate requires --library, --package, "
+                "library address requires --library, --package, "
                 + "or --platform.";
             return false;
         }

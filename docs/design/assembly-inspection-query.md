@@ -1619,7 +1619,7 @@ share a model:
 
 - `MemberCodeProvider` — per-member decompiled source / IL / attributes / facts (drives the
   decompiler and Research overlays).
-- `ILOffsetQuery` (the `library coordinate` command adapter) — parses command input and
+- `ILOffsetQuery` (the `library address` command adapter) — parses command input and
   forwards an `ILOffsetProjectionRequest` to Research.
 
 These want the same shape as the assembly seam, one level down: a query in, a finished result

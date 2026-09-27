@@ -61,8 +61,8 @@ the standalone `timeline` predecessor. Other root operations such as `match`,
 
 Related docs:
 
-- [Coordinate child command](coordinate-child-command.md) defines when a
-  required subordinate coordinate earns a child request surface under an
+- [Address child command](coordinate-child-command.md) defines when a
+  required physical or document-local address earns a child request surface under an
   already selected subject.
 - [Inspection graph modes](inspection-graph-modes.md) defines subject-first
   Graph sections and top-level Graph requests over single seeds, peer seeds,
@@ -114,7 +114,7 @@ the source option use the same domain word but play different roles.
 An IL offset is a point selector into method-body facts, not a standalone
 subject. It is reachable from more than one structural scope:
 
-- `library coordinate <MethodDef>+<offset>` supplies a composite coordinate
+- `library address <MethodDef>+<offset>` supplies a composite coordinate
   that is complete within the library and discovers its containing member;
 - member-focused body views already have the member identity and expose the
   peer offset-scoped facts within that narrower scope.
@@ -124,7 +124,7 @@ different meanings for the coordinate. Sections such as `Context: Instruction`
 choose the observation/projection, while raw `IL` is a representation lens.
 Neither changes coordinate identity.
 
-The target `library coordinate` child gives the Library entry point a closed
+The target `library address` child gives the Library entry point a closed
 request grammar without promoting the IL point to an independently navigable
 subject or creating another method-body architecture.
 
@@ -614,11 +614,11 @@ A command transition is justified when one of these changes:
    different failure semantics, backpressure, and content kinds. An explicit
    subject-owned operation or mode can express that transition without moving
    the operation to the root.
-3. **Required subordinate-coordinate grammar:** the parent subject remains
+3. **Required subordinate-address grammar:** the parent subject remains
    selected, but one required subordinate point establishes a coherent family
    of observations with its own useful default result.
-   [Coordinate child command](coordinate-child-command.md) owns this narrower
-   rule and its initial `library coordinate` adoption.
+   [Address child command](coordinate-child-command.md) owns this narrower
+   rule and its initial `library address` adoption.
 
 Keep the current command when only an observation producer, lens, section,
 traversal choice, or output projection changes. A type-presence census and a
@@ -634,13 +634,13 @@ An execution lifecycle is different when at least one of these is true:
 - operation outcomes have a structurally incompatible top-level schema;
 - the addressed subject has a different identity model.
 
-A coordinate child need not change the parent subject or top-level acquisition
+An address child need not change the parent subject or top-level acquisition
 for its exact mode. It is justified when the subordinate point is mandatory,
 resolving it is itself useful or several peer observations depend on it, and
 the bare child has a meaningful bounded result. A bounded population of those
 points is instead a multi-coordinate operation mode and must declare its own
 population, acquisition, result, and partial-failure contract. It may remain
-beneath the Coordinate child when that child is the closed grammar for the
+beneath the Address child when that child is the closed grammar for the
 same coordinate family. A section-specific predicate, metadata-root selector,
 traversal depth, row selector, or payload projection does not meet either rule.
 
@@ -1279,13 +1279,13 @@ These transitions answer different questions.
 
 ```text
 package -> library -> type -> member
-library coordinate + MethodDef/offset -> IL coordinate
+library address + MethodDef/offset -> IL coordinate
 member + body offset       -> IL coordinate
 ```
 
 The user changes what structural thing is being addressed. Identity and schema
 change; the operation remains unary inspection. The diagram shows common entry
-paths, not a required sequence: the composite library coordinate can jump
+paths, not a required sequence: the composite library address can jump
 directly to an IL point, while member scope can expose facts at offsets within
 the selected body. Zooming to a member means selecting one member as the input
 subject. It does not mean "observe the members owned by this type"; that remains
@@ -1331,15 +1331,15 @@ changing operations. A History-compatible Diff section or option makes the mode
 change explicit without conflating endpoint and temporal content contracts.
 The diagram describes axes, not positional argument grammar.
 
-### Coordinate child
+### Address child
 
-The exact Coordinate mode keeps the subject and unary inspection basis while
+The exact Address mode keeps the subject and unary inspection basis while
 establishing one required subordinate address. File mode is a bounded
 multi-coordinate operation over the same address family:
 
 ```text
-library -> library coordinate <coordinate> --library <source>
-        -> library coordinate --file <coordinate-population> --library <source>
+library -> library address <coordinate> --library <source>
+        -> library address --file <coordinate-population> --library <source>
 ```
 
 The initial coordinate families are MethodDef token plus IL offset and metadata
@@ -1350,7 +1350,7 @@ coordinate population, acquisition plan, Document result, and coordinate-local
 failure topology. The child is a CLI grammar boundary over the shared owner
 queries, not another method-body or metadata architecture.
 
-The coordinate owns the child's positional slot. Library acquisition remains
+The address owns the child's positional slot. Library acquisition remains
 source context and therefore uses named `--library`, `--package`, or
 `--platform` options, with their applicable selectors. This matches Type and
 Member grammar: positional values identify what is sought, while named source

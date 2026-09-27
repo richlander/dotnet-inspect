@@ -972,8 +972,12 @@ debiting that same row budget again, and separately charges retained
 associations before adding them to the index. That distinct budget protects
 retained bytes and may reject every dependent property/event projection even
 when the image passed its broader row ceiling; no unindexed streaming fallback
-is allowed. Repeated requests through the same declaration session reuse that
-already charged immutable result or typed rejection. Retained handles can be
+is allowed. The retained-association charge also bounds the immutable
+association-range index built from those rows. After the complete pass validates
+global nondecreasing association order, aggregate requests locate their
+contiguous association range through that index without rescanning unrelated
+rows. Repeated requests through the same declaration session reuse that already
+charged immutable result or typed rejection. Retained handles can be
 interpreted only through its current live assembly session, so cached success
 cannot bypass the session liveness check. No aggregate result is posted until
 the primitive reaches the physical end of the table or returns rejection; an
@@ -1027,8 +1031,13 @@ reimplement the admission stages. The validation matrix gate must cover:
 
 ### Shared declaration facts
 
-The exact implementation types are deferred, but the facts have one Metadata
-owner:
+Most exact implementation types remain deferred, but the facts have one
+Metadata owner. `MetadataMethodDeclarationEvidence.OperatorCandidate` posts
+the `SpecialName`-anchored operator candidacy fact without applying C# shape
+policy. `MetadataAccessorDeclarationEvidence` posts one complete property or
+event aggregate from the lossless association census, retaining every physical
+occurrence and its exact `MetadataMethodDeclarationEvidence`; typed rejection
+keeps census, ownership, dependency-posting, and budget failure visible.
 
 | Fact | Required distinctions |
 | --- | --- |

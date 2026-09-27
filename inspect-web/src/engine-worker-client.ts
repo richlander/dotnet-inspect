@@ -985,6 +985,7 @@ export function createProductionEngineWorkerClient(
       ...ordinary.catalog,
       ...startup.catalog,
     },
+    activity: ordinary.activity,
   };
   return {
     host,
