@@ -426,12 +426,12 @@ public static class LibraryDependencyStructure
         return origin switch
         {
             TypeReferenceOrigin.AssemblyReference reference => new(
-                $"{AssemblyKey(reference.Assembly)}::{ns}",
+                ExternalKey(reference.Assembly, ns),
                 reference.Assembly,
                 IsIntrinsicCoreLibrary: false,
                 ns),
             TypeReferenceOrigin.IntrinsicCoreLibrary => new(
-                $"{IntrinsicCoreLibraryKey}::{ns}",
+                ExternalKey(assembly: null, ns),
                 Assembly: null,
                 IsIntrinsicCoreLibrary: true,
                 ns),
@@ -439,10 +439,27 @@ public static class LibraryDependencyStructure
         };
     }
 
-    static string AssemblyKey(AssemblyReferenceIdentity assembly) =>
-        $"{assembly.Name}, Version={assembly.Version?.ToString() ?? "*"}, "
-            + $"Culture={assembly.Culture ?? "neutral"}, "
-            + $"PublicKeyToken={assembly.PublicKeyToken ?? "null"}";
+    /// <summary>
+    /// The exact external node identity. Assembly names and namespaces come from
+    /// untrusted metadata and may contain any separator, so each component is
+    /// length-prefixed: distinct (assembly, namespace) pairs never share a key.
+    /// </summary>
+    internal static string ExternalKey(AssemblyReferenceIdentity? assembly, string ns) =>
+        assembly is null
+            ? string.Concat(
+                Component("intrinsic", IntrinsicCoreLibraryKey),
+                Component("namespace", ns))
+            : string.Concat(
+                Component("assembly", assembly.Name),
+                Component("version", assembly.Version?.ToString()),
+                Component("culture", assembly.Culture),
+                Component("publicKeyToken", assembly.PublicKeyToken),
+                Component("namespace", ns));
+
+    static string Component(string name, string? value) =>
+        value is null
+            ? $"{name}=null;"
+            : $"{name}={value.Length}:{value};";
 
     static LibraryDependencyUnresolvedReason Map(DirectCallTargetUnresolvedReason reason) =>
         reason switch
