@@ -123,6 +123,57 @@ public sealed class PackageAssemblyContextCompletionTests
     }
 
     [Fact]
+    public async Task
+        PackageRealizationProjection_CoreLibraryIdentityRemainsPackageIneligible()
+    {
+        PackageRootBinding binding = Binding(
+            "CoreLibrary.Named.Package",
+            (
+                "lib/net11.0/System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        await using InspectionWorkspace workspace =
+            new InspectionWorkspace();
+        PackageAssemblyContextCompletion completion =
+            await ExecuteAsync(workspace, [binding]);
+        PackageAssemblyContextProjection projection =
+            completion.CreateProjection([binding]);
+        PackageAssemblyContextRoleProjection role =
+            projection.SurfaceRole;
+        PackageAssemblyRoleParticipant participant =
+            Assert.Single(role.Participants);
+        PackageIntrinsicCoreLibraryIneligibilityReceipt receipt =
+            role.IntrinsicCoreLibraryIneligibility;
+        PackageIntrinsicCoreLibraryParticipantEvidence evidence =
+            Assert.Single(receipt.Participants);
+
+        Assert.Equal(
+            "System.Private.CoreLib",
+            participant.Participant.Assembly.Identity.Name);
+        Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+            participant.Participant.Assembly.Provenance);
+        Assert.Same(role.GroupIdentity, receipt.Group);
+        Assert.Same(
+            role.Use(group => group.BindingPolicyVersion),
+            receipt.BindingPolicyVersion);
+        Assert.Same(participant.Package, evidence.Package);
+        Assert.Same(participant.Asset, evidence.Asset);
+        Assert.Same(
+            participant.Participant.Assembly.Registration,
+            evidence.Registration);
+
+        await projection.ReturnAsync();
+        await completion.CloseAsync();
+
+        Assert.Equal(
+            "corelibrary.named.package",
+            evidence.Package.PackageId);
+        Assert.Equal(
+            "lib/net11.0/System.Private.CoreLib.dll",
+            evidence.Asset.Path);
+        Assert.NotNull(evidence.Registration);
+    }
+
+    [Fact]
     public async Task PackageRealizationProjection_OneReturnDoesNotInvalidateAnotherDemand()
     {
         PackageRootBinding binding = SharedBinding("Independent.Demand");

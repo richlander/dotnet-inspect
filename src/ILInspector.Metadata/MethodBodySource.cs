@@ -76,6 +76,47 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return methods;
     }
 
+    /// <summary>
+    /// Methods declared on the same TypeDef as one MethodDef and sharing its
+    /// exact name, including that method, in metadata order and regardless
+    /// of accessibility.
+    /// </summary>
+    public IReadOnlyList<MethodBodyMember> EnumerateSameNameMethods(
+        int methodDefinitionToken)
+    {
+        _ensureAlive();
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(methodDefinitionToken);
+        if (handle.Kind != HandleKind.MethodDefinition
+            || MetadataTokens.GetRowNumber(handle) is var row
+                && (row < 1 || row > _reader.MethodDefinitions.Count))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(methodDefinitionToken),
+                $"Token 0x{methodDefinitionToken:X8} is not a MethodDef in "
+                    + "this image.");
+        }
+
+        var selected =
+            _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+        var type = _reader.GetTypeDefinition(selected.GetDeclaringType());
+        string typeName = _reader.GetFullTypeName(type);
+        string name = _reader.GetString(selected.Name);
+        List<MethodBodyMember> methods = [];
+        foreach (var methodHandle in type.GetMethods())
+        {
+            var method = _reader.GetMethodDefinition(methodHandle);
+            if (!_reader.StringComparer.Equals(method.Name, name))
+                continue;
+            methods.Add(new MethodBodyMember(
+                MetadataTokens.GetToken(methodHandle),
+                typeName,
+                name,
+                method.RelativeVirtualAddress != 0));
+        }
+        return methods;
+    }
+
     public bool TryRead(
         int methodToken,
         out MethodBodyData? body,

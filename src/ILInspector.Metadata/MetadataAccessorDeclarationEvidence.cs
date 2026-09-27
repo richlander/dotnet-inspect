@@ -314,12 +314,31 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 ImmutableArray.CreateBuilder<PendingOccurrence>();
             var conventionalRoles =
                 new HashSet<MetadataAccessorSemanticsRole>();
-            foreach (MetadataMethodSemanticsAssociation association
-                in completed.Associations)
+            MetadataMethodSemanticsAssociationKind associationKind =
+                request.Declaration.Kind switch
+                {
+                    MetadataAccessorDeclarationKind.Property =>
+                        MetadataMethodSemanticsAssociationKind.Property,
+                    MetadataAccessorDeclarationKind.Event =>
+                        MetadataMethodSemanticsAssociationKind.Event,
+                    _ => throw new InvalidOperationException(
+                        "Unknown accessor declaration kind."),
+                };
+            MetadataMethodSemanticsAssociationRange range =
+                completed.FindRange(
+                    associationKind,
+                    request.Declaration.RowNumber,
+                    () => _context.ObserveWork(
+                        MetadataOperationWorkKind
+                            .AccessorAssociationLookupProbe),
+                    token);
+            for (int index = range.Start;
+                index < range.Start + range.Count;
+                index++)
             {
                 token.ThrowIfCancellationRequested();
-                if (!Matches(request.Declaration, association))
-                    continue;
+                MetadataMethodSemanticsAssociation association =
+                    completed.Associations[index];
 
                 site = new(
                     MetadataAccessorDeclarationStage.AssociationCensus,
@@ -526,20 +545,6 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     .GetDeclaringType(),
             _ => default,
         };
-
-    static bool Matches(
-        MetadataAccessorDeclarationAddress request,
-        MetadataMethodSemanticsAssociation association) =>
-        association.AssociationRowNumber == request.RowNumber
-        && association.AssociationKind
-            == (request.Kind switch
-            {
-                MetadataAccessorDeclarationKind.Property =>
-                    MetadataMethodSemanticsAssociationKind.Property,
-                MetadataAccessorDeclarationKind.Event =>
-                    MetadataMethodSemanticsAssociationKind.Event,
-                _ => default,
-            });
 
     static bool TryDecodeRole(
         MetadataAccessorDeclarationKind kind,
