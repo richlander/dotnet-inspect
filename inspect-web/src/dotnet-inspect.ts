@@ -526,6 +526,9 @@ import {
 } from "./spotlight-package-search.ts";
 import { createPackageRemoval } from "./package-removal.ts";
 import {
+  replaceChildrenPreservingRenderedInteractions,
+} from "./rendered-interaction.ts";
+import {
   createCatalogRequests,
   type CatalogPackage,
 } from "./catalog-requests.ts";
@@ -6975,6 +6978,7 @@ type HomeFocusTarget =
     region: "home-bar" | "data-bar";
     href: string;
   }
+  | { kind: "spotlight-result"; identity: string }
   | { kind: "spotlight-scope"; scope: string }
   | { kind: "settings-theme"; theme: string }
   | { kind: "settings-taste"; taste: string };
@@ -6989,6 +6993,10 @@ function captureHomeFocus(
       ? "home"
       : null;
   if (!surface) return null;
+  const spotlightResult = focused.dataset.slResultIdentity;
+  if (surface === "home" && spotlightResult) {
+    return { kind: "spotlight-result", identity: spotlightResult };
+  }
   if (focused.id) return { kind: "id", surface, id: focused.id };
   if (surface === "settings") {
     const theme = focused.dataset.theme;
@@ -7012,7 +7020,17 @@ function captureHomeFocus(
 
 function restoreHomeFocus(target: HomeFocusTarget): boolean {
   let element: HTMLElement | null = null;
-  if (target.kind === "id") {
+  if (target.kind === "spotlight-result") {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement
+      && active.dataset.slResultIdentity === target.identity) {
+      return true;
+    }
+    element = [...document.querySelectorAll<HTMLElement>(
+      "[data-sl-result-identity]",
+    )].find(candidate =>
+      candidate.dataset.slResultIdentity === target.identity) ?? null;
+  } else if (target.kind === "id") {
     element = document.getElementById(target.id);
   } else if (target.kind === "spotlight-scope") {
     element = [...document.querySelectorAll<HTMLElement>("[data-sl-scope]")]
@@ -7437,7 +7455,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   const applicationModalOpen =
     state.settings || state.keyboardHelp || state.libraryOpen;
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
@@ -7538,7 +7556,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
     }, escapeHtml)}
-    ${renderAnnotatedSourceModal()}`;
+    ${renderAnnotatedSourceModal()}`);
 
   for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
     packageIcon.onerror = () => {
@@ -7645,7 +7663,7 @@ function renderWorkspaceCatalogView() {
     label: "Workspace",
     copyable: false,
   }];
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         inspectedTargetHtml: `
@@ -7685,7 +7703,7 @@ function renderWorkspaceCatalogView() {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindScopeBarEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
@@ -9276,11 +9294,11 @@ function syncExplorerPageSize() {
 function renderMetadataExplorer() {
   const explorer = state.explorer;
   if (!explorer) return;
-  app.innerHTML = renderMetadataExplorerHtml({
+  replaceChildrenPreservingRenderedInteractions(app, renderMetadataExplorerHtml({
     explorer,
     escapeHtml,
     fmtBytes,
-  });
+  }));
   bindMetadataViewerEvents();
 }
 
@@ -12061,7 +12079,7 @@ function showPlatformRoot() {
 function renderPlatformView() {
   const target = selectedPlatformTarget();
   const idle = { loading: false, error: "" };
-  app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+  replaceChildrenPreservingRenderedInteractions(app, `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
     ${workbenchShellHtml({
       inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
       subjectInspectorHtml: renderScopeBar(["platform"]),
@@ -12094,7 +12112,7 @@ function renderPlatformView() {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   workbenchShellBinding = bindWorkbenchShell(document, workbenchShellActions);
@@ -14166,7 +14184,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
     ? 0
     : -((performance.now() - homeBotAnimationStartedAt)
       % HOME_BOT_ANIMATION_DURATION_MS);
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="home"${state.settings || state.libraryOpen ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
@@ -14222,7 +14240,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindHomeEvents(preservedFocus);
   bindLibraryOpenEvents();
   if (state.settings) {
@@ -14350,7 +14368,7 @@ function openProductDemos(): void {
 
 function renderProductDemosPage(): void {
   document.title = "Demos — dotnet-inspect";
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="home demos-page"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
@@ -14373,7 +14391,7 @@ function renderProductDemosPage(): void {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindHomeShell(document, homeShellActions);
   bindLibraryOpenEvents();
   bindWorkspaceSubjectEvents();
@@ -15051,7 +15069,9 @@ function openCredits() {
 
 function renderCreditsView() {
   document.title = "Credits · dotnet-inspect";
-  app.innerHTML = renderCreditsPage(state.theme === "light" ? "light" : "dark");
+  replaceChildrenPreservingRenderedInteractions(
+    app,
+    renderCreditsPage(state.theme === "light" ? "light" : "dark"));
   bindCreditsPanel(document, {
     onClose: goHome,
     onToggleTheme: toggleCreditsTheme,
@@ -15150,12 +15170,12 @@ function renderDiagnosticsPage() {
   }
   state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
   document.title = "Diagnostics · dotnet-inspect";
-  app.innerHTML = diagnosticsViewHtml({
+  replaceChildrenPreservingRenderedInteractions(app, diagnosticsViewHtml({
     runtime: diagnosticsRuntimeState(),
     build: diagnosticsBuildState(),
     packageCache: diagnosticsPackageCacheState(),
     capturedAtUtc: state.diagnosticsCapturedAtUtc,
-  }, value => escapeHtml(value));
+  }, value => escapeHtml(value)));
   bindDiagnosticsView(document, {
     onBack: closeDiagnosticsRoute,
   });
@@ -16025,7 +16045,7 @@ function renderTypeExplorerPage() {
   const viewState: TypeExplorerViewState = state.typeExplorerIntentError
     ? { status: "failed", error: state.typeExplorerIntentError }
     : state.typeExplorerView;
-  app.innerHTML = renderTypeExplorerView({
+  replaceChildrenPreservingRenderedInteractions(app, renderTypeExplorerView({
     typeDisplay: type?.displayName ?? type?.id ?? "Type",
     packageDisplay: pkg
       ? `${pkg.id} ${pkg.version} · ${pkg.activeFramework}${
@@ -16038,7 +16058,7 @@ function renderTypeExplorerPage() {
     outlineOpen: typeExplorerOutlineOpen,
     escapeHtml,
     highlightCSharp,
-  }) + renderAnnotatedSourceModal();
+  }) + renderAnnotatedSourceModal());
   if (state.memberAnnotatedModal !== null) {
     app.querySelector<HTMLElement>(".type-explorer-route")
       ?.setAttribute("inert", "");
@@ -16979,7 +16999,7 @@ function replacePackageQueryPage() {
     capturePackageQueryViewport(document) ?? packageQueryViewport;
   const announcement = takePackageQueryAnnouncement();
   document.title = "Package query · dotnet-inspect";
-  app.innerHTML = renderPackageQueryView({
+  replaceChildrenPreservingRenderedInteractions(app, renderPackageQueryView({
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availablePresets: state.packageQueryPresets,
@@ -16990,7 +17010,7 @@ function replacePackageQueryPage() {
     ].filter(Boolean).join(" "),
     escapeHtml,
     viewport,
-  });
+  }));
   bindPackageQueryView(document, packageQueryActions);
   restorePackageQueryViewport(document, viewport);
   packageQueryViewport =
@@ -17005,13 +17025,13 @@ function renderPackageActivityPage() {
     capturePackageChangesViewport(document, packageChangesViewport)
     ?? packageChangesViewport;
   document.title = "Package Activity · dotnet-inspect";
-  app.innerHTML = renderPackageChangesView({
+  replaceChildrenPreservingRenderedInteractions(app, renderPackageChangesView({
     state: state.packageChangesState,
     packageSets: state.packageChangesPackageSets,
     catalogError: state.packageChangesCatalogError,
     escapeHtml,
     viewport,
-  });
+  }));
   bindPackageChangesView(document, packageChangesActions);
   restorePackageChangesViewport(document, viewport);
   packageChangesViewport =
@@ -17081,7 +17101,7 @@ function renderLoading() {
     // The interstitial replaces every Workspace control, so its status can remain exposed.
     app.inert = false;
   }
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="loading-screen">
       <a class="loading-brand" href="/" aria-label="dotnet inspect home"><span>◇</span> dotnet-inspect</a>
       ${state.error
@@ -17101,7 +17121,7 @@ function renderLoading() {
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
            </div>`
         : `<div class="load-progress" role="status"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
-    </div>`;
+    </div>`);
   bindLoadErrorShell(document, loadErrorShellActions);
   bindLibraryOpenEvents();
 }
