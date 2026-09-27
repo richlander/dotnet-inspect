@@ -4,6 +4,8 @@ import {
   bindTypePanel,
   createMemberSourcePartSelector,
   memberSourceText,
+  overloadNavLabel,
+  unqualifiedType,
   renderGraphMemberPending,
   renderMemberNav,
   renderSourcePageActions,
@@ -1869,3 +1871,57 @@ function memberSourceFixture(): BrowserMemberSource {
     ],
   };
 }
+
+test("overload rows show the name and unqualified parameter types", () => {
+  assert.equal(
+    overloadNavLabel("WriteString", {
+      signature: "void WriteString(System.ReadOnlySpan<byte> utf8PropertyName, System.DateTime value)",
+      parameters: [
+        { type: "System.ReadOnlySpan<byte>" },
+        { type: "System.DateTime" },
+      ],
+    }),
+    "WriteString(ReadOnlySpan<byte>, DateTime)");
+  assert.equal(
+    overloadNavLabel("Serialize", {
+      signature: "string Serialize<TValue>(TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+      parameters: [
+        { type: "TValue" },
+        { type: "System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue>" },
+      ],
+    }),
+    "Serialize<TValue>(TValue, JsonTypeInfo<TValue>)");
+  // Pass-by modifiers distinguish overloads; params does not.
+  assert.equal(
+    overloadNavLabel("Read", {
+      signature: "bool Read(ref System.Text.Json.Utf8JsonReader reader, params object[] values)",
+      parameters: [
+        { type: "System.Text.Json.Utf8JsonReader", modifier: "ref" },
+        { type: "object[]", modifier: "params" },
+      ],
+    }),
+    "Read(ref Utf8JsonReader, object[])");
+  assert.equal(
+    unqualifiedType("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<System.Int32?>>[]"),
+    "Dictionary<string, List<Int32?>>[]");
+  // Constructors and operators use the display name their signature spells.
+  assert.equal(
+    overloadNavLabel(".ctor", {
+      signature: "public Utf8JsonWriter(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = default)",
+      parameters: [
+        { type: "System.IO.Stream" },
+        { type: "System.Text.Json.JsonWriterOptions" },
+      ],
+    }),
+    "Utf8JsonWriter(Stream, JsonWriterOptions)");
+  assert.equal(
+    overloadNavLabel("op_Addition", {
+      signature: "public static Money operator +(Money left, Money right)",
+      parameters: [{ type: "Money" }, { type: "Money" }],
+    }),
+    "operator +(Money, Money)");
+  // Without structured parameters the signature is shown from the name.
+  assert.equal(
+    overloadNavLabel("Run", { signature: "void Run(int value)" }),
+    "Run(int value)");
+});
