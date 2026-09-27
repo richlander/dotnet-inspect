@@ -284,7 +284,10 @@ rows; they never reorder them.
 ### Overload rows
 
 The member navigation list shows an expanded family as its parent member row
-followed by nested overload rows. Selecting an overloaded method is the
+followed by nested overload rows. Nested rows carry no branch glyph: they sit
+under their family row and spend the width on parameters. The selected nested
+row shows its measured size at the right edge; other rows carry it only in
+their accessible description. Selecting an overloaded method is the
 expansion. Heat and the hub strip annotate the nested rows; the parent row
 carries family-level status text.
 

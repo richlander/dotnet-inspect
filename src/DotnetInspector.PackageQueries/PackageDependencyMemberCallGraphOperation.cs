@@ -177,6 +177,30 @@ public sealed record PackageDependencyMemberCallGraphNodePackage(
     int NodeId,
     WorkspacePackageDescriptor Descriptor);
 
+/// <summary>
+/// Resource-free route-plan evidence that one exact intrinsic CoreLib call
+/// occurrence may advance past its non-participating package context.
+/// </summary>
+public sealed class
+    PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+{
+    internal
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt(
+        WorkspaceScopeRevisionIdentity scopeRevision,
+        PackageIntrinsicCoreLibraryCallOccurrenceEvidence occurrence)
+    {
+        ScopeRevision = scopeRevision;
+        Occurrence = occurrence;
+    }
+
+    public WorkspaceScopeRevisionIdentity ScopeRevision { get; }
+
+    public PackageIntrinsicCoreLibraryCallOccurrenceEvidence Occurrence
+    {
+        get;
+    }
+}
+
 public enum PackageDependencyMemberCallGraphFailureReason
 {
     FocusUnavailable,
@@ -197,6 +221,9 @@ public abstract record PackageDependencyMemberCallGraphOutcome
         TraversalTargetFrameworkPolicy TraversalTargetPolicy,
         PackageDependencyTraversalSummary TraversalSummary,
         WorkspaceScopeRevisionIdentity ScopeRevision,
+        ImmutableArray<
+            PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
+            IntrinsicCoreLibraryContextNonParticipation,
         ImmutableArray<PackageDependencyMemberCallGraphRoute> Routes,
         PackageSupplyChainBaselineEvidence Baseline,
         ImmutableArray<PackageDependencyMemberCallGraphNodePackage>
@@ -382,6 +409,9 @@ public static class PackageDependencyMemberCallGraphOperation
             request.Traversal.TraversalTargetPolicy,
             request.Traversal.Summary,
             completedRoutes.Scope.Revision.Identity,
+            BindIntrinsicCoreLibraryContextNonParticipation(
+                completedRoutes.Scope.Revision.Identity,
+                availableGraph.IntrinsicCoreLibraryOccurrences),
             DetachRoutes(completedRoutes),
             baseline.Evidence,
             DetachNodePackages(
@@ -389,6 +419,24 @@ public static class PackageDependencyMemberCallGraphOperation
                 completedRoutes.Scope,
                 graphBindings),
             availableGraph.Document);
+    }
+
+    internal static ImmutableArray<
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
+        BindIntrinsicCoreLibraryContextNonParticipation(
+        WorkspaceScopeRevisionIdentity scopeRevision,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            occurrences)
+    {
+        ArgumentNullException.ThrowIfNull(scopeRevision);
+        return
+        [
+            .. occurrences.Select(
+                occurrence =>
+                    new PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt(
+                        scopeRevision,
+                        occurrence)),
+        ];
     }
 
     internal static PackageDependencyMemberCallGraphOutcome.Failed?
