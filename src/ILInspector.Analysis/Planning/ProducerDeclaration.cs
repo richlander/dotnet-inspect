@@ -28,7 +28,20 @@ public enum ProducerDependencyKind
 /// <summary>One declared dependency of a producer.</summary>
 public sealed record ProducerDependency(
     ProducerDeclaration Producer,
-    ProducerDependencyKind Kind);
+    ProducerDependencyKind Kind,
+    ulong AcceptedUnitClasses = ProducerDependency.AllUnitClasses)
+{
+    /// <summary>A scope guard that accepts every unit.</summary>
+    public const ulong AllUnitClasses = ulong.MaxValue;
+
+    /// <summary>
+    /// Whether this same-unit dependency is a scope guard: the dependent is
+    /// visited only for units whose class, as the dependency classifies them,
+    /// is in <see cref="AcceptedUnitClasses"/>. A skipped unit is out of the
+    /// dependent's scope, not a failure.
+    /// </summary>
+    public bool IsScopeGuard => AcceptedUnitClasses != AllUnitClasses;
+}
 
 /// <summary>
 /// A producer's static declaration: identity, version, tier, dependencies, and
