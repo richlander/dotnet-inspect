@@ -235,13 +235,13 @@ public partial class CommandExecutionTests
     [InlineData("Interfaces")]
     [InlineData("Enums")]
     [InlineData("Delegates")]
-    public async Task Type_PlatformSurfaceKindCountsExceedInformativeRange(
+    public async Task Type_PlatformDefinitionKindCountsExceedInformativeRange(
         string section)
     {
         var (exit, output, error) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-S",
             section,
             "--count",
@@ -257,12 +257,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_PlatformClassInventoryUsesPrimaryAndDetailedViews()
+    public async Task Type_PlatformDefinitionInventoryUsesPrimaryAndDetailedViews()
     {
         var (minimalExit, minimal, minimalError) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-v:m",
             "--markdown",
             "--tips",
@@ -270,7 +270,7 @@ public partial class CommandExecutionTests
         var (normalExit, normal, normalError) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-v:n",
             "--markdown",
             "--tips",
@@ -278,7 +278,7 @@ public partial class CommandExecutionTests
         var (detailedExit, detailed, detailedError) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-v:d",
             "--markdown",
             "--tips",
