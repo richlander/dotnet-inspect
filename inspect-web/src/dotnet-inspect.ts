@@ -259,6 +259,13 @@ import {
   type ImplementationProfileFamilyRequest,
   type ImplementationProfileState,
 } from "./implementation-profiles.ts";
+import {
+  createTypeHeatCoordinator,
+  familyHeatCue,
+  familyHeatFor,
+  type TypeHeatRequest,
+  type TypeHeatState,
+} from "./implementation-heat.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -823,6 +830,10 @@ let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
 let inspectPlatformImplementationProfiles:
   EngineClient["analysis"]["queryPlatformImplementationProfiles"];
+let inspectPackageTypeImplementationHeat:
+  EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
+let inspectPlatformTypeImplementationHeat:
+  EngineClient["analysis"]["queryPlatformTypeImplementationHeat"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -985,6 +996,10 @@ async function loadEngineModule() {
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
       queryPlatformImplementationProfiles:
         inspectPlatformImplementationProfiles,
+      queryPackageTypeImplementationHeat:
+        inspectPackageTypeImplementationHeat,
+      queryPlatformTypeImplementationHeat:
+        inspectPlatformTypeImplementationHeat,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
@@ -1229,6 +1244,8 @@ const initialState = {
   memberTraitFilter: "",
   memberTextFilter: "",
   implementationProfiles: { status: "idle" as const },
+  typeHeat: { status: "idle" } as TypeHeatState,
+  implementationEvidenceKey: null as string | null,
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1394,6 +1411,8 @@ interface StateOverrides {
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
   implementationProfiles: ImplementationProfileState;
+  typeHeat: TypeHeatState;
+  implementationEvidenceKey: string | null;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -3189,6 +3208,40 @@ let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
 const implementationProfileWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const typeHeat = createTypeHeatCoordinator({
+  state,
+  operationAuthority,
+  query: request => request.kind === "package"
+    ? inspectPackageTypeImplementationHeat(
+        request.packageId,
+        request.version,
+        request.targetFramework,
+        request.assemblyName,
+        request.typeDefinitionId)
+    : inspectPlatformTypeImplementationHeat(
+        request.targetFramework,
+        request.platformVersion,
+        request.assemblyFileName,
+        request.pack,
+        request.typeDefinitionId),
+  // Idle resolves while the last request settles; one macrotask lets that
+  // request's own continuation issue follow-up work before heat is sent.
+  whenWorkerIdle: async () => {
+    for (;;) {
+      await engineClient.activity.whenIdle();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (engineClient.activity.outstanding() === 0) return;
+    }
+  },
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error(
+      "Type implementation heat operation authority failure.",
+      diagnostic);
+    return undefined;
+  },
+  render: renderPreservingMemberFocus,
+});
 const implementationProfiles = createImplementationProfileCoordinator({
   state,
   operationAuthority,
@@ -3772,10 +3825,6 @@ function applyView(view: WorkspaceView) {
       observeAsync(loadSelectedMemberSource(), "Loading member source");
     else if (section === "annotated")
       observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-    else if (section === "implementation-profiles")
-      observeAsync(
-        loadSelectedImplementationProfiles(),
-        "Loading implementation profiles");
     else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
     else if (section === "facts")
@@ -6237,7 +6286,6 @@ function memberSourceHasConcreteOverload() {
 
 function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
-    || section === "implementation-profiles"
     || section === "call-graph"
     || section === "facts";
 }
@@ -6315,9 +6363,7 @@ function implementationProfileTarget(): {
     isCurrent: () =>
       state.package === pkg
       && selectedType()?.id === type.id
-      && selectedMember(selectedType())?.key === member.key
-      && state.memberSection === "implementation-profiles"
-      && state.selectedOverloadIndex === selectedOverloadIndex,
+      && selectedMember(selectedType())?.key === member.key,
   };
   return { request, selection };
 }
@@ -6342,6 +6388,179 @@ function currentImplementationProfileState(): ImplementationProfileState {
         selection: target.selection,
       }
     : { status: "idle" };
+}
+
+// Member-list heat: after a Type's member list paints, one request covers every
+// eligible overload family on the Type; expanding a family reads that record.
+let typeHeatScheduled = false;
+
+function typeHeatTarget(): {
+  request: TypeHeatRequest;
+  isCurrent: () => boolean;
+} | null {
+  const pkg = state.package;
+  const type = selectedType();
+  if (!pkg
+    || !type
+    || state.rootKind === "library"
+    || navMode() !== "member") {
+    return null;
+  }
+  const typeDefinitionId = type.definitionId;
+  const request: TypeHeatRequest = pkg.isRuntimePack
+    ? (() => {
+        const row = platformLibraryForRequest(pkg, type.assemblyId);
+        return {
+          kind: "platform",
+          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+          targetFramework: pkg.activeFramework,
+          platformVersion: pkg.version,
+          pack: row.pack,
+          assemblyFileName: platformAssemblyRequest(row),
+          typeDefinitionId,
+        };
+      })()
+    : {
+        kind: "package",
+        workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+        packageId: pkg.id,
+        version: pkg.version,
+        targetFramework: pkg.activeFramework,
+        assemblyName: type.assemblyId,
+        typeDefinitionId,
+      };
+  return {
+    request,
+    isCurrent: () =>
+      state.package === pkg
+      && selectedType()?.id === type.id,
+  };
+}
+
+// The producer's eligibility: at least two public overloads, and every public
+// member sharing the name is an ordinary method (an attached extension group
+// of the same name makes the family ineligible).
+function familyIsEligible(
+  type: AppTypeSurface,
+  group: { name: string; kind: string; overloads: readonly unknown[] },
+) {
+  return group.kind === "method"
+    && group.overloads.length > 1
+    && memberGroups(type).every(candidate =>
+      candidate.name !== group.name || candidate.kind === "method");
+}
+
+function typeHasEligibleFamily(type: AppTypeSurface) {
+  return memberGroups(type).some(group => familyIsEligible(type, group));
+}
+
+function currentTypeHeatState(): TypeHeatState {
+  const current = state.typeHeat;
+  return current.status !== "idle" && current.isCurrent()
+    ? current
+    : { status: "idle" };
+}
+
+function scheduleTypeHeat() {
+  if (typeHeatScheduled) return;
+  const type = selectedType();
+  if (!typeHeatTarget()
+    || !type
+    || !typeHasEligibleFamily(type)
+    || currentTypeHeatState().status !== "idle") {
+    return;
+  }
+  typeHeatScheduled = true;
+  requestAnimationFrame(() => setTimeout(() => {
+    typeHeatScheduled = false;
+    const target = typeHeatTarget();
+    if (!target || currentTypeHeatState().status !== "idle") return;
+    typeHeat.request(target.request, target.isCurrent);
+  }, 0));
+}
+
+// The implementation-evidence disclosure is the only family-detail request.
+// It belongs to the overload it was opened on, and it renders open only while
+// the published family detail still serves the current selection, so moving
+// to another overload or Type never issues a request by itself.
+function implementationEvidenceKey(stableSelector: string) {
+  return `${selectedType()?.id ?? ""}\u0000${stableSelector}`;
+}
+
+function implementationEvidenceIsOpen(stableSelector: string) {
+  const published = state.implementationProfiles;
+  return state.implementationEvidenceKey
+      === implementationEvidenceKey(stableSelector)
+    && published.status !== "idle"
+    && published.selection.isCurrent();
+}
+
+function navGroupSelectors(group: { key: string }) {
+  const type = selectedType();
+  const appGroup = type
+    ? memberGroups(type).find(candidate => candidate.key === group.key)
+    : undefined;
+  return type && appGroup && familyIsEligible(type, appGroup)
+    ? {
+        name: appGroup.name,
+        selectors: appGroup.overloads.map(overload => overload.stableSelector),
+      }
+    : null;
+}
+
+function memberNavOverloadHeat(group: { key: string }, index: number) {
+  const family = navGroupSelectors(group);
+  if (!family) return null;
+  const heat = familyHeatFor(
+    currentTypeHeatState(),
+    family.name,
+    family.selectors);
+  const selector = family.selectors[index];
+  const overload = heat?.overloads.find(item => item.stableSelector === selector);
+  return overload
+    ? {
+        heatStrength: overload.heatStrength,
+        hub: overload.hub,
+        description: overload.description,
+      }
+    : null;
+}
+
+function memberNavFamilyHeatCue(group: { key: string }) {
+  const family = navGroupSelectors(group);
+  return family
+    ? familyHeatCue(currentTypeHeatState(), family.name, family.selectors)
+    : null;
+}
+
+function renderOverloadImplementationEvidence(stableSelector: string) {
+  const member = selectedMember(selectedType());
+  if (!member || !implementationProfileTarget()) return "";
+  const evidenceOpen = implementationEvidenceIsOpen(stableSelector);
+  const selectors = member.overloads.map(overload => overload.stableSelector);
+  const heatState = currentTypeHeatState();
+  const overloadHeat = familyHeatFor(heatState, member.name, selectors)
+    ?.overloads.find(item => item.stableSelector === stableSelector);
+  const summary = heatState.status === "failed"
+    ? `<div class="implementation-heat-failure"><p>Implementation heat is unavailable (${escapeHtml(heatState.outcome)}): ${escapeHtml(heatState.message)}${heatState.outcome === "producer-failed" ? ' <button type="button" id="type-heat-retry" data-type-heat-retry>Retry heat</button>' : ""}</p>${heatState.diagnostics?.length ? `<ul>${heatState.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`
+    : overloadHeat
+      ? `<p class="implementation-profile-heat-summary">${escapeHtml(overloadHeat.description)}</p>`
+      : heatState.status === "loading"
+        ? '<p class="docs-loading">Measuring this Type\'s overloads…</p>'
+        : "";
+  return `<section class="learn-section member-implementation" aria-labelledby="member-implementation-title">
+    <h2 id="member-implementation-title">Implementation</h2>
+    ${summary}
+    <details class="implementation-evidence" data-implementation-evidence="${escapeHtml(stableSelector)}"${evidenceOpen ? " open" : ""}>
+      <summary>Implementation evidence</summary>
+      ${evidenceOpen
+        ? renderImplementationProfileState(
+            currentImplementationProfileState(),
+            escapeHtml,
+            stableSelector)
+        : ""}
+    </details>
+  </section>`;
 }
 
 function currentSourceOperationKind() {
@@ -6389,10 +6608,6 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
   else if (id === "annotated")
     observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-  else if (id === "implementation-profiles")
-    observeAsync(
-      loadSelectedImplementationProfiles(),
-      "Loading implementation profiles");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts")
@@ -6425,7 +6640,6 @@ function openMemberGroup(key: string) {
     const retainedSection = state.memberSection;
     let selectedFirstOverload = false;
     if (state.memberSection !== "overview"
-      && state.memberSection !== "implementation-profiles"
       && group
       && group.overloads.length > 1
       && state.selectedOverloadIndex == null) {
@@ -6434,11 +6648,6 @@ function openMemberGroup(key: string) {
       selectedFirstOverload = true;
     }
     retainMemberSectionIfSupported(group);
-    if (state.memberSection === "implementation-profiles") {
-      const target = implementationProfileTarget();
-      if (!target || !implementationProfiles.hasActivated(target.request))
-        state.memberSection = "overview";
-    }
     if (selectedFirstOverload && state.memberSection !== retainedSection) {
       state.selectedOverloadIndex = null;
       state.selectedBodyTarget = null;
@@ -6501,12 +6710,11 @@ function openOverload(index: number) {
 }
 
 // Switch the open member's section and kick off its lazy load. Shared by the scope-bar strip
-// click and the section shortcut. Family-level implementation profiles deliberately keep the
-// overload picker unresolved; overload-specific sections select the first overload as needed.
+// click and the section shortcut. Overload-specific sections select the first overload as
+// needed.
 function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
-  if (id !== "implementation-profiles"
-    && member
+  if (member
     && member.overloads.length > 1
     && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
@@ -6561,10 +6769,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
       } else {
         state.selectedOverloadIndex = null;
         clearMemberContentCache();
-        if (state.memberSection === "implementation-profiles")
-          loadMemberSectionContent(state.memberSection);
-        else
-          render();
+        render();
       }
     } else {
       openMemberGroup(entry.group.key);
@@ -6647,9 +6852,8 @@ function stepHorizontal(delta: number) {
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
   const overloadOpen = member
-    && (state.memberSection === "implementation-profiles"
-      || !(member.overloads.length > 1
-        && state.selectedOverloadIndex == null));
+    && !(member.overloads.length > 1
+      && state.selectedOverloadIndex == null);
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
@@ -6871,6 +7075,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   } finally {
     productNavigationBinding.afterRender();
     memberListRevealer.afterRender(document);
+    scheduleTypeHeat();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),
@@ -7785,6 +7990,8 @@ function renderMemberNavPane(type: AppTypeSurface) {
     typeDisplayName,
     shortKind,
     highlight,
+    overloadHeat: memberNavOverloadHeat,
+    familyHeatCue: memberNavFamilyHeatCue,
   });
 }
 
@@ -9700,8 +9907,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && selectedOverloadIndex >= 0
     && selectedOverloadIndex < member.overloads.length;
   if (member.overloads.length > 1
-    && !hasSelectedOverload
-    && state.memberSection !== "implementation-profiles") {
+    && !hasSelectedOverload) {
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
@@ -9806,6 +10012,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
               ? "error"
               : "loaded",
         })}
+        ${renderOverloadImplementationEvidence(overload.stableSelector)}
       </article>
     `;
   } else if (state.memberSection === "call-graph") {
@@ -9878,10 +10085,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(state);
-  } else if (state.memberSection === "implementation-profiles") {
-    content = renderImplementationProfileState(
-      currentImplementationProfileState(),
-      escapeHtml);
   } else if (state.memberSection === "annotated") {
     const destinationError = state.annotatedDestinationError
       ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
@@ -9914,11 +10117,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
         <div class="member-surface-meta">
-          <p>${escapeHtml(member.kind)} <span>· ${
-            state.memberSection === "implementation-profiles"
-              ? `${member.overloads.length} overloads`
-              : `${overloadIndex + 1} of ${member.overloads.length}`
-          }</span></p>
+          <p>${escapeHtml(member.kind)} <span>· ${overloadIndex + 1} of ${member.overloads.length}</span></p>
           ${callGraphExplore}
         </div>
       </header>
@@ -11164,11 +11363,31 @@ function bindMemberFactsEvents() {
 }
 
 function bindImplementationProfileEvents() {
+  document.querySelector<HTMLDetailsElement>("[data-implementation-evidence]")
+    ?.addEventListener("toggle", event => {
+      const details = event.currentTarget;
+      if (!(details instanceof HTMLDetailsElement)) return;
+      const selector = details.dataset.implementationEvidence ?? "";
+      if (details.open === implementationEvidenceIsOpen(selector)) return;
+      state.implementationEvidenceKey = details.open
+        ? implementationEvidenceKey(selector)
+        : null;
+      if (details.open)
+        observeAsync(
+          loadSelectedImplementationProfiles(),
+          "Loading implementation evidence");
+      else
+        renderPreservingMemberFocus();
+    });
+  document.querySelector("[data-type-heat-retry]")
+    ?.addEventListener("click", () => {
+      const target = typeHeatTarget();
+      if (target) typeHeat.retry(target.request, target.isCurrent);
+    });
   bindImplementationProfileState(document, {
     onRetry: () => {
       observeAsync(
         loadSelectedImplementationProfiles(true).finally(() => {
-          if (state.memberSection !== "implementation-profiles") return;
           requestAnimationFrame(() =>
             document.querySelector<HTMLElement>(
               "#implementation-profile-retry, #implementation-profile-state-title")
@@ -13780,15 +13999,12 @@ function loadSelectionData() {
   const member = selectedMember(selectedType());
   if (!member) return undefined;
   if (member.overloads.length > 1
-    && state.selectedOverloadIndex == null
-    && state.memberSection !== "implementation-profiles") {
+    && state.selectedOverloadIndex == null) {
     return undefined;
   }
   switch (state.memberSection) {
     case "source": return loadSelectedMemberSource();
     case "annotated": return loadSelectedMemberAnnotatedSource();
-    case "implementation-profiles":
-      return loadSelectedImplementationProfiles();
     case "call-graph": return loadSelectedMemberCallGraph();
     case "facts": return loadSelectedMemberFactsSurface();
     case "overview": return loadSelectedMemberDocumentation();

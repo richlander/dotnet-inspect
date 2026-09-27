@@ -29,6 +29,7 @@
     <ProjectReference Include="../DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <ProjectReference Include="../ILInspector.CSharp/ILInspector.CSharp.csproj" />
+    <ProjectReference Include="../ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
     <ProjectReference Include="..\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
   </ItemGroup>
