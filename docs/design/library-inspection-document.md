@@ -240,6 +240,13 @@ generated TypeScript facade owns `JSON.stringify()` and presents
 `BrowserLibraryInspectionRequest` directly while the private JS/.NET ABI
 remains string-valued.
 
+The first Browser adoption selects an exact package or Platform Library the
+Browser already realizes and lowers a plan term for the Enablements fact
+group. The package selector uses the implementation-preferred participant, so
+the Library carries its implementation when the package has one. Uploaded
+Libraries, Workspace selectors, and the remaining plan terms are adopted by
+later slices; until then the Browser plan exposes only the terms it lowers.
+
 The core request and CLI operation remain independent of Browser adoption.
 Browser adoption uses the generated input binding rather than adding a
 handwritten TypeScript request shape, flattened interim export, or duplicate

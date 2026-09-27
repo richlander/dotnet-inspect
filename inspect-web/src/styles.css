@@ -1426,6 +1426,8 @@ kbd {
 .overview-subject-label { margin: 0 0 6px; color: var(--dim); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .overview-identity h1 { margin: 0; color: var(--text); font-size: 25px; line-height: 1.2; letter-spacing: -.025em; }
 .overview-identity-detail { margin: 8px 0 0; color: var(--muted); font: 11px/1.5 var(--mono); }
+.overview-enablements { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.overview-enablement { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--text); background: var(--chrome); font: 600 11px/1.6 var(--mono); }
 .overview-controls,
 .package-dependencies-controls,
 .package-metadata-controls { min-width: 0; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--chrome); }

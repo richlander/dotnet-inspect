@@ -94,6 +94,7 @@ public sealed class ProductionFacadeContextTests
         ],
         [LibraryAssembly] =
         [
+            "InspectLibrary",
             "OpenUploadedLibrary",
         ],
         [MetadataAssembly] =
