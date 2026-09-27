@@ -1,0 +1,5 @@
+machine	description
+mac	Apple M4 Pro, 12 cores, macOS 27.0, osx-arm64
+annies-mac-mini	Apple M4, 10 cores, macOS 27.0, osx-arm64 (Mac-built binaries)
+merritt	AMD Ryzen 9 9900X, 24 threads, Ubuntu 24.04, linux-x64 (clang)
+fernie	Intel Core i9-9900K, 16 threads, Ubuntu 26.04, linux-x64 (gcc linker)

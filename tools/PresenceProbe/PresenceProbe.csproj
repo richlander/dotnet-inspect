@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NativeAOT probe for unsafe-evidence presence, used by docs/evidence/producer-planning-performance-2026-09.md. ProbeSide=base builds at 7de7e646c, head at the planned commits, rows at f7f1468c0. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <PublishAot>true</PublishAot>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+    <DefineConstants Condition="'$(ProbeSide)' == 'head'">$(DefineConstants);HEAD</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+  </ItemGroup>
+</Project>
