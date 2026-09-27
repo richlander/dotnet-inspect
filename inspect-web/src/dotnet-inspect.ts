@@ -6523,6 +6523,7 @@ function memberNavOverloadHeat(group: { key: string }, index: number) {
         heatStrength: overload.heatStrength,
         hub: overload.hub,
         description: overload.description,
+        size: overload.size,
       }
     : null;
 }
@@ -7974,7 +7975,6 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
-    shortKind,
   });
 }
 

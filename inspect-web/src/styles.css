@@ -1118,12 +1118,18 @@ kbd {
 .nav-back-row small { color: var(--dim); font: 10px var(--mono); }
 .member-list .member-row { padding-left: 14px; }
 .member-list .member-row.active-group { background: rgba(255,255,255,.022); }
+/* Nested overloads need no branch glyph: they sit under their family row,
+   start where the family's icon does, and spend the width on parameters. */
 .member-list .overload-nav-row {
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   height: 28px;
-  padding: 0 12px 0 26px;
+  padding: 0 12px 0 16px;
 }
-.member-list .overload-nav-row .overload-branch { color: var(--dim); font: 11px var(--mono); }
+.member-list .overload-nav-row .overload-size { color: var(--muted); font: 10px var(--mono); font-variant-numeric: tabular-nums; }
+.sig-name { color: var(--text); }
+.sig-type { color: var(--blue); }
+.sig-keyword, .sig-modifier { color: var(--syntax-kw); }
+.sig-punct { color: var(--dim); }
 /* Heat anchors on the right edge so hover and selection keep the left edge; the
    fade ends in the same hue at zero alpha so hover color shows through. */
 .member-list .overload-nav-row.heated {
@@ -1140,7 +1146,7 @@ kbd {
 .member-list .overload-nav-row.hub::before {
   content: "";
   position: absolute;
-  left: 4px;
+  left: 5px;
   top: 4px;
   bottom: 4px;
   width: 3px;

@@ -446,13 +446,13 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
 
   await expect(page.locator(
     `#type-list [data-type="${coreWidget.id}"] small`))
-    .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll · class");
+    .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll · 1");
   await expect(page.locator(
     `#type-list [data-type="${otherWidget.id}"] small`))
-    .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll · class");
+    .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll · 1");
   await expect(page.locator(
     `#type-list [data-type="${neighbor.id}"] small`))
-    .toHaveText("class");
+    .toHaveText("1");
 
   await page.locator(
     `#type-list [data-type="${coreWidget.id}"]`).click();
@@ -515,7 +515,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(
     `#type-list [data-type="${otherWidget.id}"] small`))
-    .toHaveText("class");
+    .toHaveText("1");
   await page.locator(
     `#type-list [data-type="${otherWidget.id}"]`).click();
   await expect(page.locator("[data-type-nav-back]"))
