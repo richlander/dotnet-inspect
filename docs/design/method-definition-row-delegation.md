@@ -19,10 +19,12 @@ Every property below is **unverified** until its gate lands.
 
 ## Example
 
-`library Newtonsoft.Json.dll -S "Public Methods" -n 6` asks for six rows. Today
-the section builds all 1,509 rows, including signature text, and then row
-selection keeps the first six. Under this design the method-definition source
-receives `Head(6)` as a row-handoff candidate. It tests the predicate method by
+Consider a dense method listing asked with `-n 6`, such as the experiment's
+public-methods population over Newtonsoft.Json: 1,509 rows with signature
+text. No library section of exactly that shape exists yet; choosing a real
+first adopter is a residual. Today such a section would build all 1,509 rows
+and then row selection would keep the first six. Under this design the
+method-definition source receives `Head(6)` as a row-handoff candidate. It tests the predicate method by
 method, projects only selected methods, and stops after the sixth, before
 reading further metadata. It returns six rows with the evidence *reached 6*.
 Row selection accepts them as the exact prefix.
