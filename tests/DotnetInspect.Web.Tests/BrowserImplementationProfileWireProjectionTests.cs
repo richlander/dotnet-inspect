@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -326,6 +327,11 @@ public sealed class BrowserImplementationProfileWireProjectionTests
         Assert.Equal("available", browser.Outcome);
         Assert.Null(browser.Failure);
         Assert.Equal(inspection.Diagnostics.Length, browser.Diagnostics.Length);
+        Assert.Equal(
+            Assert.IsType<InspectionShare.NonProjectable>(
+                inspection.Share).Path,
+            Assert.IsType<BrowserAnalysisInspectionShare>(
+                browser.Share).Path);
         BrowserTypeImplementationHeatContent projected =
             Assert.IsType<BrowserTypeImplementationHeatContent>(
                 browser.Content);
@@ -376,6 +382,92 @@ public sealed class BrowserImplementationProfileWireProjectionTests
                 roundTrip.Content,
                 BrowserAnalysisJsonContext.Default
                     .BrowserTypeImplementationHeat.Options));
+    }
+
+    [Fact]
+    public async Task TypeHeatProjectionLowersUnavailableBodyCoverage()
+    {
+        byte[] content = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        int corrupted = CorruptFirstInstruction(
+            content,
+            "ImplementationHeatWidget",
+            "Scale",
+            parameterCount: 1);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, content);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        string typeDefinitionId = Selection(
+            group,
+            participant,
+            "ImplementationHeatWidget",
+            "Scale").TypeDefinitionId;
+
+        InspectionEnvelope<
+            AssemblyContextEntry<AssemblyTypeImplementationHeatInspection>>
+                inspection = TypeImplementationHeatInspectionOperation.Execute(
+                    group,
+                    participant,
+                    typeDefinitionId);
+        BrowserTypeImplementationHeat browser =
+            BrowserImplementationProfileWireProjection.ProjectTypeHeat(
+                inspection,
+                s_compileLibrary);
+
+        // The unreadable body is coverage on the family, not an empty or
+        // failed Type: the record stays available and names the body.
+        Assert.Equal("available", browser.Outcome);
+        Assert.Equal(
+            Assert.IsType<InspectionShare.NonProjectable>(
+                inspection.Share).Path,
+            Assert.IsType<BrowserAnalysisInspectionShare>(
+                browser.Share).Path);
+        BrowserImplementationHeatFamily scale = Assert.Single(
+            Assert.IsType<BrowserTypeImplementationHeatContent>(
+                browser.Content).Families,
+            family => family.Member == "Scale");
+        BrowserImplementationProfileUnavailableBody unavailable =
+            Assert.Single(scale.UnavailableBodies);
+        Assert.Equal(corrupted, unavailable.MethodToken);
+        Assert.Equal("AnalysisFailed", unavailable.Reason);
+        BrowserImplementationHeatMethod method = Assert.Single(
+            scale.Methods,
+            candidate => candidate.MetadataToken == corrupted);
+        Assert.False(method.IsComplete);
+    }
+
+    // Replaces the first IL instruction of a tiny-header body with an
+    // undefined single-byte opcode, so the body fails to decode.
+    static int CorruptFirstInstruction(
+        byte[] content,
+        string typeName,
+        string methodName,
+        int parameterCount)
+    {
+        using var reader = new PEReader(
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                (byte[])content.Clone()));
+        MetadataReader metadata = reader.GetMetadataReader();
+        TypeDefinition type = metadata.TypeDefinitions
+            .Select(metadata.GetTypeDefinition)
+            .Single(candidate =>
+                metadata.StringComparer.Equals(candidate.Name, typeName));
+        MethodDefinitionHandle handle = type.GetMethods().Single(candidate =>
+        {
+            MethodDefinition definition = metadata.GetMethodDefinition(candidate);
+            return metadata.StringComparer.Equals(definition.Name, methodName)
+                && definition.GetParameters().Count == parameterCount;
+        });
+        int rva = metadata.GetMethodDefinition(handle).RelativeVirtualAddress;
+        SectionHeader section = reader.PEHeaders.SectionHeaders.Single(
+            candidate =>
+                rva >= candidate.VirtualAddress
+                && rva < candidate.VirtualAddress + candidate.VirtualSize);
+        int offset = rva - section.VirtualAddress + section.PointerToRawData;
+        Assert.Equal(0x2, content[offset] & 0x3);
+        content[offset + 1] = 0xA6;
+        return MetadataTokens.GetToken(handle);
     }
 
     [Fact]

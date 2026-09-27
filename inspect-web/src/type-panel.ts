@@ -49,6 +49,79 @@ export interface TypeSummary {
 export interface MemberOverloadSummary {
   signature: string;
   graphOnly?: boolean;
+  parameters?: readonly OverloadLabelParameter[];
+}
+
+export interface OverloadLabelParameter {
+  type: string;
+  modifier?: string | null;
+}
+
+// A nested overload row needs only enough to tell its siblings apart: the
+// member name, type parameters, and parameter types without namespaces. The
+// return type rarely differs between overloads and parameter names never
+// distinguish them, so both are left to the overload's detail. Pass-by
+// modifiers stay because they distinguish overloads; `params` does not.
+export function overloadNavLabel(
+  name: string,
+  overload: MemberOverloadSummary,
+): string {
+  const displayName = signatureFromName(name, overload.signature) === null
+    ? declaredDisplayName(overload.signature)
+    : name;
+  const named = displayName === null
+    ? null
+    : signatureFromName(displayName, overload.signature);
+  if (!overload.parameters || named === null || displayName === null)
+    return named ?? overload.signature;
+  const typeParameters = named.startsWith(`${displayName}<`)
+    ? balancedTypeParameters(named.slice(displayName.length))
+    : "";
+  const parameters = overload.parameters.map(parameter => {
+    const modifier = parameter.modifier && parameter.modifier !== "params"
+      ? `${parameter.modifier} `
+      : "";
+    return `${modifier}${unqualifiedType(parameter.type)}`;
+  });
+  return `${displayName}${typeParameters}(${parameters.join(", ")})`;
+}
+
+// Starts the signature at the member name, or null when the signature does
+// not spell it (a constructor or operator).
+function signatureFromName(name: string, signature: string): string | null {
+  for (const suffix of ["(", "<"]) {
+    const needle = `${name}${suffix}`;
+    let index = signature.indexOf(needle);
+    while (index > 0 && signature[index - 1] !== " ")
+      index = signature.indexOf(needle, index + 1);
+    if (index >= 0) return signature.slice(index);
+  }
+  return null;
+}
+
+// A constructor or operator spells its own display name before the parameter
+// list: the Type name, or `operator` and its symbol.
+function declaredDisplayName(signature: string): string | null {
+  const head = signature.slice(0, signature.indexOf("(")).trim();
+  const operator = /\boperator\s*\S+$/.exec(head);
+  if (operator) return operator[0];
+  const identifier = /[A-Za-z_]\w*$/.exec(head);
+  return identifier ? identifier[0] : null;
+}
+
+function balancedTypeParameters(text: string): string {
+  let depth = 0;
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === "<") depth++;
+    else if (text[index] === ">" && --depth === 0) return text.slice(0, index + 1);
+  }
+  return "";
+}
+
+// Drops namespace and enclosing-type qualifiers from each type name in a C#
+// type spelling, keeping generic arguments, arrays, tuples, and nullability.
+export function unqualifiedType(type: string): string {
+  return type.replace(/(?:global::)?(?:[A-Za-z_][\w]*\.)+(?=[A-Za-z_])/g, "");
 }
 
 export interface MemberGroup {
@@ -455,6 +528,20 @@ export function renderTypeNav(options: TypeNavOptions): string {
     </aside>`;
 }
 
+/** Parent-row status text for a family's heat request. */
+export interface MemberNavHeatCue {
+  text: string;
+  tone: "progress" | "problem";
+}
+
+/** Implementation evidence for one nested overload row. */
+export interface MemberNavOverloadHeat {
+  /** Tint strength in (0, 1]; null leaves the row untinted. */
+  heatStrength: number | null;
+  hub: boolean;
+  description: string;
+}
+
 export interface MemberNavOptions {
   type: TypeSummary;
   entries: readonly MemberNavEntry[];
@@ -467,6 +554,8 @@ export interface MemberNavOptions {
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
   highlight: (value: string) => string;
+  overloadHeat?: (group: MemberGroup, index: number) => MemberNavOverloadHeat | null;
+  familyHeatCue?: (group: MemberGroup) => MemberNavHeatCue | null;
 }
 
 export function renderMemberNav(options: MemberNavOptions): string {
@@ -474,6 +563,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
     escapeHtml, typeDisplayName, shortKind, highlight,
+    overloadHeat, familyHeatCue,
   } = options;
   const navigationSelection = selectedMemberKey
     ? (selectedOverloadIndex == null
@@ -504,10 +594,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
               group.overloads.some(overload => overload.graphOnly);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
+            const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;
             return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
@@ -516,9 +607,18 @@ export function renderMemberNav(options: MemberNavOptions): string {
             throw new Error(
               `Member group '${entry.group.key}' has no overload ${entry.index}.`);
           }
-          return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
+          const heat = overloadHeat?.(entry.group, entry.index) ?? null;
+          const heated = heat?.heatStrength != null;
+          const heatStyle = heated
+            ? ` style="--heat-t: ${heat.heatStrength!.toFixed(3)}; --heat-reach: ${Math.round(12 + heat.heatStrength! * 63)}%"`
+            : "";
+          const heatClasses = `${heated ? " heated" : ""}${heat?.hub ? " hub" : ""}`;
+          const heatDescription = heat === null
+            ? ""
+            : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
+          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             <span class="overload-branch">↳</span>
-            <code>${highlight(overload.signature)}</code>
+            <code>${highlight(overloadNavLabel(entry.group.name, overload))}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>
