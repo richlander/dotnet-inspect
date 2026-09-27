@@ -37,6 +37,7 @@ src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Packages
 src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
+src/QueryOverflow
 src/QuerySpace
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.Sections
