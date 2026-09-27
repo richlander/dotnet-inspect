@@ -25,6 +25,39 @@ if (args[0] == "alloc")
     return;
 }
 
+if (args[0] == "rwcheck")
+{
+    int mismatches = 0;
+    foreach (string dll in args.Skip(1))
+    {
+        var img = ImmutableArray.Create(File.ReadAllBytes(dll));
+        foreach (string pop in (string[])["dense", "sparse"])
+        {
+            foreach (string req in (string[])["head6", "w4-6", "w100-110", "w1000-1010", "w4-6c", "all"])
+            {
+                string[] impls = pop == "sparse" ? ["kernel", "hand", "mat", "legacy"] : ["kernel", "hand", "mat"];
+                var answers = impls.Select(i => (i, a: Run($"rw:{pop}:{req}:{i}", dll, img))).ToArray();
+                string reference = answers[0].a;
+                foreach (var (i, a) in answers)
+                {
+                    string compare = i == "legacy" ? a.Split(";h=")[0] : a;
+                    string expected = i == "legacy" ? reference.Split(";h=")[0] : reference;
+                    if (compare != expected)
+                    {
+                        mismatches++;
+                        Console.WriteLine($"MISMATCH {Path.GetFileName(dll)} {pop} {req} {i}: {a} vs kernel {reference}");
+                    }
+                }
+
+                Console.WriteLine($"{Path.GetFileName(dll),-36} {pop,-6} {req,-10} {reference}");
+            }
+        }
+    }
+
+    Console.WriteLine($"mismatches={mismatches}");
+    return;
+}
+
 if (args[0] == "calls")
 {
     foreach (string dll in args.Skip(1))
@@ -107,6 +140,7 @@ static string Run(string variant, string path, ImmutableArray<byte> image)
         "n-interp" => AsyncClosedQueriesK2.AtLeast(false, path, peReader) ? "true" : "false",
         "n-kernel" => AsyncClosedQueriesK2.AtLeast(true, path, peReader) ? "true" : "false",
         "c-typed-fused" => TypedClassifiedFusion.Run(peReader).ToString(),
+        _ when variant.StartsWith("rw:", StringComparison.Ordinal) => RowWindow(variant, peReader),
         "c-legacy" => ClassifiedFusion.Legacy(peReader).ToString(),
         "c-hand-separate" => ClassifiedFusion.HandSeparate(peReader).ToString(),
         "c-hand-fused" => ClassifiedFusion.HandFused(peReader).ToString(),
@@ -130,6 +164,34 @@ static ClassifiedAnswer NLinqFused(MetadataReader reader)
         .Fold<MethodRows, MethodRow, ClassifiedAccumulator, ClassifyFold>(new ClassifiedAccumulator([], 0, false), default);
     ImmutableArray<int> rows = [.. result.PInvoke];
     return new(rows.Length, result.Async, result.AnyPointer);
+}
+
+static string RowWindow(string variant, PEReader peReader)
+{
+    string[] parts = variant.Split(':');
+    bool dense = parts[1] == "dense";
+    RowWindowRequest request = parts[2] switch
+    {
+        "head6" => RowWindowRequest.Head(6),
+        "w4-6" => RowWindowRequest.Window(4, 6),
+        "w100-110" => RowWindowRequest.Window(100, 110),
+        "w1000-1010" => RowWindowRequest.Window(1000, 1010),
+        "w4-6c" => RowWindowRequest.Window(4, 6) with { CountAll = true },
+        "all" => RowWindowRequest.All,
+        _ => throw new ArgumentException(variant),
+    };
+    RowWindowResult<MethodTextRow> result = parts[3] switch
+    {
+        "kernel" => RowWindowExperiment.Kernel(dense, peReader, request),
+        "hand" => RowWindowExperiment.Hand(dense, peReader, request),
+        "mat" => RowWindowExperiment.Materialize(dense, peReader, request),
+        "legacy" => RowWindowExperiment.Legacy(peReader, request),
+        _ => throw new ArgumentException(variant),
+    };
+    int hash = 17;
+    foreach (MethodTextRow row in result.Rows)
+        hash = unchecked(hash * 31 + StringComparer.Ordinal.GetHashCode(row.Name + "|" + row.DeclaringType + "|" + row.Signature));
+    return $"n={result.Rows.Length};t={result.Total?.ToString() ?? "-"};m={(result.WindowStartMissing ? 1 : 0)};h={hash:X8}";
 }
 
 static string RowsAnswer(ImmutableArray<int> rows)
