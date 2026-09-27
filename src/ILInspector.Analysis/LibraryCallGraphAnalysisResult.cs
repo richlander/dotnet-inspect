@@ -50,7 +50,6 @@ public sealed class LibraryCallGraphAnalysisResult
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         _declaredSources = analysis.Methods.DeclaredSources;
-        OwnershipEvidence = analysis.OwnershipFlow.Methods;
         ResourceOwnershipSummaries =
             analysis.ResourceOwnership?.Methods ?? [];
         ResourceOwnershipPublicationComplete =
@@ -85,9 +84,6 @@ public sealed class LibraryCallGraphAnalysisResult
     public ImmutableArray<MethodIdentity> Methods { get; }
 
     public ImmutableArray<DirectCall> DirectCalls { get; }
-
-    public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
-        OwnershipEvidence { get; }
 
     public ImmutableArray<ResourceOwnershipMethodSummary>
         ResourceOwnershipSummaries { get; }

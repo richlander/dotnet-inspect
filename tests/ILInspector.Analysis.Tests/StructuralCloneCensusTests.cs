@@ -487,21 +487,21 @@ public class StructuralCloneCensusTests
             await RunHarness(
                 "--corpus-list",
                 FixturePath,
-                "--leak-triage",
+                "--leak-actionability",
                 FixturePath);
         Assert.Equal(2, existingConflict.exitCode);
         Assert.Equal("", existingConflict.output);
         Assert.Contains("--corpus-list", existingConflict.error);
-        Assert.Contains("--leak-triage", existingConflict.error);
+        Assert.Contains("--leak-actionability", existingConflict.error);
 
         (int exitCode, string output, string error) missingOperandConflict =
             await RunHarness(
-                "--leak-triage",
+                "--leak-actionability",
                 "--clone-census",
                 FixturePath);
         Assert.Equal(2, missingOperandConflict.exitCode);
         Assert.Equal("", missingOperandConflict.output);
-        Assert.Contains("--leak-triage", missingOperandConflict.error);
+        Assert.Contains("--leak-actionability", missingOperandConflict.error);
         Assert.Contains("--clone-census", missingOperandConflict.error);
 
         (int exitCode, string output, string error) consumedModeConflict =
@@ -518,12 +518,12 @@ public class StructuralCloneCensusTests
         (int exitCode, string output, string error) validationOrderConflict =
             await RunHarness(
                 "--clone-census",
-                "--leak-triage",
+                "--leak-actionability",
                 FixturePath);
         Assert.Equal(2, validationOrderConflict.exitCode);
         Assert.Equal("", validationOrderConflict.output);
         Assert.Contains("--clone-census", validationOrderConflict.error);
-        Assert.Contains("--leak-triage", validationOrderConflict.error);
+        Assert.Contains("--leak-actionability", validationOrderConflict.error);
 
         foreach (string numericOption in new[]
                  {
@@ -536,13 +536,13 @@ public class StructuralCloneCensusTests
                 await RunHarness(
                     "--clone-census",
                     FixturePath,
-                    "--leak-triage",
+                    "--leak-actionability",
                     FixturePath,
                     numericOption);
             Assert.Equal(2, numericConflict.exitCode);
             Assert.Equal("", numericConflict.output);
             Assert.Contains("--clone-census", numericConflict.error);
-            Assert.Contains("--leak-triage", numericConflict.error);
+            Assert.Contains("--leak-actionability", numericConflict.error);
         }
     }
 
