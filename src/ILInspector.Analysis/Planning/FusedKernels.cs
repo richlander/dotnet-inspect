@@ -67,30 +67,32 @@ internal static class FusedKernel
         TClassifier classifier = default;
         var unit = new MethodDefinitionUnit(reader, peReader, lookup: null);
         int visited = 0;
-        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+
+        // One protected region for the whole traversal: a recoverable failure
+        // ends the request, and the cursor still names the failing unit.
+        try
         {
-            TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
-            if (!classifier.TypeInScope(reader, typeDefinition))
-                continue;
-
-            foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
+            foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
-                unit.MoveTo(typeHandle, typeDefinition, methodHandle);
-                visited++;
-                try
-                {
-                    sinks.Accept(ref unit, classifier.Classify(ref unit));
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
-                {
-                    throw new InvalidDataException(
-                        $"{unit.Label} could not be analyzed: {ex.Message}", ex);
-                }
+                TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
+                if (!classifier.TypeInScope(reader, typeDefinition))
+                    continue;
 
-                if (sinks.IsDone)
-                    return visited;
+                foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
+                {
+                    unit.MoveTo(typeHandle, typeDefinition, methodHandle);
+                    visited++;
+                    sinks.Accept(ref unit, classifier.Classify(ref unit));
+                    if (sinks.IsDone)
+                        return visited;
+                }
             }
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            throw new InvalidDataException(
+                $"{unit.Label} could not be analyzed: {ex.Message}", ex);
         }
 
         return visited;
