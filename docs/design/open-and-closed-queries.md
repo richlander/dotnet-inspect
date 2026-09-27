@@ -92,7 +92,7 @@ A **closed query** is an open query with a terminal:
 
 Head, Window, Tail, and Top mean what
 [semantic row selection](semantic-row-selection.md) defines: Head is a lenient
-clamp, and a strict Window fails when its start does not exist. This pattern
+clamp, and a strict Window fails unless position B exists. This pattern
 expresses them as closings; it does not redefine them.
 
 Rows derives Count, Count derives AtLeast(N), and Exists is AtLeast(1). Rows
@@ -104,10 +104,15 @@ closing is executed and the others are derived.
 The work may stop early only when every closing executed for that open query
 permits it.
 
-A derived closing has the outcome its own reference execution would have. If
-the executed Rows fails at a unit, a derived Count fails too. A derived Exists
-that was already settled at an earlier unit stays settled, because its own
-execution would have stopped there before reaching the failure.
+A derived closing has the outcome its own reference execution would have,
+which depends only on the operations that closing requires. Count, AtLeast(N),
+and Exists require the predicate, not the projection. If the executed Rows
+fails to project a unit whose predicate succeeded, a derived Count is
+unaffected; the execution records predicate and projection outcomes
+separately, or runs the derived closing on its own. If the predicate fails at
+a unit, a derived Count fails too. A derived Exists that was already settled
+at an earlier unit stays settled, because its own execution would have stopped
+there before reaching the failure.
 
 ## Phases
 
@@ -136,8 +141,10 @@ stage that discards N selected units and continues.
 
 Every phase ends in one of two recorded ways: its condition was met, or the
 source was exhausted first. The closing's owner interprets which. Head(N)
-accepts exhaustion with fewer rows. Window(A..B) turns exhaustion during its
-skip into the owner's failure. The same record is the completion evidence that
+accepts exhaustion with fewer rows. Window(A..B) accepts only reaching
+position B: exhaustion before B, whether in its skip or in its rows, is the
+owner's strict-window failure, and is never reported as source exhaustion or
+as successful truncation. The same record is the completion evidence that
 [source delegation](source-delegation.md) requires: reached N, or exhausted.
 
 The named closings are the surface, and each lowers to phases:
@@ -150,7 +157,7 @@ The named closings are the surface, and each lowers to phases:
 | Rows | Rows until never |
 | Head(N) | Rows until N |
 | Skip(N), as a stage | Discard until N, then the next phase |
-| Window(A..B) | Skip(A - 1), then Head(B - A + 1) |
+| Window(A..B) | Skip(A - 1), then Rows until B - A + 1, requiring the condition met |
 | Tail(N) | Buffer(N) until never |
 
 Merging follows from phases. Closings of the same open query run their
@@ -174,40 +181,45 @@ state machine in one loop.
 ## Typed results
 
 The planner is not only a reducer. It produces a typed result for a declared
-request set, and the result's shape is known when the request is planned,
+request set, and the result's type is known when the request is planned,
 before any subject is read:
 
-| Shape | Closings |
-| --- | --- |
-| Scalar | Count, Exists, AtLeast(N) |
-| Vector | GroupBy(key), CountBy(key), or one projected field of Rows |
-| Table | Rows, Head(N), Window(A..B), Tail(N) |
-| Document | A request set: shared rows plus each closing derived from them |
+| Result kind | Closings | Result type |
+| --- | --- | --- |
+| Scalar | Count, Exists, AtLeast(N) | An integer or a Boolean |
+| Rows | Rows, Head(N), Window(A..B), Tail(N) | A sequence of the projection's row type |
+| Keyed | GroupBy(key), CountBy(key) | A map from key to identities, or to counts |
+| Result set | A request set | Shared rows plus each closing derived from them |
+
+These are planner result types, not presentation. The
+[output-shape ladder](output-shapes.md#the-shape-ladder) keeps its rungs and
+owns how a result is presented: a Rows result may render as a Table, one
+field of it as a Vector, and a result set as a Document's sections. This
+pattern does not map result kinds to rungs.
 
 A request set lowers one of two ways:
 
 - **Stream.** Each closing runs as phases and kernels and stops as early as
   its phases allow. It suits one-shot answers, counts over large
   populations, and windows.
-- **Document.** The most expansive closing runs once, and every other closing
-  is derived from its rows and published beside them as a keyed view. It
+- **Result set.** The most expansive closing runs once, and every other
+  closing is derived from its rows and published beside them as a keyed view. It
   suits consumers that display the rows and ask many questions of them, such
   as an interactive page or a static bundle. Because every view derives from
   the same rows, the numbers agree by construction.
 
-The document lowering has prior art in the
+The result-set lowering has prior art in the
 [.NET CVE schema](https://github.com/dotnet/designs/blob/main/accepted/2025/cve-schema/cve_schema.md):
 flat denormalized rows as a first layer, and computed indexes, keyed lists of
 identities, as a second layer that turns joins into lookups. Its indexes are
 chosen by hand for anticipated questions. Here the request set declares the
 questions, so the planner materializes exactly the views it is asked for.
 
-This inverts the [output-shape ladder](output-shapes.md#the-shape-ladder)
-without changing its shapes. Today a command builds its Document and a
-request narrows it to a Table, Vector, or Scalar afterward. Planned, the
-requested shape decides what is produced: a Scalar request produces a scalar
-without building rows, and a Document request produces rows once with its
-views. Consumers read results through typed claim checks, so a Count yields
+What changes is the order of work, not the ladder. Today a command builds
+its rows and a request narrows them afterward, even to a single number.
+Planned, the requested presentation lowers to the result the planner
+produces: a count produces an integer without building rows, and a result set
+produces rows once with its views; the output-shape owner then presents it. Consumers read results through typed claim checks, so a Count yields
 an integer and Rows yields its row type, with nothing cast or recomputed.
 
 The planner produces the value; the
@@ -313,7 +325,7 @@ one read.
 - **Derivation.** Count derived from Rows, and Exists derived from Count, match
   their own reference executions, including a failure after an Exists was
   settled. This is **unverified**.
-- **Document results.** Every keyed view in a document equals the same closing
+- **Result sets.** Every keyed view in a result set equals the same closing
   run alone. This is **unverified**.
 - **Merging.** Closings merged across consumers each receive the shape they
   asked for. This is **unverified** until level 2 adopts closing (#8574).
