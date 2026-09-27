@@ -614,7 +614,7 @@ public static class SourceViewInspection
         var document = new DecodedTextDocument(text);
         DecodedTextBatch batch = document.Pull(
             document.Start,
-            DecodedTextPullRequest.Unbounded(int.MaxValue));
+            DecodedTextPullLimits.ForCandidateRows(int.MaxValue));
         if (!batch.IsComplete)
         {
             throw new InvalidOperationException(

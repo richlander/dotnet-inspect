@@ -14,7 +14,7 @@ public sealed class DecodedTextDocumentTests
         IReadOnlyList<DecodedTextLine> lines =
             Drain(
                 document,
-                new DecodedTextPullRequest(
+                new DecodedTextPullLimits(
                     maximumCandidateRows: 2,
                     maximumUtf16CodeUnits: 8,
                     maximumJsonEncodedUtf8Bytes: 32),
@@ -82,7 +82,7 @@ public sealed class DecodedTextDocumentTests
         IReadOnlyList<DecodedTextLine> lines =
             Drain(
                 document,
-                DecodedTextPullRequest.Unbounded(
+                DecodedTextPullLimits.ForCandidateRows(
                     maximumCandidateRows: 1),
                 out int exactLineCount);
 
@@ -101,21 +101,21 @@ public sealed class DecodedTextDocumentTests
         [
             .. Drain(
                 document,
-                DecodedTextPullRequest.Unbounded(
+                DecodedTextPullLimits.ForCandidateRows(
                     maximumCandidateRows: int.MaxValue),
                 out int expectedCount),
         ];
 
-        DecodedTextPullRequest[] requests =
+        DecodedTextPullLimits[] limitsCases =
         [
             new(1, 64, 128),
             new(3, 12, 48),
             new(10, 64, 128),
         ];
-        foreach (DecodedTextPullRequest request in requests)
+        foreach (DecodedTextPullLimits limits in limitsCases)
         {
             IReadOnlyList<DecodedTextLine> actual =
-                Drain(document, request, out int count);
+                Drain(document, limits, out int count);
 
             Assert.Equal(expectedCount, count);
             Assert.Equal(
@@ -130,7 +130,7 @@ public sealed class DecodedTextDocumentTests
         const string text =
             "aa\nbbb\ncccc\nfive\nsix";
         var document = new DecodedTextDocument(text);
-        var request = new DecodedTextPullRequest(
+        var limits = new DecodedTextPullLimits(
             maximumCandidateRows: 2,
             maximumUtf16CodeUnits: 9,
             maximumJsonEncodedUtf8Bytes: 12);
@@ -139,20 +139,20 @@ public sealed class DecodedTextDocumentTests
 
         while (position is not null)
         {
-            DecodedTextBatch batch = document.Pull(position, request);
+            DecodedTextBatch batch = document.Pull(position, limits);
 
             Assert.InRange(
                 batch.Lines.Length,
                 1,
-                request.MaximumCandidateRows);
+                limits.MaximumCandidateRows);
             Assert.InRange(
                 batch.Utf16CodeUnits,
                 0,
-                request.MaximumUtf16CodeUnits);
+                limits.MaximumUtf16CodeUnits);
             Assert.InRange(
                 batch.JsonEncodedUtf8Bytes,
                 0,
-                request.MaximumJsonEncodedUtf8Bytes);
+                limits.MaximumJsonEncodedUtf8Bytes);
             batches++;
             position = batch.Continuation;
         }
@@ -165,14 +165,14 @@ public sealed class DecodedTextDocumentTests
     {
         var document = new DecodedTextDocument(
             "small\nthis row makes the content bound stop the prior batch\nlast");
-        var request = new DecodedTextPullRequest(
+        var limits = new DecodedTextPullLimits(
             maximumCandidateRows: 10,
             maximumUtf16CodeUnits: 16,
             maximumJsonEncodedUtf8Bytes: 64);
 
         DecodedTextBatch batch = document.Pull(
             document.Start,
-            request);
+            limits);
 
         Assert.Single(batch.Lines);
         Assert.False(batch.IsComplete);
@@ -191,14 +191,14 @@ public sealed class DecodedTextDocumentTests
         int expectedJsonEncodedUtf8Bytes)
     {
         var document = new DecodedTextDocument(text);
-        var request = new DecodedTextPullRequest(
+        var limits = new DecodedTextPullLimits(
             maximumCandidateRows: 1,
             maximumUtf16CodeUnits,
             maximumJsonEncodedUtf8Bytes);
 
         DecodedTextLineLimitException exception =
             Assert.Throws<DecodedTextLineLimitException>(
-                () => document.Pull(document.Start, request));
+                () => document.Pull(document.Start, limits));
 
         Assert.Equal(1, exception.LineNumber);
         Assert.Equal(
@@ -220,19 +220,19 @@ public sealed class DecodedTextDocumentTests
     {
         var document = new DecodedTextDocument(
             "first\nsecond line is too long");
-        var request = new DecodedTextPullRequest(
+        var limits = new DecodedTextPullLimits(
             maximumCandidateRows: 10,
             maximumUtf16CodeUnits: 10,
             maximumJsonEncodedUtf8Bytes: 100);
 
         DecodedTextBatch batch =
-            document.Pull(document.Start, request);
+            document.Pull(document.Start, limits);
 
         Assert.Equal("first", Assert.Single(batch.Lines).Content.ToString());
         Assert.NotNull(batch.Continuation);
         DecodedTextLineLimitException exception =
             Assert.Throws<DecodedTextLineLimitException>(
-                () => document.Pull(batch.Continuation, request));
+                () => document.Pull(batch.Continuation, limits));
         Assert.Equal(2, exception.LineNumber);
     }
 
@@ -246,7 +246,7 @@ public sealed class DecodedTextDocumentTests
             Assert.Throws<ArgumentException>(
                 () => second.Pull(
                     first.Start,
-                    DecodedTextPullRequest.Unbounded(1)));
+                    DecodedTextPullLimits.ForCandidateRows(1)));
 
         Assert.Contains(
             "different decoded document",
@@ -264,7 +264,7 @@ public sealed class DecodedTextDocumentTests
             Assert.Single(
                 document.Pull(
                         document.Start,
-                        DecodedTextPullRequest.Unbounded(1))
+                        DecodedTextPullLimits.ForCandidateRows(1))
                     .Lines);
         int expected =
             JsonEncodedText.Encode(text).EncodedUtf8Bytes.Length;
@@ -274,7 +274,7 @@ public sealed class DecodedTextDocumentTests
 
     private static IReadOnlyList<DecodedTextLine> Drain(
         DecodedTextDocument document,
-        DecodedTextPullRequest request,
+        DecodedTextPullLimits limits,
         out int exactLineCount)
     {
         var lines = new List<DecodedTextLine>();
@@ -282,7 +282,7 @@ public sealed class DecodedTextDocumentTests
         int? count = null;
         while (position is not null)
         {
-            DecodedTextBatch batch = document.Pull(position, request);
+            DecodedTextBatch batch = document.Pull(position, limits);
             lines.AddRange(batch.Lines);
             count = batch.ExactLineCount;
             position = batch.Continuation;

@@ -16,9 +16,9 @@ public enum DecodedTextLineTerminator
     ParagraphSeparator,
 }
 
-public sealed class DecodedTextPullRequest
+public sealed class DecodedTextPullLimits
 {
-    public DecodedTextPullRequest(
+    public DecodedTextPullLimits(
         int maximumCandidateRows,
         int maximumUtf16CodeUnits,
         int maximumJsonEncodedUtf8Bytes)
@@ -41,7 +41,7 @@ public sealed class DecodedTextPullRequest
 
     public int MaximumJsonEncodedUtf8Bytes { get; }
 
-    public static DecodedTextPullRequest Unbounded(
+    public static DecodedTextPullLimits ForCandidateRows(
         int maximumCandidateRows) =>
         new(
             maximumCandidateRows,
@@ -194,10 +194,10 @@ public sealed class DecodedTextDocument
 
     public DecodedTextBatch Pull(
         DecodedTextPosition position,
-        DecodedTextPullRequest request)
+        DecodedTextPullLimits limits)
     {
         ArgumentNullException.ThrowIfNull(position);
-        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(limits);
         if (!position.Matches(_identity))
         {
             throw new ArgumentException(
@@ -209,21 +209,21 @@ public sealed class DecodedTextDocument
         DecodedTextPosition? current = position;
         int utf16CodeUnits = 0;
         int jsonEncodedUtf8Bytes = 0;
-        while (lines.Count < request.MaximumCandidateRows)
+        while (lines.Count < limits.MaximumCandidateRows)
         {
             (DecodedTextLine line, DecodedTextPosition? next) =
                 ReadLine(current);
             bool oversized =
                 line.Utf16CodeUnits
-                    > request.MaximumUtf16CodeUnits
+                    > limits.MaximumUtf16CodeUnits
                 || line.JsonEncodedUtf8Bytes
-                    > request.MaximumJsonEncodedUtf8Bytes;
+                    > limits.MaximumJsonEncodedUtf8Bytes;
             bool exceedsBatch =
                 utf16CodeUnits + (long)line.Utf16CodeUnits
-                    > request.MaximumUtf16CodeUnits
+                    > limits.MaximumUtf16CodeUnits
                 || jsonEncodedUtf8Bytes
                     + (long)line.JsonEncodedUtf8Bytes
-                    > request.MaximumJsonEncodedUtf8Bytes;
+                    > limits.MaximumJsonEncodedUtf8Bytes;
             if (lines.Count != 0 && (oversized || exceedsBatch))
             {
                 return CreateBatch(
@@ -238,9 +238,9 @@ public sealed class DecodedTextDocument
                 throw new DecodedTextLineLimitException(
                     line.Number,
                     line.Utf16CodeUnits,
-                    request.MaximumUtf16CodeUnits,
+                    limits.MaximumUtf16CodeUnits,
                     line.JsonEncodedUtf8Bytes,
-                    request.MaximumJsonEncodedUtf8Bytes);
+                    limits.MaximumJsonEncodedUtf8Bytes);
             }
 
             lines.Add(line);

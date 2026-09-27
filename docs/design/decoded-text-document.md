@@ -148,7 +148,7 @@ Finding census, intentionally defines an empty observation population.
 
 ## Pull contract
 
-Each pull request supplies three positive hard maxima:
+Each `DecodedTextPullLimits` value supplies three positive hard maxima:
 
 ```text
 MaximumCandidateRows
