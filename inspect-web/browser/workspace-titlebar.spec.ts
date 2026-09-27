@@ -205,6 +205,20 @@ test("product navigation preserves its focused action across maintenance replace
     .toHaveAttribute("data-product-destination", "activity");
 });
 
+test("product navigation preserves closed-trigger focus across maintenance replacement", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+  const button = page.locator("[data-product-navigation-button]");
+  await button.focus();
+  await expect(button).toBeFocused();
+
+  await page.evaluate(() => window.rerenderProductNavigationProbe());
+
+  await expect(button).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+});
+
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
   page,
 }) => {

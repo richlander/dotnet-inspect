@@ -1246,7 +1246,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /if \(isPackageQueryPath\(location\.pathname\)\) \{[\s\S]*applyPackageQueryHistory\(history\.state\)/);
   assert.match(
     popstate,
-    /state\.loading = !state\.engineReady;\s*render\(\);\s*if \(state\.engineReady\) focusPackageQueryInput\(\)/);
+    /state\.loading = !state\.engineReady;\s*render\(\);\s*if \(!restoreApplicationActivityReturnFocus\(\) && state\.engineReady\) \{\s*focusPackageQueryInput\(\);\s*}/);
   assert.match(
     popstate,
     /if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\) \{[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
