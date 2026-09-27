@@ -22,6 +22,8 @@ public class PortablePdbSnapshotTests
             Assert.Null(context.GetPortablePdbImage());
             context.LoadPdbFromStream(new MemoryStream(expected, writable: false));
             Assert.True(context.HasPdb);
+            Assert.Equal(PdbLoadStatus.Loaded, context.LastPdbLoadStatus);
+            Assert.Null(context.LastPdbLoadError);
             snapshot = context.GetPortablePdbImage()!.Value;
             Assert.True(expected.AsSpan().SequenceEqual(snapshot.AsSpan()));
         }
@@ -55,6 +57,30 @@ public class PortablePdbSnapshotTests
         Assert.Null(context.GetPortablePdbImage());
         context.LoadPdbFromStream(new MemoryStream([1, 2, 3, 4]));
         Assert.False(context.HasPdb);
+        Assert.Equal(
+            PdbLoadStatus.UnsupportedFormat,
+            context.LastPdbLoadStatus);
+        Assert.NotNull(context.LastPdbLoadError);
+        Assert.Null(context.GetPortablePdbImage());
+    }
+
+    [Fact]
+    public void MalformedPortablePdbRetainsTypedLoadStatus()
+    {
+        string assemblyPath = typeof(PdbContext).Assembly.Location;
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(assemblyPath);
+
+        context.LoadPdbFromStream(
+            new MemoryStream(
+                [(byte)'B', (byte)'S', (byte)'J', (byte)'B'],
+                writable: false));
+
+        Assert.False(context.HasPdb);
+        Assert.Equal(
+            PdbLoadStatus.Malformed,
+            context.LastPdbLoadStatus);
+        Assert.NotNull(context.LastPdbLoadError);
         Assert.Null(context.GetPortablePdbImage());
     }
 

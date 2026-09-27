@@ -219,9 +219,7 @@ public static class LibraryAddressInspectionOperation
             if (snapshot.PortablePdb is not null
                 && !source.HasPdb)
             {
-                envelope = Rejected(
-                    LibraryAddressInspectionRejection
-                        .PortablePdbCorrespondenceMismatch);
+                envelope = PortablePdbLoadFailure(source);
             }
             else
             {
@@ -328,9 +326,7 @@ public static class LibraryAddressInspectionOperation
             if (snapshot.PortablePdb is not null
                 && !source.HasPdb)
             {
-                envelope = Rejected(
-                    LibraryAddressInspectionRejection
-                        .PortablePdbCorrespondenceMismatch);
+                envelope = PortablePdbLoadFailure(source);
             }
             else
             {
@@ -855,6 +851,32 @@ public static class LibraryAddressInspectionOperation
             : Failed(
                 LibraryAddressInspectionFailure.Inspection,
                 exception);
+
+    private static InspectionEnvelope<LibraryAddressInspectionOutcome>
+        PortablePdbLoadFailure(SourceLinkService source) =>
+        source.LastPdbLoadStatus switch
+        {
+            PdbLoadStatus.IdentityMismatch =>
+                Rejected(
+                    LibraryAddressInspectionRejection
+                        .PortablePdbCorrespondenceMismatch),
+            PdbLoadStatus.UnsupportedFormat
+                or PdbLoadStatus.WindowsPdb
+                or PdbLoadStatus.Malformed =>
+                Failed(
+                    LibraryAddressInspectionFailure.MalformedMetadata,
+                    source.LastPdbLoadError
+                        ?? "The supplied Portable PDB content is malformed."),
+            PdbLoadStatus.ReadFailure =>
+                Failed(
+                    LibraryAddressInspectionFailure.ContentAccess,
+                    source.LastPdbLoadError
+                        ?? "The supplied Portable PDB content could not be read."),
+            _ =>
+                Failed(
+                    LibraryAddressInspectionFailure.Inspection,
+                    "The supplied Portable PDB did not produce a load outcome."),
+        };
 
     private static InspectionEnvelope<LibraryAddressInspectionOutcome>
         Rejected(

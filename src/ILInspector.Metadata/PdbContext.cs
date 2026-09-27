@@ -58,6 +58,17 @@ public enum PdbResourceLimitKind
     EmbeddedPortablePdb,
 }
 
+public enum PdbLoadStatus
+{
+    NotAttempted,
+    Loaded,
+    UnsupportedFormat,
+    WindowsPdb,
+    IdentityMismatch,
+    Malformed,
+    ReadFailure,
+}
+
 /// <summary>A PDB resource exceeded a pre-materialization limit.</summary>
 public sealed class PdbResourceLimitException
     : IOException
@@ -352,6 +363,8 @@ public class PdbContext : IDisposable
     public bool NeedsPdb => PdbId != null && !HasPdb;
     public bool HasPdb { get; private set; }
     public int PdbVersion { get; private set; }
+    public PdbLoadStatus LastPdbLoadStatus { get; private set; }
+    public string? LastPdbLoadError { get; private set; }
     public bool WindowsPdbDetected { get; set; }
     public string? PdbFormat { get; private set; }
     public string? PdbLocation { get; private set; }
@@ -807,6 +820,8 @@ public class PdbContext : IDisposable
         bool throwOnReadFailure = false)
     {
         ArgumentNullException.ThrowIfNull(pdbStream);
+        LastPdbLoadStatus = PdbLoadStatus.NotAttempted;
+        LastPdbLoadError = null;
 
         MetadataReaderProvider? provider = null;
         bool retained = false;
@@ -834,7 +849,17 @@ public class PdbContext : IDisposable
                     {
                         WindowsPdbDetected = true;
                         PdbFormat = "Windows";
-                        _log?.Invoke("Windows PDB detected (not supported)");
+                        LastPdbLoadStatus = PdbLoadStatus.WindowsPdb;
+                        LastPdbLoadError =
+                            "Windows PDB content is not supported.";
+                        _log?.Invoke(LastPdbLoadError);
+                    }
+                    else
+                    {
+                        LastPdbLoadStatus =
+                            PdbLoadStatus.UnsupportedFormat;
+                        LastPdbLoadError =
+                            "Supplied content is not a Portable PDB.";
                     }
                     return;
                 }
@@ -866,8 +891,11 @@ public class PdbContext : IDisposable
                     string suppliedName = portablePdbPath is null
                         ? "supplied content"
                         : Path.GetFileName(portablePdbPath);
-                    _log?.Invoke(
-                        $"Portable PDB identity mismatch: {suppliedName} does not match {_assemblyDisplayName}");
+                    LastPdbLoadStatus =
+                        PdbLoadStatus.IdentityMismatch;
+                    LastPdbLoadError =
+                        $"Portable PDB identity mismatch: {suppliedName} does not match {_assemblyDisplayName}";
+                    _log?.Invoke(LastPdbLoadError);
                     return;
                 }
 
@@ -879,6 +907,7 @@ public class PdbContext : IDisposable
 
                 HasPdb = true;
                 PdbVersion++;
+                LastPdbLoadStatus = PdbLoadStatus.Loaded;
                 PdbFormat = "Portable";
                 PdbLocation = pdbLocation ?? "Standalone";
                 PortablePdbPath = portablePdbPath;
@@ -892,7 +921,13 @@ public class PdbContext : IDisposable
                     || ex is InvalidOperationException
                     || ex is ArgumentException)
             {
-                _log?.Invoke($"Error loading PDB: {ex.Message}");
+                LastPdbLoadStatus =
+                    ex is IOException
+                        ? PdbLoadStatus.ReadFailure
+                        : PdbLoadStatus.Malformed;
+                LastPdbLoadError =
+                    $"Error loading PDB: {ex.Message}";
+                _log?.Invoke(LastPdbLoadError);
             }
         }
         catch (Exception ex)

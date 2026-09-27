@@ -90,6 +90,9 @@ concerns.
 - `Rejected` records authority or correspondence failures.
 - `Incomplete` records assembly, companion-PDB, or embedded-PDB byte limits.
 - `Failed` records content-access, format, inspection, or cleanup failures.
+  Malformed or unsupported companion-PDB content is a format failure; only a
+  decoded Portable PDB whose identity does not match the implementation is a
+  correspondence rejection.
   PE debug-directory and CodeView structural limits are inspection failures,
   not embedded-PDB limits.
 

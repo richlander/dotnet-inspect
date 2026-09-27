@@ -469,6 +469,100 @@ public sealed class LibraryAddressInspectionOperationTests
     }
 
     [Fact]
+    public async Task MalformedPortablePdbIsFormatFailureForExactAndPopulation()
+    {
+        byte[] implementation =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        (int methodToken, int ilOffset) =
+            FirstMethodAddress(implementation);
+        byte[] malformedPdb =
+            [(byte)'B', (byte)'S', (byte)'J', (byte)'B'];
+
+        await using LibraryInspectionTestLibrary exactLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation),
+                implementation,
+                malformedPdb);
+        InspectionEnvelope<LibraryAddressInspectionOutcome> exact =
+            Execute(
+                exactLibrary,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities.SourceLocation));
+        Assert.Equal(
+            LibraryAddressInspectionFailure.MalformedMetadata,
+            Assert.IsType<LibraryAddressInspectionOutcome.Failed>(
+                    exact.Content)
+                .Reason);
+        Assert.NotEmpty(exact.Diagnostics);
+
+        await using LibraryInspectionTestLibrary populationLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation),
+                implementation,
+                malformedPdb);
+        InspectionEnvelope<LibraryAddressInspectionOutcome> population =
+            Execute(
+                populationLibrary,
+                new LibraryAddressIntent.Population(
+                    [
+                        new LibraryAddressPopulationRecord.Coordinate(
+                            1,
+                            $"0x{methodToken:X8}+0x{ilOffset:X}",
+                            label: null,
+                            methodToken,
+                            ilOffset),
+                    ],
+                    ILOffsetProjectionCapabilities.SourceLocation));
+        Assert.Equal(
+            LibraryAddressInspectionFailure.MalformedMetadata,
+            Assert.IsType<LibraryAddressInspectionOutcome.Failed>(
+                    population.Content)
+                .Reason);
+        Assert.NotEmpty(population.Diagnostics);
+    }
+
+    [Fact]
+    public async Task MismatchedPortablePdbIsCorrespondenceRejection()
+    {
+        byte[] implementation =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] mismatchedPdb =
+            await File.ReadAllBytesAsync(
+                Path.ChangeExtension(
+                    typeof(LibraryAddressInspectionOperationTests)
+                        .Assembly.Location,
+                    ".pdb"),
+                TestContext.Current.CancellationToken);
+        (int methodToken, int ilOffset) =
+            FirstMethodAddress(implementation);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation),
+                implementation,
+                mismatchedPdb);
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities.SourceLocation));
+
+        Assert.Equal(
+            LibraryAddressInspectionRejection
+                .PortablePdbCorrespondenceMismatch,
+            Assert.IsType<LibraryAddressInspectionOutcome.Rejected>(
+                    envelope.Content)
+                .Reason);
+    }
+
+    [Fact]
     public async Task NonSourceRequestsDoNotLoadEmbeddedPortablePdb()
     {
         byte[] implementation =
