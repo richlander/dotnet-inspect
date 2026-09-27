@@ -249,20 +249,27 @@ and then trimming, mac:
 
 | Assembly | Rows | Build all, then trim | Head(6) | Window(4..6) | Window(100..110) | Window(1000..1010) | Window(4..6) + Count | All rows |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| CommandLine | 403 | 191 µs | 51.5× | 64.6× | 23.7× | 14.9× | 13.9× | 1.0× |
-| Humanizer | 735 | 194 µs | 64.5× | 77.4× | 31.2× | 9.4× | 9.1× | 1.0× |
-| Mono.Cecil | 992 | 303 µs | 102.7× | 126.3× | 40.9× | 7.8× | 7.6× | 1.0× |
+| CommandLine | 403 | 191 µs | 51.5× | 64.6× | 23.7× | 14.9×, fails | 13.9× | 1.0× |
+| Humanizer | 735 | 194 µs | 64.5× | 77.4× | 31.2× | 9.4×, fails | 9.1× | 1.0× |
+| Mono.Cecil | 992 | 303 µs | 102.7× | 126.3× | 40.9× | 7.8×, fails | 7.6× | 1.0× |
 | Newtonsoft.Json | 1509 | 476 µs | 158.6× | 190.3× | 58.7× | 13.8× | 10.0× | 1.0× |
 | System.Text.Json | 1337 | 462 µs | 124.8× | 148.9× | 59.2× | 14.4× | 11.3× | 1.0× |
-| NuGet.Packaging | 999 | 355 µs | 95.8× | 147.8× | 48.6× | 9.6× | 9.5× | 1.0× |
+| NuGet.Packaging | 999 | 355 µs | 95.8× | 147.8× | 48.6× | 9.6×, fails | 9.5× | 1.0× |
 | Roslyn C# | 13161 | 11.51 ms | 4109.9× | 4697.0× | 899.0× | 272.0× | 28.2× | 1.0× |
 | CoreLib | 22475 | 19.03 ms | 4756.4× | 5595.8× | 2606.2× | 630.0× | 37.1× | 1.0× |
+
+Window(1000..1010) fails on the four assemblies with fewer than 1,000 rows,
+marked "fails": both sides exhaust the source to prove the missing start, and
+the cell compares the time each takes to reach that strict-window failure,
+not a successful window. The same four cells fail on every machine.
 
 annies-mac-mini, merritt, and fernie agree within the same order of magnitude:
 Head(6) is 47× to 4,756× faster across machines and assemblies.
 
-- The kernel allocates 6 to 12 KB for any window, against 0.7 to 31 MB to
-  build every row.
+- On the dense population the kernel allocates 5 to 22 KB for any Head or
+  window, including those that fail (Head(6) 9 to 13 KB, Window(4..6) 6 to
+  9 KB, Window(100..110) 13 to 22 KB, Window(1000..1010) 5 to 21 KB), against
+  0.7 to 32 MB to build every row.
 - Window(4..6) with Count runs the predicate over every unit but projects only
   three rows, and is still 7× to 37× faster. The projection, not the
   traversal, is most of a row's cost.
@@ -393,7 +400,8 @@ condition per phase), and with the names settled on 2026-09-27:
   B - A + 1 rows over one cursor. It is strict: unlike Head, it succeeds only
   by reaching position B. Exhaustion before B, in either phase, is the row
   selection owner's strict-window failure, reported as evidence, and never
-  a truncated success. Every window measured here reached B.
+  a truncated success. Window(1000..1010) did not reach B on the four
+  assemblies with fewer than 1,000 rows; those cells measure the failure.
 - **Tail(N)** keeps only the last N selected units and projects them at the
   end. It stops early only on a source that can traverse in reverse.
 - **Stop policies**, first proposed as `CountExitOracle` and declared as
