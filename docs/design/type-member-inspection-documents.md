@@ -116,7 +116,7 @@ static class System.Text.Json.JsonSerializer
 │  └─ System.Object
 ├─ Properties (1)
 │  └─ bool IsReflectionEnabledByDefault { get; }
-└─ Methods (107)
+└─ Methods (10 logical, 107 overloads)
    ├─ Deserialize (40 overloads)
    ├─ DeserializeAsync (10 overloads)
    ├─ DeserializeAsyncEnumerable (8 overloads)

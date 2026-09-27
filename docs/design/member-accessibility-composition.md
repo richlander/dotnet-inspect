@@ -17,8 +17,9 @@ The operator approved this cross-owner scope.
 
 ## What the reader sees
 
-Every count is of actual members: exact declarations, so each overload counts.
-No host reports a Member-group count.
+The counts this map connects (the accessibility chips, the Type row's member
+count, and the CLI's `--count`) are all of actual members: exact declarations,
+so each overload counts. None of them is a Member-group count.
 
 In Inspect Web, a reader opens System.Text.Json 10.0.0 `JsonDocument`. The
 accessibility chips state the whole admitted population before any non-public
@@ -29,13 +30,14 @@ public | 16    protected | 0    internal | 44    private | 27
 ```
 
 The list shows 8 rows for those 16 members. Each overload family's row, such as
-`Parse 5×` or `Deserialize 5×`, takes a distinct tone. That tone tells the
-reader that the row holds overloads, and where the difference between 8 rows
-and 16 members lives.
+`Parse 5×` or `Deserialize 5×`, colors its name differently. That text color
+tells the reader that the row holds overloads, and where the difference
+between 8 rows and 16 members lives. It is a different channel from heat,
+which tints a row's background.
 
 The reader selects `private`. The Browser requests that Type's Rows under
 `accessibility = private` and shows the 27 private members, including a
-tinted `Parse` row with the two private overloads that the public view never
+`Parse` family row with the two private overloads that the public view never
 listed. The chips keep their counts, because the composition covers every
 bucket whatever bucket is selected. The selection stays for the session, so
 the next Type opens on `private` with its own truthful count, even when that
@@ -122,8 +124,8 @@ the step says otherwise.
 4. CLI: route Type-subject Rows and `--count` through that population. This
    retires the Type-subject materialize-then-count path and the Member Index
    name heuristic.
-5. Inspect Web: show the Composition Count on the chips, and give overload
-   family rows a distinct tone (a presentation rule for
+5. Inspect Web: show the Composition Count on the chips, and color overload
+   family rows' names differently (a text-color rule for
    [Inspect Web navigation presentation](inspect-web-navigation-presentation.md#type-navigation)).
    Request Rows per selected bucket, and keep the selection for the session.
    This retires the host-side composition counting and role mapping.
@@ -141,5 +143,7 @@ This map does not decide:
   ([Type API declarations](type-api-declarations.md)), which stays
   independent of the Member population's buckets;
 - Type importance ranking; or
-- any presentation beyond the chips' counts, the family-row tone, and the
-  session-sticky selection.
+- any presentation beyond the chips' counts, the family-row name color, and the
+  session-sticky selection, including the Type API `Members` heading
+  ([Inspect Web presentation language](inspect-web-presentation-language.md))
+  and the CLI's Type tree headings.
