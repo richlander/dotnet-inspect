@@ -112,7 +112,7 @@ Current examples have different shapes:
   execution, and terminal composition.
 - `Inspector.Findings` owns Finding and comparison information structures,
   including `AnalysisDiff<T>`.
-- A future `Inspector.Graph` may own graph structures, reference traversal,
+- Target `Inspector.Graph` may own graph structures, reference traversal,
   focus/path algorithms, and terminal execution.
 
 These components form an operation **stratum**, not one
@@ -322,9 +322,11 @@ limits, and completion.
 
 ## Graph adoption boundary
 
-The first focused adopter is the future `Inspector.Graph` boundary. Its design
-may transfer one cohesive responsibility: domain-neutral graph structures and
-execution mechanics currently carried by `DotnetInspector.Queries`.
+The first focused adopter is the target
+[`Inspector.Graph` boundary](inspector-graph-library-boundary.md). Its first
+transfer is one cohesive responsibility: the domain-neutral structural
+document currently carried by `DotnetInspector.Queries`. Reference execution
+remains the next focused transfer.
 
 Candidate responsibilities for that focused transfer include:
 
@@ -426,9 +428,10 @@ Relevant external references:
 Adoption is staged by owner:
 
 1. **Pattern:** this document locks the operation-kernel handoff.
-2. **Graph boundary:** a focused design establishes `Inspector.Graph`, its
-   dependencies, public contracts, direct external-consumer fixture, and
-   transfer from Queries.
+2. **Graph boundary:** the
+   [focused design](inspector-graph-library-boundary.md) establishes
+   `Inspector.Graph`, its dependencies, public contracts, direct
+   external-consumer fixture, and structural transfer from Queries.
 3. **Graph reference execution:** one focused slice migrates the complete
    document and current focus behavior without adding specialization.
 4. **QuerySpace bridge:** one focused slice binds a real Graph relationship
@@ -510,7 +513,8 @@ This pattern does not:
 
 After this pattern locks:
 
-1. file the focused `Inspector.Graph` library-boundary design;
+1. implement the focused `Inspector.Graph`
+   [library boundary](inspector-graph-library-boundary.md);
 2. file the Graph reference-execution and typed-provider design;
 3. file the Graph/QuerySpace composition adoption using the OpenTelemetry
    scenario;
