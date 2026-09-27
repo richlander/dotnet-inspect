@@ -389,6 +389,63 @@ public static class TfmSelector
         return (selected, tfm);
     }
 
+    /// <summary>
+    /// The package-relative paths <see cref="SelectAssembliesByTfmFromPackage"/>
+    /// selects from an extraction of an archive that lists
+    /// <paramref name="entries"/>, computed from the archive directory
+    /// alone. Every <c>.dll</c> whose <c>lib</c>, <c>ref</c>, or <c>tools</c>
+    /// folder names <paramref name="tfm"/> is selected, less satellite
+    /// resource assemblies, so a package that ships both <c>ref/&lt;tfm&gt;</c>
+    /// and <c>lib/&lt;tfm&gt;</c> selects both.
+    /// </summary>
+    public static IReadOnlyList<string> SelectAssembliesByTfmFromEntries(
+        IEnumerable<string> entries,
+        string tfm)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tfm);
+        StringComparison fileComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var files = new HashSet<string>(
+            entries
+                .Select(static entry => entry.Replace('\\', '/'))
+                .Where(static entry => entry.Length > 0 && !entry.EndsWith('/')),
+            OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
+        return
+        [
+            .. files
+                .Where(entry => entry.EndsWith(".dll", fileComparison))
+                .Where(entry => !IsSatelliteResourceEntry(entry, files))
+                .Where(entry => string.Equals(
+                    TfmResolver.ExtractTfmFromPath(entry),
+                    tfm,
+                    StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal),
+        ];
+    }
+
+    static bool IsSatelliteResourceEntry(string entry, HashSet<string> files)
+    {
+        string name = entry[(entry.LastIndexOf('/') + 1)..];
+        if (!name.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        int parentEnd = entry.LastIndexOf('/');
+        if (parentEnd < 0)
+            return false;
+        string parent = entry[..parentEnd];
+        int grandParentEnd = parent.LastIndexOf('/');
+        if (!IsCultureDirectoryName(parent[(grandParentEnd + 1)..]))
+            return false;
+
+        string primary = name[..^".resources.dll".Length] + ".dll";
+        return files.Contains(
+            grandParentEnd < 0 ? primary : $"{parent[..grandParentEnd]}/{primary}");
+    }
+
     public static (List<string> paths, string? tfm) SelectHighestAssemblies(List<string> dlls, string extractPath, string? tfm = null)
     {
         dlls = FilterResourceAssemblies(dlls);

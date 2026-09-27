@@ -886,19 +886,61 @@ public static class PackageExtractor
             $"dotnet-inspect package {packageName}@{cachedVersions[0]}";
     }
 
-    private static async Task<PackageExtractionOutcome> AcquireResolvedPackageAsync(
-        HttpClient client,
-        string packageName,
-        string version,
-        string normalizedName,
-        string normalizedVersion,
-        IReadOnlyList<NuGetSource> sources,
+    /// <summary>
+    /// Whether extracting an exact <c>id@version</c> reference would be
+    /// answered from a local cache (the application cache or a NuGet
+    /// global-packages folder) with no network request. It runs the same
+    /// source resolution and cache lookup as the extraction and makes no
+    /// request itself.
+    /// </summary>
+    public static async Task<bool> IsExactPackageCachedAsync(
+        string packageSource,
         NuGetSourceOptions? sourceOptions,
-        Action<string>? log,
-        string tempDirPrefix,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageSource);
+        (string packageName, string? version) = ParsePackageReference(packageSource);
+        if (version is null
+            || version.Contains('*')
+            || version.Equals("latest", StringComparison.OrdinalIgnoreCase)
+            || !IsValidPackageId(packageName))
+        {
+            return false;
+        }
+
+        IReadOnlyList<NuGetSource> authorizedSources =
+            NuGetSourceResolver.ResolveAuthorizedSources(
+                sourceOptions,
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    sourceOptions,
+                    packageName));
+        (PackageExtractionResult? cached, _) =
+            await TryGetCachedResolvedPackageAsync(
+                packageName,
+                version,
+                packageName.ToLowerInvariant(),
+                version.ToLowerInvariant(),
+                authorizedSources,
+                log: null,
+                cancellationToken).ConfigureAwait(false);
+        return cached is not null;
+    }
+
+    /// <summary>
+    /// The first admissible cached copy of a resolved package, from the
+    /// authorized sources' application-cache slots and then the NuGet
+    /// global-packages tier, with the last rejection when none is admissible.
+    /// </summary>
+    private static async Task<(PackageExtractionResult? Cached, PackageContentAdmission.Outcome? LastRejection)>
+        TryGetCachedResolvedPackageAsync(
+            string packageName,
+            string version,
+            string normalizedName,
+            string normalizedVersion,
+            IReadOnlyList<NuGetSource> sources,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
         // Full producer list in one EnumerateCached so app-cache slots for
         // every authorized source precede any global-packages tier.
         IReadOnlyList<string> producerKeys =
@@ -929,15 +971,46 @@ public static class PackageExtractor
                 continue;
             }
 
-            return new PackageExtractionResult(
-                cached.RootPath!,
-                null,
+            return (
+                new PackageExtractionResult(
+                    cached.RootPath!,
+                    null,
+                    packageName,
+                    version,
+                    cached.NupkgPath,
+                    FromCache: true,
+                    cached.ProducerKey),
+                null);
+        }
+
+        return (null, lastCacheRejection);
+    }
+
+    private static async Task<PackageExtractionOutcome> AcquireResolvedPackageAsync(
+        HttpClient client,
+        string packageName,
+        string version,
+        string normalizedName,
+        string normalizedVersion,
+        IReadOnlyList<NuGetSource> sources,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        string tempDirPrefix,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        (PackageExtractionResult? cachedResult,
+            PackageContentAdmission.Outcome? lastCacheRejection) =
+            await TryGetCachedResolvedPackageAsync(
                 packageName,
                 version,
-                cached.NupkgPath,
-                FromCache: true,
-                cached.ProducerKey);
-        }
+                normalizedName,
+                normalizedVersion,
+                sources,
+                log,
+                cancellationToken).ConfigureAwait(false);
+        if (cachedResult is not null)
+            return cachedResult;
 
         if (HttpClientFactory.IsOffline)
         {

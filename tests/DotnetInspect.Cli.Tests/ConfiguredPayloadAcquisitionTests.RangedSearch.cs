@@ -220,6 +220,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("payload Download", result.Error, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// What an abandoned size probe may read of a body that has already
+    /// arrived before it finds a read that must wait for the network. On a
+    /// socket those bytes were already received; an in-memory feed serves
+    /// them on demand, so its served-byte gates allow for them.
+    /// </summary>
+    private const long AbandonedProbeReadBound = 64 * 1024;
+
     private static void UseFeed(HttpMessageHandler feed)
     {
         CoreHttpClientFactory.SetAuthenticationDecorator(_ => feed);
@@ -323,34 +331,58 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         internal void AddServed(int count) =>
             Interlocked.Add(ref _packageBytesServed, count);
 
+        /// <summary>
+        /// A read-only archive body that counts each byte a client reads
+        /// exactly once, whichever read overload the client uses.
+        /// </summary>
         private sealed class CountingStream(byte[] bytes, RangeHonoringFeedHandler owner)
-            : MemoryStream(bytes, writable: false)
+            : Stream
         {
-            public override int Read(byte[] buffer, int offset, int count)
+            private int _position;
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => bytes.Length;
+
+            public override long Position
             {
-                int read = base.Read(buffer, offset, count);
-                owner.AddServed(read);
-                return read;
+                get => _position;
+                set => throw new NotSupportedException();
             }
+
+            public override int Read(byte[] buffer, int offset, int count) =>
+                Read(buffer.AsSpan(offset, count));
 
             public override int Read(Span<byte> buffer)
             {
-                int read = base.Read(buffer);
+                int read = Math.Min(buffer.Length, bytes.Length - _position);
+                bytes.AsSpan(_position, read).CopyTo(buffer);
+                _position += read;
                 owner.AddServed(read);
                 return read;
             }
 
-            public override async ValueTask<int> ReadAsync(
-                Memory<byte> buffer, CancellationToken cancellationToken = default)
-            {
-                int read = await base.ReadAsync(buffer, cancellationToken);
-                owner.AddServed(read);
-                return read;
-            }
+            public override ValueTask<int> ReadAsync(
+                Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+                ValueTask.FromResult(Read(buffer.Span));
 
             public override Task<int> ReadAsync(
                 byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
-                ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+                Task.FromResult(Read(buffer.AsSpan(offset, count)));
+
+            public override void Flush()
+            {
+            }
+
+            public override long Seek(long offset, SeekOrigin origin) =>
+                throw new NotSupportedException();
+
+            public override void SetLength(long value) =>
+                throw new NotSupportedException();
+
+            public override void Write(byte[] buffer, int offset, int count) =>
+                throw new NotSupportedException();
         }
 
         private static HttpResponseMessage Respond(
