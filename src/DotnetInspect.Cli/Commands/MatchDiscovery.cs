@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -22,9 +23,10 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 /// <remarks>
 /// This is a thin consumer of
-/// <see cref="AssemblyContextStructuralCloneRetrievalQuery"/>. It selects exact targets, invokes
-/// the query once, and presents the unmodified product result. It does not open PE images,
-/// enumerate MethodDefs, reconstruct retrieval features, or reinterpret scores.
+/// <see cref="StructuralMatchDiscoveryInspection"/>. It selects exact targets,
+/// invokes the shared operation once, and presents its bounded product
+/// evidence. It does not open PE images, enumerate MethodDefs, reconstruct
+/// retrieval features, or reinterpret scores.
 /// </remarks>
 internal static class MatchDiscovery
 {
@@ -325,24 +327,47 @@ internal static class MatchDiscovery
                 usePackageSourcePolicy:
                     candidateAddress.Package is not null);
 
-            var input = new AssemblyContextStructuralCloneRetrievalInput(
-                group,
-                group.Participants[0],
-                group,
-                group.Participants[0],
-                new StructuralCloneQuerySeed.MethodDefinitionToken(resolvedSeed.Token!.Value),
-                population!,
-                limits);
-
-            AssemblyContextStructuralCloneRetrievalResult result =
-                AssemblyContextStructuralCloneRetrievalQuery.Execute(input);
+            WorkspaceScopeReadResult scopeRead =
+                await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+            if (scopeRead is WorkspaceScopeReadResult.Unavailable unavailable)
+            {
+                CommandError.Write(
+                    "The Match discovery Workspace scope could not be read.",
+                    [unavailable.RuntimeFailure.ToString()]);
+                return 1;
+            }
+            WorkspaceScopeRevision revision =
+                ((WorkspaceScopeReadResult.Available)scopeRead)
+                    .Snapshot.Revision;
+            AssemblyContextParticipant participant = group.Participants[0];
+            var snapshot =
+                new StructuralCloneParticipantSnapshot(
+                    revision,
+                    revision,
+                    [
+                        new StructuralCloneParticipantEntry(
+                            group,
+                            participant,
+                            StructuralCloneParticipantMembership
+                                .ContainingLibrary),
+                    ]);
+            InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+                inspection =
+                    StructuralMatchDiscoveryInspection.Execute(
+                        snapshot,
+                        resolvedSeed.Token!.Value,
+                        population!,
+                        limits);
+            StructuralMatchDiscoveryInspectionResult result =
+                inspection.Content;
 
             IReadOnlyList<StructuralCloneRetrievalCandidate> selectedCandidates =
-                result is AssemblyContextStructuralCloneRetrievalResult.Available available
-                    ? available.Retrieval.Candidates
+                result is StructuralMatchDiscoveryInspectionResult.Available
+                    available
+                    ? available.Candidates
                     : [];
             bool completed =
-                result is AssemblyContextStructuralCloneRetrievalResult.Available
+                result is StructuralMatchDiscoveryInspectionResult.Available
                 {
                     Retrieval.Disposition:
                         StructuralCloneRetrievalDisposition.Completed,
@@ -365,19 +390,29 @@ internal static class MatchDiscovery
                 return 1;
             }
 
-            var view = MatchDiscoveryFormatter.BuildView(
-                new MatchDiscoveryRequest(
-                    resolvedSeed.Display!,
-                    scopeDisplay!,
-                    tokensIndexCallerImage ? null : candidateAddress.Library,
-                    limits,
-                    disclosePackageReplay ? candidateAddress.Package : null,
-                    disclosePackageReplay ? candidateAddress.Tfm : null,
+            var replay =
+                new MatchDiscoveryReplayRequest(
+                    tokensIndexCallerImage
+                        ? null
+                        : candidateAddress.Library,
+                    disclosePackageReplay
+                        ? candidateAddress.Package
+                        : null,
+                    disclosePackageReplay
+                        ? candidateAddress.Tfm
+                        : null,
                     candidateAddress.Library,
                     replaySources,
-                    IncludeAll: options.IncludeAll),
+                    options.IncludeAll);
+            var view = StructuralMatchDiscoveryPresentation.Create(
+                new StructuralMatchDiscoveryPresentationRequest(
+                    resolvedSeed.Display!,
+                    scopeDisplay!,
+                    replay.CandidateAssembly,
+                    limits,
+                    MatchDiscoveryReplay.DisclosureFor(replay)),
                 result,
-                MatchDiscoveryNames.Build(namesSurface, candidateImage),
+                BuildNames(namesSurface, candidateImage),
                 selectedCandidates);
 
             if (options.Count
@@ -404,7 +439,9 @@ internal static class MatchDiscovery
                 // every rendering carries the one the run actually earned, rather than letting
                 // this path keep its own copy that a cross-image run would make false.
                 CommandError.WriteNote(view.View.Description!);
-                foreach (string line in MatchDiscoveryFormatter.TabularContext(view.View))
+                foreach (string line
+                    in StructuralMatchDiscoveryPresentation
+                        .TabularContext(view.View))
                     CommandError.WriteNote(line);
 
                 // `match` does not carry the section-projection options (--select, --columns,
@@ -415,7 +452,8 @@ internal static class MatchDiscovery
                     columns: null, fields: null,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(
-                            MatchDiscoveryFormatter.CandidateTable(view.View),
+                            StructuralMatchDiscoveryPresentation
+                                .CandidateTable(view.View),
                             writer, formatter, SearchViewContext.Default, writerOptions),
                     options.Rows);
             }
@@ -727,7 +765,11 @@ internal static class MatchDiscovery
     /// A type-forwarding facade resolves the type but does not define it, so the group must be
     /// opened on the defining assembly or retrieval reports CandidateTypeNotFound.
     /// </summary>
-    static (StructuralCloneQueryPopulation? Population, string? Display, string? Image, string? Error)
+    static (
+        StructuralCloneCandidatePopulation? Population,
+        string? Display,
+        string? Image,
+        string? Error)
         ResolvePopulation(
             MatchOptions options,
             LoadedSide seed,
@@ -742,7 +784,7 @@ internal static class MatchDiscovery
             // ranking at exit 0 — a widening flag returning strictly less than the narrower
             // default it widens.
             return (
-                new StructuralCloneQueryPopulation.WholeAssembly(),
+                new StructuralCloneCandidatePopulation.All(),
                 "whole assembly",
                 resolvedSeed.OriginAssemblyPath,
                 null);
@@ -776,7 +818,9 @@ internal static class MatchDiscovery
             }
 
             return (
-                new StructuralCloneQueryPopulation.Type(lookup.Type.DefinitionName),
+                new StructuralCloneCandidatePopulation
+                    .ContainingLibraryType(
+                        lookup.Type.DefinitionName),
                 lookup.Type.FullName,
                 lookup.Type.SourceAssemblyPath,
                 null);
@@ -816,10 +860,36 @@ internal static class MatchDiscovery
         }
 
         return (
-            new StructuralCloneQueryPopulation.Type(declaring.DefinitionName),
+            new StructuralCloneCandidatePopulation
+                .ContainingLibraryType(
+                    declaring.DefinitionName),
             declaring.FullName,
             declaring.SourceAssemblyPath,
             null);
+    }
+
+    internal static StructuralMatchDiscoveryNames BuildNames(
+        ApiSurface api,
+        string image)
+    {
+        var names = new Dictionary<int, string>();
+        foreach (ApiType type in api.Types)
+        {
+            if (!MatchCommand.DefinesOwnRows(type, image))
+                continue;
+
+            foreach (ApiMember member in type.Members)
+            {
+                foreach (int token in MemberTokens(member))
+                {
+                    names.TryAdd(
+                        token,
+                        $"{type.FullName}.{member.Name}");
+                }
+            }
+        }
+
+        return new StructuralMatchDiscoveryNames(names);
     }
 
     static AssemblyContextGroup CreateGroup(

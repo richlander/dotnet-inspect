@@ -23,9 +23,13 @@ Stage 5 is implemented under
 managed Inspect Web Analysis facade and generated TypeScript/JavaScript
 transport. Stages 6 and 7 are **not implemented**, so the Browser interaction
 and deployment acceptance scenarios below remain **unverified**.
+The exact MethodDef seed, containing-library Type candidate population, and
+opt-in detailed retrieval evidence used by root `match --similar` are added
+under [#8706](https://github.com/richlander/dotnet-inspect/issues/8706).
 
-Clone separates two request dimensions:
+Clone separates three candidate request dimensions:
 
+- candidate population: every method, or one exact Type in `Self`;
 - candidate breadth: `Self`, `SelfAndRegisteredEcosystems`, or `Everything`;
 - candidate discovery: `SimilarNames` or `All`; and
 - `Everything` plus `SimilarNames` as the default.
@@ -49,20 +53,23 @@ navigation, and rendering remain with each host.
 
 This document is the normative owner of one claim:
 
-> A structural clone search binds one Library, Type, or Member seed population
-> to an exact starting Workspace revision and one owner-issued effective
-> participant snapshot. It independently chooses candidate breadth through
-> `Self`, `SelfAndRegisteredEcosystems`, or `Everything`, then candidate
-> discovery through `SimilarNames` or `All`. `Everything` plus `SimilarNames`
-> is the default. Similar-name discovery admits a candidate only when both
-> decoded declaring-type and member names meet the product's fixed normalized
-> similarity threshold.
+> A structural clone search binds one Library, Type, Member, or exact MethodDef
+> seed population to an exact starting Workspace revision and one owner-issued
+> effective participant snapshot. It independently chooses the candidate
+> population inside admitted participants, candidate breadth through `Self`,
+> `SelfAndRegisteredEcosystems`, or `Everything`, then candidate discovery
+> through `SimilarNames` or `All`. Every method plus `Everything` plus
+> `SimilarNames` is the default. Similar-name discovery admits a candidate only
+> when both decoded declaring-type and member names meet the product's fixed
+> normalized similarity threshold. An exact-Type candidate population is a
+> point scope inside the containing library and therefore requires `Self`.
 
 This owner defines:
 
 - the three breadth values, two candidate-discovery values, labels, order, and
   combined default;
-- Library, Type, and Member seed-population meaning;
+- Library, Type, Member, and exact MethodDef seed-population meaning;
+- every-method and containing-library exact-Type candidate-population meaning;
 - candidate-population admission for each breadth and discovery value;
 - the fixed name-similarity threshold and its role;
 - identical-pair exclusion and duplicate-pair suppression;
@@ -75,20 +82,22 @@ It does not own Analysis scoring or verification, Workspace membership or
 acquisition, Metadata decoding, portable clone composition, presentation, CLI
 syntax, Browser interaction, or source viewing.
 
-## Four independent decisions
+## Five independent decisions
 
-Clone search keeps four decisions separate:
+Clone search keeps five decisions separate:
 
 | Decision | Meaning |
 | --- | --- |
 | Seed scope | Which methods supply the reference side of the search |
+| Candidate population | Which methods inside an admitted participant are eligible for discovery |
 | Candidate breadth | Which Workspace populations may contribute candidate methods |
 | Candidate discovery | Which methods inside that breadth may be ranked against the seeds |
 | Result and work bounds | How much candidate work runs and how many globally ranked pairs are returned |
 
-Changing breadth or discovery does not change the selected Library, Type, or
-Member. Changing a row limit does not change which methods qualify as
-candidates. Changing the name threshold is not a version-1 user operation.
+Changing candidate population, breadth, or discovery does not change the
+selected Library, Type, Member, or exact MethodDef. Changing a row limit does
+not change which methods qualify as candidates. Changing the name threshold is
+not a version-1 user operation.
 
 The candidate scope is relevance and cost control. It is not:
 
@@ -109,6 +118,7 @@ The selected subject supplies the seed population:
 | Library | Every MethodDef in the selected exact library |
 | Type | Every MethodDef declared by the selected exact type |
 | Member | Every exact method body occupied by the selected Member subject; an exact overload or accessor selection narrows this to one body |
+| Exact MethodDef | The one MethodDef addressed by the selected metadata token |
 
 A Member subject is a logical member, so a property or event supplies the
 bodies its accessors occupy — getter and setter, adder, remover, and raiser,
@@ -127,6 +137,10 @@ metadata rather than a body of the selected member.
 The selected subject retains its owner-issued exact identity. The search does
 not recover a Library, Type, or Member from display text.
 
+The exact MethodDef form is a physical point selector for hosts that already
+hold a token, including root `match --similar`. It does not replace the
+portable Library, Type, or Member subject vocabulary.
+
 Unsupported or failed seed bodies remain explicit per-method outcomes. A
 multi-seed search may rank completed seeds while reporting suppressed seeds,
 but it cannot claim complete coverage when any admitted seed could not be
@@ -135,6 +149,24 @@ evaluated.
 Library Clone therefore has no mandatory member-picking step. Type and Member
 navigation narrow the seed population and execute their own search; they do not
 filter a previously truncated Library result.
+
+## Candidate populations
+
+The default candidate population is every MethodDef in each breadth-admitted
+participant. A host may instead select every MethodDef declared by one exact
+Type in the containing library. That point scope requires `Self`; it does not
+reinterpret a Type name independently in every participant and cannot be
+combined with ecosystem or Everything breadth.
+
+Candidate population is applied before candidate discovery and before method
+body production. An exact-Type request therefore enumerates and ranks only that
+Type's methods; it must not scan the rest of the library and discard rows
+afterward.
+
+Detailed Analysis retrieval evidence is opt-in. Summary consumers retain only
+global rows and coverage. A consumer that presents per-method outcomes may
+retain the unmodified retrieval result from the shared execution path; the
+query must not rerun retrieval or make every consumer pay that retention cost.
 
 ## Candidate breadth
 
