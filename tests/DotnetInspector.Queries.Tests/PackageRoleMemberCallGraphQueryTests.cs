@@ -22,6 +22,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     static string TargetV2Path =>
         FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
 
+    static string RepeatedCallPath =>
+        FixtureCatalog.QueriesIntrinsicCoreLibraryCalls.AssemblyPath();
+
     static string CallerBindingCallerPath =>
         FixtureCatalog.CallerBindingCaller.AssemblyPath();
 
@@ -127,7 +130,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     {
         PackageRootBinding caller = PackageBinding(
             "callgraph.caller",
-            CallerPath);
+            RepeatedCallPath);
         PackageRootBinding target = PackageBinding(
             "callgraph.target",
             TargetPath);
@@ -140,9 +143,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 occurrences) =
             await ExecuteAsync(
                 caller,
-                CallerPath,
-                "Entry",
-                "RunAcrossBoundaryTwice",
+                RepeatedCallPath,
+                "RepeatedCall",
+                "CallTargetTwice",
                 target);
 
         int physicalOccurrences =

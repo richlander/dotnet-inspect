@@ -55,6 +55,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries.Consumer\DotnetInspector.Queries.Consumer.csproj" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
+    <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures\DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AsyncSiblingRepositoryFixture\ILInspector.Analysis.AsyncSiblingRepositoryFixture.csproj" ReferenceOutputAssembly="false" />

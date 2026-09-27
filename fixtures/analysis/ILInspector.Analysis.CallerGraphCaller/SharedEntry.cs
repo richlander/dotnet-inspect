@@ -16,14 +16,6 @@ namespace Shared
         // call, so a scoped graph must continue after crossing the assembly boundary.
         public static void RunAcrossBoundary() => Target.Api.Forward();
 
-        // Repeated physical calls share one logical callee but retain distinct
-        // correspondence evidence.
-        public static void RunAcrossBoundaryTwice()
-        {
-            Target.Api.Forward();
-            Target.Api.Forward();
-        }
-
         // #3266 fan-out fixture: two call sites to the same callee. The cross-assembly callee tree
         // dedups to one Echo child but must still report a fan-out of 2 (true call-site count).
         // Echo is used so this does not perturb the exact-count caller-graph tests rooted at Ping.
