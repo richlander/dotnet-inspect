@@ -602,7 +602,8 @@ each reported in two units, Member-group rows and exact declarations.
   declarations are counted only when the request admits them, as `--all`
   does. A bucket with no declarations is published as 0.
 - **Receiver Counts** cover the declarations the request's own `accessibility`
-  term admits, one per `receiver` form. Each equals the drained Rows of that
+  term admits, one per `receiver` form (`static`, `this`, and `extension`),
+  with an empty form published as 0. Each equals the drained Rows of that
   intent plus the `receiver` value.
 
 For example, System.Text.Json 10.0.0 `JsonDocument` has:
@@ -621,7 +622,7 @@ value, or construct rows to count them.
 
 Declaration Counts partition the population: `JsonDocument`'s 87 declarations
 are 16 + 0 + 44 + 27. Member-group Counts do not, because one family can be a
-row under several bucket intents: the 8 + 24 + 26 bucket rows cover 54
+row under several bucket intents: the 8 + 24 + 26 bucket rows cover 53
 distinct families. A composition therefore never publishes a total that its
 Counts do not state.
 

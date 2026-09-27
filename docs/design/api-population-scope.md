@@ -50,17 +50,18 @@ A Type's Member inventory is one declaration population with two independent
 visibility axes: accessibility and hidden status. Accessibility is the
 `api.accessibility` vocabulary's buckets (`public`, `protected`, `internal`,
 and `private`). A composite spelling such as `protected internal` belongs to
-its most visible bucket, as that vocabulary classifies it. Hidden status marks
+the one bucket that vocabulary classifies it into. Hidden status marks
 declarations the public-facing default omits for reasons other than
 accessibility, such as `EditorBrowsable(Never)`. Obsolete declarations are not
 a separate axis: they are admitted and marked, as the default already does.
 
 - The default population is the `public` bucket without hidden declarations.
   This is the same ordinary public-facing API as before.
-- An `accessibility` term selects one or more buckets. It does not admit
-  hidden declarations.
+- An `accessibility` term selects one or more buckets. By itself it does not
+  admit hidden declarations.
 - `--all` selects every bucket and admits hidden declarations into their
-  buckets.
+  buckets. Combined with an `accessibility` term, the term narrows the buckets
+  and hidden declarations stay admitted.
 
 Every admitted declaration belongs to exactly one bucket, so Counts over the
 buckets of one population are truthful. They cover the same declarations,

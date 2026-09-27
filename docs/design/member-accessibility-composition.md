@@ -24,8 +24,8 @@ public | 8    protected | 0    internal | 24    private | 26
 
 The list shows the 8 public Member-group rows. The reader selects `private`.
 The Browser requests that Type's Rows under `accessibility = private` and shows
-26 rows, including the two private `Parse` overloads that the public view never
-listed. The chips keep their counts, because the composition covers every
+26 rows, including a `Parse` row with the two private overloads that the
+public view never listed. The chips keep their counts, because the composition covers every
 bucket whatever bucket is selected. The selection stays for the session, so the next Type opens on
 `private` with its own truthful count, even when that count is 0.
 
@@ -71,7 +71,13 @@ Count, which reports both units. Neither host counts rows it has loaded.
 - **Contract roles.** An explicit interface implementation or finalizer that
   the public default admits today stays in the `public` bucket, with its role
   visible, as `ApiAccessibility.Classify` already does. The Browser's host-side
-  mapping of those roles to `private` and `protected` retires.
+  mapping of those roles to `private` and `protected` retires. Explicit
+  implementations of every member kind classify the same way. Today an
+  explicit-implementation method is admitted as `public`, while the property
+  it implements (such as `JsonElement.ArrayEnumerator`'s
+  `IEnumerator.Current`) is excluded by default and spelled `private`. The
+  shared predicate resolves that split toward `public`, so the property joins
+  the default population beside its accessor methods.
 - **Heat over non-public rows.**
   [Implementation profiles](inspect-web-implementation-profiles.md) currently
   states that methods outside the public roster are never rows. Showing heat
