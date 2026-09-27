@@ -210,6 +210,23 @@ without building rows, and a Document request produces rows once with its
 views. Consumers read results through typed claim checks, so a Count yields
 an integer and Rows yields its row type, with nothing cast or recomputed.
 
+The planner produces the value; the
+[inspection envelope](inspection-envelope.md) owner keeps the service layer.
+A closing's typed result becomes an envelope's content, and the plan's receipt
+and completion evidence can travel as the envelope's typed evidence
+companion. A closing is also its own canonical share: the open query and its
+terminal, as portable query data, reproduce the result when run again.
+
+Package-version `--count` shows what this replaces. Today four sites lower it
+by hand: they build every version row, apply the row selection, take the
+number of rows, and construct an `InspectionEnvelope<int>` from the row
+envelope, with a share marked as having no canonical projection. Planned, it
+is a Count closing over the version population: the planner produces the
+integer, the envelope carries it, and the closing is the share. For package
+versions the gain is one generic lowering instead of four, not speed, since a
+package has dozens to hundreds of versions. It is also a first adopter outside
+method definitions, which needs sources to be a general abstraction.
+
 ## Lowering
 
 Lowering follows one rule: carry type currency from the request through the
