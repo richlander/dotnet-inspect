@@ -157,18 +157,34 @@ test("user input cancels a pending reveal", () => {
   page.userInput("pointerdown");
   page.render(jsonElement(44));
 
-  assert.equal(page.list.scrollTop, 96);
+  // The click changed the selection, so the rebuilt list starts at the top (the click handler
+  // then brings the row into view); it is not moved to the reveal offset.
+  assert.equal(page.list.scrollTop, 0);
+  assert.notEqual(page.list.scrollTop, 44 * ROW_HEIGHT);
 });
 
-test("selecting another member keeps the reader's scroll position across renders", () => {
+test("a render that keeps the selection keeps the reader's scroll position", () => {
   const page = createPage();
   page.render(jsonElement(30));
   page.list.scrollTop = 400;
-  page.userInput("keydown");
-  page.renderPreservingFocus({ ...jsonElement(44), selection: "member:44" });
+  page.userInput("pointerdown");
+  page.renderPreservingFocus(jsonElement(30));
   page.flushFrames();
 
   assert.equal(page.list.scrollTop, 400);
+});
+
+test("a filter that selects another row starts the rebuilt list at the top", () => {
+  // Filtering selects the first match; the rebuilt list must not keep the old offset.
+  const page = createPage();
+  const types = (rows: number, selected: string): ListSpec =>
+    ({ scope: "types", member: false, rows, viewportRows: 20, revealedRow: 0, selection: selected });
+  page.render(types(500, "type:A.Deep.Type"));
+  page.list.scrollTop = 4000;
+  page.userInput("keydown");
+  page.render(types(120, "type:A.First.Match"));
+
+  assert.equal(page.list.scrollTop, 0);
 });
 
 test("a hidden member list keeps its reveal pending until it has a height", () => {
@@ -192,7 +208,14 @@ test("returning to a type after leaving its member list reveals the selection ag
 
 test("the type list keeps its scroll position across renders without revealing", () => {
   const page = createPage();
-  const types: ListSpec = { scope: "types", member: false, rows: 90, viewportRows: 20, revealedRow: 70 };
+  const types: ListSpec = {
+    scope: "types",
+    member: false,
+    rows: 90,
+    viewportRows: 20,
+    revealedRow: 70,
+    selection: "type:Example.Type",
+  };
   page.render(types);
   assert.equal(page.list.scrollTop, 0);
 

@@ -2,9 +2,12 @@
 // selection at the top of its member list.
 //
 // Every render rebuilds the navigation list (`#type-list`), which resets its scroll position.
-// The keeper records the list's scope and scroll position before the render and restores them
-// afterwards when the scope is unchanged, so a reader's position -- or a reveal -- survives the
-// renders that follow (documentation, declarations, and other member detail loading).
+// The keeper records the list's scope, selection, and scroll position before the render and
+// restores the position afterwards when both the scope and the selection are unchanged -- the
+// same key the member focus restore uses. A reader's position, or a reveal, therefore survives
+// the renders that follow (documentation, declarations, and other member detail loading), while
+// a change that selects another row, such as a filter selecting its first match, still starts
+// the rebuilt list at the top.
 //
 // A member list that appears for a new type scope arms a reveal. The first render that shows a
 // selected member in that scope moves the member's row to the top of the list, as far as the
@@ -17,7 +20,7 @@ export interface RevealableRow {
 }
 
 export interface RevealableList extends RevealableRow {
-  readonly dataset: { navScope?: string | undefined };
+  readonly dataset: { navScope?: string | undefined; navSelection?: string | undefined };
   readonly classList: { contains(token: string): boolean };
   scrollTop: number;
   readonly scrollHeight: number;
@@ -53,7 +56,7 @@ export interface NavigationScrollKeeper {
 
 export function createNavigationScrollKeeper(): NavigationScrollKeeper {
   let listening = false;
-  let carried: { scope: string; scrollTop: number } | null = null;
+  let carried: { scope: string; selection: string; scrollTop: number } | null = null;
   let seenMemberScope: string | null = null;
   let revealArmed = false;
   const disarm = () => {
@@ -70,7 +73,7 @@ export function createNavigationScrollKeeper(): NavigationScrollKeeper {
       const list = document.querySelector(NAVIGATION_LIST_SELECTOR);
       const scope = list?.dataset.navScope;
       carried = list && scope !== undefined
-        ? { scope, scrollTop: list.scrollTop }
+        ? { scope, selection: list.dataset.navSelection ?? "", scrollTop: list.scrollTop }
         : null;
     },
     afterRender(document) {
@@ -81,7 +84,8 @@ export function createNavigationScrollKeeper(): NavigationScrollKeeper {
         revealArmed = false;
         return;
       }
-      if (carried?.scope === scope)
+      if (carried?.scope === scope
+        && carried.selection === (list.dataset.navSelection ?? ""))
         list.scrollTop = carried.scrollTop;
       carried = null;
 
