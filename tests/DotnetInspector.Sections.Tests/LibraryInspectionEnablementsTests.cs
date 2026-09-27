@@ -113,6 +113,32 @@ public sealed class LibraryInspectionEnablementsTests
                 .Enablements);
     }
 
+    [Fact]
+    public async Task UnavailableEnablements_RoundTripWithIdBeforeReason()
+    {
+        byte[] reference = await LibraryInspectionTestLibrary.PinnedNet11Async("ref", "System.Net.Sockets.dll");
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                reference,
+                LibraryInspectionTestLibrary.Identity(reference),
+                implementation: null);
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope = Execute(library, enablements: true);
+        string json = JsonSerializer.Serialize(envelope, LibraryInspectionJsonContext.Default.LibraryInspectionEnvelope);
+
+        Assert.Matches(
+            "\"id\": \"aot-compatible\",\\s*\"reason\": \"reference-assembly\"",
+            json);
+        InspectionEnvelope<LibraryInspectionOutcome>? roundTripped =
+            JsonSerializer.Deserialize(json, LibraryInspectionJsonContext.Default.LibraryInspectionEnvelope);
+        Assert.Equal(Document(envelope).Enablements, Document(roundTripped!).Enablements);
+        Assert.All(
+            Assert.IsType<LibraryEnablementsOutcome.Available>(Document(roundTripped!).Enablements).Facts.Items,
+            item => Assert.Equal(
+                LibraryEnablementUnavailableReason.ReferenceAssembly,
+                Assert.IsType<LibraryEnablement.Unavailable>(item).Reason));
+    }
+
     private static LibraryInspectionPlan Plan(bool enablements) =>
         new(
             new(LibraryTypeAccessibility.Public, new()),

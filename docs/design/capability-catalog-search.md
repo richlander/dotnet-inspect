@@ -10,8 +10,8 @@ The first adoption is implemented over the explicit available-capability graph
 defined by
 [Inspection Capability Composition](inspection-capability-composition.md).
 The host-neutral operation, CLI `explain` facade, Browser/Wasm managed export,
-and production `library-literal` witness are implemented. Portable Browser
-Share, reusable-reference facade dispatch, and shipped-skill simplification
+production `library-literal` witness, and shipped router workflow are
+implemented. Portable Browser Share and reusable-reference facade dispatch
 remain follow-up work.
 
 ## Owner and exact claim
@@ -578,7 +578,7 @@ implementation; this adoption adds no new matching algorithm.
    adoption remain pending.**
 5. Replace detailed capability inventory in the shipped router skill with the
    search, explain, discover, and execute workflow after both production hosts
-   are available. **Pending.**
+   are available. **Complete.**
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.
