@@ -213,16 +213,20 @@ public sealed class LibraryCallGraphAnalysisResult
     /// Analysis publishes no association for <paramref name="caller"/>. For
     /// lambdas, local functions, and async <c>MoveNext</c> whose ultimate owner
     /// Analysis authenticates, this is that owner, the same association
-    /// <see cref="DirectCall.Caller"/> carries. One exception: in an unscoped
-    /// result, an async <c>MoveNext</c> whose lifted source's owner cannot be
-    /// resolved maps to that immediate lifted source, while
+    /// <see cref="DirectCall.Caller"/> carries. An async <c>MoveNext</c> whose
+    /// ultimate owner authenticates is associated module-wide, even when it is
+    /// outside a scoped result's body scope
+    /// (<c>DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource</c>). One
+    /// exception: in an unscoped result, an async <c>MoveNext</c> whose lifted
+    /// source's owner cannot be resolved maps to that immediate lifted source
+    /// (unless the source's compiler-generated name is malformed), while
     /// <see cref="DirectCall.Caller"/> for its calls stays the physical
-    /// <c>MoveNext</c>. Scoped results fail closed and return
-    /// <see langword="null"/> there and for lifted bodies outside the scope.
+    /// <c>MoveNext</c>. Scoped results withhold that fallback and return
+    /// <see langword="null"/> for it, and for lambdas and local functions
+    /// outside the scope
+    /// (<c>OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes</c>).
     /// Sync iterators and state-machine or display-class constructors are never
     /// associated.
-    /// <c>OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes</c>
-    /// gates the exception on this result.
     /// </summary>
     public MethodIdentity? ResolveDeclaredMethod(
         MethodIdentity caller)
