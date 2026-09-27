@@ -208,6 +208,8 @@ public sealed record CallGraphLogicalEdgeEvidence(int RowNumber)
 /// <summary>Typed evidence for one physical IL call site.</summary>
 public sealed record CallGraphCallSiteEvidence(
     CallGraphCallSiteIdentity Identity,
+    MemberRef Target,
+    GraphNodeEvidence? TargetEvidence,
     Guid CallerModuleVersionId,
     int CallerMethodToken,
     int ILOffset,
@@ -500,6 +502,8 @@ public static class CallGraphInspectionGraphAdapter
                         target,
                         new CallGraphCallSiteEvidence(
                             callSite.Identity,
+                            call.Callee,
+                            callSite.TargetEvidence,
                             call.EvidenceMethod.ModuleVersionId,
                             call.EvidenceMethod.MetadataToken,
                             call.ILOffset,
