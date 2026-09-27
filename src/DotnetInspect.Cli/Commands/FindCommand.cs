@@ -10,6 +10,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using ILInspector.Metadata;
 using Markout;
 using NuGetFetch;
 
@@ -103,7 +104,17 @@ public class FindCommand
                     context.HttpClient,
                     cancellationToken,
                     context);
-            List<TypeFindResult> results = search.Rows;
+            FindSearchResult<MemberFindResult>? memberTier =
+                await FindBroadenedMembersAsync(
+                    options,
+                    patterns,
+                    search.Rows,
+                    logger,
+                    context.HttpClient,
+                    cancellationToken);
+            List<MemberFindResult> members = memberTier?.Rows ?? [];
+            List<TypeFindResult> results =
+                WithoutSupersededWeakRows(search.Rows, members);
             int observedRowCount = results.Count;
             if (!TrySelectRows(
                     rowSelection,
@@ -117,6 +128,20 @@ public class FindCommand
             results = [.. selectedTypes];
             WriteUnmatchedPatternWarning(search);
             var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
+            bool rendersMembers =
+                !options.Count
+                && !options.JsonOutput
+                && !options.Tabular;
+            if (members.Count > 0 && options.Count)
+            {
+                CommandError.Write(
+                    "Cannot count Find rows because the answer includes "
+                    + "member matches. Count Types with a wildcard pattern "
+                    + "or members with --members.");
+                return new(1, RowCount: null);
+            }
+            if (members.Count > 0 && !rendersMembers)
+                WriteOmittedMembersNote(members);
 
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request
@@ -158,15 +183,92 @@ public class FindCommand
             }
             else
             {
-                WriteOutput(results, title, options);
+                WriteOutput(results, title, options, members);
             }
 
-            return new(0, results.Count);
+            return new(0, results.Count + (rendersMembers ? members.Count : 0));
         }
         catch (Exception ex)
         {
             CommandError.Write(ex);
             return new(1, RowCount: null);
+        }
+    }
+
+    /// <summary>
+    /// The broadened tier's member source (find-search-service.md#tier-ladder):
+    /// an undotted, non-wildcard pattern whose Type answer has no Direct,
+    /// Glob, Namespace, or Prefix row also runs Member Find's Direct grammar
+    /// over the same authorized sources.
+    /// </summary>
+    private static async Task<FindSearchResult<MemberFindResult>?>
+        FindBroadenedMembersAsync(
+            FindOptions options,
+            string[] patterns,
+            List<TypeFindResult> typeRows,
+            VerboseLogger logger,
+            HttpClient httpClient,
+            CancellationToken cancellationToken)
+    {
+        HashSet<string> settled = new(
+            typeRows
+                .Where(static row => row.Match is TypeFindMatchKind.Direct
+                    or TypeFindMatchKind.Glob
+                    or TypeFindMatchKind.Namespace
+                    or TypeFindMatchKind.Prefix)
+                .Select(static row => row.Pattern),
+            StringComparer.Ordinal);
+        string[] memberPatterns =
+        [
+            .. patterns.Where(pattern =>
+                !settled.Contains(pattern)
+                && !pattern.Contains('.')
+                && TypeNameMatchRanking.IsBroadenable(pattern)),
+        ];
+        if (memberPatterns.Length == 0)
+            return null;
+
+        return await MemberSearchService.FindMembersAsync(
+            options,
+            memberPatterns,
+            logger,
+            httpClient,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// A pattern answered by member rows no longer reaches the similarity
+    /// tier, and is no longer a miss.
+    /// </summary>
+    private static List<TypeFindResult> WithoutSupersededWeakRows(
+        List<TypeFindResult> typeRows,
+        List<MemberFindResult> members)
+    {
+        if (members.Count == 0)
+            return typeRows;
+
+        HashSet<string> answered = new(
+            members.Select(static member => member.Pattern),
+            StringComparer.Ordinal);
+        return
+        [
+            .. typeRows.Where(row =>
+                row.Match is not (TypeFindMatchKind.Partial
+                    or TypeFindMatchKind.NotFound)
+                || !answered.Contains(row.Pattern)),
+        ];
+    }
+
+    private static void WriteOmittedMembersNote(
+        List<MemberFindResult> members)
+    {
+        foreach (IGrouping<string, MemberFindResult> group
+            in members.GroupBy(static member => member.Pattern))
+        {
+            CommandError.WriteNote(
+                $"{group.Count()} member matches for '{group.Key}' appear "
+                + "only in Markdown output. Use "
+                + $"'find .{group.Key}' for member rows in this format.");
         }
     }
 
@@ -352,11 +454,18 @@ public class FindCommand
             maxRows: null);
     }
 
-    private static void WriteOutput(List<TypeFindResult> rawData, string title, FindOptions options)
+    private static void WriteOutput(
+        List<TypeFindResult> rawData,
+        string title,
+        FindOptions options,
+        List<MemberFindResult> members)
     {
-        var view = FindOutputFormatter.BuildView(rawData, title);
+        var view = FindOutputFormatter.BuildView(
+            rawData,
+            title,
+            options.Tabular ? null : members);
 
-        if (view.Results == null && view.Description != null)
+        if (view.Results == null && view.Members == null && view.Description != null)
         {
             CommandError.WriteLine(view.Description);
             return;

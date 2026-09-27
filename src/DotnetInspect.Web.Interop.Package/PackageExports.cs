@@ -730,9 +730,10 @@ public static partial class PackageExports
 
     /// <summary>
     /// Ranks loaded type candidates against an incremental query through the product's
-    /// <see cref="TypeMatcher"/>: exact and namespace-suffix matches, then prefix and substring
-    /// globs, then a Levenshtein "did you mean" fallback. This inspects no artifact — the
-    /// candidates are names the client already holds — so it opens no workspace.
+    /// shared Type-name ranking: <see cref="TypeMatcher"/> direct matches, then the
+    /// <see cref="TypeNameMatchRanking"/> prefix, substring, and namespace-path tiers, then a
+    /// Levenshtein "did you mean" fallback. This inspects no artifact — the candidates are
+    /// names the client already holds — so it opens no workspace.
     /// </summary>
     [JSExport]
     public static string SearchTypes(string query, string candidatesJson)
@@ -757,22 +758,34 @@ public static partial class PackageExports
         var hits = new List<BrowserTypeSearchHit>();
         var used = new HashSet<string>(StringComparer.Ordinal);
 
+        Comparer<string> withinTier =
+            Comparer<string>.Create(TypeNameMatchRanking.CompareWithinTier);
+
         void AddTier(string kind, Func<BrowserTypeCandidate, bool> predicate)
         {
             foreach (BrowserTypeCandidate candidate in candidates
                 .Where(candidate => !used.Contains(candidate.Key) && predicate(candidate))
-                .OrderBy(candidate => candidate.Name.Length)
-                .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase))
+                .OrderBy(candidate => candidate.Full, withinTier))
             {
                 if (used.Add(candidate.Key))
                     hits.Add(new BrowserTypeSearchHit(candidate.Key, kind));
             }
         }
 
-        AddTier("exact", candidate => TypeMatcher.Matches(candidate.Full, query));
-        AddTier("prefix", candidate => TypeMatcher.MatchesTypeFilter(candidate.Name, query + "*"));
-        AddTier("substring", candidate => TypeMatcher.MatchesTypeFilter(candidate.Name, "*" + query + "*"));
-        AddTier("path", candidate => TypeMatcher.MatchesTypeFilter(candidate.Full, "*" + query + "*"));
+        bool isGlob = TypeMatcher.IsTypeGlobPattern(query);
+        AddTier(
+            "exact",
+            candidate => TypeMatcher.Matches(candidate.Full, query)
+                || (isGlob && TypeMatcher.MatchesTypeFilter(candidate.Full, query)));
+        Dictionary<string, TypeNameMatchTier?> tiers = candidates
+            .DistinctBy(static candidate => candidate.Key)
+            .ToDictionary(
+                static candidate => candidate.Key,
+                candidate => TypeNameMatchRanking.Classify(candidate.Full, query),
+                StringComparer.Ordinal);
+        AddTier("prefix", candidate => tiers[candidate.Key] == TypeNameMatchTier.Prefix);
+        AddTier("substring", candidate => tiers[candidate.Key] == TypeNameMatchTier.Substring);
+        AddTier("path", candidate => tiers[candidate.Key] == TypeNameMatchTier.Path);
 
         var remaining = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (BrowserTypeCandidate candidate in candidates.Where(candidate => !used.Contains(candidate.Key)))
