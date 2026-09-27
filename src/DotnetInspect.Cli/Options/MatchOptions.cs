@@ -4,9 +4,10 @@ namespace DotnetInspect.Cli.Options;
 
 /// <summary>
 /// Options for the <c>match</c> command. Pairwise mode reports structural-clone correspondence
-/// between two methods in one retained assembly, projected through
-/// <see cref="ILInspector.Research.ResearchMatch"/>. Discovery mode (<see cref="Similar"/>) ranks a
-/// bounded candidate population against one seed (issue #4740).
+/// between two methods in one retained assembly through
+/// <see cref="DotnetInspector.ResearchSections.StructuralMatchInspection"/>.
+/// Discovery mode (<see cref="Similar"/>) ranks a bounded candidate population
+/// against one seed (issue #4740).
 /// </summary>
 public record MatchOptions : ApiOptions
 {

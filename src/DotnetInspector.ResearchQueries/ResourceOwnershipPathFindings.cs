@@ -9,6 +9,23 @@ using Inspector.Findings;
 
 namespace DotnetInspector.Queries;
 
+/// <summary>
+/// Reasons an ownership-path census cannot prove that no other path exists.
+/// Positive witnesses remain valid under every limit.
+/// </summary>
+[Flags]
+public enum AnnotatedCallGraphOwnershipLimit
+{
+    None = 0,
+    NotRequested = 1,
+    TraversalBoundary = 2,
+    IncompleteCorrespondence = 4,
+    BodyUnavailable = 8,
+    AnalysisFailure = 16,
+    WitnessBudget = 32,
+    PathBudget = 64,
+}
+
 /// <summary>Bounds and resource selection for one ownership composition.</summary>
 public sealed record ResourceOwnershipSearchOptions
 {

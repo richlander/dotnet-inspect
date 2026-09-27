@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace Ownership;
@@ -640,6 +641,112 @@ public static class Entry
         }
     }
 
+    public static void RentAcrossNestedFinallyCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                ObserveResource(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossCatchExceptionCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (Exception)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossTypedCatchCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossSiblingTypedThenCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossNestedTypedThenCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                ObserveResource(buffer);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
     public static void RentAndReleaseAsyncUnobserved()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -746,6 +853,104 @@ public static class Entry
         return read;
     }
 
+    public static int RentLookalikeReadBeforeReturn(
+        LookalikeTextReader reader)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = reader.Read(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int RentTextReaderReadBeforeReturn(
+        System.IO.TextReader reader)
+    {
+        char[] buffer = ArrayPool<char>.Shared.Rent(16);
+        int read = reader.Read(buffer, 0, 16);
+        ArrayPool<char>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int RentEncodeThenUnrelatedReadAfterReturn(
+        Stream stream)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int written = System.Text.Encoding.UTF8.GetBytes(
+            "value",
+            0,
+            5,
+            buffer,
+            0);
+        ArrayPool<byte>.Shared.Return(buffer);
+        _ = stream.ReadByte();
+        return written;
+    }
+
+    public static int ExternalReadThroughReinitializedMemory(
+        ExternalMemoryStream stream)
+    {
+        Memory<byte> memory = Memory<byte>.Empty;
+        _ = stream.Read(memory);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        memory = new Memory<byte>(buffer, 0, 16);
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int ExternalReadThroughLoopReinitializedMemory(
+        ExternalMemoryStream stream,
+        bool repeat)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = default;
+        int read;
+        do
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            read = stream.Read(memory);
+            memory = default;
+            stream.Observe(memory);
+        }
+        while (repeat);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int ExternalReadThroughConditionallyResetMemory(
+        ExternalMemoryStream stream,
+        bool reset)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        if (reset)
+            memory = default;
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int DisjointMemoryUseDoesNotConsumeRent(
+        ExternalMemoryStream stream,
+        Memory<byte> caller,
+        bool useRented)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = caller;
+        int result;
+        if (useRented)
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            result = 0;
+        }
+        else
+        {
+            result = stream.Read(memory);
+        }
+        ArrayPool<byte>.Shared.Return(buffer);
+        return result;
+    }
+
     public static byte[] RentAndReturnToCaller() =>
         ArrayPool<byte>.Shared.Rent(16);
 
@@ -803,6 +1008,21 @@ public static class Entry
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
         ReplaceRentedArray(ref buffer);
         ObserveResource(buffer);
+    }
+
+    public sealed class LookalikeTextReader
+    {
+        public int Read(byte[] buffer) => buffer.Length;
+    }
+
+    public sealed class ExternalMemoryStream
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(Memory<byte> buffer) => buffer.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void Observe(Memory<byte> buffer) =>
+            s_ownershipProbe += buffer.Length;
     }
 
     static byte[] AcquireFirstResource() => [];

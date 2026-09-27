@@ -90,12 +90,11 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
-    ["overview", "implementation-profiles", "call-graph"]);
+    ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
     [
       "overview",
-      "implementation-profiles",
       "call-graph",
       "facts",
       "source",
@@ -107,7 +106,7 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph", "facts", "annotated", "compare"]);
 });
 
-test("implementation profiles stay lazy and family-level across package and platform routes", () => {
+test("implementation evidence follows the expanded family after paint across package and platform routes", () => {
   const target = sourceText(functionDeclaration("implementationProfileTarget"));
   assert.match(
     target,
@@ -118,45 +117,55 @@ test("implementation profiles stay lazy and family-level across package and plat
   assert.match(
     target,
     /kind: "package"[\s\S]*packageId: pkg\.id[\s\S]*version: pkg\.version[\s\S]*targetFramework: pkg\.activeFramework[\s\S]*assemblyName: type\.assemblyId[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
+  // The expanded family, not a member section or overload, owns publication.
+  assert.doesNotMatch(target, /state\.memberSection/);
   assert.match(
     target,
-    /members: member\.overloads\.map[\s\S]*stableSelector: overload\.stableSelector[\s\S]*bodyTokens:[\s\S]*selected: selectedOverloadIndex === index/);
+    /isCurrent: \(\) =>[\s\S]*selectedMember\(selectedType\(\)\)\?\.key === member\.key,/);
 
-  const load = sourceText(functionDeclaration("loadMemberSectionContent"));
+  // Loading a member section never requests implementation evidence.
   assert.equal(
     callExpressionsNamed(
       functionDeclaration("loadMemberSectionContent"),
       "loadSelectedImplementationProfiles").length,
-    1);
-  assert.match(
-    load,
-    /else if \(id === "implementation-profiles"\)[\s\S]*loadSelectedImplementationProfiles\(\)/);
+    0);
 
-  const openGroup = sourceText(functionDeclaration("openMemberGroup"));
+  // Every render schedules one Type heat request after paint; family detail
+  // follows only an open evidence disclosure.
+  const render = sourceText(functionDeclaration("render"));
+  assert.match(render, /finally[\s\S]*scheduleTypeHeat\(\);/);
+  // Rendering never requests family detail; only the disclosure does.
+  assert.doesNotMatch(render, /implementationProfiles\.activate|loadSelectedImplementationProfiles/);
+  const schedule = sourceText(functionDeclaration("scheduleTypeHeat"));
   assert.match(
-    openGroup,
-    /state\.memberSection !== "overview"[\s\S]*state\.memberSection !== "implementation-profiles"[\s\S]*state\.selectedOverloadIndex = 0/);
+    schedule,
+    /typeHasEligibleFamily\(type\)[\s\S]*requestAnimationFrame\(\(\) => setTimeout\([\s\S]*typeHeatTarget\(\)[\s\S]*typeHeat\.request\(target\.request, target\.isCurrent\)/);
+  const heatTarget = sourceText(functionDeclaration("typeHeatTarget"));
   assert.match(
-    openGroup,
-    /retainMemberSectionIfSupported\(group\);[\s\S]*state\.memberSection === "implementation-profiles"[\s\S]*implementationProfileTarget\(\)[\s\S]*!implementationProfiles\.hasActivated\(target\.request\)[\s\S]*state\.memberSection = "overview"/);
+    heatTarget,
+    /state\.rootKind === "library"[\s\S]*navMode\(\) !== "member"/);
+  assert.doesNotMatch(heatTarget, /stableSelectors/);
+  // The disclosure renders open only for the overload it was opened on, while
+  // the published family detail still serves the current selection.
+  const evidenceOpen = sourceText(functionDeclaration("implementationEvidenceIsOpen"));
+  assert.match(
+    evidenceOpen,
+    /state\.implementationEvidenceKey[\s\S]*implementationEvidenceKey\(stableSelector\)[\s\S]*published\.selection\.isCurrent\(\)/);
+  // Heat eligibility follows the producer: an attached extension group of the
+  // same name makes the family ineligible.
+  const eligible = sourceText(functionDeclaration("familyIsEligible"));
+  assert.match(
+    eligible,
+    /group\.kind === "method"[\s\S]*group\.overloads\.length > 1[\s\S]*candidate\.name !== group\.name \|\| candidate\.kind === "method"/);
 
-  const applySection = sourceText(functionDeclaration("applyMemberSection"));
+  const renderMember = sourceText(functionDeclaration("renderMember"));
   assert.match(
-    applySection,
-    /id !== "implementation-profiles"[\s\S]*state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex = 0/);
+    renderMember,
+    /renderOverloadImplementationEvidence\(overload\.stableSelector\)/);
+  const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
   assert.match(
-    applySection,
-    /state\.memberSection = id;\s*loadMemberSectionContent\(id\)/);
-
-  const render = sourceText(functionDeclaration("renderMember"));
-  assert.match(
-    render,
-    /member\.overloads\.length > 1[\s\S]*!hasSelectedOverload[\s\S]*state\.memberSection !== "implementation-profiles"/);
-
-  const bind = sourceText(functionDeclaration("bindImplementationProfileEvents"));
-  assert.match(
-    bind,
-    /loadSelectedImplementationProfiles\(true\)\.finally\([\s\S]*state\.memberSection !== "implementation-profiles"[\s\S]*#implementation-profile-retry, #implementation-profile-state-title[\s\S]*focus\(\{ preventScroll: true \}\)/);
+    memberNav,
+    /overloadHeat: memberNavOverloadHeat,[\s\S]*familyHeatCue: memberNavFamilyHeatCue/);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -1102,7 +1111,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 7);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 9);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {

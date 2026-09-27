@@ -10,8 +10,8 @@ Related docs:
 
 - [Allocation Triage pre-filters](allocation-triage-prefilters.md) — the static
   cost-shape side and what it can and cannot predict about realized cost.
-- The static ArrayPool leak-triage in `src/ILInspector.Analysis/LeakTriage.cs` —
-  the static shape that leak-watch is the dynamic complement to.
+- [Resource Lifecycle Analysis](resource-lifecycle-analysis.md) — the generic
+  static exceptional-cleanup analysis that leak-watch complements dynamically.
 
 ## The investigation
 

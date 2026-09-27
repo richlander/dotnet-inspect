@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../InertText/InertText.csproj" />
+    <ProjectReference Include="../Inspector.Text/Inspector.Text.csproj" />
     <ProjectReference Include="../DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Execution.Packages/DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
