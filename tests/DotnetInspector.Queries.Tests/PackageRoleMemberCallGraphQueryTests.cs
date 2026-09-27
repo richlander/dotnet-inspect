@@ -123,6 +123,49 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
     [Fact]
     public async Task
+        RepeatedPhysicalCallsEachRetainIntrinsicCoreLibraryEvidence()
+    {
+        PackageRootBinding caller = PackageBinding(
+            "callgraph.caller",
+            CallerPath);
+        PackageRootBinding target = PackageBinding(
+            "callgraph.target",
+            TargetPath);
+
+        (InspectionGraphDocument document,
+            _,
+            _,
+            ImmutableArray<
+                PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+                occurrences) =
+            await ExecuteAsync(
+                caller,
+                CallerPath,
+                "Entry",
+                "RunAcrossBoundaryTwice",
+                target);
+
+        int physicalOccurrences =
+            document.Occurrences.Count(
+                occurrence =>
+                    occurrence.Evidence
+                        is CallGraphCallSiteEvidence);
+        Assert.Equal(2, physicalOccurrences);
+        Assert.Equal(
+            physicalOccurrences,
+            occurrences
+                .Select(occurrence => occurrence.OccurrenceId)
+                .Distinct()
+                .Count());
+        Assert.All(
+            occurrences,
+            occurrence =>
+                Assert.NotNull(
+                    occurrence.CallSite.TargetEvidence));
+    }
+
+    [Fact]
+    public async Task
         IntrinsicCoreLibraryOccurrencesRetainExactPackageContextEvidence()
     {
         string systemTextJson = SystemTextJsonNetStandardPath;

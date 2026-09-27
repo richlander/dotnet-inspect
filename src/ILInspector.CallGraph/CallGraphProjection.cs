@@ -867,6 +867,7 @@ public sealed partial class CallGraphProjection
                     childId,
                     nodeId,
                     child.ParentEdgeCallSites,
+                    child.ParentEdgeCallSiteEvidence,
                     child.ParentEdgeCallerDefinition,
                     child.Perf is { InLoop: true },
                     child.Perf?.LoopHint,
@@ -905,6 +906,7 @@ public sealed partial class CallGraphProjection
                     nodeId,
                     childId,
                     child.ParentEdgeCallSites,
+                    child.ParentEdgeCallSiteEvidence,
                     child.ParentEdgeCallerDefinition,
                     child.Perf is { InLoop: true },
                     child.Perf?.LoopHint,
@@ -1102,6 +1104,7 @@ public sealed partial class CallGraphProjection
             int from,
             int to,
             ImmutableArray<DirectCall> callSites,
+            ImmutableArray<GraphNodeEvidence> callSiteTargetEvidence,
             GraphNodeStorageKey? callerDefinition,
             bool fallbackInLoop,
             string? fallbackLoopHint,
@@ -1123,12 +1126,27 @@ public sealed partial class CallGraphProjection
                     fallbackLoopHint);
                 return;
             }
-
-            foreach (DirectCall call in callSites)
+            if (!callSiteTargetEvidence.IsDefaultOrEmpty
+                && callSiteTargetEvidence.Length != callSites.Length)
             {
+                throw new InvalidOperationException(
+                    "Physical call sites and target evidence must remain aligned.");
+            }
+
+            for (var callIndex = 0;
+                callIndex < callSites.Length;
+                callIndex++)
+            {
+                DirectCall call = callSites[callIndex];
                 ArgumentNullException.ThrowIfNull(call);
                 GraphNodeEvidence? targetEvidence =
-                    CallSiteTargetEvidence(to, callerDefinition, call);
+                    callSiteTargetEvidence.IsDefaultOrEmpty
+                        ? null
+                        : callSiteTargetEvidence[callIndex];
+                ValidateCallSiteTargetEvidence(
+                    call,
+                    callerDefinition,
+                    targetEvidence);
                 var identity = new CallGraphCallSiteIdentity(
                     useAcquisitionReceiptIdentity
                         ? callerDefinition
@@ -1202,41 +1220,32 @@ public sealed partial class CallGraphProjection
             }
         }
 
-        GraphNodeEvidence? CallSiteTargetEvidence(
-            int targetNodeId,
+        static void ValidateCallSiteTargetEvidence(
+            DirectCall call,
             GraphNodeStorageKey? callerDefinition,
-            DirectCall call)
+            GraphNodeEvidence? targetEvidence)
         {
-            if (!useAcquisitionReceiptIdentity
-                || callerDefinition is null)
+            if (targetEvidence is null)
             {
-                return null;
+                return;
             }
 
-            GraphNodeEvidence[] matches =
-            [
-                .. _nodes[targetNodeId].GraphEvidence.Where(
-                    evidence =>
-                        evidence.Storage.Kind
-                            == GraphNodeStorageKind.CallSite
-                        && ReferenceEquals(
-                            evidence.Storage.SourceRegistration,
-                            callerDefinition.SourceRegistration)
-                        && evidence.Storage.ModuleVersionId
-                            == call.EvidenceMethod.ModuleVersionId
-                        && evidence.Storage.MethodToken
-                            == call.EvidenceMethod.MetadataToken
-                        && evidence.Storage.ILOffset == call.ILOffset
-                        && evidence.Storage.OperandToken
-                            == call.OperandToken),
-            ];
-            return matches.Length switch
+            GraphNodeStorageKey storage = targetEvidence.Storage;
+            if (storage.Kind != GraphNodeStorageKind.CallSite
+                || storage.ModuleVersionId
+                    != call.EvidenceMethod.ModuleVersionId
+                || storage.MethodToken
+                    != call.EvidenceMethod.MetadataToken
+                || storage.ILOffset != call.ILOffset
+                || storage.OperandToken != call.OperandToken
+                || callerDefinition is not null
+                    && !ReferenceEquals(
+                        storage.SourceRegistration,
+                        callerDefinition.SourceRegistration))
             {
-                0 => null,
-                1 => matches[0],
-                _ => throw new InvalidOperationException(
-                    "One physical call site cannot identify several target-evidence records."),
-            };
+                throw new InvalidOperationException(
+                    "Physical call-site target evidence does not match its exact call.");
+            }
         }
 
         static bool SameCallEvidence(
