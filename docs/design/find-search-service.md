@@ -460,7 +460,11 @@ progressive phase design that follows this slice.
 `PackageExports.SearchTypes` already ranks exact, prefix, substring,
 namespace-path, and similarity tiers inside the Browser interop host. That
 logic moves into the host-neutral ranker; the Browser export becomes a thin
-binding over it. Locator-backed Spotlight Type Find (#6851) consumes the same
+binding over it. A wildcard query is a glob fragment to the ranker: Prefix
+tests `<query>*` and Substring `*<query>*` against the simple name, and Path
+tests `*<query>*` against the full name, so a Spotlight user typing `Json*Opt`
+still reaches `JsonSerializerOptions`. Find itself never broadens a wildcard
+pattern, because an explicit glob already states its breadth. Locator-backed Spotlight Type Find (#6851) consumes the same
 ladder by issuing the Prefix and Substring tiers as separately identified
 locator Pattern requests, which the
 [locator contract](reverse-type-declaration-locator.md) admits as Find-owned

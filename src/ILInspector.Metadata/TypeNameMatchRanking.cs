@@ -39,15 +39,23 @@ public static class TypeNameMatchRanking
     /// Classifies <paramref name="fullName"/> into the strongest broadened tier
     /// it satisfies for <paramref name="pattern"/>, or <see langword="null"/>.
     /// A dotted pattern matches from any namespace-segment boundary of the
-    /// full name; an undotted pattern matches the simple base name.
+    /// full name; an undotted pattern matches the simple base name. A wildcard
+    /// pattern is a glob fragment: the same tiers test it with a trailing or
+    /// surrounding <c>*</c>. Explicit generic notation is never broadened.
     /// </summary>
     public static TypeNameMatchTier? Classify(string fullName, string pattern)
     {
-        if (string.IsNullOrEmpty(fullName) || !IsBroadenable(pattern))
+        if (string.IsNullOrEmpty(fullName)
+            || string.IsNullOrWhiteSpace(pattern)
+            || pattern.AsSpan().IndexOfAny("<`") >= 0)
+        {
             return null;
+        }
 
         string normalized = Normalize(fullName);
         string target = pattern.Trim().Replace('+', '.');
+        if (!IsBroadenable(target))
+            return ClassifyGlobFragment(normalized, target);
         if (target.Contains('.'))
         {
             if (TypeMatcher.MatchesTypeFilter(fullName, target + "*"))
@@ -63,6 +71,20 @@ public static class TypeNameMatchRanking
         if (simple.Contains(target, StringComparison.OrdinalIgnoreCase))
             return TypeNameMatchTier.Substring;
         return normalized.Contains(target, StringComparison.OrdinalIgnoreCase)
+            ? TypeNameMatchTier.Path
+            : null;
+    }
+
+    private static TypeNameMatchTier? ClassifyGlobFragment(
+        string normalizedFullName,
+        string fragment)
+    {
+        string simple = SimpleBaseName(normalizedFullName);
+        if (TypeMatcher.MatchesGlob(simple, fragment + "*"))
+            return TypeNameMatchTier.Prefix;
+        if (TypeMatcher.MatchesGlob(simple, "*" + fragment + "*"))
+            return TypeNameMatchTier.Substring;
+        return TypeMatcher.MatchesGlob(normalizedFullName, "*" + fragment + "*")
             ? TypeNameMatchTier.Path
             : null;
     }

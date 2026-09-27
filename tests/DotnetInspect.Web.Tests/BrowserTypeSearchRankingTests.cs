@@ -31,6 +31,8 @@ public sealed class BrowserTypeSearchRankingTests
     [InlineData(
         "JsonSerializer*",
         "serializer:exact,context:exact,options:exact")]
+    [InlineData("Json*Opt", "options:prefix")]
+    [InlineData("*Serializer", "serializer:exact,context:prefix,options:prefix")]
     public void SearchTypes_UsesSharedTiersAndWithinTierOrder(
         string query,
         string expected)

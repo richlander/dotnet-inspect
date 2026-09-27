@@ -19,6 +19,10 @@ public class TypeNameMatchRankingTests
     [InlineData("System.Text.Json.JsonSerializer", "System.Text.Json.JsonSer", TypeNameMatchTier.Prefix)]
     [InlineData("System.Text.Json.JsonSerializer", "ext.Json", TypeNameMatchTier.Substring)]
     [InlineData("System.Collections.Generic.Dictionary`2.KeyCollection", "KeyColl", TypeNameMatchTier.Prefix)]
+    [InlineData("System.Text.Json.JsonSerializerOptions", "Json*Opt", TypeNameMatchTier.Prefix)]
+    [InlineData("System.Text.Json.JsonSerializerOptions", "*Serializer", TypeNameMatchTier.Prefix)]
+    [InlineData("System.Text.Json.JsonSerializerOptions", "Ser?al", TypeNameMatchTier.Substring)]
+    [InlineData("System.Text.Json.Nodes.JsonNode", "Nod*s", TypeNameMatchTier.Path)]
     public void Classify_ReturnsStrongestTier(
         string fullName,
         string pattern,
@@ -27,8 +31,7 @@ public class TypeNameMatchRankingTests
 
     [Theory]
     [InlineData("System.Text.Json.JsonSerializer", "Xml")]
-    [InlineData("System.Text.Json.JsonSerializer", "JsonSer*")]
-    [InlineData("System.Text.Json.JsonSerializer", "JsonSer?")]
+    [InlineData("System.Text.Json.JsonSerializer", "Xml*")]
     [InlineData("System.Collections.Generic.List`1", "List<T>")]
     [InlineData("System.Collections.Generic.List`1", "List`1")]
     [InlineData("System.Text.Json.JsonSerializer", " ")]
