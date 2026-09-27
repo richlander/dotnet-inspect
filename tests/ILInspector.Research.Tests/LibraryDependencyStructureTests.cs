@@ -273,6 +273,27 @@ public sealed class LibraryDependencyStructureTests
     }
 
     [Fact]
+    public void LibraryDependencyStructure_ExternalKeysNeverCollideAcrossSeparators()
+    {
+        // Untrusted assembly names and namespaces may contain any separator
+        // text; C# cannot emit these, so the key function is gated directly.
+        const string tail = ", Version=*, Culture=neutral, PublicKeyToken=null::";
+        var first = new ILInspector.Metadata.AssemblyReferenceIdentity("E", null, null, null);
+        var second = new ILInspector.Metadata.AssemblyReferenceIdentity("E" + tail + "Q", null, null, null);
+
+        string firstKey = LibraryDependencyStructure.ExternalKey(first, "Q" + tail + "R");
+        string secondKey = LibraryDependencyStructure.ExternalKey(second, "R");
+
+        Assert.NotEqual(firstKey, secondKey);
+        Assert.NotEqual(
+            LibraryDependencyStructure.ExternalKey(new("A;namespace=1:B", null, null, null), ""),
+            LibraryDependencyStructure.ExternalKey(new("A", null, null, null), "B"));
+        Assert.NotEqual(
+            LibraryDependencyStructure.ExternalKey(null, "N"),
+            LibraryDependencyStructure.ExternalKey(new("<intrinsic-core-library>", null, null, null), "N"));
+    }
+
+    [Fact]
     public void NamespaceStructure_DerivesDeepChainsWithoutRecursion()
     {
         // A hostile assembly can declare an arbitrarily long namespace chain;
