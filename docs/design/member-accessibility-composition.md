@@ -5,7 +5,10 @@
 This is a thin composition map, tracked by
 [#8718](https://github.com/richlander/dotnet-inspect/issues/8718). It
 connects two owner contracts and the consumers that adopt them. It states no
-rule of its own. The operator approved this cross-owner scope.
+owner rule of its own. Like
+[Type, MemberGroup, and Member inspection documents](type-member-inspection-documents.md#requirements-on-related-work),
+it records requirements on related work, which the implementing owners adopt.
+The operator approved this cross-owner scope.
 
 | Owner | Contract this map relies on |
 | --- | --- |
@@ -15,7 +18,7 @@ rule of its own. The operator approved this cross-owner scope.
 ## What the reader sees
 
 In Inspect Web, a reader opens System.Text.Json 10.0.0 `JsonDocument`. The
-accessibility chips state the whole population before any non-public row is
+accessibility chips state the whole admitted population before any non-public row is
 loaded:
 
 ```text
@@ -124,5 +127,8 @@ This map does not decide:
 - what count a Type row in the Library's type list shows (today, public
   declarations, owned by
   [Library inspection](library-inspection-document.md#type-row-shape));
+- how the Type declaration view classifies API visibility
+  ([Type API declarations](type-api-declarations.md)), which stays
+  independent of the Member population's buckets;
 - Type importance ranking; or
 - any presentation beyond the chips' counts and the session-sticky selection.

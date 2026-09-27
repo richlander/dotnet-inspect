@@ -595,8 +595,8 @@ Member-group rows it covers and does not substitute for any child's Count.
 A `TypeDocument` request may ask for its composition: a set of exact Counts,
 each reported in two units, Member-group rows and exact declarations.
 
-- **Accessibility Counts** cover every bucket, whatever `accessibility` term
-  the request itself carries. The picker therefore stays truthful after the
+- **Accessibility Counts** cover every bucket, whatever `accessibility` or
+  `receiver` term the request itself carries. The picker therefore stays truthful after the
   reader selects another bucket. Each bucket's Count equals the drained Rows of
   `accessibility = <bucket>` under the request's hidden admission: hidden
   declarations are counted only when the request admits them, as `--all`
