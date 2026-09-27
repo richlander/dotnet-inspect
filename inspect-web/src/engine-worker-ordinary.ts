@@ -90,7 +90,9 @@ type AnalysisOperationName =
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
+  | "queryPackageTypeImplementationHeat"
   | "queryPlatformImplementationProfiles"
+  | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformPerformance";
 
@@ -172,6 +174,16 @@ export interface EngineWorkerOrdinaryClient {
   readonly source: SourceWorkerClient;
   readonly callGraph: AsyncFacadeGroup<CallGraphFacade, CallGraphOperationName>;
   readonly catalog: AsyncFacadeGroup<CatalogFacade, CatalogOperationName>;
+  readonly activity: EngineWorkerOrdinaryActivity;
+}
+
+/**
+ * Outstanding ordinary-Worker requests from this page. The Worker lane is
+ * serialized, so background work waits for idle before it is sent.
+ */
+interface EngineWorkerOrdinaryActivity {
+  outstanding(): number;
+  whenIdle(): Promise<void>;
 }
 
 export const engineWorkerOrdinaryMaximumJsonCharacters = 33_554_432;
@@ -1225,6 +1237,26 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.analysis.queryPlatformImplementationProfiles(...args),
     ),
+    queryPackageTypeImplementationHeat: valueOperation(
+      "ordinary-analysis-query-package-type-implementation-heat",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageTypeImplementationHeat"]
+        >
+      ) => facades.analysis.queryPackageTypeImplementationHeat(...args),
+    ),
+    queryPlatformTypeImplementationHeat: valueOperation(
+      "ordinary-analysis-query-platform-type-implementation-heat",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformTypeImplementationHeat"]
+        >
+      ) => facades.analysis.queryPlatformTypeImplementationHeat(...args),
+    ),
     queryMemberFacts: valueOperation(
       "ordinary-analysis-query-member-facts",
       10,
@@ -1700,15 +1732,43 @@ export function bindEngineWorkerOrdinaryClient(
       "Start a Worker epoch before binding ordinary operations.",
     );
   }
+  let outstanding = 0;
+  let idleWaiters: Array<() => void> = [];
+  const settleOne = () => {
+    outstanding -= 1;
+    if (outstanding > 0) return;
+    const waiters = idleWaiters;
+    idleWaiters = [];
+    for (const resolve of waiters) resolve();
+  };
   const bind = <
     TArgs extends readonly unknown[],
     TResult,
   >(
     operation: EngineWorkerOrdinaryOperation<TArgs, TResult>,
-  ): (...args: TArgs) => Promise<TResult> =>
-    operation.bindPage(host, page, epoch, reportDiagnostic);
+  ): (...args: TArgs) => Promise<TResult> => {
+    const bound = operation.bindPage(host, page, epoch, reportDiagnostic);
+    return (...args: TArgs) => {
+      outstanding += 1;
+      let result: Promise<TResult>;
+      try {
+        result = bound(...args);
+      } catch (error: unknown) {
+        settleOne();
+        throw error;
+      }
+      return result.finally(settleOne);
+    };
+  };
+  const activity: EngineWorkerOrdinaryActivity = {
+    outstanding: () => outstanding,
+    whenIdle: () => outstanding === 0
+      ? Promise.resolve()
+      : new Promise<void>(resolve => { idleWaiters.push(resolve); }),
+  };
 
   return {
+    activity,
     library: {
       openUploadedLibrary: bind(
         engineWorkerOrdinaryOperations.library.openUploadedLibrary,
@@ -1848,6 +1908,14 @@ export function bindEngineWorkerOrdinaryClient(
       queryPlatformImplementationProfiles: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformImplementationProfiles,
+      ),
+      queryPackageTypeImplementationHeat: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageTypeImplementationHeat,
+      ),
+      queryPlatformTypeImplementationHeat: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformTypeImplementationHeat,
       ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,

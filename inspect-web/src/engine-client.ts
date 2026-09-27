@@ -71,11 +71,13 @@ type AnalysisOperations =
   | "queryCloneCandidates"
   | "queryMemberFacts"
   | "queryPackageImplementationProfiles"
+  | "queryPackageTypeImplementationHeat"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
   | "queryPlatformImplementationProfiles"
+  | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
@@ -154,4 +156,9 @@ export interface EngineClient {
   };
   readonly callGraph: AsyncFacade<CallGraphFacade, CallGraphOperations>;
   readonly catalog: AsyncFacade<CatalogFacade, CatalogOperations>;
+  /** Outstanding ordinary-Worker requests; background work waits for idle. */
+  readonly activity: {
+    outstanding(): number;
+    whenIdle(): Promise<void>;
+  };
 }
