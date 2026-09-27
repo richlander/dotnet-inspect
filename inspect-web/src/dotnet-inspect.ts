@@ -4226,6 +4226,7 @@ let callGraphRenderOperation: {
 } | null = null;
 let spotlightFocusGeneration = 0;
 let documentFocusGeneration = 0;
+let packageActivityReturnFocusIntentGeneration = 0;
 let workspaceProductFocusParkingActive = false;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
@@ -15179,14 +15180,19 @@ function restorePackageActivityReturnFocus() {
   if (!state.packageActivityReturnFocusPending) return;
   if (state.packageActivityReturnFocus === "application-activity") {
     const predecessorEntryId = state.packageActivityPredecessorEntryId;
+    const intentGeneration = packageActivityReturnFocusIntentGeneration;
     const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (focusGeneration !== documentFocusGeneration) {
-          retireApplicationActivityReturnFocus(predecessorEntryId);
+          retireApplicationActivityReturnFocus(
+            predecessorEntryId,
+            intentGeneration);
           return;
         }
-        restoreApplicationActivityReturnFocus(predecessorEntryId);
+        restoreApplicationActivityReturnFocus(
+          predecessorEntryId,
+          intentGeneration);
       });
     });
     return;
@@ -15202,10 +15208,12 @@ function restorePackageActivityReturnFocus() {
 
 function retireApplicationActivityReturnFocus(
   predecessorEntryId: string | null,
+  intentGeneration: number,
 ): void {
   if (!state.packageActivityReturnFocusPending
     || state.packageActivityReturnFocus !== "application-activity"
-    || state.packageActivityPredecessorEntryId !== predecessorEntryId) {
+    || state.packageActivityPredecessorEntryId !== predecessorEntryId
+    || packageActivityReturnFocusIntentGeneration !== intentGeneration) {
     return;
   }
   state.packageActivityReturnFocus = null;
@@ -15214,10 +15222,12 @@ function retireApplicationActivityReturnFocus(
 
 function restoreApplicationActivityReturnFocus(
   predecessorEntryId = state.packageActivityPredecessorEntryId,
+  intentGeneration = packageActivityReturnFocusIntentGeneration,
 ): boolean {
   if (!state.packageActivityReturnFocusPending
     || state.packageActivityReturnFocus !== "application-activity"
     || state.packageActivityPredecessorEntryId !== predecessorEntryId
+    || packageActivityReturnFocusIntentGeneration !== intentGeneration
     || !isPackageActivityPredecessor(
       history.state,
       predecessorEntryId)) {
@@ -22140,6 +22150,9 @@ window.addEventListener("popstate", () => {
       && isPackageActivityPredecessor(
         history.state,
         state.packageActivityPredecessorEntryId);
+    if (state.packageActivityReturnFocusPending) {
+      packageActivityReturnFocusIntentGeneration++;
+    }
     leftPackageActivityForWorkspaceSuccessor =
       !state.packageActivityReturnFocusPending;
   }
