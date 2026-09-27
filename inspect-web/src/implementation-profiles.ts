@@ -847,7 +847,10 @@ export function createImplementationProfileCoordinator(
       }
       case "terminal": {
         const input = inputFor(event.operationId);
-        if (!input.selection.isCurrent()) break;
+        if (!input.selection.isCurrent()) {
+          releaseLoading(input);
+          break;
+        }
         dependencies.state.implementationProfiles =
           event.outcome.kind === "succeeded"
             ? event.outcome.value
@@ -867,6 +870,14 @@ export function createImplementationProfileCoordinator(
         break;
     }
     return undefined;
+  };
+  // An operation that ends without publishing releases the loading state it
+  // published, so returning to its view re-requests (a cache hit) instead of
+  // showing loading with nothing in flight.
+  const releaseLoading = (input: ImplementationProfileOperationInput) => {
+    const published = dependencies.state.implementationProfiles;
+    if (published.status === "loading" && published.request === input.request)
+      dependencies.state.implementationProfiles = { status: "idle" };
   };
   const session: Session = dependencies.operationAuthority.createSession({
     feature: { publish },
@@ -894,6 +905,7 @@ export function createImplementationProfileCoordinator(
       };
       const finish = (inspection: BrowserImplementationProfiles): undefined => {
         if (!input.selection.isCurrent()) {
+          releaseLoading(input);
           sink.reportTerminal({ kind: "canceled", reason: "superseded" });
           return quiesce();
         }
@@ -909,6 +921,7 @@ export function createImplementationProfileCoordinator(
       };
       const fail = (error: unknown): undefined => {
         if (!input.selection.isCurrent()) {
+          releaseLoading(input);
           sink.reportTerminal({ kind: "canceled", reason: "superseded" });
           return quiesce();
         }

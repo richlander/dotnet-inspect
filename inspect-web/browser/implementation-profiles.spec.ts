@@ -195,3 +195,85 @@ test("Type heat paints after the member list and family evidence stays behind it
     ["Compute(int)", "Compute(string)"],
   ]);
 });
+
+function packageWithPlainType(): BrowserPackageSurface {
+  const overloaded = overloadedPackage();
+  return {
+    ...overloaded,
+    assemblies: overloaded.assemblies.map(assembly =>
+      assembly.id === core.id
+        ? { ...assembly, publicMembers: 5, publicTypes: 2 }
+        : assembly),
+    types: [
+      ...overloaded.types.slice(0, 1),
+      createType("Example.Plain", core),
+      ...overloaded.types.slice(1),
+    ],
+    totalMembers: 6,
+  };
+}
+
+test("results that settle while the reader is away are shown on return without a request", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    packageWithPlainType(),
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "deferred",
+  );
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  const html = page.locator("html");
+  const types = page.locator("#type-list [data-type]");
+  const openType = async (name: string) => {
+    await chooseSubject(page, "type", "Type");
+    await types.filter({ hasText: name }).first().click();
+    await chooseSubject(page, "member", "Member");
+  };
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+
+  // Type heat settles while the reader is on a Type with no eligible family.
+  await openType("Widget");
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+  await runFamily.click();
+  await expect(runFamily.locator(".family-heat-cue.progress"))
+    .toHaveText("measuring");
+  await openType("Plain");
+  await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
+  await openType("Widget");
+  await runFamily.click();
+  await expect(page.locator(".overload-nav-row").nth(0))
+    .toHaveClass(/\bheated\b/);
+  await expect(runFamily.locator(".family-heat-cue")).toHaveCount(0);
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+
+  // Family detail settles while the reader is on another family.
+  await page.locator('[data-nav-overload="0"]').click();
+  await page.getByText("Implementation evidence", { exact: true }).click();
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "1",
+  );
+  await page.locator("[data-nav-member]").filter({ hasText: "Compute" })
+    .click();
+  await releaseFacade(
+    page,
+    `fixture-implementation-profiles-ready:${core.id}`,
+  );
+  await runFamily.click();
+  await page.locator('[data-nav-overload="0"]').click();
+  await expect(page.locator("[data-implementation-evidence]"))
+    .not.toHaveAttribute("open", "");
+  await page.getByText("Implementation evidence", { exact: true }).click();
+  await expect(page.locator(".implementation-profile-overload"))
+    .toHaveCount(1);
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "1",
+  );
+});

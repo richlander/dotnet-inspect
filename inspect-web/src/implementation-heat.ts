@@ -396,7 +396,10 @@ export function createTypeHeatCoordinator(
       }
       case "terminal": {
         const input = inputFor(event.operationId);
-        if (!input.isCurrent()) break;
+        if (!input.isCurrent()) {
+          releaseLoading(input);
+          break;
+        }
         dependencies.state.typeHeat = event.outcome.kind === "succeeded"
           ? event.outcome.value
           : {
@@ -415,6 +418,14 @@ export function createTypeHeatCoordinator(
         break;
     }
     return undefined;
+  };
+  // A request that ends or is dropped without publishing releases the loading
+  // state it published, so returning to its Type re-requests (a cache hit)
+  // instead of showing `measuring` with nothing queued or running.
+  const releaseLoading = (input: TypeHeatInput) => {
+    const published = dependencies.state.typeHeat;
+    if (published.status === "loading" && published.request === input.request)
+      dependencies.state.typeHeat = { status: "idle" };
   };
   const session: Session = dependencies.operationAuthority.createSession({
     feature: { publish },
@@ -441,6 +452,7 @@ export function createTypeHeatCoordinator(
       };
       const finish = (heat: BrowserTypeImplementationHeat): undefined => {
         if (!input.isCurrent()) {
+          releaseLoading(input);
           sink.reportTerminal({ kind: "canceled", reason: "superseded" });
           return quiesce();
         }
@@ -456,6 +468,7 @@ export function createTypeHeatCoordinator(
       };
       const fail = (error: unknown): undefined => {
         if (!input.isCurrent()) {
+          releaseLoading(input);
           sink.reportTerminal({ kind: "canceled", reason: "superseded" });
           return quiesce();
         }
@@ -516,7 +529,10 @@ export function createTypeHeatCoordinator(
     const next = queued;
     if (next === null) return;
     queued = null;
-    if (!next.isCurrent()) return pump();
+    if (!next.isCurrent()) {
+      releaseLoading(next);
+      return pump();
+    }
     running = true;
     try {
       try {
@@ -525,6 +541,7 @@ export function createTypeHeatCoordinator(
         // Idle tracking failure must not strand the request.
       }
       if (next.isCurrent()) await start(next);
+      else releaseLoading(next);
     } finally {
       running = false;
     }
@@ -540,6 +557,7 @@ export function createTypeHeatCoordinator(
       void start(input);
       return;
     }
+    if (queued !== null) releaseLoading(queued);
     queued = input;
     if (isCurrent()) {
       dependencies.state.typeHeat = {

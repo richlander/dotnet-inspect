@@ -427,3 +427,50 @@ test("settled failed Content keeps its outcome and diagnostics", async () => {
     "implementation-profiles.participant-rejected: Participant rejected.",
   ]);
 });
+
+test("a result that settles after the reader leaves never strands measuring", async () => {
+  let current = typeId;
+  const h = harness(() => current);
+  h.ask(typeId);
+  h.releaseIdle();
+  await turn();
+  assert.deepEqual(h.queried, [typeId]);
+  current = "type:B";
+  h.results.get(typeId)?.resolve(heat());
+  await turn();
+  current = typeId;
+  // The loading state belonged to the departed run; returning finds idle and
+  // re-requests, which the settled cache entry serves without a query.
+  assert.equal(h.state.typeHeat.status, "idle");
+  h.ask(typeId);
+  await turn();
+  assert.equal(h.state.typeHeat.status, "ready");
+  assert.deepEqual(h.queried, [typeId]);
+});
+
+test("a queued Type dropped or replaced before it runs releases its measuring", async () => {
+  let current = "type:A";
+  const h = harness(() => current);
+  h.ask("type:A");
+  await turn();
+  assert.equal(h.state.typeHeat.status, "loading");
+  current = "type:B";
+  h.releaseIdle();
+  await turn();
+  assert.deepEqual(h.queried, []);
+  assert.equal(h.state.typeHeat.status, "idle");
+
+  h.busy();
+  current = "type:C";
+  h.ask("type:C");
+  current = "type:D";
+  h.ask("type:D");
+  current = "type:C";
+  // C was replaced in the queue by D: the only loading state is D's, which the
+  // host shows only while D is current.
+  const readState = (): TypeHeatState => h.state.typeHeat;
+  const queuedState = readState();
+  assert.equal(queuedState.status, "loading");
+  if (queuedState.status === "loading")
+    assert.equal(queuedState.request.typeDefinitionId, "type:D");
+});
