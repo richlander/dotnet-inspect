@@ -290,6 +290,34 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageFiles_SearchesInstalledCapability()
+    {
+        var result = await RunAsync(
+            "explain",
+            "package file inventory",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement first =
+            document.RootElement.GetProperty("results")[0];
+        Assert.Equal(
+            "package-files",
+            first.GetProperty("resource_path").GetString());
+        Assert.Equal(
+            PackageFileInventoryCapability.Document.Descriptor.Identity,
+            first.GetProperty("resource_identity")
+                .GetProperty("identity")
+                .GetString());
+        Assert.Equal(
+            "package <id> -S \"Package files\"",
+            first.GetProperty("production_bindings")[0]
+                .GetProperty("gesture")
+                .GetString());
+    }
+
+    [Fact]
     public async Task Literal_SearchesCapabilitiesAndReturnsAnExactPath()
     {
         var search = await RunAsync(

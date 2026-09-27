@@ -55,33 +55,39 @@ public static class ResourceExplanationCommand
             ResourceExplanationCatalog.CreateStructural(
                 structural.Document,
                 structural.ResourcePaths);
-        InspectionCapabilityCatalog capabilityCatalog =
+        InspectionCapabilityCatalog packageQueryCapabilityCatalog =
             InspectionCapabilityCatalog.Create(
                 [
                     PackageQueryCapability.ProductModule,
                     PackageQueryCommandCapability.Module,
                 ]);
-        ResourceExplanationCatalog capabilityExplanation =
-            ResourceExplanationCatalog.CreateCapabilities(
-                capabilityCatalog,
-                PackageQueryCapabilityResourcePaths.Create(
-                    capabilityCatalog));
         InspectionCapabilityCatalog packageFilesCapabilityCatalog =
             InspectionCapabilityCatalog.Create(
                 [
                     PackageFileInventoryCapability.ProductModule,
                     PackageFileInventoryCommandCapability.Module,
                 ]);
-        ResourceExplanationCatalog packageFilesCapabilityExplanation =
+        InspectionCapabilityCatalog capabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageQueryCapability.ProductModule,
+                    PackageQueryCommandCapability.Module,
+                    PackageFileInventoryCapability.ProductModule,
+                    PackageFileInventoryCommandCapability.Module,
+                ]);
+        ResourceExplanationCatalog capabilityExplanation =
             ResourceExplanationCatalog.CreateCapabilities(
-                packageFilesCapabilityCatalog,
-                PackageFileInventoryCapabilityResourcePaths.Create(
-                    packageFilesCapabilityCatalog));
+                capabilityCatalog,
+                [
+                    .. PackageQueryCapabilityResourcePaths.Create(
+                        packageQueryCapabilityCatalog),
+                    .. PackageFileInventoryCapabilityResourcePaths.Create(
+                        packageFilesCapabilityCatalog),
+                ]);
         ResourceExplanationCatalog catalog =
             ResourceExplanationCatalog.Combine(
                 structuralCatalog,
-                capabilityExplanation,
-                packageFilesCapabilityExplanation);
+                capabilityExplanation);
         string normalizedOperand = operand.Trim();
         ResourcePath.TryCreate(
             normalizedOperand,

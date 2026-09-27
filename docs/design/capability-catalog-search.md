@@ -541,6 +541,7 @@ publish a partially ranked prefix as complete.
 | `literal` discovers the `library-literal` query facet through its canonical key segment | Implemented: host-neutral search test over the composed Package Query capability graph |
 | A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
 | Search terms use owner-issued fields rather than adapter-authored explanation prose | Implemented: bounded-result regression proving generic Query Space and consumer-binding summaries do not participate |
+| A host searches every capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
 | Ranking is independent of registration order | Implemented: permutation test over equivalent composed catalogs |
 | Equal scores use provenance, complete-versus-segment, and path tie-breakers | Implemented: focused ordering tests over production and bounded synthetic capability graphs |
 | Search evaluates the complete available population before applying the result bound | Implemented: result-count and truncation test |
