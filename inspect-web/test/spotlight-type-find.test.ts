@@ -5,6 +5,7 @@ import {
   commitManagedSpotlightSelection,
   createSpotlightTypeFind,
   projectSpotlightTypeFindResult,
+  spotlightTypeCandidatesForScope,
 } from "../src/spotlight-type-find.ts";
 import type {
   BrowserTypeFindResult,
@@ -134,6 +135,22 @@ test("presentation identity does not depend on a replaceable action", () => {
 
   assert.equal(first?.identity, second?.identity);
   assert.notEqual(first?.action, second?.action);
+});
+
+test("Types scope keeps every managed observation reachable", () => {
+  const [sample] = projectSpotlightTypeFindResult(result()).candidates;
+  assert.ok(sample);
+  const candidates = Array.from({ length: 51 }, (_, index) => ({
+    ...sample,
+    identity: `observation-${index + 1}`,
+  }));
+
+  const types = spotlightTypeCandidatesForScope(candidates, false);
+  const all = spotlightTypeCandidatesForScope(candidates, true);
+
+  assert.equal(types.length, 51);
+  assert.equal(types.at(-1)?.identity, "observation-51");
+  assert.equal(all.length, 6);
 });
 
 test("rejects missing activation correspondence", () => {

@@ -521,6 +521,7 @@ import {
 import {
   commitManagedSpotlightSelection,
   createSpotlightTypeFind,
+  spotlightTypeCandidatesForScope,
 } from "./spotlight-type-find.ts";
 import {
   createSpotlightPackageSearch,
@@ -12470,7 +12471,10 @@ function spotlightResults(): SpotlightResult[] {
     results.push({ kind: "package-activity" });
   }
   if (requestsTypes && activeRetainedWorkspacePosting !== null) {
-    for (const candidate of spotlightTypeFind.results().slice(0, all ? 6 : 50)) {
+    for (const candidate of spotlightTypeCandidatesForScope(
+      spotlightTypeFind.results(),
+      all,
+    )) {
       results.push({
         kind: "managed-type",
         ...candidate,

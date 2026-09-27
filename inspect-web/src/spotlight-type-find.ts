@@ -122,6 +122,13 @@ export interface SpotlightTypeFindCoordinator {
   notice(): string;
 }
 
+export function spotlightTypeCandidatesForScope(
+  candidates: readonly ManagedSpotlightTypeCandidate[],
+  allScope: boolean,
+): readonly ManagedSpotlightTypeCandidate[] {
+  return allScope ? candidates.slice(0, 6) : candidates;
+}
+
 export function createSpotlightTypeFind(
   options: SpotlightTypeFindOptions,
 ): SpotlightTypeFindCoordinator {
