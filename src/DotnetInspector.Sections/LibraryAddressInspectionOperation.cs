@@ -260,10 +260,7 @@ public static class LibraryAddressInspectionOperation
         }
         catch (PdbResourceLimitException exception)
         {
-            envelope = Incomplete(
-                LibraryAddressInspectionBound.EmbeddedPortablePdbBytes,
-                exception.LimitBytes,
-                exception.ActualBytes);
+            envelope = PdbLimitOutcome(exception);
         }
         catch (UnsupportedMetadataFormatException exception)
         {
@@ -430,10 +427,7 @@ public static class LibraryAddressInspectionOperation
         }
         catch (PdbResourceLimitException exception)
         {
-            envelope = Incomplete(
-                LibraryAddressInspectionBound.EmbeddedPortablePdbBytes,
-                exception.LimitBytes,
-                exception.ActualBytes);
+            envelope = PdbLimitOutcome(exception);
         }
         catch (UnsupportedMetadataFormatException exception)
         {
@@ -850,6 +844,17 @@ public static class LibraryAddressInspectionOperation
         Envelope(
             new LibraryAddressInspectionOutcome.Partial(document),
             diagnostics);
+
+    private static InspectionEnvelope<LibraryAddressInspectionOutcome>
+        PdbLimitOutcome(PdbResourceLimitException exception) =>
+        exception.Kind is PdbResourceLimitKind.EmbeddedPortablePdb
+            ? Incomplete(
+                LibraryAddressInspectionBound.EmbeddedPortablePdbBytes,
+                exception.LimitBytes,
+                exception.ActualBytes)
+            : Failed(
+                LibraryAddressInspectionFailure.Inspection,
+                exception);
 
     private static InspectionEnvelope<LibraryAddressInspectionOutcome>
         Rejected(

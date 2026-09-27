@@ -327,6 +327,9 @@ CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) â
 `PdbContext` exposes the selected CodeView identity and raw PDB records without
 exposing `PEReader` or `MetadataReader`. `ILInspector.SourceLink` uses those
 typed APIs for map extraction, URL decoration, and provenance.
+`PdbResourceLimitException.Kind` distinguishes PE debug-directory, CodeView
+record, and embedded Portable PDB limits so callers do not infer the bounded
+resource from diagnostic text.
 
 ### Document identity is not declaration provenance
 

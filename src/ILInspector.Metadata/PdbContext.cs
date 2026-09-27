@@ -50,15 +50,45 @@ public sealed record PdbCustomDebugInformationResult(
     int ValueLength = 0,
     bool LimitExceeded = false);
 
-/// <summary>A PDB resource exceeded a pre-materialization limit.</summary>
-public sealed class PdbResourceLimitException(
-    string message,
-    long actualBytes,
-    long limitBytes)
-    : IOException(message)
+public enum PdbResourceLimitKind
 {
-    public long ActualBytes { get; } = actualBytes;
-    public long LimitBytes { get; } = limitBytes;
+    Unspecified,
+    DebugDirectory,
+    CodeViewRecord,
+    EmbeddedPortablePdb,
+}
+
+/// <summary>A PDB resource exceeded a pre-materialization limit.</summary>
+public sealed class PdbResourceLimitException
+    : IOException
+{
+    public PdbResourceLimitException(
+        string message,
+        long actualBytes,
+        long limitBytes)
+        : this(
+            PdbResourceLimitKind.Unspecified,
+            message,
+            actualBytes,
+            limitBytes)
+    {
+    }
+
+    public PdbResourceLimitException(
+        PdbResourceLimitKind kind,
+        string message,
+        long actualBytes,
+        long limitBytes)
+        : base(message)
+    {
+        Kind = kind;
+        ActualBytes = actualBytes;
+        LimitBytes = limitBytes;
+    }
+
+    public PdbResourceLimitKind Kind { get; }
+    public long ActualBytes { get; }
+    public long LimitBytes { get; }
 }
 
 /// <summary>A shared pre-decompression budget for one or more embedded PDBs.</summary>
@@ -98,6 +128,7 @@ public sealed class PdbExpansionBudget
                         ? int.MaxValue
                         : (int)remaining;
                 throw new PdbResourceLimitException(
+                    PdbResourceLimitKind.EmbeddedPortablePdb,
                     $"The embedded portable PDB's declared {bytes} decompressed bytes "
                     + $"exceed the aggregate budget's {remaining} remaining bytes.",
                     bytes,
@@ -2005,6 +2036,7 @@ public class PdbContext : IDisposable
         if (debugDirectorySize > maxDebugDirectoryBytes)
         {
             throw new PdbResourceLimitException(
+                PdbResourceLimitKind.DebugDirectory,
                 $"The PE debug directory's {debugDirectorySize} bytes exceed "
                 + $"the {MaxDebugDirectoryEntries}-entry limit.",
                 debugDirectorySize,
@@ -2028,6 +2060,7 @@ public class PdbContext : IDisposable
                 if (codeViewDataSize > MaxCodeViewDataBytes)
                 {
                     throw new PdbResourceLimitException(
+                        PdbResourceLimitKind.CodeViewRecord,
                         $"A CodeView debug record's {codeViewDataSize} bytes exceed "
                         + $"the {MaxCodeViewDataBytes}-byte limit.",
                         codeViewDataSize,
@@ -2093,6 +2126,7 @@ public class PdbContext : IDisposable
                 if (embeddedPdbBytes > maxEmbeddedPdbBytes)
                 {
                     throw new PdbResourceLimitException(
+                        PdbResourceLimitKind.EmbeddedPortablePdb,
                         $"The embedded portable PDB's declared {embeddedPdbBytes} decompressed bytes "
                         + $"exceed the caller's {maxEmbeddedPdbBytes}-byte limit.",
                         embeddedPdbBytes,

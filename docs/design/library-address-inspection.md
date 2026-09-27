@@ -90,6 +90,8 @@ concerns.
 - `Rejected` records authority or correspondence failures.
 - `Incomplete` records assembly, companion-PDB, or embedded-PDB byte limits.
 - `Failed` records content-access, format, inspection, or cleanup failures.
+  PE debug-directory and CodeView structural limits are inspection failures,
+  not embedded-PDB limits.
 
 Every result is detached from the Library, Artifact, PE, PDB, and stream
 lifetimes. Until a complete portable Workspace scenario is supplied, Share is

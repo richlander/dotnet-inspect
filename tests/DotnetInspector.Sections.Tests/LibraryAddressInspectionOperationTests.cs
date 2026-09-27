@@ -526,6 +526,58 @@ public sealed class LibraryAddressInspectionOperationTests
     }
 
     [Fact]
+    public async Task DebugDirectoryLimitIsAnInspectionFailure()
+    {
+        byte[] original =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        ManagedMetadataIdentity.Assembly identity =
+            LibraryInspectionTestLibrary.Identity(original);
+        byte[] implementation = SetDebugDirectorySize(original, 1793);
+        (int methodToken, int ilOffset) =
+            FirstMethodAddress(original);
+
+        await using LibraryInspectionTestLibrary exactLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                identity);
+        InspectionEnvelope<LibraryAddressInspectionOutcome> exact =
+            Execute(
+                exactLibrary,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities.InstructionContext));
+        Assert.Equal(
+            LibraryAddressInspectionFailure.Inspection,
+            Assert.IsType<LibraryAddressInspectionOutcome.Failed>(
+                    exact.Content)
+                .Reason);
+
+        await using LibraryInspectionTestLibrary populationLibrary =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                identity);
+        InspectionEnvelope<LibraryAddressInspectionOutcome> population =
+            Execute(
+                populationLibrary,
+                new LibraryAddressIntent.Population(
+                    [
+                        new LibraryAddressPopulationRecord.Coordinate(
+                            1,
+                            $"0x{methodToken:X8}+0x{ilOffset:X}",
+                            label: null,
+                            methodToken,
+                            ilOffset),
+                    ],
+                    ILOffsetProjectionCapabilities.InstructionContext));
+        Assert.Equal(
+            LibraryAddressInspectionFailure.Inspection,
+            Assert.IsType<LibraryAddressInspectionOutcome.Failed>(
+                    population.Content)
+                .Reason);
+    }
+
+    [Fact]
     public async Task CancellationAndInvalidRequestSettleLease()
     {
         byte[] content =
@@ -710,5 +762,28 @@ public sealed class LibraryAddressInspectionOperationTests
 
         throw new InvalidOperationException(
             "The test Portable PDB contains no visible sequence point.");
+    }
+
+    private static byte[] SetDebugDirectorySize(
+        byte[] image,
+        uint size)
+    {
+        byte[] patched = [.. image];
+        using var reader = new PEReader(
+            new MemoryStream(image, writable: false));
+        PEHeader peHeader = Assert.IsType<PEHeader>(
+            reader.PEHeaders.PEHeader);
+        int directoryBase =
+            reader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        const int DebugDirectoryIndex = 6;
+        int sizeOffset =
+            directoryBase
+            + DebugDirectoryIndex * 8
+            + sizeof(int);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            patched.AsSpan(sizeOffset, sizeof(uint)),
+            size);
+        return patched;
     }
 }
