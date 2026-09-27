@@ -18,6 +18,8 @@ using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
 using MetadataResource = ILInspector.Metadata.ManifestResourceInfo;
 
+using DotnetInspect.Cli.Commands;
+
 namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
@@ -438,7 +440,6 @@ internal static class LibraryMetadataService
             }
 
             inspection.FileSize = pdbContext.FileSize;
-            inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
             // Cheap discovery needs local applicability facts, not the source-analysis model.
             // Preserve the PDB facts that drive section gates, then avoid source findings,
@@ -494,6 +495,12 @@ internal static class LibraryMetadataService
                     typeFilter: options.TypeFilter);
             }
 
+            await ReadLibraryDocumentAsync(
+                    inspection,
+                    path,
+                    packageName,
+                    isPlatformAssembly)
+                .ConfigureAwait(false);
             return inspection;
         }
         catch (OperationCanceledException)
@@ -818,6 +825,68 @@ internal static class LibraryMetadataService
     /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
     /// publisher; a self-declared source URL is not.
     /// </remarks>
+    private static readonly LibraryInspectionPlan s_libraryInfoPlan =
+        new(
+            types: null,
+            DirectLibraryInspectionCommand.s_bounds,
+            new LibraryEnablementsRequest(),
+            new LibraryImageFactsRequest(),
+            new LibraryDescriptionFactsRequest());
+
+    /// <summary>
+    /// Reads the Library document facts that Library Info and the view's
+    /// summary fields render (<c>docs/design/library-info-composition.md</c>).
+    /// </summary>
+    private static async Task ReadLibraryDocumentAsync(
+        LibraryInspection inspection,
+        string path,
+        string? packageName,
+        bool isPlatformAssembly)
+    {
+        InspectionEnvelope<LibraryInspectionOutcome>? envelope =
+            await ExactLibraryInspectionExecutor.ExecuteAsync(
+                    path,
+                    "library info",
+                    session => session.Execute(s_libraryInfoPlan, CancellationToken.None),
+                    CancellationToken.None,
+                    LibraryInfoRole(path, packageName, isPlatformAssembly))
+                .ConfigureAwait(false);
+        switch (envelope?.Content)
+        {
+            case LibraryInspectionOutcome.Available available:
+                inspection.LibraryDocument = available.Document;
+                break;
+            case LibraryInspectionOutcome.Rejected rejected:
+                inspection.LibraryDocumentFailure = rejected.Reason.ToString();
+                break;
+            case LibraryInspectionOutcome.Failed failed:
+                inspection.LibraryDocumentFailure = failed.Reason.ToString();
+                break;
+            default:
+                inspection.LibraryDocumentFailure = "LibraryUnavailable";
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The adapter role the host selected: package and Platform images outside a
+    /// <c>ref/</c> folder are implementations; reference assets and direct files
+    /// are API-only.
+    /// </summary>
+    internal static AssemblyContextLibraryRole LibraryInfoRole(
+        string path,
+        string? packageName,
+        bool isPlatformAssembly)
+    {
+        if (packageName is null && !isPlatformAssembly)
+            return AssemblyContextLibraryRole.ApiOnly;
+        string? frameworkFolder = Path.GetDirectoryName(Path.GetFullPath(path));
+        string? assetFolder = frameworkFolder is null ? null : Path.GetDirectoryName(frameworkFolder);
+        return string.Equals(Path.GetFileName(assetFolder), "ref", StringComparison.OrdinalIgnoreCase)
+            ? AssemblyContextLibraryRole.ApiOnly
+            : AssemblyContextLibraryRole.Implementation;
+    }
+
     public static string? InferBuilder(LibraryInspection inspection)
     {
         var company = inspection.AssemblyInfo?.Company;
