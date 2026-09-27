@@ -330,6 +330,7 @@ microseconds, where fixed setup dominates.
 
 ## Remaining opportunities
 
+Tracked in [#8733](https://github.com/richlander/dotnet-inspect/issues/8733).
 Ranked by expected effect on command latency, following the priorities in
 [Planning API tradeoffs](../design/planning-api-tradeoffs.md): skipping work
 first, then doing less per unit, then doing it faster.
@@ -351,6 +352,7 @@ first, then doing less per unit, then doing it faster.
 | 12 | Batch units per dispatch in interpreted fused passes | Dispatch returns once a program has many producer types | Producer Planning | None |
 | 13 | Typed guard declarations instead of raw class masks | Masks are hard to read and easy to get wrong | Producer Planning | Less than today |
 | 14 | Typed claim checks for results | Results reach consumers typed, without casts | Producer Planning | Slightly less than today |
+| 15a | Group member families by name through string-heap handles, without materializing names | Compilers usually deduplicate identical strings, so equal positions mean equal names; a byte comparison settles the rest. Not measured | Metadata, Analysis | None |
 | 15 | Investigate merritt's higher kernel ratios, fernie's residual 1–2.5%, and 50 KB of unexplained allocation | See [Open items](#open-items) | Investigation | None |
 
 ### Row windows
