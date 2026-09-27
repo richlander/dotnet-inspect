@@ -138,10 +138,12 @@ receives no Workspace, lease, reader, assembly image, source authority,
 callback, or managed object. The generated facade and Worker operation
 transport the complete result. The current generator cannot map the locator's
 custom JSON converters, so the envelope content crosses as `unknown` and one
-bounded TypeScript validator projects only the candidate fields required for
-Spotlight presentation. It must reject malformed shape, preserve every
-candidate-to-action correspondence, and may not replace the coordinate union
-with display strings or reconstruct activation authority.
+bounded TypeScript validator consumes the Sections-owned snake-case wire shape
+and projects only the candidate, completion, coverage, and diagnostic fields
+required for Spotlight presentation. It must reject malformed shape, preserve
+every candidate-to-action correspondence, distinguish complete absence from
+incomplete evidence, and may not replace the coordinate union with display
+strings or reconstruct activation authority.
 
 The Share outcome uses Workspace Definitions' exact codec when it can preserve
 the semantic plan. Until such a projection exists, it is visibly

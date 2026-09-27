@@ -129,6 +129,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     findEnvelope["content"]),
                 $"Managed: {sharedContent}{Environment.NewLine}"
                     + $"Facade: {findEnvelope["content"]}");
+            JsonObject wireCandidate =
+                Assert.IsType<JsonObject>(
+                    findEnvelope["content"]!["answers"]![0]!["candidates"]![0]);
+            Assert.NotNull(
+                wireCandidate["coordinate"]!["library_identity"]);
+            Assert.NotNull(wireCandidate["module_version_id"]);
+            Assert.NotNull(
+                wireCandidate["observation"]!["context_order"]);
             JsonArray activations =
                 Assert.IsType<JsonArray>(operation["activations"]);
             Assert.Equal(

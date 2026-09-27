@@ -235,6 +235,9 @@ test("retained Workspace Spotlight uses managed Type Find and opaque activation"
     /recordManagedSpotlightNavigation\([\s\S]*acknowledgeRetainedWorkspaceNavigation/);
   assert.match(
     activation,
+    /commitManagedSpotlightSelection\(\{[\s\S]*installManagedSpotlightType/);
+  assert.match(
+    activation,
     /abandonRetainedWorkspaceNavigation/);
   assert.doesNotMatch(
     activation,

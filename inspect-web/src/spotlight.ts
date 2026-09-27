@@ -156,6 +156,7 @@ interface SpotlightOptions {
   packageSearchError?: () => string;
   typeSearchLoading?: () => boolean;
   typeSearchError?: () => string;
+  typeSearchNotice?: () => string;
   packageCount: () => number;
   render: () => void;
   focusAfterDismiss?: () => void;
@@ -487,6 +488,10 @@ export function createSpotlight(options: SpotlightOptions) {
           .map(error => escapeHtml(error))
           .join("<br>")}</div>`
       : "";
+    const typeNotice = typeSearch ? options.typeSearchNotice?.() ?? "" : "";
+    const noticeHtml = typeNotice
+      ? `<div class="spotlight-hint" role="status">${escapeHtml(typeNotice)}</div>`
+      : "";
     if (!items.length) {
       if (errorHtml) return errorHtml;
       const query = state.spotlightQuery.trim();
@@ -504,7 +509,10 @@ export function createSpotlight(options: SpotlightOptions) {
       if (options.packageSearchLoading()) {
         return '<div class="spotlight-empty">Searching…</div>';
       }
-      return `<div class="spotlight-empty">Nothing matches “${escapeHtml(query)}”.</div>`;
+      const empty = typeNotice
+        ? `No confirmed matches for “${escapeHtml(query)}”.`
+        : `Nothing matches “${escapeHtml(query)}”.`;
+      return `<div class="spotlight-empty">${empty}</div>${noticeHtml}`;
     }
 
     const grouped = state.spotlightScope === "all";
@@ -521,6 +529,7 @@ export function createSpotlight(options: SpotlightOptions) {
       html += rowHtml(result, index);
     });
     html += errorHtml;
+    html += noticeHtml;
     if (searchErrors.length === 0 && options.packageSearchLoading()
       && packageSearch) {
       html += '<div class="spotlight-hint">Searching nuget.org…</div>';

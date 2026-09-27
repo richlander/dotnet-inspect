@@ -517,7 +517,10 @@ import {
   type SpotlightResult,
   type SpotlightScope,
 } from "./spotlight.ts";
-import { createSpotlightTypeFind } from "./spotlight-type-find.ts";
+import {
+  commitManagedSpotlightSelection,
+  createSpotlightTypeFind,
+} from "./spotlight-type-find.ts";
 import {
   createSpotlightPackageSearch,
   normalizeSpotlightPackageSearchSnapshot,
@@ -4494,6 +4497,7 @@ const spotlight = createSpotlight({
     spotlightPackageSearchError(state.spotlightPackageSearch),
   typeSearchLoading: () => spotlightTypeFind.loading(),
   typeSearchError: () => spotlightTypeFind.error(),
+  typeSearchNotice: () => spotlightTypeFind.notice(),
   packageCount: () => state.packages.length,
   render,
   focusAfterDismiss: () =>
@@ -13208,31 +13212,40 @@ async function pickManagedSpotlightType(
       throw new Error("Managed Type activation was superseded.");
     }
 
-    if (navigationAuthority !== null) {
-      const acknowledged = await engineClient.catalog
-        .acknowledgeRetainedWorkspaceNavigation(...navigationAuthority);
-      if (acknowledged !== "accepted") {
-        throw new Error(
-          `Managed Navigation acknowledgement returned '${acknowledged}'.`,
-        );
-      }
-      navigationSettled = true;
+    const authorityToAcknowledge = navigationAuthority;
+    const settlement = await commitManagedSpotlightSelection({
+      isCurrent: () =>
+        navigationSequence.isCurrent(navigationSeq)
+        && activeRetainedWorkspacePosting?.realizationId
+          === posting.realizationId,
+      commit: () => {
+        if (selected.navigation !== null) {
+          activeRetainedWorkspacePosting = selected.navigation.posting;
+          retainedWorkspacePostings.set(
+            selected.navigation.posting.retainedDefinitionId,
+            selected.navigation.posting,
+          );
+          retainedWorkspacePresentation = selected.navigation.presentation;
+        }
+        installManagedSpotlightType(selected.pkg, selected.type);
+        render({ synchronizeUrl: false });
+      },
+      ...(authorityToAcknowledge === null
+        ? {}
+        : {
+            acknowledge: () =>
+              engineClient.catalog
+                .acknowledgeRetainedWorkspaceNavigation(
+                  ...authorityToAcknowledge,
+                ),
+          }),
+    });
+    navigationSettled = settlement.acknowledged;
+    if (!settlement.committed) {
+      throw new Error("Managed Type activation was superseded.");
     }
-    if (selected.navigation !== null) {
-      activeRetainedWorkspacePosting = selected.navigation.posting;
-      retainedWorkspacePostings.set(
-        selected.navigation.posting.retainedDefinitionId,
-        selected.navigation.posting,
-      );
-      retainedWorkspacePresentation = selected.navigation.presentation;
-    }
-    installManagedSpotlightType(
-      selected.pkg,
-      selected.type,
-      navigationSeq,
-    );
+    if (!settlement.current) return;
     const selectionData = loadSelectionData();
-    render({ synchronizeUrl: false });
     await selectionData;
     if (navigationGeneration !== spotlightFocusGeneration) return;
     requestAnimationFrame(() => {
@@ -13451,7 +13464,6 @@ async function projectManagedNavigationType(
 function installManagedSpotlightType(
   pkg: AppPackage,
   type: AppTypeSurface,
-  navigationSeq: number,
 ): void {
   const existing = state.packages.find(candidate =>
     packageIdentityKey(candidate) === packageIdentityKey(pkg));
@@ -13485,9 +13497,6 @@ function installManagedSpotlightType(
   state.typeCursor = filteredTypes().findIndex(
     candidate => candidate.id === state.selectedTypeId,
   );
-  if (!navigationSequence.isCurrent(navigationSeq)) {
-    throw new Error("Managed Type activation was superseded.");
-  }
 }
 
 function executeCommand(

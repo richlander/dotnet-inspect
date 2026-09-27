@@ -42,6 +42,7 @@ interface HarnessOptions {
   pickResult?: (result: SpotlightResult) => void;
   packageSearchError?: () => string;
   packageSearchLoading?: () => boolean;
+  typeSearchNotice?: () => string;
 }
 
 // The library owns the real DOM event/element contract; this harness models only the
@@ -88,6 +89,7 @@ function createHarness({
   pickResult = () => {},
   packageSearchError,
   packageSearchLoading = () => false,
+  typeSearchNotice,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
     spotlightOpen: false,
@@ -115,6 +117,7 @@ function createHarness({
     resetPackageSearch: () => {},
     packageSearchLoading,
     ...(packageSearchError ? { packageSearchError } : {}),
+    ...(typeSearchNotice ? { typeSearchNotice } : {}),
     packageCount: () => 1,
     render: () => {},
     focusAfterDismiss,
@@ -659,6 +662,39 @@ test("package source errors are escaped, coexist with local results and replace 
     error = "";
     assert.match(harness.spotlight.modalHtml(), /Nothing matches/);
   }
+});
+
+test("incomplete Type coverage qualifies empty and nonempty results", () => {
+  const notice = "1 assembly could not be fully evaluated.";
+  const empty = createHarness({
+    scope: "types",
+    query: "Missing",
+    typeSearchNotice: () => notice,
+  });
+  assert.match(empty.spotlight.modalHtml(), /No confirmed matches/);
+  assert.match(empty.spotlight.modalHtml(), /1 assembly could not be fully evaluated/);
+  assert.doesNotMatch(empty.spotlight.modalHtml(), /Nothing matches/);
+
+  const populated = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchNotice: () => notice,
+    searchResults: () => [{
+      kind: "managed-type",
+      identity: "candidate",
+      action: "action",
+      reason: null,
+      name: "JsonSerializer",
+      namespace: "System.Text.Json",
+      library: "System.Text.Json",
+      source: "System.Text.Json@10.0.0",
+      typeKind: "class",
+      ranges: [],
+    }],
+  });
+  const html = populated.spotlight.modalHtml();
+  assert.match(html, /data-sl-managed-type="[^"]*candidate[^"]*"/);
+  assert.match(html, /1 assembly could not be fully evaluated/);
 });
 
 test("Spotlight selection clamps without wrapping and scope cycling wraps", () => {
