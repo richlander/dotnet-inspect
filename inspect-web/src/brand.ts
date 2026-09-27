@@ -358,6 +358,9 @@ export function bindProductNavigation(
       const menu = currentOpenMenu();
       if (!menu) return;
       const button = currentButton(menu);
+      const action = focused instanceof Element
+        ? focused.closest<HTMLElement>("[data-product-action]")
+        : null;
       const item = focused instanceof Element
         ? focused.closest<HTMLElement>("[data-product-destination]")
         : null;
@@ -365,18 +368,33 @@ export function bindProductNavigation(
       const currentDestination = menu.querySelector<HTMLElement>(
         '[data-product-destination][aria-current="page"]')
         ?.dataset.productDestination;
+      const renderedDestination = isProductDestination(currentDestination)
+        ? currentDestination
+        : null;
+      if (button?.id
+        && action
+        && menu.contains(action)
+        && isProductAction(action.dataset.productAction)
+        && actions.currentDestination() === renderedDestination) {
+        replacement = {
+          buttonId: button.id,
+          focus: { kind: "button" },
+          currentDestination: renderedDestination,
+        };
+        return;
+      }
       if (!button?.id
         || !item
         || !menu.contains(item)
         || !isProductDestination(destination)
-        || !isProductDestination(currentDestination)
-        || actions.currentDestination() !== currentDestination) {
+        || !isProductDestination(renderedDestination)
+        || actions.currentDestination() !== renderedDestination) {
         return;
       }
       replacement = {
         buttonId: button.id,
         focus: { kind: "destination", destination },
-        currentDestination,
+        currentDestination: renderedDestination,
       };
     },
     afterRender() {
