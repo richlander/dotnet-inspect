@@ -15162,7 +15162,10 @@ function restorePackageActivityReturnFocus() {
     const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (focusGeneration !== documentFocusGeneration) return;
+        if (focusGeneration !== documentFocusGeneration) {
+          retireApplicationActivityReturnFocus(predecessorEntryId);
+          return;
+        }
         restoreApplicationActivityReturnFocus(predecessorEntryId);
       });
     });
@@ -15175,6 +15178,18 @@ function restorePackageActivityReturnFocus() {
       state.packageActivityReturnFocusPending = false;
     }
   });
+}
+
+function retireApplicationActivityReturnFocus(
+  predecessorEntryId: string | null,
+): void {
+  if (!state.packageActivityReturnFocusPending
+    || state.packageActivityReturnFocus !== "application-activity"
+    || state.packageActivityPredecessorEntryId !== predecessorEntryId) {
+    return;
+  }
+  state.packageActivityReturnFocus = null;
+  state.packageActivityReturnFocusPending = false;
 }
 
 function restoreApplicationActivityReturnFocus(

@@ -197,6 +197,13 @@ export function bindProductNavigation(
     return root.querySelector<HTMLElement>(
       `[data-product-navigation-button][aria-controls="${CSS.escape(id)}"]`);
   };
+  const synchronizeMenus = () => {
+    for (const menu of root.querySelectorAll<HTMLElement>(
+      "[data-product-navigation-menu]")) {
+      synchronizeProductNavigation(menu, actions);
+    }
+  };
+  synchronizeMenus();
   const closeOpenMenu = (restoreFocus: boolean) => {
     const menu = currentOpenMenu();
     if (!menu) return;
@@ -375,6 +382,7 @@ export function bindProductNavigation(
     afterRender() {
       const pending = replacement;
       replacement = null;
+      synchronizeMenus();
       if (!pending
         || actions.currentDestination() !== pending.currentDestination) {
         return;
