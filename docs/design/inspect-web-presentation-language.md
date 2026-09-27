@@ -253,7 +253,8 @@ underline on hover plus an explicit keyboard focus outline.
 
 API renders a compact local heading followed by its primary content. Type API
 uses `Members` with the live visible/total count of actual members (exact
-declarations, so each overload counts). Member API uses
+declarations, so each overload counts). The visible count totals the visible
+rows' overload counts; the total is the selected bucket's Composition Count. Member API uses
 the exact local member name with its kind and overload count or ordinal. These
 headings use the same quiet label hierarchy as the navigation pane rather than
 competing with the subject path. Source is the full-area exception governed by
@@ -270,7 +271,8 @@ controls and bottom row retain the active package coordinate.
 At narrow widths, API header identity and status plus Type Metadata, Package
 Metadata, and Package Dependencies header status and context values may elide
 visually as complete strings. Responsive styling does not selectively remove
-the overload total or ordinal from the rendered or accessible status.
+a member count, overload count, or ordinal from the rendered or accessible
+status.
 
 The narrow content-frame `Types` or `Members` control may occupy the leading
 space of these quiet headers. The local heading remains the accessible name

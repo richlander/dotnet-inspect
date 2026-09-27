@@ -38,7 +38,7 @@ The list shows 8 rows for those 16 members. Each overload family's row, such as
 `Parse 5×` or `Deserialize 5×`, colors its name differently. That text color
 tells the reader that the row holds overloads, and where the difference
 between 8 rows and 16 members lives. It is a different channel from heat,
-which tints a row's background.
+which tints a row's background and colors the parent row's status text.
 
 The reader selects `private`. The Browser requests that Type's Rows under
 `accessibility = private` and shows the 27 private members as 26 rows,
@@ -123,7 +123,7 @@ document followed by a corrective count request is not needed.
 The tracker owns this path. Every step reaches both production hosts unless
 the step says otherwise.
 
-1. Lock this map and the two owner amendments.
+1. Lock this map and its owner amendments.
 2. Share one Metadata admission predicate between extraction and the Count
    kernel, and add the one-pass composition kernel.
 3. Deliver #8430 step 7 with the `accessibility` projection and Composition
@@ -133,11 +133,10 @@ the step says otherwise.
    `Methods (6 logical, 10 overloads)`). This retires the Type-subject
    materialize-then-count path, the Member Index name heuristic, and the
    `N logical` heading.
-5. Inspect Web: show the Composition Count on the chips, and color overload
-   family rows' names differently (a text-color rule for
-   [Inspect Web navigation presentation](inspect-web-navigation-presentation.md#type-navigation),
-   paired with the row's `5×` overload count so the cue does not rely on color
-   alone).
+5. Inspect Web: show the Composition Count on the chips and in the `Members`
+   heading, and color overload family rows' names as
+   [Inspect Web navigation presentation](inspect-web-navigation-presentation.md#type-navigation)
+   states.
    Request Rows per selected bucket, and keep the selection for the session.
    This retires the host-side composition counting and role mapping.
 6. Implementation profiles: show heat on non-public rows (a separate focused

@@ -858,7 +858,11 @@ already carries the kind.
   name and unqualified parameter types, as nested overload rows spell them)
   or a property's, field's, or event's unqualified value type.
 - An overload family's parent row shows its overload count and family-level
-  status; its nested rows follow
+  status, and colors its name differently from single-member rows. The name
+  color marks a row that holds overloads, together with the overload count, so
+  it does not rely on color alone. It uses its own token, distinct from heat's
+  background tint and from the parent row's heat-status tokens. Its nested rows
+  follow
   [Overload rows](inspect-web-implementation-profiles.md#overload-rows).
 - A row without structured detail, such as a graph-only target, keeps its
   kind word. Package and Library navigation may also expose Types where their
