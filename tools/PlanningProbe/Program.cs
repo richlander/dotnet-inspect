@@ -94,6 +94,11 @@ static string Run(string variant, string path, ImmutableArray<byte> image)
         "nlinq-exists" => new MethodRows(peReader.GetMetadataReader())
             .Any<MethodRows, MethodRow, IsCountedAsync>(default) ? "true" : "false",
         "planned-exists" => AsyncMethodCount.PlannedExists(path, peReader) ? "true" : "false",
+        "k-interp" => AsyncClosedQueries.Count(false, path, peReader).ToString(),
+        "k-kernel" => AsyncClosedQueries.Count(true, path, peReader).ToString(),
+        "k-interp-exists" => AsyncClosedQueries.Exists(false, path, peReader) ? "true" : "false",
+        "k-kernel-exists" => AsyncClosedQueries.Exists(true, path, peReader) ? "true" : "false",
+        "k-hand-exists" => HandExistsHoisted(peReader.GetMetadataReader()) ? "true" : "false",
         "c-legacy" => ClassifiedFusion.Legacy(peReader).ToString(),
         "c-hand-separate" => ClassifiedFusion.HandSeparate(peReader).ToString(),
         "c-hand-fused" => ClassifiedFusion.HandFused(peReader).ToString(),
@@ -133,6 +138,23 @@ static int HandFlat(MetadataReader reader)
     }
 
     return count;
+}
+
+static bool HandExistsHoisted(MetadataReader reader)
+{
+    foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+    {
+        TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+        if (!AsyncMethodScope.IsCountedType(reader, type))
+            continue;
+        foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+        {
+            if (AsyncMethodScope.IsCountedMethod(reader, reader.GetMethodDefinition(methodHandle)))
+                return true;
+        }
+    }
+
+    return false;
 }
 
 static bool HandExists(MetadataReader reader)

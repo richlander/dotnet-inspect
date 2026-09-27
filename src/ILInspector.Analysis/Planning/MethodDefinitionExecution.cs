@@ -103,11 +103,25 @@ public sealed class MethodDefinitionExecution
 
             if (anyActive)
             {
-                int passUnits = execution.VisitUnits(
-                    reader,
-                    peReader,
-                    lookup,
-                    visiting);
+                // A pass that closes one open query with nothing else to
+                // coordinate runs as that query's kernel.
+                int passUnits;
+                if (visiting.Length != 1
+                    || visiting[0].HasDependencies
+                    || !visiting[0].Declaration.TryRunKernel(
+                        visiting[0],
+                        reader,
+                        peReader,
+                        lookup,
+                        out passUnits))
+                {
+                    passUnits = execution.VisitUnits(
+                        reader,
+                        peReader,
+                        lookup,
+                        visiting);
+                }
+
                 unitsVisited = Math.Max(unitsVisited, passUnits);
             }
 

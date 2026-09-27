@@ -68,6 +68,29 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>Whether a unit fact settles an Exists terminal for this producer.</summary>
     internal virtual bool Settles(TFact fact) => false;
 
+    /// <summary>
+    /// Runs this producer's whole pass as a closed-query kernel when it is
+    /// the only producer visiting. Returns false when it has none.
+    /// </summary>
+    internal virtual bool RunKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        out int unitsVisited)
+    {
+        unitsVisited = 0;
+        return false;
+    }
+
+    bool IMethodDefinitionProducer.TryRunKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        out int unitsVisited) =>
+        RunKernel(state, reader, peReader, lookup, out unitsVisited);
+
     /// <summary>Whether this producer declares a type-scope predicate.</summary>
     internal virtual bool HasTypeScope => false;
 
@@ -107,6 +130,9 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         int _unitClass;
 
         public ProducerDeclaration Producer => producer;
+
+        /// <summary>Sets the folded accumulator; a kernel folds in its own loop.</summary>
+        internal void SetAccumulator(TAccumulator accumulator) => _accumulator = accumulator;
 
         public bool ClassifiesUnits => _classifies;
 
@@ -171,6 +197,13 @@ internal interface IMethodDefinitionProducer
     MethodDefinitionLayers Layers { get; }
 
     IMethodDefinitionProducerRun CreateRun(UnitFactRetention retention);
+
+    bool TryRunKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        out int unitsVisited);
 }
 
 internal interface IMethodDefinitionProducerRun

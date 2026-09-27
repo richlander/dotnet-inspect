@@ -132,3 +132,53 @@ public static class AsyncMethodCount
             method.Classification is MethodClassification.RuntimeAsync
                 or MethodClassification.StateMachineAsync);
 }
+
+/// <summary>The async question as an open query: a per-method predicate; the type filter is a type scope.</summary>
+public struct AsyncMethodPredicate : IMethodDefinitionPredicate
+{
+    public bool Test(scoped MethodDefinitionView view) =>
+        AsyncMethodScope.IsCountedMethod(view.Reader, view.MethodDefinition);
+}
+
+public sealed class AsyncPredicateProducer : MethodDefinitionPredicateProducer<AsyncMethodPredicate>
+{
+    readonly bool _allowsKernel;
+
+    AsyncPredicateProducer(string identity, bool allowsKernel)
+        : base(identity, 1, 0, MethodDefinitionLayers.Declaration) =>
+        _allowsKernel = allowsKernel;
+
+    public static AsyncPredicateProducer Kernel { get; } = new("Experiment.AsyncPredicate.Kernel", true);
+    public static AsyncPredicateProducer Interpreted { get; } = new("Experiment.AsyncPredicate.Interpreted", false);
+
+    internal override bool AllowsKernel => _allowsKernel;
+    internal override bool HasTypeScope => true;
+    internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) => AsyncMethodScope.IsCountedType(reader, type);
+}
+
+public static class AsyncClosedQueries
+{
+    static readonly Dictionary<(AsyncPredicateProducer, ProducerTerminal), WorkDescription> s_plans = new()
+    {
+        [(AsyncPredicateProducer.Kernel, ProducerTerminal.All)] = Plan(AsyncPredicateProducer.Kernel, ProducerTerminal.All),
+        [(AsyncPredicateProducer.Kernel, ProducerTerminal.Exists)] = Plan(AsyncPredicateProducer.Kernel, ProducerTerminal.Exists),
+        [(AsyncPredicateProducer.Interpreted, ProducerTerminal.All)] = Plan(AsyncPredicateProducer.Interpreted, ProducerTerminal.All),
+        [(AsyncPredicateProducer.Interpreted, ProducerTerminal.Exists)] = Plan(AsyncPredicateProducer.Interpreted, ProducerTerminal.Exists),
+    };
+
+    static WorkDescription Plan(AsyncPredicateProducer producer, ProducerTerminal terminal) =>
+        ProducerPlanner.Plan([new ProducerRequest(producer, terminal)]) is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new InvalidOperationException("The experiment request must plan.");
+
+    public static int Count(bool kernel, string path, PEReader peReader) => Run(kernel, ProducerTerminal.All, path, peReader);
+
+    public static bool Exists(bool kernel, string path, PEReader peReader) => Run(kernel, ProducerTerminal.Exists, path, peReader) > 0;
+
+    static int Run(bool kernel, ProducerTerminal terminal, string path, PEReader peReader)
+    {
+        AsyncPredicateProducer producer = kernel ? AsyncPredicateProducer.Kernel : AsyncPredicateProducer.Interpreted;
+        ProducerResult<int> result = MethodDefinitionExecution.Execute(s_plans[(producer, terminal)], path, peReader).ResultOf(producer);
+        return result.HasValue ? result.Value : throw new InvalidDataException(result.Failure?.Message);
+    }
+}
