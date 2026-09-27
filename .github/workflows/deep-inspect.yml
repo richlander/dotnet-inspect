@@ -256,11 +256,10 @@ jobs:
           - os: macos-latest
             rid: osx-arm64
     runs-on: ${{ matrix.os }}
-    # Run 36263071731 measured the unfiltered CLI suite at 3h10 on Windows and
-    # 3h47 on macOS. Slow integration now runs once on Linux. Keep the existing
-    # cap for the first measured fast-platform runs; the jobs finish when their
-    # selected work finishes rather than consuming the full budget.
-    timeout-minutes: 240
+    # Exact-head run 36287209816 measured the reduced jobs at 46 minutes on
+    # Windows and 61 minutes on macOS. Two hours preserves substantial runner
+    # variance while preventing accidental reintroduction of multi-hour work.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
