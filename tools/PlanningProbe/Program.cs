@@ -106,6 +106,7 @@ static string Run(string variant, string path, ImmutableArray<byte> image)
         "n-hand" => AsyncClosedQueriesK2.HandAtLeast(peReader) ? "true" : "false",
         "n-interp" => AsyncClosedQueriesK2.AtLeast(false, path, peReader) ? "true" : "false",
         "n-kernel" => AsyncClosedQueriesK2.AtLeast(true, path, peReader) ? "true" : "false",
+        "c-typed-fused" => TypedClassifiedFusion.Run(peReader).ToString(),
         "c-legacy" => ClassifiedFusion.Legacy(peReader).ToString(),
         "c-hand-separate" => ClassifiedFusion.HandSeparate(peReader).ToString(),
         "c-hand-fused" => ClassifiedFusion.HandFused(peReader).ToString(),

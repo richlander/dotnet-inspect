@@ -622,3 +622,76 @@ public static class TypeScopedClassifiedFusion
             Value(execution, TypeScopedPointerPresenceProducer.Instance));
     }
 }
+
+/// <summary>K4: the classified request as a typed fused kernel.</summary>
+internal struct MethodKindClassifier : IUnitClassifier<MethodKind>
+{
+    public bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+        ClassifiedScope.IsScopedType(reader, type);
+
+    public MethodKind Classify(ref MethodDefinitionUnit unit)
+    {
+        MetadataReader reader = unit.Reader;
+        MethodDefinition method = unit.MethodDefinition;
+        if (!ClassifiedScope.IsScopedMethod(reader, method))
+            return MethodKind.OutOfScope;
+        if (ClassifiedScope.IsPInvoke(method))
+            return MethodKind.PInvoke;
+        return ClassifiedScope.IsAsync(reader, method) ? MethodKind.Async : MethodKind.Other;
+    }
+}
+
+internal struct PInvokeRowsSink : IFusedSink<MethodKind>
+{
+    public ImmutableArray<int>.Builder Rows;
+
+    public readonly bool IsDone => false;
+
+    public void Accept(ref MethodDefinitionUnit unit, MethodKind key)
+    {
+        if (key == MethodKind.PInvoke)
+            Rows.Add(System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(unit.MethodHandle));
+    }
+}
+
+internal struct AsyncCountSink : IFusedSink<MethodKind>
+{
+    public int Count;
+
+    public readonly bool IsDone => false;
+
+    public void Accept(ref MethodDefinitionUnit unit, MethodKind key)
+    {
+        if (key == MethodKind.Async)
+            Count++;
+    }
+}
+
+internal struct PointerExistsSink : IFusedSink<MethodKind>
+{
+    public bool Found;
+
+    public readonly bool IsDone => Found;
+
+    public void Accept(ref MethodDefinitionUnit unit, MethodKind key)
+    {
+        if (key == MethodKind.Other && ClassifiedScope.HasPointerSignature(unit.Reader, unit.MethodDefinition))
+            Found = true;
+    }
+}
+
+public static class TypedClassifiedFusion
+{
+    public static ClassifiedAnswer Run(PEReader peReader)
+    {
+        var sinks = new FusedPair<PInvokeRowsSink, FusedPair<AsyncCountSink, PointerExistsSink, MethodKind>, MethodKind>
+        {
+            First = new PInvokeRowsSink { Rows = ImmutableArray.CreateBuilder<int>() },
+        };
+        FusedKernel.Run<MethodKindClassifier, MethodKind, FusedPair<PInvokeRowsSink, FusedPair<AsyncCountSink, PointerExistsSink, MethodKind>, MethodKind>>(
+            peReader,
+            ref sinks);
+        ImmutableArray<int> rows = sinks.First.Rows.DrainToImmutable();
+        return new(rows.Length, sinks.Second.First.Count, sinks.Second.Second.Found);
+    }
+}
