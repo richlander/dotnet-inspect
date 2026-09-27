@@ -139,6 +139,58 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Fact]
+    public void LifecycleRequest_PreservesWrapperControlFlowBoundaries()
+    {
+        LibraryBodyAnalysisExecution execution = Analyze();
+
+        ResourceLifecycleOutcome reinitialized = ExceptionalOutcome(
+            execution,
+            "ExternalReadThroughReinitializedMemory");
+        Assert.Single(
+            reinitialized.Boundaries.Where(
+                boundary => boundary.Call.Callee.Name == "Read"));
+
+        ResourceLifecycleOutcome loop = ExceptionalOutcome(
+            execution,
+            "ExternalReadThroughLoopReinitializedMemory");
+        Assert.Single(
+            loop.Boundaries.Where(
+                boundary => boundary.Call.Callee.Name == "Read"));
+        Assert.DoesNotContain(
+            loop.Boundaries,
+            boundary => boundary.Call.Callee.Name == "Observe");
+
+        ResourceLifecycleOutcome conditional = ExceptionalOutcome(
+            execution,
+            "ExternalReadThroughConditionallyResetMemory");
+        Assert.Single(
+            conditional.Boundaries.Where(
+                boundary => boundary.Call.Callee.Name == "Read"));
+
+        ResourceLifecycleOutcome disjoint = ExceptionalOutcome(
+            execution,
+            "DisjointMemoryUseDoesNotConsumeRent");
+        Assert.Equal(
+            ".ctor",
+            Assert.Single(disjoint.Boundaries).Call.Callee.Name);
+    }
+
+    [Fact]
+    public void WrapperControlFlowFixtures_UseInPlaceConstructors()
+    {
+        AssertInPlaceConstructor(
+            "ExternalReadThroughReinitializedMemory");
+        AssertInPlaceConstructor(
+            "ExternalReadThroughLoopReinitializedMemory",
+            minimumInitobjCount: 2);
+        AssertInPlaceConstructor(
+            "ExternalReadThroughConditionallyResetMemory",
+            minimumInitobjCount: 1);
+        AssertInPlaceConstructor(
+            "DisjointMemoryUseDoesNotConsumeRent");
+    }
+
+    [Fact]
     public void LifecycleRequest_CreditsFinallyCleanup()
     {
         LibraryBodyAnalysisExecution execution = Analyze();
@@ -704,6 +756,52 @@ public sealed class ResourceLifecycleAnalysisTests
                 execution.ResourceLifecycle.Methods,
                 result => result.Method.Name == methodName)
                 .Roots);
+
+    static ResourceLifecycleOutcome ExceptionalOutcome(
+        LibraryBodyAnalysisExecution execution,
+        string methodName) =>
+        Assert.Single(
+            Root(execution, methodName).Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+
+    static void AssertInPlaceConstructor(
+        string methodName,
+        int minimumInitobjCount = 0)
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    methodName));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        var instructions = InstructionDecoder.Decode(
+            peReader.GetMethodBody(method.RelativeVirtualAddress)
+                .GetILBytes()
+            ?? []);
+
+        Assert.Contains(
+            Enumerable.Range(0, instructions.Length),
+            index => instructions[index].OpCode
+                    is ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                && instructions
+                    .Skip(index + 1)
+                    .Take(5)
+                    .Any(instruction =>
+                        instruction.OpCode == ILOpCode.Call));
+        Assert.True(
+            instructions.Count(instruction =>
+                instruction.OpCode == ILOpCode.Initobj)
+            >= minimumInitobjCount);
+    }
 
     static MethodIdentity FixtureMethod(
         Guid moduleVersionId,

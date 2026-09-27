@@ -145,6 +145,60 @@ public sealed class ResourceTriageQueryTests
     }
 
     [Fact]
+    public void Execute_PreservesWrapperControlFlowClassification()
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                PreferImplementationAssemblies = true,
+            });
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        var available = Assert.IsType<ResourceTriageResult.Available>(
+            ResourceTriageQuery.Execute(
+                execution.ResourceLifecycle,
+                new FindingSubject("query-tests", "query-tests")));
+
+        AssertExternalRead(
+            available,
+            "ExternalReadThroughReinitializedMemory");
+        ResourceTriageAssessment loop = AssertExternalRead(
+            available,
+            "ExternalReadThroughLoopReinitializedMemory");
+        Assert.DoesNotContain(
+            loop.Boundaries,
+            boundary =>
+                boundary.Evidence.Operation.Name == "Observe");
+        AssertExternalRead(
+            available,
+            "ExternalReadThroughConditionallyResetMemory");
+
+        ResourceTriageAssessment disjoint = Assessment(
+            available,
+            "DisjointMemoryUseDoesNotConsumeRent");
+        Assert.Equal(
+            ResourceTriageActionability.Unknown,
+            disjoint.Actionability);
+        Assert.Equal(
+            ResourceTriageReason.UnclassifiedBoundaryBeforeCleanup,
+            disjoint.Reason);
+        ResourceTriageBoundaryAssessment disjointBoundary =
+            Assert.Single(disjoint.Boundaries);
+        Assert.Equal(
+            ".ctor",
+            disjointBoundary.Evidence.Operation.Name);
+        Assert.Equal(
+            ResourceTriageBoundaryKind.Unknown,
+            disjointBoundary.Kind);
+    }
+
+    [Fact]
     public void Definition_IsUnbounded()
         => Assert.Equal(
             InspectionCost.Unbounded,
@@ -193,4 +247,21 @@ public sealed class ResourceTriageQueryTests
             result.Assessments,
             assessment =>
                 assessment.Source.Payload.Method.Name == methodName);
+
+    static ResourceTriageAssessment AssertExternalRead(
+        ResourceTriageResult.Available result,
+        string methodName)
+    {
+        ResourceTriageAssessment assessment =
+            Assessment(result, methodName);
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            assessment.Actionability);
+        Assert.Single(
+            assessment.Boundaries.Where(boundary =>
+                boundary.Kind
+                    == ResourceTriageBoundaryKind.ExternalInput
+                && boundary.Evidence.Operation.Name == "Read"));
+        return assessment;
+    }
 }
