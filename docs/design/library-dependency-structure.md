@@ -345,6 +345,43 @@ consumer of this document and of each amplitude owner. It is not a new field
 here. Any amplitude that requires a complete population (for example leverage
 on every node) is that owner's focused effort.
 
+## End-to-end arc
+
+This section is context, not normative. The production scenario is an
+**agent** explaining what a library or repository is built from, working in two
+passes over tool output with `jq`:
+
+1. **Vocabulary.** The agent learns the library's name families: which word
+   patterns exist, how widespread they are, how distinctive they are against a
+   corpus, and how much amplitude they carry. It then decides the semantic
+   categories. For example, it reads `Scope` + `Lifetime` + `Site` as
+   dependency injection, or treats `*SR` as infrastructure.
+2. **Numbers.** The agent maps those categories onto the numbers with `jq`:
+   which family depends on which namespace or assembly, and how strongly.
+
+Raw `jq` over thousands of types and edges is impractical for an agent. It
+strains the token budget, forces string parsing, and makes every agent
+tokenize names differently. The tool therefore does the deterministic work:
+word breaking against the runtime oracle, and **summing** by name family. The
+agent's `jq` then maps categories over tens to hundreds of summed rows, not
+thousands of raw ones. Name-family summaries are a separate focused owner
+([#8698](https://github.com/richlander/dotnet-inspect/issues/8698)). They
+consume this document's type edges through the join currency above, which
+lets them sum edges by family (for example `*Command` → `ILInspector.Metadata`)
+without any parsing of display names.
+
+The arc is a partial map, not a parser with an accuracy guarantee. The
+[#8634 survey](https://github.com/richlander/dotnet-inspect/issues/8634)
+measured it:
+
+- 94% of names in the top-100 NuGet corpus break by case alone;
+- a runtime-oracle breaker reaches about 97% on held-out names, and about 99%
+  on ASP.NET Core and Microsoft.Extensions;
+- the families that stand out against the corpus name each stack's
+  architecture.
+
+This document's part of the arc is the shape the numbers are read from.
+
 ## Interpretation boundary
 
 The document can say:
@@ -488,7 +525,8 @@ cache.
 5. **Skill:** the `project-analysis` workflow catalog
    ([#8518](https://github.com/richlander/dotnet-inspect/pull/8518)) gains an
    architecture-narrative workflow that consumes this document and labels
-   interpretations as such.
+   interpretations as such. The workflow runs the two-pass `jq` arc in [End-to-end
+   arc](#end-to-end-arc), together with the name-family summaries from #8698.
 
 Steps 0–2 are shared by both hosts. The CLI reaches observable behavior in
 four steps (0–3), and the skill adds a fifth. Browser/Wasm reaches it in four
