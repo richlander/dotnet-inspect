@@ -204,6 +204,52 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
+        SourceIntentContinuesAfterUnreadablePortablePdbOmission()
+    {
+        byte[] assembly = ReadRealAsset("System.Text.Json.dll");
+        var content = new ManifestListedUnreadablePackageContent(
+            CreatePackageContent(
+                (MaterializedLibraryPath, assembly),
+                (
+                    "lib/net10.0/System.Text.Json.pdb",
+                    "listed but unavailable"u8.ToArray())),
+            "lib/net10.0/System.Text.Json.pdb",
+            throwOnOpen: false);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+        (int methodToken, int ilOffset) =
+            FirstPackageAddress(assembly);
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> inspection =
+            await PackageLibraryAddressInspection.ExecuteAsync(
+                settlement,
+                handoff,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities.SourceLocation),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsNotType<LibraryAddressInspectionOutcome.Failed>(
+            inspection.Content);
+        Assert.Contains(
+            inspection.Diagnostics,
+            diagnostic =>
+                diagnostic.Code
+                    == "package-library-address.portable-pdb.unreadable");
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         ForeignHandoffProducesVisibleMaterializationFailure()
     {
         byte[] archive = CreatePackageArchive(
