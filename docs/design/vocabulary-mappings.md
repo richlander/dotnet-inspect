@@ -171,8 +171,8 @@ complete content.
 
 The API is structurally self-describing, not semantically self-applying.
 
-`csharp.style-choices` is a vocabulary identity. Values such as
-`prefer-long-literal-suffix` are term identities within that vocabulary.
+`csharp.style-choices` is a vocabulary identity.
+`explicit-long-literal-cast` is a term identity within that vocabulary.
 `tier` and `conflict_group` are map identities whose definitions describe
 their targets, cardinality, coverage, and display metadata.
 
