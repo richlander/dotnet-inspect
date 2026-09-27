@@ -507,3 +507,118 @@ public static class GuardedClassifiedFusion
             Value(execution, GuardedPointerPresenceProducer.Instance));
     }
 }
+
+public sealed class TypeScopedKindProducer : MethodDefinitionProducer<MethodKind, int, int>
+{
+    TypeScopedKindProducer() : base("Experiment.TypeScopedKind", 1, 0, MethodDefinitionLayers.Declaration) { }
+
+    public static TypeScopedKindProducer Instance { get; } = new();
+
+    internal override bool HasTypeScope => true;
+
+    internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+        ClassifiedScope.IsScopedType(reader, type);
+
+    internal override MethodKind Visit(scoped MethodDefinitionView view)
+    {
+        if (!ClassifiedScope.IsScopedMethod(view.Reader, view.MethodDefinition))
+            return MethodKind.OutOfScope;
+        if (ClassifiedScope.IsPInvoke(view.MethodDefinition))
+            return MethodKind.PInvoke;
+        return ClassifiedScope.IsAsync(view.Reader, view.MethodDefinition)
+            ? MethodKind.Async
+            : MethodKind.Other;
+    }
+
+    internal override int Seed() => 0;
+    internal override int Accumulate(int accumulator, MethodKind fact) => fact == MethodKind.OutOfScope ? accumulator : accumulator + 1;
+    internal override int Complete(int accumulator, MethodDefinitionCompletionView completion) => accumulator;
+    internal override bool ClassifiesUnits => true;
+    internal override int UnitClass(MethodKind fact) => (int)fact;
+}
+
+/// <summary>Type-scope step: the same guarded questions over a kind producer with a type-scope predicate.</summary>
+public sealed class TypeScopedPInvokeRowsProducer : MethodDefinitionProducer<int, List<int>, ImmutableArray<int>>
+{
+    TypeScopedPInvokeRowsProducer()
+        : base("Experiment.TypeScopedPInvokeRows", 1, 0, MethodDefinitionLayers.Declaration,
+            static () => [new ProducerDependency(TypeScopedKindProducer.Instance, ProducerDependencyKind.VisitNeedsVisit, 1UL << (int)MethodKind.PInvoke)])
+    {
+    }
+
+    public static TypeScopedPInvokeRowsProducer Instance { get; } = new();
+
+    internal override int Visit(scoped MethodDefinitionView view) => view.Token;
+    internal override List<int> Seed() => [];
+
+    internal override List<int> Accumulate(List<int> accumulator, int fact)
+    {
+        accumulator.Add(fact);
+        return accumulator;
+    }
+
+    internal override ImmutableArray<int> Complete(List<int> accumulator, MethodDefinitionCompletionView completion) => [.. accumulator];
+}
+
+public sealed class TypeScopedAsyncCountProducer : MethodDefinitionProducer<bool, int, int>
+{
+    TypeScopedAsyncCountProducer()
+        : base("Experiment.TypeScopedAsyncCount", 1, 0, MethodDefinitionLayers.Declaration,
+            static () => [new ProducerDependency(TypeScopedKindProducer.Instance, ProducerDependencyKind.VisitNeedsVisit, 1UL << (int)MethodKind.Async)])
+    {
+    }
+
+    public static TypeScopedAsyncCountProducer Instance { get; } = new();
+
+    internal override bool Visit(scoped MethodDefinitionView view) => true;
+    internal override int Seed() => 0;
+    internal override int Accumulate(int accumulator, bool fact) => fact ? accumulator + 1 : accumulator;
+    internal override int Complete(int accumulator, MethodDefinitionCompletionView completion) => accumulator;
+}
+
+public sealed class TypeScopedPointerPresenceProducer : MethodDefinitionProducer<bool, bool, bool>
+{
+    TypeScopedPointerPresenceProducer()
+        : base("Experiment.TypeScopedPointerPresence", 1, 0, MethodDefinitionLayers.Declaration,
+            static () => [new ProducerDependency(TypeScopedKindProducer.Instance, ProducerDependencyKind.VisitNeedsVisit, 1UL << (int)MethodKind.Other)])
+    {
+    }
+
+    public static TypeScopedPointerPresenceProducer Instance { get; } = new();
+
+    internal override bool Visit(scoped MethodDefinitionView view) =>
+        ClassifiedScope.HasPointerSignature(view.Reader, view.MethodDefinition);
+
+    internal override bool Seed() => false;
+    internal override bool Accumulate(bool accumulator, bool fact) => accumulator | fact;
+    internal override bool Complete(bool accumulator, MethodDefinitionCompletionView completion) => accumulator;
+    internal override bool Settles(bool fact) => fact;
+}
+
+public static class TypeScopedClassifiedFusion
+{
+    static readonly WorkDescription s_fused =
+        ProducerPlanner.Plan(
+        [
+            new ProducerRequest(TypeScopedPInvokeRowsProducer.Instance),
+            new ProducerRequest(TypeScopedAsyncCountProducer.Instance),
+            new ProducerRequest(TypeScopedPointerPresenceProducer.Instance, ProducerTerminal.Exists),
+        ]) is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new InvalidOperationException("The experiment request must plan.");
+
+    static T Value<T>(MethodDefinitionExecution execution, ProducerDeclaration<T> producer)
+    {
+        ProducerResult<T> result = execution.ResultOf(producer);
+        return result.HasValue ? result.Value! : throw new InvalidDataException(result.Failure?.Message);
+    }
+
+    public static ClassifiedAnswer PlannedFused(string path, PEReader peReader)
+    {
+        MethodDefinitionExecution execution = MethodDefinitionExecution.Execute(s_fused, path, peReader);
+        return new(
+            Value(execution, TypeScopedPInvokeRowsProducer.Instance).Length,
+            Value(execution, TypeScopedAsyncCountProducer.Instance),
+            Value(execution, TypeScopedPointerPresenceProducer.Instance));
+    }
+}

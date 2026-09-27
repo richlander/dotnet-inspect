@@ -329,6 +329,29 @@ public sealed class ProducerPlanningTests
         Assert.Equal(4, execution.Receipt.For(parity).UnitsAttempted);
     }
 
+    [Theory]
+    [InlineData("Sample", "1,2,3")]
+    [InlineData("Other", "")]
+    public void TypeScope_ExcludesWholeTypesForTheProducerAndEveryProducerItGuards(
+        string scopedType,
+        string expectedRows)
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"),
+            Method.Safe("C"));
+        var classifier = new TypeScopedParityProducer("Parity", scopedType);
+        var guarded = new GuardedRowsProducer("Rows", classifier, acceptedClasses: 0b11);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(expectedRows, execution.ResultOf(guarded).Value);
+        int inScope = expectedRows.Length == 0 ? 0 : 3;
+        Assert.Equal(inScope, execution.Receipt.For(classifier).UnitsAttempted);
+        Assert.Equal(inScope, execution.Receipt.For(guarded).UnitsAttempted);
+        Assert.Equal(ProducerOutcome.Complete, execution.Receipt.For(guarded).Outcome);
+    }
+
     [Fact]
     public void ScopeGuard_OnAProducerThatDoesNotClassifyIsAContractViolation()
     {
@@ -679,6 +702,37 @@ public sealed class ProducerPlanningTests
         internal override bool ClassifiesUnits => true;
 
         internal override int UnitClass(int fact) => fact & 1;
+    }
+
+    /// <summary>Classifies by row parity, with a type scope naming the one type in scope.</summary>
+    sealed class TypeScopedParityProducer(string identity, string scopedType)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            reader.StringComparer.Equals(type.Name, scopedType);
     }
 
     /// <summary>Publishes the rows of the units its scope guard accepts.</summary>

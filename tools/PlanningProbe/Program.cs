@@ -102,6 +102,7 @@ static string Run(string variant, string path, ImmutableArray<byte> image)
         "c-planned-fused" => ClassifiedFusion.PlannedFused(path, peReader).ToString(),
         "c-planned-fused-shared" => SharedClassifiedFusion.PlannedFused(path, peReader).ToString(),
         "c-planned-fused-guarded" => GuardedClassifiedFusion.PlannedFused(path, peReader).ToString(),
+        "c-planned-fused-typescoped" => TypeScopedClassifiedFusion.PlannedFused(path, peReader).ToString(),
         "c-planned-async-only" => ClassifiedFusion.PlannedAsyncOnly(path, peReader).ToString(),
         "unsafe-planned" => ILInspector.Analysis.Planning.UnsafeEvidencePresence.HasEvidence(path, image) ? "true" : "false",
         _ => throw new ArgumentException(variant),

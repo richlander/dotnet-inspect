@@ -161,6 +161,7 @@ public sealed class MethodDefinitionExecution
         ImmutableArray<ProducerDependency> declared = state.Run.Producer.Dependencies;
         var runs = new List<IMethodDefinitionProducerRun>();
         var accepted = new List<ulong>();
+        var guardStates = new List<ProducerState>();
         for (int j = 0; j < declared.Length; j++)
         {
             ProducerDependency dependency = declared[j];
@@ -180,10 +181,12 @@ public sealed class MethodDefinitionExecution
 
             runs.Add(guard);
             accepted.Add(dependency.AcceptedUnitClasses);
+            guardStates.Add(_states[state.Dependencies[j]]);
         }
 
         state.GuardRuns = [.. runs];
         state.GuardClasses = [.. accepted];
+        state.GuardStates = [.. guardStates];
     }
 
     /// <summary>
@@ -232,6 +235,26 @@ public sealed class MethodDefinitionExecution
         {
             TypeDefinition typeDefinition =
                 reader.GetTypeDefinition(typeHandle);
+
+            // Type scope: a producer's own type predicate and its guards'
+            // type scopes, in visit order so guards are decided first. When
+            // no active producer has the type in scope, its methods are
+            // skipped as a whole.
+            bool anyInScope = false;
+            foreach (ProducerState state in visiting)
+            {
+                if (!state.IsActive)
+                    continue;
+                bool inScope = TypeInScope(state, reader, typeHandle, typeDefinition);
+                foreach (ProducerState guard in state.GuardStates)
+                    inScope &= guard.TypeInScopeNow;
+                state.TypeInScopeNow = inScope;
+                anyInScope |= inScope && state.IsActive;
+            }
+
+            if (!anyInScope)
+                continue;
+
             foreach (MethodDefinitionHandle methodHandle
                      in typeDefinition.GetMethods())
             {
@@ -248,8 +271,10 @@ public sealed class MethodDefinitionExecution
                     if (!state.IsActive)
                         continue;
 
-                    // A unit outside a declared scope guard is not visited.
-                    if (state.GuardRuns.Length != 0 && !InScope(state, unitToken))
+                    // A unit outside the producer's type scope or a declared
+                    // scope guard is not visited.
+                    if (!state.TypeInScopeNow
+                        || (state.GuardRuns.Length != 0 && !InScope(state, unitToken)))
                     {
                         anyActive = true;
                         continue;
@@ -270,6 +295,31 @@ public sealed class MethodDefinitionExecution
         }
 
         return visited;
+    }
+
+    static bool TypeInScope(
+        ProducerState state,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition)
+    {
+        if (!state.Run.HasTypeScope)
+            return true;
+        try
+        {
+            return state.Run.TypeInScope(reader, typeDefinition);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                MetadataTokens.GetToken(typeHandle),
+                "(type scope)",
+                $"{ex.GetType().Name}: {ex.Message}");
+            state.IsActive = false;
+            return false;
+        }
     }
 
     static bool InScope(ProducerState state, int unitToken)
@@ -479,6 +529,11 @@ public sealed class MethodDefinitionExecution
         public IMethodDefinitionProducerRun[] GuardRuns { get; set; } = [];
 
         public ulong[] GuardClasses { get; set; } = [];
+
+        public ProducerState[] GuardStates { get; set; } = [];
+
+        /// <summary>Whether the type being visited is in this producer's scope.</summary>
+        public bool TypeInScopeNow = true;
 
         public bool HasBodyLayer { get; } =
             (declaration.Layers & MethodDefinitionLayers.Body) != 0;

@@ -68,6 +68,15 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>Whether a unit fact settles an Exists terminal for this producer.</summary>
     internal virtual bool Settles(TFact fact) => false;
 
+    /// <summary>Whether this producer declares a type-scope predicate.</summary>
+    internal virtual bool HasTypeScope => false;
+
+    /// <summary>
+    /// The type-scope predicate: units in a type outside it are out of this
+    /// producer's scope and of every producer guarded by it.
+    /// </summary>
+    internal virtual bool TypeInScope(MetadataReader reader, TypeDefinition type) => true;
+
     /// <summary>Whether this producer classifies units for dependents' scope guards.</summary>
     internal virtual bool ClassifiesUnits => false;
 
@@ -100,6 +109,11 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         public ProducerDeclaration Producer => producer;
 
         public bool ClassifiesUnits => _classifies;
+
+        public bool HasTypeScope { get; } = producer.HasTypeScope;
+
+        public bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            producer.TypeInScope(reader, type);
 
         public bool UnitClassIn(int unitToken, ulong acceptedClasses) =>
             _classToken == unitToken
@@ -164,6 +178,10 @@ internal interface IMethodDefinitionProducerRun
     ProducerDeclaration Producer { get; }
 
     bool ClassifiesUnits { get; }
+
+    bool HasTypeScope { get; }
+
+    bool TypeInScope(MetadataReader reader, TypeDefinition type);
 
     /// <summary>Whether this run classified <paramref name="unitToken"/> into one of <paramref name="acceptedClasses"/>.</summary>
     bool UnitClassIn(int unitToken, ulong acceptedClasses);
