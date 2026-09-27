@@ -447,11 +447,16 @@ The explicit compact route defined by
 [Progressive JSONL Delivery](progressive-jsonl-delivery.md) preserves those
 semantic checks without returning the full Browser Document a second time.
 Its callbacks carry positional row batches plus the existing typed non-row
-events; terminal settlement returns an envelope containing Summary,
-descriptor-bound transport accounting, Share, and diagnostics. The Browser
-settles its page state from the streamed rows, failures, and assessments plus
-that terminal content. The existing object route retains the complete
-`BrowserPackageQueryDocument` during comparison.
+events. Before terminal settlement, the managed Package Query adapter uses
+owner-issued typed outcome identity and multiplicity to publish any failure or
+assessment present only in the completed Document. This includes the
+operation-deadline `NotEvaluated` outcome that can occur before the semantic
+sink exists. Terminal settlement follows those exactly-once handoffs and
+returns an envelope containing Summary, descriptor-bound transport accounting,
+Share, and diagnostics. The Browser settles its page state from the streamed
+rows, failures, and assessments plus that terminal content. The existing
+object route retains the complete `BrowserPackageQueryDocument` during
+comparison.
 
 This direct callback is the shared stream contract's transitional first-adopter
 path. The Package Query controller's feature-owned generation guard suppresses

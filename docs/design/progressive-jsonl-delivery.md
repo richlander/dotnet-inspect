@@ -465,11 +465,47 @@ terminal failure or cancellation remains authoritative.
 ## Terminal projection and duplicate-work retirement
 
 The current object route returns `BrowserPackageQueryInspection`, whose
-terminal `BrowserPackageQueryDocument` repeats Results, Failures, and
-library-literal assessments already observed through callbacks. Retaining that
-Browser wire projection on the compact route would preserve the dominant
-duplicate payload and serialization work while merely changing the earlier
-callbacks.
+terminal `BrowserPackageQueryDocument` repeats Results and most Failures and
+library-literal assessments already observed through callbacks. It can also
+contain terminal-only durable outcomes. In particular, an assembly-semantic
+operation deadline can construct `NotEvaluated` assessment and failure values
+before the underlying semantic sink is created.
+
+The compact route cannot discard the terminal arrays until those outcomes have
+an exactly-once nonterminal handoff.
+
+### Terminal-only durable reconciliation
+
+The Package Query adapter retains an owner-issued ledger of every failure and
+assessment accepted by the nonterminal callback. The identity and multiplicity
+come from typed Package Query outcome evidence; they are not reconstructed
+from display messages, JSON spellings, Browser-formatted keys, or collection
+position.
+
+After the host-neutral Package Query operation returns its completed Document
+and before terminal settlement, the adapter:
+
+1. flushes any buffered JSONL rows;
+2. identifies assessment occurrences in terminal document order that the
+   callback ledger does not contain;
+3. publishes those assessments through the ordinary durable nonterminal path;
+4. identifies failure occurrences in terminal document order that the callback
+   ledger does not contain;
+5. publishes those failures through the same path; and
+6. returns terminal success only after every reconciliation callback succeeds.
+
+This preserves the current page-observable ordering, which reconciles
+assessments before failures. Already delivered outcomes are not repeated, and
+legitimate duplicate failures retain their multiplicity. Callback failure
+during reconciliation follows the ordinary managed bridge failure path and
+cannot produce summary-only success.
+
+The owner may implement this by retaining explicit delivery receipts or by
+constructing an owner-issued terminal-only outcome sequence while composing the
+Document. A comparison of display projections is not sufficient. The existing
+library-literal operation-deadline case is the contract-defining witness: its
+assessment sink is empty while its completed Document contains one
+`NotEvaluated` assessment and corresponding failure.
 
 The compact route instead returns:
 
@@ -485,7 +521,8 @@ array.
 The page constructs its settled view from:
 
 - rows decoded atomically from accepted JSONL batches;
-- separately streamed typed failures and assessments;
+- separately streamed typed failures and assessments, including the managed
+  terminal-only reconciliation handoff;
 - the terminal semantic Summary;
 - the returned Share and diagnostics; and
 - the verified descriptor and transport accounting.
@@ -642,6 +679,11 @@ Implementation must gate:
   failure without publishing an earlier record from the rejected batch;
 - completion descriptor and transport accounting matching all accepted
   batches;
+- a library-literal operation deadline whose empty semantic assessment sink is
+  reconciled into exactly one `NotEvaluated` assessment and its corresponding
+  failure before terminal settlement;
+- ordinary streamed assessments and duplicate failures not being repeated by
+  terminal reconciliation;
 - compact terminal settlement containing Summary, Share, diagnostics, and
   transport accounting without a repeated Browser row, failure, or assessment
   array;
