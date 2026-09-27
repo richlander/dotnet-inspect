@@ -262,6 +262,9 @@ public sealed record SourceViewLine
 
 public sealed record SourceView
 {
+    private readonly DecodedTextDocument _document;
+    private ImmutableArray<SourceViewLine>? _lines;
+
     internal SourceView(
         SourceViewBinding binding,
         SourceViewOrigin origin,
@@ -270,7 +273,7 @@ public sealed record SourceView
         SourceViewRequest request,
         SourceViewAuthoredAttemptEvidence? authoredAttempt,
         SourceViewTypeMappingEvidence? typeMapping,
-        ImmutableArray<SourceViewLine> lines)
+        DecodedTextDocument document)
     {
         Binding = binding ?? throw new ArgumentNullException(nameof(binding));
         Origin = origin ?? throw new ArgumentNullException(nameof(origin));
@@ -279,11 +282,8 @@ public sealed record SourceView
         Request = request ?? throw new ArgumentNullException(nameof(request));
         AuthoredAttempt = authoredAttempt;
         TypeMapping = typeMapping;
-        Lines = lines.IsDefaultOrEmpty
-            ? throw new ArgumentException(
-                "A Source view must contain at least one line.",
-                nameof(lines))
-            : lines;
+        _document =
+            document ?? throw new ArgumentNullException(nameof(document));
 
         bool originMatchesRequest = (request, origin) switch
         {
@@ -339,7 +339,60 @@ public sealed record SourceView
 
     public SourceViewTypeMappingEvidence? TypeMapping { get; }
 
-    public ImmutableArray<SourceViewLine> Lines { get; }
+    public ImmutableArray<SourceViewLine> Lines
+    {
+        get
+        {
+            if (_lines is { } lines)
+                return lines;
+
+            lock (_document)
+            {
+                return _lines ??=
+                    SourceViewLineProjection.Materialize(_document);
+            }
+        }
+    }
+
+    internal DecodedTextDocument Document => _document;
+
+    public bool Equals(SourceView? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && EqualityComparer<SourceViewBinding>.Default.Equals(
+            Binding,
+            other.Binding)
+        && EqualityComparer<SourceViewOrigin>.Default.Equals(
+            Origin,
+            other.Origin)
+        && Language == other.Language
+        && EqualityComparer<SourceViewIdentity>.Default.Equals(
+            Identity,
+            other.Identity)
+        && EqualityComparer<SourceViewRequest>.Default.Equals(
+            Request,
+            other.Request)
+        && EqualityComparer<SourceViewAuthoredAttemptEvidence?>.Default.Equals(
+            AuthoredAttempt,
+            other.AuthoredAttempt)
+        && EqualityComparer<SourceViewTypeMappingEvidence?>.Default.Equals(
+            TypeMapping,
+            other.TypeMapping)
+        && Lines.Equals(other.Lines);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Binding);
+        hash.Add(Origin);
+        hash.Add(Language);
+        hash.Add(Identity);
+        hash.Add(Request);
+        hash.Add(AuthoredAttempt);
+        hash.Add(TypeMapping);
+        hash.Add(Lines);
+        return hash.ToHashCode();
+    }
 }
 
 public abstract record SourceViewProjection<TSource>
@@ -513,7 +566,7 @@ public static class SourceViewInspection
             new SourceViewRequest.Type(available.Request),
             authoredAttempt,
             typeMapping,
-            Lines(text));
+            new DecodedTextDocument(text));
 
     private static SourceView Create(
         AssemblyMemberSourceEntry.Available available,
@@ -529,7 +582,7 @@ public static class SourceViewInspection
             new SourceViewRequest.Member(available.Request),
             authoredAttempt,
             typeMapping: null,
-            Lines(text));
+            new DecodedTextDocument(text));
 
     private static SourcePhysicalArtifact Artifact(
         AssemblyPdbSourceProvenance provenance,
@@ -609,27 +662,30 @@ public static class SourceViewInspection
             inspection.AdditionalDocuments);
     }
 
-    private static ImmutableArray<SourceViewLine> Lines(string text)
+}
+
+internal static class SourceViewLineProjection
+{
+    internal static SourceViewLine Create(DecodedTextLine line) =>
+        new(
+            line.Number,
+            line.Start,
+            line.Content.ToString(),
+            SourceTerminator(line.Terminator));
+
+    internal static ImmutableArray<SourceViewLine> Materialize(
+        DecodedTextDocument document)
     {
-        var document = new DecodedTextDocument(text);
         DecodedTextBatch batch = document.Pull(
             document.Start,
             DecodedTextPullLimits.ForCandidateRows(int.MaxValue));
         if (!batch.IsComplete)
         {
             throw new InvalidOperationException(
-                "Unbounded decoded-text projection did not complete.");
+                "Complete decoded-text projection did not complete.");
         }
 
-        return
-        [
-            .. batch.Lines.Select(
-                static line => new SourceViewLine(
-                    line.Number,
-                    line.Start,
-                    line.Content.ToString(),
-                    SourceTerminator(line.Terminator))),
-        ];
+        return [.. batch.Lines.Select(Create)];
     }
 
     private static SourceViewLineTerminator SourceTerminator(

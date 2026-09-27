@@ -4,6 +4,8 @@
 
 This document owns the Source-result composition tracked by
 [issue #8281](https://github.com/richlander/dotnet-inspect/issues/8281).
+The host-neutral line-operation composition is implemented under
+[issue #8723](https://github.com/richlander/dotnet-inspect/issues/8723).
 It defines the third production cardinality reference: one resolved Source
 target view carries scalar identity and provenance facts beside one ordered
 `Lines` inventory that can require continuation. An authored view separately
@@ -175,6 +177,18 @@ must not infer it from segment size, mounted rows, or continuation presence.
 Rows and Count use the same Source request, content binding, ordered line
 population, and semantic selection.
 
+`SourceViewLineOperation` retains one completed
+`InspectionEnvelope<SourceView>`, its `DecodedTextDocument`, the next
+`DecodedTextPosition`, and one
+`QueryOverflowExecution<SourceViewLine>`. It does not add retained execution
+state to `SourceHouseReceipt`, which remains resource-free settlement
+evidence.
+
+`SourceViewLineVocabulary` owns the executable `Number`, `Start`, `Content`,
+and `Terminator` row keys. The operation accepts only a resolved plan issued
+by that vocabulary. QueryOverflow admission runs before any decoded line is
+pulled, so an unsupported plan declines without line work.
+
 The shared decoded-text substrate makes Rows pull-driven: one consumer
 execution requests the next bounded segment and no later line rows are
 projected or transferred until another execution resumes the result. For
@@ -216,16 +230,31 @@ A continuation does not prove incomplete semantic selection, population
 exhaustion, or exact Count. Different physical segment sizes preserve the same
 rows, order, Count, completion, and continuation meaning.
 
-An incompatible request, binding, semantic selection, or expired receipt fails
-visibly. The operation never silently restarts at line one or resumes against
-newly acquired content.
+An incompatible request, binding, semantic selection, generation, or expired
+receipt fails visibly. The operation never silently restarts at line one or
+resumes against newly acquired content. Its process-local continuation binds
+the Source view binding to one operation identity and generation; the retained
+operation binds those values to the unchanged request, decoded position, and
+resolved row plan.
 
-Source composes the receipt supplied by the shared decoded-text substrate with
-its view binding and request compatibility. Source does not introduce a second
-continuation format or independently implement generic segment accounting.
+Source composes its continuation from the decoded-text position and
+QueryOverflow checkpoint without exposing either as a second host receipt.
+Source does not independently implement generic segment accounting.
 Pull-driven Rows does not imply that checksum verification, source acquisition,
 or decompilation can publish an unsettled view; those operations may complete
 before the first row becomes available.
+
+For each pull, QueryOverflow first selects the maximum candidate-row demand
+from Source's ceiling, host final-row credit, and semantic Head remainder.
+Source then pulls complete lines under all three Source limits, projects only
+that batch, and advances QueryOverflow. The decoded position commits only the
+consumed prefix. Current admitted plans consume the whole requested batch;
+the composition still recovers the exact shorter position if a later admitted
+plan consumes only a prefix.
+
+`SourceView.Lines` remains a one-time complete compatibility materialization
+for old hosts. Constructing the view no longer materializes that array, and
+`SourceViewLineOperation` never reads it.
 
 ## Acquisition, provider, and failure preservation
 
@@ -343,6 +372,56 @@ supplement it with CRLF, CR, NEL, line separator, paragraph separator, no final
 terminator, a final terminator, an empty document, an over-bound line, stale
 continuation, and incompatible-request cases.
 
+### Small-document composition cost
+
+[`tools/SourceLineOperationBenchmark.cs`](../../tools/SourceLineOperationBenchmark.cs)
+preserves an observational post-settlement comparison. It constructs settled
+Source views outside the measured interval and compares complete compatibility
+materialization through `SourceView.Lines` with Source line-operation
+admission, one or more complete pulls, and QueryOverflow row snapshots. Query
+resolution is outside both intervals. Every sample consumes an identical
+semantic checksum.
+
+The local comparison used 31 fresh-process median samples per cell, no warmup,
+1-, 10-, and 100-line ASCII documents, and the first 1, 2, 5, or 10
+operations. The endpoint results summarize the complete matrix:
+
+| Runtime | Lines | First operation ratio | First 10 operations ratio | First-operation allocation delta | 10-operation allocation delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CoreCLR | 1 | 1.466 | 1.469 | +568 B | +4,960 B |
+| CoreCLR | 10 | 1.430 | 1.463 | +712 B | +6,400 B |
+| CoreCLR | 100 | 1.450 | 1.456 | +2,152 B | +20,800 B |
+| NativeAOT | 1 | 1.029 | 1.045 | +856 B | +5,248 B |
+| NativeAOT | 10 | 1.037 | 1.064 | +1,000 B | +6,688 B |
+| NativeAOT | 100 | 1.035 | 1.058 | +2,440 B | +21,088 B |
+
+Across all 12 cells, the CoreCLR ratio was 1.414-1.485 and the NativeAOT
+ratio was 1.028-1.064. CoreCLR direct totals were approximately 3.9-4.4 ms
+and composed totals 5.6-6.4 ms from the first through tenth operation, so
+one-time JIT surface dominated the measured difference. NativeAOT shows the
+smaller recurring execution premium after ahead-of-time compilation.
+Allocation deltas grow with executions and rows because QueryOverflow retains
+detached execution/request state and snapshots published rows.
+
+Reproduce one process sample with:
+
+```bash
+dotnet run tools/SourceLineOperationBenchmark.cs -c Release -- \
+  direct 10 1
+dotnet run tools/SourceLineOperationBenchmark.cs -c Release --no-build -- \
+  overflow 10 1
+dotnet publish tools/SourceLineOperationBenchmark.cs -c Release \
+  -o /tmp/source-line-operation-benchmark
+/tmp/source-line-operation-benchmark/SourceLineOperationBenchmark \
+  direct 10 1
+```
+
+Each output row is elapsed Stopwatch ticks, Stopwatch frequency, allocated
+bytes on the current thread, and semantic checksum. These measurements explain
+the selected composition's cost; they are not production latency thresholds
+or cross-platform performance claims. Browser/Wasm composition cost remains
+unmeasured until the Browser adoption slice.
+
 ## Focused delivery sequence
 
 Implementation proceeds through focused slices:
@@ -353,8 +432,9 @@ Implementation proceeds through focused slices:
 2. [Decoded text document](decoded-text-document.md) adds the shared immutable
    decoded-text document, bounded pull, source-local position, and visible
    line-limit failure under #8319.
-3. Compose the existing host-neutral Source view/artifact model and completed
-   type and member Source envelopes with that shared substrate. Gate exact
+3. [Issue #8723](https://github.com/richlander/dotnet-inspect/issues/8723)
+   composes the existing host-neutral Source view/artifact model and completed
+   type and member Source envelopes with that shared substrate. It gates exact
    reconstruction, Source request compatibility, and failure preservation
    without changing hosts.
 4. Adopt the composed operation in CLI type and member `Source`, preserve complete
@@ -375,10 +455,11 @@ acquisition, Query Space, or the viewer.
 | --- | --- | --- |
 | `SourceViewLinesReconstructExactDecodedText` | Every supported terminator, empty/final-empty line, line number, and UTF-16 start offset reconstruct the exact decoded view text. | Verified in Release by `SourceViewInspectionTests`. |
 | `SourceViewProjectionDistinguishesArtifactsAndPreservesEvidence` | The four view kinds are explicit; authored origins retain their physical artifact and member mapping; decompiled origins have no artifact; a declaration excerpt does not masquerade as its physical file; PDB/decompiled success and non-success preserve facts, Share, diagnostics, mapping, and typed failures. | Verified in Release by `SourceViewInspectionTests`. |
-| `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
-| `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
-| `SourceLineSegmentsRespectExecutionBounds` | Successful pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line fails visibly without returning a partial row or advancing its position. | Unverified until slices 2 and 3. |
-| `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
+| `SourceLineOperationPreservesMeaningAcrossPullBounds` | Exact Count equals the completely drained ordered line population; different delivery bounds preserve lines, order, completion, reconstruction, and continuation meaning under one content binding. | Verified in Release by `SourceViewLineOperationTests`. |
+| `SourceLineSegmentsRespectExecutionBounds` | Successful pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line fails visibly without returning a partial row or advancing its position. | Verified in Release by `SourceViewLineOperationTests`. |
+| `SourceLineContinuationRejectsIncompatibleUse` | Stale, terminal, different-binding, and different-selection process-local receipts fail without restarting. | Verified in Release by `SourceViewLineOperationTests`; cross-process expiry remains outside this slice. |
+| `SourceLineHeadPullsOnlyTheRequiredPrefix` | Head completes after its exact required candidate prefix without scanning or publishing later Source lines. | Verified in Release by `SourceViewLineOperationTests`. |
+| `SourceLineOperationDeclinesAndCancelsVisibly` | Unsupported plans decline before line work, and cancellation remains a visible terminal Source operation state. | Verified in Release by `SourceViewLineOperationTests`. |
 | `CliSourceDrainsContinuationWithoutChangingOutput` | CLI default output equals the pre-adoption decoded document, while Count and Rows observe source lines. | Unverified until slice 4. |
 | `BrowserSourceRequestsContinuedLines` | Published Browser/Wasm obtains the same envelope and document facts, requests later line segments instead of receiving complete text first, and keeps authored and decompiled views independently selectable and lazy. | Unverified until slice 5. |
 | `NpgsqlConnectionSourceRequiresContinuation` | The real checksum-verified Npgsql document requires and resumes at least one continuation in both production hosts. | Unverified until slice 6. |

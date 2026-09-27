@@ -12,9 +12,11 @@ source-local position, and line-limit failure contracts. The existing Source
 view projection is the first adopter: it now uses this substrate for its
 complete line inventory instead of maintaining a second line parser.
 
-SourceHouse continuation, QueryOverflow composition, host-visible receipts,
-CLI draining, Browser delivery, and package README adoption remain unverified
-until their focused successor slices land.
+Source line-operation composition with QueryOverflow and a process-local
+Source continuation is implemented under
+[#8723](https://github.com/richlander/dotnet-inspect/issues/8723).
+CLI draining, Browser delivery, cross-process receipt routing, and package
+README adoption remain unverified until their focused successor slices land.
 
 ## Owner and exact claim
 

@@ -10,9 +10,10 @@ initial library implementation is tracked by
 source-order Rows with no selection or Head, exact Count with source-order
 predicates, and callback-free Head before source completion. It declines
 unsupported plans before source work. Completion-only plans, detached
-cross-process receipts, the source/checkpoint state model, and production
-adoption remain **unverified** until their named Release gate or adoption
-lands.
+cross-process receipts, and production-host adoption remain **unverified**
+until their named Release gate or adoption lands. The first source/checkpoint
+state composition is implemented for Source lines under
+[#8723](https://github.com/richlander/dotnet-inspect/issues/8723).
 
 [Query Space Composition](query-space-composition.md) remains authoritative
 for structural query composition, semantic selection, work bounds, Rows,
