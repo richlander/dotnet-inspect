@@ -317,6 +317,60 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
     }
 
     [Fact]
+    public async Task MatchInspection_CandidateLimitPreservesPopulationOutsideSeedType()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Zulu", "Compute4");
+
+        InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+            inspection =
+                StructuralMatchDiscoveryInspection.Execute(
+                    fixture.Snapshot(),
+                    seed,
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Alpha")),
+                    new StructuralCloneRetrievalLimits(
+                        MaximumMethods: 1),
+                    TestContext.Current.CancellationToken);
+        var limited = Assert.IsType<
+            StructuralMatchDiscoveryInspectionResult.LimitReached>(
+                inspection.Content);
+
+        Assert.Equal(5, limited.InputMethods);
+        Assert.Equal(5, limited.SuppressedCandidates);
+    }
+
+    [Fact]
+    public async Task MatchInspection_PreservesSeedFailureSuppression()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Alpha", "Compute7");
+
+        InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+            inspection =
+                StructuralMatchDiscoveryInspection.Execute(
+                    fixture.Snapshot(),
+                    seed,
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Zulu")),
+                    new StructuralCloneRetrievalLimits(
+                        MaximumMethods: 10,
+                        ComparisonLimits:
+                            new StructuralCloneComparisonLimits(
+                                MaximumInstructions: 1)),
+                    TestContext.Current.CancellationToken);
+        var available = Assert.IsType<
+            StructuralMatchDiscoveryInspectionResult.Available>(
+                inspection.Content);
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.LimitReached,
+            available.Retrieval.Disposition);
+        Assert.Equal(1, available.Retrieval.Receipt.SuppressedCandidates);
+        Assert.Equal(1, available.Receipt.SuppressedCandidates);
+    }
+
+    [Fact]
     public async Task MatchInspection_PreservesEmptyCandidatePopulation()
     {
         await using Fixture fixture = await Fixture.CreateAsync();

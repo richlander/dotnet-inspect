@@ -374,6 +374,12 @@ visible. Reaching one of those limits cannot become a complete top-N result;
 the result distinguishes an intentional returned-row limit from incomplete
 candidate coverage.
 
+Detailed retrieval evidence also retains the exact number of seed MethodDefs
+present in each same-image candidate population. A consumer translating an
+atomic candidate-population rejection can therefore report the omitted
+candidate count without assuming that the selected population contains the
+seed.
+
 Per-library bounds alone do not bound the search. A request also binds:
 
 - the greatest number of breadth-admitted participants one search evaluates;

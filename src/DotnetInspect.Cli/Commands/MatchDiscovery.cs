@@ -390,6 +390,12 @@ internal static class MatchDiscovery
                 return 1;
             }
 
+            if (options.Count && completed)
+            {
+                CountOutput.WriteCount(selectedCandidates.Count);
+                return 0;
+            }
+
             var replay =
                 new MatchDiscoveryReplayRequest(
                     tokensIndexCallerImage
@@ -415,13 +421,7 @@ internal static class MatchDiscovery
                 BuildNames(namesSurface, candidateImage),
                 selectedCandidates);
 
-            if (options.Count
-                && view.Document.Disposition
-                    == nameof(StructuralCloneRetrievalDisposition.Completed))
-            {
-                CountOutput.WriteCount(selectedCandidates.Count);
-            }
-            else if (options.JsonOutput)
+            if (options.JsonOutput)
             {
                 JsonOutputHelper.Write(
                     view.Document,

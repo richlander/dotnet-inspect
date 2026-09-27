@@ -156,13 +156,21 @@ public static class StructuralMatchDiscoveryInspection
                 == StructuralCloneSearchFailureKind
                     .CandidatePopulationLimitReached)
             {
+                int seedMethodsInCandidatePopulation =
+                    candidate.SeedMethodsInCandidatePopulation
+                    ?? throw new InvalidOperationException(
+                        "Detailed Match evidence did not retain seed "
+                            + "membership in the candidate population.");
                 return new StructuralMatchDiscoveryInspectionResult
                     .LimitReached(
                         result.SeedSubject,
                         candidateSubject,
                         seed.Seed.Method,
                         candidate.CandidateMethods,
-                        Math.Max(0, candidate.CandidateMethods - 1),
+                        Math.Max(
+                            0,
+                            candidate.CandidateMethods
+                                - seedMethodsInCandidatePopulation),
                         failure);
             }
 
@@ -191,10 +199,10 @@ public static class StructuralMatchDiscoveryInspection
                 rawReceipt.InputMethods,
                 rawReceipt.ProcessedMethods,
                 SuppressedCandidates:
+                    rawReceipt.SuppressedCandidates
+                    +
                     result.Receipt.RankedPairs
-                    - candidates.Length
-                    + rawReceipt.LimitReachedMethods
-                    + rawReceipt.FailedMethods,
+                    - candidates.Length,
                 rawReceipt.EligibleMethods,
                 rawReceipt.UnsupportedMethods,
                 rawReceipt.LimitReachedMethods,

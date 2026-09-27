@@ -813,6 +813,11 @@ public sealed record StructuralCloneSearchSeedCoverage(
 /// The seed-candidate pairs this participant charged against the search's
 /// aggregate retrieval budget.
 /// </param>
+/// <param name="SeedMethodsInCandidatePopulation">
+/// The exact seed MethodDefs also present in this participant's candidate
+/// population when detailed retrieval evidence was requested. Summary-only
+/// searches do not retain this Match-specific accounting fact.
+/// </param>
 /// <param name="AnalysisBlockers">
 /// The distinct Analysis-issued blockers that omitted candidate methods of
 /// this participant, aggregated over every seed and every retrieval chunk run
@@ -826,6 +831,7 @@ public sealed record StructuralCloneSearchLibraryCoverage(
     bool Admitted,
     int CandidateMethods,
     int DiscoveredMethods,
+    int? SeedMethodsInCandidatePopulation,
     long RetrievalPairs,
     long NameComparisonWork,
     ImmutableArray<StructuralCloneSearchFailure> Failures,
@@ -1258,6 +1264,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                 Admitted: true,
                 CandidateMethods: 0,
                 DiscoveredMethods: 0,
+                SeedMethodsInCandidatePopulation: null,
                 RetrievalPairs: 0,
                 NameComparisonWork: 0,
                 [
@@ -1272,6 +1279,13 @@ public static class WorkspaceStructuralCloneSearchQuery
 
         ImmutableArray<StructuralCloneSearchFailure> failures =
             population.Failures;
+        int? seedMethodsInCandidatePopulation =
+            search.RetainsDetailedRetrievals
+                ? sameImage
+                    ? population.Methods.Count(
+                        search.Seeds.Handles.Contains)
+                    : 0
+                : null;
         if (!population.OverRetrievalBudget
             && population.Methods.Length
                 > search.Limits.MaximumCandidateMethods)
@@ -1283,6 +1297,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                 Admitted: true,
                 population.InspectedMethods,
                 population.Methods.Length,
+                seedMethodsInCandidatePopulation,
                 RetrievalPairs: 0,
                 population.NameComparisonWork,
                 failures.Add(
@@ -1307,6 +1322,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                 Admitted: false,
                 population.InspectedMethods,
                 population.Methods.Length,
+                seedMethodsInCandidatePopulation,
                 RetrievalPairs: 0,
                 population.NameComparisonWork,
                 failures.Add(
@@ -1391,6 +1407,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             Admitted: true,
             population.InspectedMethods,
             population.Methods.Length,
+            seedMethodsInCandidatePopulation,
             pairs,
             population.NameComparisonWork,
             failures,
@@ -1501,6 +1518,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             Admitted: true,
             CandidateMethods: 0,
             DiscoveredMethods: 0,
+            SeedMethodsInCandidatePopulation: null,
             RetrievalPairs: 0,
             NameComparisonWork: 0,
             [
@@ -1523,6 +1541,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             Admitted: true,
             CandidateMethods: 0,
             DiscoveredMethods: 0,
+            SeedMethodsInCandidatePopulation: null,
             RetrievalPairs: 0,
             NameComparisonWork: 0,
             [
@@ -2198,6 +2217,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                     Admitted: false,
                     CandidateMethods: 0,
                     DiscoveredMethods: 0,
+                    SeedMethodsInCandidatePopulation: null,
                     RetrievalPairs: 0,
                     NameComparisonWork: 0,
                     [],
@@ -2224,6 +2244,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                     Admitted: false,
                     CandidateMethods: 0,
                     DiscoveredMethods: 0,
+                    SeedMethodsInCandidatePopulation: null,
                     RetrievalPairs: 0,
                     NameComparisonWork: 0,
                     [
