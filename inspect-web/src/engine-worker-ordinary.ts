@@ -63,7 +63,7 @@ type PackageOperationName =
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
 
-type LibraryOperationName = "openUploadedLibrary";
+type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
@@ -885,6 +885,14 @@ function voidOperation<TArgs extends readonly unknown[]>(
 
 export const engineWorkerOrdinaryOperations = {
   library: {
+    inspectLibrary: valueOperation(
+      "ordinary-library-inspect-library",
+      1,
+      (
+        facades,
+        ...args: Parameters<LibraryFacade["inspectLibrary"]>
+      ) => facades.library.inspectLibrary(...args),
+    ),
     openUploadedLibrary: createOrdinaryOperation(
       "ordinary-library-open-uploaded-library",
       2,
@@ -1770,6 +1778,9 @@ export function bindEngineWorkerOrdinaryClient(
   return {
     activity,
     library: {
+      inspectLibrary: bind(
+        engineWorkerOrdinaryOperations.library.inspectLibrary,
+      ),
       openUploadedLibrary: bind(
         engineWorkerOrdinaryOperations.library.openUploadedLibrary,
       ),

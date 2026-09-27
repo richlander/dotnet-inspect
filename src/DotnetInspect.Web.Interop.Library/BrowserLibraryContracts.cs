@@ -176,6 +176,154 @@ public sealed record BrowserLibraryExceptionSurface(
     string Type,
     string Description);
 
+/// <summary>
+/// Typed Browser request for one exact Library document
+/// (<c>docs/design/library-inspection-document.md#browser-request-lowering</c>).
+/// The selector names a Library the Browser already realizes; the plan names
+/// the requested document facts.
+/// </summary>
+public sealed record BrowserLibraryInspectionRequest(
+    BrowserLibrarySelector Library,
+    BrowserLibraryInspectionPlan Plan);
+
+/// <summary>Exactly one of <see cref="Package"/> or <see cref="Platform"/>, named by <see cref="Kind"/>.</summary>
+public sealed record BrowserLibrarySelector(
+    BrowserLibrarySelectorKind Kind,
+    BrowserPackageLibrarySelector? Package,
+    BrowserPlatformLibrarySelector? Platform);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibrarySelectorKind>))]
+public enum BrowserLibrarySelectorKind
+{
+    Package,
+    Platform,
+}
+
+public sealed record BrowserPackageLibrarySelector(
+    string PackageId,
+    string Version,
+    string TargetFramework,
+    string AssemblyId);
+
+public sealed record BrowserPlatformLibrarySelector(
+    string TargetFramework,
+    string PlatformVersion,
+    string AssemblyFileName,
+    string Pack);
+
+/// <summary>The Browser subset of <c>LibraryInspectionPlan</c> adopted so far.</summary>
+public sealed record BrowserLibraryInspectionPlan(
+    bool Enablements);
+
+public sealed record BrowserLibraryDocumentInspection(
+    BrowserLibraryDocumentOutcome Outcome,
+    string? Detail,
+    BrowserLibraryAssemblyReference? Assembly,
+    BrowserLibraryEnablements? Enablements,
+    BrowserLibraryInspectionDiagnostic[] Diagnostics);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryDocumentOutcome>))]
+public enum BrowserLibraryDocumentOutcome
+{
+    Available,
+    Rejected,
+    Failed,
+    Unavailable,
+}
+
+/// <summary>
+/// The Enablements fact group. <see cref="Items"/> is empty unless
+/// <see cref="Outcome"/> is Available.
+/// </summary>
+public sealed record BrowserLibraryEnablements(
+    BrowserLibraryEnablementsOutcome Outcome,
+    BrowserLibraryEnablementsRole? Role,
+    string? Failure,
+    BrowserLibraryEnablement[] Items);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryEnablementsOutcome>))]
+public enum BrowserLibraryEnablementsOutcome
+{
+    Available,
+    Failed,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryEnablementsRole>))]
+public enum BrowserLibraryEnablementsRole
+{
+    [JsonStringEnumMemberName("implementation-assembly")]
+    ImplementationAssembly,
+
+    [JsonStringEnumMemberName("api-assembly")]
+    ApiAssembly,
+}
+
+/// <summary>
+/// One enablement fact with its host-neutral label. Badges present only
+/// <see cref="BrowserLibraryEnablementKind.Enabled"/> items.
+/// </summary>
+public sealed record BrowserLibraryEnablement(
+    BrowserLibraryEnablementId Id,
+    BrowserLibraryEnablementKind Kind,
+    string Label,
+    BrowserLibraryEnablementUnavailableReason? Reason);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryEnablementId>))]
+public enum BrowserLibraryEnablementId
+{
+    [JsonStringEnumMemberName("aot-compatible")]
+    AotCompatible,
+
+    [JsonStringEnumMemberName("runtime-async")]
+    RuntimeAsync,
+
+    [JsonStringEnumMemberName("memory-safety-v2")]
+    MemorySafetyV2,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryEnablementKind>))]
+public enum BrowserLibraryEnablementKind
+{
+    [JsonStringEnumMemberName("enabled")]
+    Enabled,
+
+    [JsonStringEnumMemberName("not-enabled")]
+    NotEnabled,
+
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryEnablementUnavailableReason>))]
+public enum BrowserLibraryEnablementUnavailableReason
+{
+    [JsonStringEnumMemberName("reference-assembly")]
+    ReferenceAssembly,
+
+    [JsonStringEnumMemberName("undecodable-metadata")]
+    UndecodableMetadata,
+
+    [JsonStringEnumMemberName("unrecognized-value")]
+    UnrecognizedValue,
+
+    [JsonStringEnumMemberName("conflicting-values")]
+    ConflictingValues,
+
+    [JsonStringEnumMemberName("unsupported-memory-safety-rules")]
+    UnsupportedMemorySafetyRules,
+
+    [JsonStringEnumMemberName("malformed-memory-safety-rules")]
+    MalformedMemorySafetyRules,
+
+    [JsonStringEnumMemberName("conflicting-memory-safety-rules")]
+    ConflictingMemorySafetyRules,
+
+    [JsonStringEnumMemberName("memory-safety-metadata-unavailable")]
+    MemorySafetyMetadataUnavailable,
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserUploadedLibraryInspection))]
+[JsonSerializable(typeof(BrowserLibraryInspectionRequest))]
+[JsonSerializable(typeof(BrowserLibraryDocumentInspection))]
 internal sealed partial class BrowserLibraryJsonContext : JsonSerializerContext;
