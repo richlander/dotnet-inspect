@@ -138,6 +138,14 @@ Fold. Writing one producer per terminal over the same predicate, such as an
 async count and an async presence, closes the query inside the producer: it
 defeats merging and duplicates the predicate.
 
+## Priorities
+
+The pattern serves three goals in order: requests the planner can see, then
+performance, then authoring ergonomics.
+[Planning API tradeoffs](planning-api-tradeoffs.md) records that ordering,
+where complexity is allowed to live, and the ledger of what each optimization
+cost authors.
+
 ## Relationship to prior art
 
 NLinq separates the pipeline, `Where` and `Select`, from the terminal, `Count`,

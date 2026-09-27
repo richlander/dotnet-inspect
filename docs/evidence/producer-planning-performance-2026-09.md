@@ -269,6 +269,76 @@ machines, and the cause is not yet known.
 - The typed fused kernel fails the whole request on a unit failure rather than
   each question, and has no equivalence gate yet.
 
+## Remaining opportunities
+
+Ranked by expected effect on command latency, following the priorities in
+[Planning API tradeoffs](../design/planning-api-tradeoffs.md): skipping work
+first, then doing less per unit, then doing it faster.
+
+| Rank | Opportunity | Evidence | Owners | Author cost |
+| ---: | --- | --- | --- | --- |
+| 1 | Lower row selection into sources: Head, Skip, Window, and Tail as closings and stages, with stop policies | Rows are built in full and then trimmed; Exists over rows-then-check measured 5–758× | Semantic row selection, source delegation, QuerySpace, Producer Planning | None; derived from the request |
+| 2 | Split open queries into a predicate and a projection | Skipped and counted rows should pay only the predicate; legacy rows spend most of their cost formatting text | Producer Planning | Two members instead of one |
+| 3 | Source-native answers: counts from table sizes, random access, reverse order, and reference-table presence checks | A self-typed source, as in NLinq, can answer a closing without visiting | QuerySpace (#8577) | None for authors; per source |
+| 4 | Scope at coarser grains | Type scope already skips whole types; assemblies and packages are next | Producer Planning, QuerySpace | One predicate per grain |
+| 5 | Merge requests across consumers into one traversal | Planned subsets beat the superset scan 2–5×; merging keeps that when several sections ask | QuerySpace (#8574) | None |
+| 6 | The classified-methods migration as the first production caller of scope guards and type scope, with the Async Methods section as the demo | Guards and type scope have no production caller yet | Producer Planning, CLI sections | None for consumers |
+| 7 | Typed fused kernels in production, generated, with per-question outcomes and an equivalence gate | 1.01–1.05× of the hand-fused loop against 1.2–1.6× interpreted | Producer Planning | None if generated |
+| 8 | Memoize call resolution in the unsafe probe | 26 MB per CommandLine scan; call sites repeat targets 2.4–5.9× | Analysis | None |
+| 9 | Compare attribute names by handle before materializing text | 93% of async-count allocation is attribute name text | Metadata | None |
+| 10 | Share the opened subject across executions | Every execution opens its own readers today | Assembly session lifetime (#8576) | None |
+| 11 | Reduce fixed per-execution setup | Exists that settles in about 4 microseconds runs 1.10–1.39× | Producer Planning | None |
+| 12 | Batch units per dispatch in interpreted fused passes | Dispatch returns once a program has many producer types | Producer Planning | None |
+| 13 | Typed guard declarations instead of raw class masks | Masks are hard to read and easy to get wrong | Producer Planning | Less than today |
+| 14 | Typed claim checks for results | Results reach consumers typed, without casts | Producer Planning | Slightly less than today |
+| 15 | Investigate merritt's higher kernel ratios, fernie's residual 1–2.5%, and 50 KB of unexplained allocation | See [Open items](#open-items) | Investigation | None |
+
+### Row windows
+
+The first opportunity has the most detail, because most commands are row
+oriented and most requests are small windows over large populations.
+
+Today `-n`, `--tail`, and `--rows A..B` apply to a complete row list:
+`RowSelectionExecutor.Apply` receives every row and then selects.
+[Source delegation](../design/source-delegation.md) already defines how a
+source may take such work, proven by completion evidence, with
+`Head(N)` to Count as its canonical witness, and
+[semantic row selection](../design/semantic-row-selection.md) owns what Head,
+Tail, Window, and Top mean. No production source has adopted delegation yet.
+
+In the terms of [open and closed queries](../design/open-and-closed-queries.md):
+
+- **Head(N)**, for `-n N`, closes an open query with Rows and a stop policy
+  at N selected units. Its witness is reaching N, or exhausting the source
+  with fewer.
+- **Skip(N)**, proposed as `CountContinue(N)`, is a stage: it consumes N
+  selected units, testing only the predicate, and hands the live cursor to the
+  next participant.
+- **Window(A..B)**, for `--rows A..B`, is Skip(A - 1) followed by
+  Head(B - A + 1) over one cursor. When fewer than A units exist, proving the
+  window fails requires exhausting the source, and that failure stays the row
+  selection owner's decision, reported as evidence.
+- **Tail(N)** keeps only the last N selected units and projects them at the
+  end. It stops early only on a source that can traverse in reverse.
+- **Stop policies**, proposed as `CountExitOracle`, decide when to stop from
+  progress: Head, thresholds, and every question settled in a fused pass. A
+  declared policy is a pure function of progress, so its stop is exact and
+  explainable. An external stop, such as a user abort, a budget, or a page that
+  is full, is recorded as an incomplete stop and never presented as an exact
+  answer. Both stop at a unit boundary, before the next untrusted read.
+- **Ordering** limits all of these. When a section orders rows by anything
+  other than traversal order, Head and Window cannot stop early; a bounded
+  top-N with deferred projection still avoids projecting the rest.
+
+In a kernel, each stage, terminal, and stop policy is a struct type parameter,
+so `Skip(3)` followed by `Head(3)` compiles into one loop, as the typed fused
+kernel does.
+
+The first measurement should be Head(6), Skip(3) then Head(3), and Skip(99)
+then Head(11) over the async-methods open query, with the projection split
+out and made realistically expensive. It should compare them with building
+every row and then selecting, and with a hand-written loop.
+
 ## Reproducing
 
 Check out `exp/producer-planning-async-count`. Publish
