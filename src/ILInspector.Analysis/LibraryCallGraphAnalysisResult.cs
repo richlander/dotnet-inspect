@@ -210,12 +210,19 @@ public sealed class LibraryCallGraphAnalysisResult
     /// <summary>
     /// The Analysis-issued declared source of a compiler-lifted body (a lambda,
     /// local function, or async <c>MoveNext</c>), or <see langword="null"/> when
-    /// Analysis issues no association for <paramref name="caller"/>. The
-    /// association is issued only where Analysis authenticates it; sync
-    /// iterators and state-machine or display-class constructors keep their
-    /// physical declaring type. <see cref="DirectCall.Caller"/> already carries
-    /// this association for call sources; use this for call targets and for
-    /// methods that make no calls.
+    /// Analysis publishes no association for <paramref name="caller"/>. For
+    /// lambdas, local functions, and async <c>MoveNext</c> whose ultimate owner
+    /// Analysis authenticates, this is that owner, the same association
+    /// <see cref="DirectCall.Caller"/> carries. One exception: in an unscoped
+    /// result, an async <c>MoveNext</c> whose lifted source's owner cannot be
+    /// resolved maps to that immediate lifted source, while
+    /// <see cref="DirectCall.Caller"/> for its calls stays the physical
+    /// <c>MoveNext</c>. Scoped results fail closed and return
+    /// <see langword="null"/> there and for lifted bodies outside the scope.
+    /// Sync iterators and state-machine or display-class constructors are never
+    /// associated.
+    /// <c>OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes</c>
+    /// gates the exception on this result.
     /// </summary>
     public MethodIdentity? ResolveDeclaredMethod(
         MethodIdentity caller)
