@@ -9,9 +9,8 @@ implemented.
 
 [Product Vocabulary](vocabulary.md) is the first adopter. Its existing CLI
 output and Browser catalog prove the need and supply the first production data.
-The later [JSON Schema vocabulary mapping
-API](https://github.com/richlander/dotnet-inspect/issues/8594) consumes this
-pattern without extending its claim.
+The later [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md)
+design consumes this pattern without extending its claim.
 
 ## Owner and exact claim
 
@@ -533,9 +532,10 @@ has been removed without a regression. The existing CLI wire projection is a
 public compatibility surface and remains intentionally; it is not a second
 semantic catalog.
 
-After these three steps, [#8594](https://github.com/richlander/dotnet-inspect/issues/8594)
-may bind exact JSON Schema locations to terms in an exact Vocabulary Mappings
-snapshot. Other catalogs adopt one owner at a time.
+After these three steps,
+[JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) may bind
+exact schema locations to terms in an exact Vocabulary Mappings snapshot.
+Other catalogs adopt one owner at a time.
 
 ## Non-goals
 
