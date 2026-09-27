@@ -394,9 +394,11 @@ public sealed class ProducerPlanningTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.All)]
-    [InlineData(ProducerTerminal.Exists)]
-    public void ClosedQueryKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal)
+    [InlineData(ProducerTerminal.All, 1)]
+    [InlineData(ProducerTerminal.Exists, 1)]
+    [InlineData(ProducerTerminal.Exists, 2)]
+    [InlineData(ProducerTerminal.Exists, 5)]
+    public void ClosedQueryKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal, int threshold)
     {
         ImmutableArray<byte>[] images =
         [
@@ -413,8 +415,8 @@ public sealed class ProducerPlanningTests
                 var kernel = new BodySizeProducer("Kernel", scopedType, allowsKernel: true);
                 var interpreted = new BodySizeProducer("Interpreted", scopedType, allowsKernel: false);
 
-                MethodDefinitionExecution k = Run(image, Plan(new ProducerRequest(kernel, terminal)));
-                MethodDefinitionExecution i = Run(image, Plan(new ProducerRequest(interpreted, terminal)));
+                MethodDefinitionExecution k = Run(image, Plan(new ProducerRequest(kernel, terminal, threshold)));
+                MethodDefinitionExecution i = Run(image, Plan(new ProducerRequest(interpreted, terminal, threshold)));
 
                 ProducerResult<int> kr = k.ResultOf(kernel);
                 ProducerResult<int> ir = i.ResultOf(interpreted);
@@ -432,6 +434,69 @@ public sealed class ProducerPlanningTests
                     kp.Layers.Select(layer => (layer.Layer, layer.Acquired)));
             }
         }
+    }
+
+    [Theory]
+    [InlineData(ProducerTerminal.All, 1)]
+    [InlineData(ProducerTerminal.Exists, 1)]
+    [InlineData(ProducerTerminal.Exists, 2)]
+    public void RowsKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal, int threshold)
+    {
+        ImmutableArray<byte>[] images =
+        [
+            BuildImage(Method.Safe("A"), Method.Safe("B"), Method.Safe("C")),
+            BuildImage(Method.Safe("A"), Method.Safe("B", readableBody: false), Method.Safe("C")),
+            BuildImage(Method.Unsafe("A"), Method.Safe("B")),
+            BuildImage(),
+        ];
+
+        foreach (ImmutableArray<byte> image in images)
+        {
+            foreach (string scopedType in (string[])["Sample", "Other"])
+            {
+                var kernel = new BodyRowsProducer("Kernel", scopedType, allowsKernel: true);
+                var interpreted = new BodyRowsProducer("Interpreted", scopedType, allowsKernel: false);
+
+                MethodDefinitionExecution k = Run(image, Plan(new ProducerRequest(kernel, terminal, threshold)));
+                MethodDefinitionExecution i = Run(image, Plan(new ProducerRequest(interpreted, terminal, threshold)));
+
+                ProducerResult<ImmutableArray<int>> kr = k.ResultOf(kernel);
+                ProducerResult<ImmutableArray<int>> ir = i.ResultOf(interpreted);
+                Assert.Equal(ir.Outcome, kr.Outcome);
+                Assert.Equal(
+                    ir.HasValue ? ir.Value : [],
+                    kr.HasValue ? kr.Value : []);
+                Assert.Equal(ir.Failure?.Unit, kr.Failure?.Unit);
+                Assert.Equal(i.Receipt.UnitsVisited, k.Receipt.UnitsVisited);
+                ProducerParticipation kp = k.Receipt.For(kernel);
+                ProducerParticipation ip = i.Receipt.For(interpreted);
+                Assert.Equal(
+                    (ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
+                    (kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+                Assert.Equal(
+                    ip.Layers.Select(layer => (layer.Layer, layer.Acquired)),
+                    kp.Layers.Select(layer => (layer.Layer, layer.Acquired)));
+            }
+        }
+    }
+
+    [Fact]
+    public void Planner_MergesExistsThresholdsToTheLargestAndAllDominates()
+    {
+        var producer = new CountingProducer("Counted");
+
+        Assert.Equal(3, Plan(
+            new ProducerRequest(producer, ProducerTerminal.Exists, 2),
+            new ProducerRequest(producer, ProducerTerminal.Exists, 3)).ThresholdOf(producer));
+
+        WorkDescription withAll = Plan(
+            new ProducerRequest(producer, ProducerTerminal.Exists, 4),
+            new ProducerRequest(producer, ProducerTerminal.All));
+        Assert.Equal(ProducerTerminal.All, withAll.TerminalOf(producer));
+        Assert.Equal(1, withAll.ThresholdOf(producer));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ProducerRequest(producer, ProducerTerminal.Exists, 0));
     }
 
     [Fact]
@@ -785,6 +850,33 @@ public sealed class ProducerPlanningTests
     /// <summary>An open query over <see cref="BodyReadPredicate"/>, with a type scope and a kernel toggle.</summary>
     sealed class BodySizeProducer(string identity, string scopedType, bool allowsKernel)
         : MethodDefinitionPredicateProducer<BodyReadPredicate>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Body)
+    {
+        internal override bool AllowsKernel => allowsKernel;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            reader.StringComparer.Equals(type.Name, scopedType)
+            || reader.StringComparer.Equals(type.Name, "<Module>");
+    }
+
+    /// <summary>Selects units with a non-empty IL body, projecting each to its row number.</summary>
+    struct BodyRowProjection : IMethodDefinitionProjection<int>
+    {
+        public bool TryProject(scoped MethodDefinitionView view, out int row)
+        {
+            row = view.Token & 0x00FF_FFFF;
+            return view.GetBody().Size > 0;
+        }
+    }
+
+    /// <summary>A Rows open query over <see cref="BodyRowProjection"/>, with a type scope and a kernel toggle.</summary>
+    sealed class BodyRowsProducer(string identity, string scopedType, bool allowsKernel)
+        : MethodDefinitionRowsProducer<BodyRowProjection, int>(
             identity,
             version: 1,
             tier: 0,

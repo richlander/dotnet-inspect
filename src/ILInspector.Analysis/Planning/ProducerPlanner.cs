@@ -18,7 +18,17 @@ public enum ProducerTerminal
 /// <summary>One requested producer and the terminal the requester needs.</summary>
 public sealed record ProducerRequest(
     ProducerDeclaration Producer,
-    ProducerTerminal Terminal = ProducerTerminal.All);
+    ProducerTerminal Terminal = ProducerTerminal.All,
+    int Threshold = 1)
+{
+    /// <summary>
+    /// For an Exists terminal, how many settling units settle it: Exists is
+    /// Count at least one, and a larger threshold is Count at least N.
+    /// </summary>
+    public int Threshold { get; } = Threshold >= 1
+        ? Threshold
+        : throw new ArgumentOutOfRangeException(nameof(Threshold), "A threshold is at least one.");
+}
 
 public enum ProducerRejectionReason
 {
@@ -52,7 +62,8 @@ public sealed class WorkDescription
         ImmutableDictionary<ProducerDeclaration, ProducerTerminal> terminals,
         ImmutableDictionary<ProducerDeclaration, int> visitPasses,
         ImmutableDictionary<ProducerDeclaration, int> completionPasses,
-        ImmutableHashSet<ProducerDeclaration> requested)
+        ImmutableHashSet<ProducerDeclaration> requested,
+        ImmutableDictionary<ProducerDeclaration, int> thresholds)
     {
         Producers = producers;
         CompletionOrder = completionOrder;
@@ -75,12 +86,16 @@ public sealed class WorkDescription
             indices[producers[i]] = i;
 
         var terminalsByIndex = new ProducerTerminal[producers.Length];
+        var thresholdsByIndex = new int[producers.Length];
         var dependencies = new ImmutableArray<int>[producers.Length];
         var unitFactRetention = new UnitFactRetention[producers.Length];
         for (int i = 0; i < producers.Length; i++)
         {
             ProducerDeclaration producer = producers[i];
             terminalsByIndex[i] = terminals[producer];
+            thresholdsByIndex[i] = terminalsByIndex[i] == ProducerTerminal.Exists
+                ? thresholds.GetValueOrDefault(producer, 1)
+                : 1;
             ImmutableArray<ProducerDependency> declared = producer.Dependencies;
             var targets = ImmutableArray.CreateBuilder<int>(declared.Length);
             foreach (ProducerDependency dependency in declared)
@@ -132,6 +147,7 @@ public sealed class WorkDescription
 
         _indices = indices;
         TerminalByIndex = ImmutableArray.Create(terminalsByIndex);
+        ThresholdByIndex = ImmutableArray.Create(thresholdsByIndex);
         DependencyIndices = ImmutableArray.Create(dependencies);
         FactRetention = ImmutableArray.Create(unitFactRetention);
         CompletionIndices = completionIndices.ToImmutable();
@@ -148,6 +164,15 @@ public sealed class WorkDescription
 
     /// <summary>Each producer's effective terminal, by index into <see cref="Producers"/>.</summary>
     internal ImmutableArray<ProducerTerminal> TerminalByIndex { get; }
+
+    /// <summary>Each producer's Exists threshold, by index; one for every other terminal.</summary>
+    internal ImmutableArray<int> ThresholdByIndex { get; }
+
+    /// <summary>A planned producer's Exists threshold: the number of settling units that settle it.</summary>
+    public int ThresholdOf(ProducerDeclaration producer) =>
+        TryGetIndex(producer, out int index)
+            ? ThresholdByIndex[index]
+            : throw new KeyNotFoundException(producer.Identity);
 
     /// <summary>Each producer's dependency targets, by index, in declaration order.</summary>
     internal ImmutableArray<ImmutableArray<int>> DependencyIndices { get; }
@@ -250,6 +275,8 @@ public static class ProducerPlanner
             ReferenceEqualityComparer.Instance);
         var requested = new HashSet<ProducerDeclaration>(
             ReferenceEqualityComparer.Instance);
+        var thresholds = new Dictionary<ProducerDeclaration, int>(
+            ReferenceEqualityComparer.Instance);
 
         foreach (ProducerRequest request in requests)
         {
@@ -264,6 +291,15 @@ public static class ProducerPlanner
                 && existing == ProducerTerminal.All
                     ? ProducerTerminal.All
                     : request.Terminal;
+
+            // Exists requests on the same producer merge to the largest
+            // threshold, which settles every one of them.
+            if (request.Terminal == ProducerTerminal.Exists)
+            {
+                thresholds[request.Producer] = Math.Max(
+                    thresholds.GetValueOrDefault(request.Producer, 1),
+                    request.Threshold);
+            }
         }
 
         // A dependency is needed in full by its dependent.
@@ -302,6 +338,8 @@ public static class ProducerPlanner
                 schedule.CompletionPasses.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance),
                 requested.ToImmutableHashSet<ProducerDeclaration>(
+                    ReferenceEqualityComparer.Instance),
+                thresholds.ToImmutableDictionary<ProducerDeclaration, int>(
                     ReferenceEqualityComparer.Instance)));
 
         void Close(ProducerDeclaration producer)

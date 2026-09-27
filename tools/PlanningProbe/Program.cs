@@ -99,6 +99,13 @@ static string Run(string variant, string path, ImmutableArray<byte> image)
         "k-interp-exists" => AsyncClosedQueries.Exists(false, path, peReader) ? "true" : "false",
         "k-kernel-exists" => AsyncClosedQueries.Exists(true, path, peReader) ? "true" : "false",
         "k-hand-exists" => HandExistsHoisted(peReader.GetMetadataReader()) ? "true" : "false",
+        "r-hand" => RowsAnswer(AsyncClosedQueriesK2.HandRows(peReader)),
+        "r-interp" => RowsAnswer(AsyncClosedQueriesK2.Rows(false, path, peReader)),
+        "r-kernel" => RowsAnswer(AsyncClosedQueriesK2.Rows(true, path, peReader)),
+        "r-legacy" => $"n={AsyncClosedQueriesK2.LegacyRowCount(peReader)}",
+        "n-hand" => AsyncClosedQueriesK2.HandAtLeast(peReader) ? "true" : "false",
+        "n-interp" => AsyncClosedQueriesK2.AtLeast(false, path, peReader) ? "true" : "false",
+        "n-kernel" => AsyncClosedQueriesK2.AtLeast(true, path, peReader) ? "true" : "false",
         "c-legacy" => ClassifiedFusion.Legacy(peReader).ToString(),
         "c-hand-separate" => ClassifiedFusion.HandSeparate(peReader).ToString(),
         "c-hand-fused" => ClassifiedFusion.HandFused(peReader).ToString(),
@@ -122,6 +129,14 @@ static ClassifiedAnswer NLinqFused(MetadataReader reader)
         .Fold<MethodRows, MethodRow, ClassifiedAccumulator, ClassifyFold>(new ClassifiedAccumulator([], 0, false), default);
     ImmutableArray<int> rows = [.. result.PInvoke];
     return new(rows.Length, result.Async, result.AnyPointer);
+}
+
+static string RowsAnswer(ImmutableArray<int> rows)
+{
+    int hash = 17;
+    foreach (int row in rows)
+        hash = unchecked(hash * 31 + row);
+    return $"n={rows.Length};h={hash:X8}";
 }
 
 static int HandFlat(MetadataReader reader)

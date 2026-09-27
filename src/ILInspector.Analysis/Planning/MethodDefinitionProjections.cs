@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -5,25 +6,29 @@ using System.Reflection.PortableExecutable;
 namespace ILInspector.Analysis.Planning;
 
 /// <summary>
-/// An open query over method-definition units: a per-unit predicate with no
-/// terminal. A struct, so a kernel specialized to it calls it directly.
+/// An open query over method-definition units that selects units and projects
+/// each selected one to a row. A struct, so a kernel specialized to it calls
+/// it directly.
 /// </summary>
-public interface IMethodDefinitionPredicate
+public interface IMethodDefinitionProjection<TRow>
 {
-    bool Test(scoped MethodDefinitionView view);
+    bool TryProject(scoped MethodDefinitionView view, out TRow row);
 }
 
+/// <summary>A unit's fact under a projection: whether it was selected, and its row.</summary>
+public readonly record struct ProjectedRow<TRow>(bool Selected, TRow Row);
+
 /// <summary>
-/// A producer for an open query. The request's terminal closes it: Exists
-/// stops at the first unit that satisfies the predicate; otherwise the result
-/// is the number of units that do. A pass that visits only this producer runs
-/// as a closed-query kernel specialized to the predicate and the terminal.
+/// A producer for a projecting open query. The Rows terminal (All) publishes
+/// the selected units' rows in unit order; Exists stops once its threshold of
+/// units is selected. A pass that visits only this producer runs as a
+/// closed-query kernel specialized to the projection and the terminal.
 /// </summary>
-public abstract class MethodDefinitionPredicateProducer<TPredicate>
-    : MethodDefinitionProducer<bool, int, int>
-    where TPredicate : struct, IMethodDefinitionPredicate
+public abstract class MethodDefinitionRowsProducer<TProjection, TRow>
+    : MethodDefinitionProducer<ProjectedRow<TRow>, ImmutableArray<TRow>.Builder, ImmutableArray<TRow>>
+    where TProjection : struct, IMethodDefinitionProjection<TRow>
 {
-    private protected MethodDefinitionPredicateProducer(
+    private protected MethodDefinitionRowsProducer(
         string identity,
         int version,
         int tier,
@@ -32,23 +37,32 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
     {
     }
 
-    /// <summary>Experiment toggle: whether a closed query over this predicate may run as a kernel.</summary>
+    /// <summary>Experiment toggle: whether a closed query over this projection may run as a kernel.</summary>
     internal virtual bool AllowsKernel => true;
 
-    internal sealed override bool Visit(scoped MethodDefinitionView view) =>
-        default(TPredicate).Test(view);
+    internal sealed override ProjectedRow<TRow> Visit(scoped MethodDefinitionView view) =>
+        default(TProjection).TryProject(view, out TRow row)
+            ? new(true, row)
+            : default;
 
-    internal sealed override int Seed() => 0;
+    internal sealed override ImmutableArray<TRow>.Builder Seed() =>
+        ImmutableArray.CreateBuilder<TRow>();
 
-    internal sealed override int Accumulate(int accumulator, bool fact) =>
-        fact ? accumulator + 1 : accumulator;
+    internal sealed override ImmutableArray<TRow>.Builder Accumulate(
+        ImmutableArray<TRow>.Builder accumulator,
+        ProjectedRow<TRow> fact)
+    {
+        if (fact.Selected)
+            accumulator.Add(fact.Row);
+        return accumulator;
+    }
 
-    internal sealed override int Complete(
-        int accumulator,
+    internal sealed override ImmutableArray<TRow> Complete(
+        ImmutableArray<TRow>.Builder accumulator,
         MethodDefinitionCompletionView completion) =>
-        accumulator;
+        accumulator.DrainToImmutable();
 
-    internal sealed override bool Settles(bool fact) => fact;
+    internal sealed override bool Settles(ProjectedRow<TRow> fact) => fact.Selected;
 
     internal override bool RunKernel(
         MethodDefinitionExecution.ProducerState state,
@@ -63,12 +77,12 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
 
         bool exists = state.Terminal == ProducerTerminal.Exists;
         bool typeScoped = HasTypeScope;
-        TPredicate predicate = default;
+        TProjection projection = default;
+        ImmutableArray<TRow>.Builder rows = ImmutableArray.CreateBuilder<TRow>();
         var unit = new MethodDefinitionUnit(reader, peReader, lookup);
         int visited = 0;
         int attempted = 0;
         int completed = 0;
-        int count = 0;
 
         foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
         {
@@ -96,10 +110,11 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
                 attempted++;
-                bool fact;
+                bool selected;
+                TRow row;
                 try
                 {
-                    fact = predicate.Test(new MethodDefinitionView(ref unit, state));
+                    selected = projection.TryProject(new MethodDefinitionView(ref unit, state), out row);
                 }
                 catch (Exception ex)
                     when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -110,15 +125,14 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                 }
 
                 completed++;
-                if (!fact)
+                if (!selected)
                     continue;
-                count++;
+                rows.Add(row);
 
-                // Stop before advancing either enumerator, as the reference
-                // executor does, once the Exists terminal is settled.
-                if (exists && count >= state.Threshold)
+                // Stop before advancing either enumerator once the Exists
+                // threshold is settled, as the reference executor does.
+                if (exists && rows.Count >= state.Threshold)
                 {
-                    state.SettledUnits = count;
                     state.Outcome = ProducerOutcome.Stopped;
                     state.IsActive = false;
                     goto Done;
@@ -128,10 +142,10 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
 
     Done:
         if (exists)
-            state.SettledUnits = count;
+            state.SettledUnits = rows.Count;
         state.UnitsAttempted += attempted;
         state.UnitsCompleted += completed;
-        ((State)state).SetAccumulator(count);
+        ((State)state).SetAccumulator(rows);
         unitsVisited = visited;
         return true;
     }

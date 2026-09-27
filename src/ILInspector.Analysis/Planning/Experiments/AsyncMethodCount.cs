@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -181,4 +182,112 @@ public static class AsyncClosedQueries
         ProducerResult<int> result = MethodDefinitionExecution.Execute(s_plans[(producer, terminal)], path, peReader).ResultOf(producer);
         return result.HasValue ? result.Value : throw new InvalidDataException(result.Failure?.Message);
     }
+}
+
+/// <summary>The async question as a Rows open query: selected methods project to their MethodDef token.</summary>
+public struct AsyncMethodRowProjection : IMethodDefinitionProjection<int>
+{
+    public bool TryProject(scoped MethodDefinitionView view, out int row)
+    {
+        row = view.Token;
+        return AsyncMethodScope.IsCountedMethod(view.Reader, view.MethodDefinition);
+    }
+}
+
+public sealed class AsyncRowsProducer : MethodDefinitionRowsProducer<AsyncMethodRowProjection, int>
+{
+    readonly bool _allowsKernel;
+
+    AsyncRowsProducer(string identity, bool allowsKernel)
+        : base(identity, 1, 0, MethodDefinitionLayers.Declaration) =>
+        _allowsKernel = allowsKernel;
+
+    public static AsyncRowsProducer Kernel { get; } = new("Experiment.AsyncRows.Kernel", true);
+    public static AsyncRowsProducer Interpreted { get; } = new("Experiment.AsyncRows.Interpreted", false);
+
+    internal override bool AllowsKernel => _allowsKernel;
+    internal override bool HasTypeScope => true;
+    internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) => AsyncMethodScope.IsCountedType(reader, type);
+}
+
+public static class AsyncClosedQueriesK2
+{
+    public const int Threshold = 5;
+
+    static readonly WorkDescription s_rowsKernel = Plan(new ProducerRequest(AsyncRowsProducer.Kernel));
+    static readonly WorkDescription s_rowsInterpreted = Plan(new ProducerRequest(AsyncRowsProducer.Interpreted));
+    static readonly WorkDescription s_atLeastKernel = Plan(new ProducerRequest(AsyncPredicateProducer.Kernel, ProducerTerminal.Exists, Threshold));
+    static readonly WorkDescription s_atLeastInterpreted = Plan(new ProducerRequest(AsyncPredicateProducer.Interpreted, ProducerTerminal.Exists, Threshold));
+
+    static WorkDescription Plan(ProducerRequest request) =>
+        ProducerPlanner.Plan([request]) is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new InvalidOperationException("The experiment request must plan.");
+
+    public static ImmutableArray<int> Rows(bool kernel, string path, PEReader peReader)
+    {
+        AsyncRowsProducer producer = kernel ? AsyncRowsProducer.Kernel : AsyncRowsProducer.Interpreted;
+        ProducerResult<ImmutableArray<int>> result = MethodDefinitionExecution
+            .Execute(kernel ? s_rowsKernel : s_rowsInterpreted, path, peReader)
+            .ResultOf(producer);
+        return result.HasValue ? result.Value : throw new InvalidDataException(result.Failure?.Message);
+    }
+
+    public static bool AtLeast(bool kernel, string path, PEReader peReader)
+    {
+        AsyncPredicateProducer producer = kernel ? AsyncPredicateProducer.Kernel : AsyncPredicateProducer.Interpreted;
+        ProducerResult<int> result = MethodDefinitionExecution
+            .Execute(kernel ? s_atLeastKernel : s_atLeastInterpreted, path, peReader)
+            .ResultOf(producer);
+        return result.HasValue ? result.Value >= Threshold : throw new InvalidDataException(result.Failure?.Message);
+    }
+
+    /// <summary>The optimal Rows oracle: hoisted type filter, tokens in unit order.</summary>
+    public static ImmutableArray<int> HandRows(PEReader peReader)
+    {
+        MetadataReader reader = peReader.GetMetadataReader();
+        ImmutableArray<int>.Builder rows = ImmutableArray.CreateBuilder<int>();
+        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            if (!AsyncMethodScope.IsCountedType(reader, type))
+                continue;
+            foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+            {
+                if (AsyncMethodScope.IsCountedMethod(reader, reader.GetMethodDefinition(methodHandle)))
+                    rows.Add(System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(methodHandle));
+            }
+        }
+
+        return rows.DrainToImmutable();
+    }
+
+    /// <summary>The optimal Count-at-least oracle: hoisted, returns at the threshold.</summary>
+    public static bool HandAtLeast(PEReader peReader)
+    {
+        MetadataReader reader = peReader.GetMetadataReader();
+        int count = 0;
+        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            if (!AsyncMethodScope.IsCountedType(reader, type))
+                continue;
+            foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+            {
+                if (AsyncMethodScope.IsCountedMethod(reader, reader.GetMethodDefinition(methodHandle))
+                    && ++count >= Threshold)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The naive legacy Rows path: classify every row, then filter the async ones.</summary>
+    public static int LegacyRowCount(PEReader peReader) =>
+        MethodClassificationScanner.Scan(peReader).Count(static method =>
+            method.Classification is MethodClassification.RuntimeAsync
+                or MethodClassification.StateMachineAsync);
 }

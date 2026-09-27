@@ -53,6 +53,7 @@ public sealed class MethodDefinitionExecution
             execution._states[i] = declaration.CreateState(
                 execution,
                 description.TerminalByIndex[i],
+                description.ThresholdByIndex[i],
                 description.DependencyIndices[i],
                 description.FactRetention[i]);
         }
@@ -366,7 +367,9 @@ public sealed class MethodDefinitionExecution
         }
 
         state.UnitsCompleted++;
-        if (settled && state.Terminal == ProducerTerminal.Exists)
+        if (settled
+            && state.Terminal == ProducerTerminal.Exists
+            && ++state.SettledUnits >= state.Threshold)
         {
             state.Outcome = ProducerOutcome.Stopped;
             state.IsActive = false;
@@ -520,6 +523,7 @@ public sealed class MethodDefinitionExecution
         ProducerDeclaration producer,
         MethodDefinitionLayers layers,
         ProducerTerminal terminal,
+        int threshold,
         ImmutableArray<int> dependencies)
     {
         public MethodDefinitionExecution Execution => execution;
@@ -527,6 +531,12 @@ public sealed class MethodDefinitionExecution
         public ProducerDeclaration Producer => producer;
 
         public ProducerTerminal Terminal => terminal;
+
+        /// <summary>For an Exists terminal, the settling units that settle it.</summary>
+        public int Threshold => threshold;
+
+        /// <summary>Settling units seen so far.</summary>
+        public int SettledUnits;
 
         public abstract bool ClassifiesUnits { get; }
 
@@ -636,8 +646,9 @@ public sealed class MethodDefinitionExecution
         ProducerDeclaration producer,
         MethodDefinitionLayers layers,
         ProducerTerminal terminal,
+        int threshold,
         ImmutableArray<int> dependencies)
-        : ProducerState(execution, producer, layers, terminal, dependencies)
+        : ProducerState(execution, producer, layers, terminal, threshold, dependencies)
     {
         public TResult? Result { get; private set; }
 
