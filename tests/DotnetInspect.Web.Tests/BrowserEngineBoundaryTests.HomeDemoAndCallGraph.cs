@@ -897,6 +897,7 @@ public sealed partial class BrowserEngineBoundaryTests
                         "ecosystem.aspnetcore",
                         "ecosystem.microsoft-extensions",
                     ]),
+                [],
                 [
                     new PackageDependencyMemberCallGraphPackageSubject(
                         connectorNodeId,
