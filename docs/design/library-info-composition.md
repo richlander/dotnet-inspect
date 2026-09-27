@@ -14,8 +14,9 @@ their existing paths until their own slices.
 The CLI (`DotnetInspect.Cli`), which owns command presentation, owns this
 claim:
 
-> Every scalar field the `library` view renders, in `Library Info`, in the
-> compact `-v:q` summary, and in the `Library` summary field, has exactly one
+> For a managed assembly, every scalar field the `library` view renders, in
+> `Library Info`, in the compact `-v:q` summary, and in the `Library` summary
+> field, has exactly one
 > named source: a Library document fact, host source provenance, or a named
 > legacy owner. A field whose source is a Library document fact is rendered from
 > that fact and from no other reading of the image, with the same value in every
@@ -78,8 +79,9 @@ ReadyToRun machine value is one the Image vocabulary does not name.
 
 The compact `-v:q` summary (Name, Version, TFM, Arch, Size, Source) and the
 `Library` summary field (architecture, target framework, compilation, signed)
-use the same sources and lowering as the matching `Library Info` rows. Modified
-leaves the compact summary too.
+use the same sources as the matching `Library Info` rows and keep their current
+spellings; the summary still spells a signed image `Signed`. Modified leaves
+the compact summary too.
 
 `Types` and `Methods` stay table row counts. They are not the public Type
 population, and replacing them with a population Count would change their
@@ -89,10 +91,19 @@ A legacy row retires when its owner produces a Library document population or
 fact and its section adopts it. The composition never reads the image a second
 time for a fact the document already carries.
 
+## Scope of input
+
+The composition applies when the inspected image is a managed assembly, which
+is the input a Library document describes. A native PE image, such as a
+`runtimes/*/native/*.dll` package asset, and a managed module without an
+assembly manifest have no assembly identity. They keep the legacy view path
+unchanged, including their `Native` and `NativeAOT` compilation labels and
+PE-machine architecture, until an owner for such images exists.
+
 ## Realization
 
-Each CLI route already resolves one assembly image: a direct file, a package
-asset, or a Platform pack assembly. The CLI materializes that image as a direct
+Each CLI route for a managed assembly already resolves one image: a direct
+file, a package asset, or a Platform assembly. The CLI materializes that image as a direct
 Library through the assembly-context adapter and requests Image, Description,
 and Enablements in one facts-only plan.
 
@@ -120,8 +131,8 @@ Version keeps its current fallback order:
 
 An unavailable or non-numeric Informational Version falls through to the
 Assembly Version. The legacy final fallback to the file version is not
-reachable for a Library document, because every admitted Library has an
-assembly identity with a version.
+reachable here, because every managed assembly has an assembly identity with a
+version; inputs without one stay on the legacy path.
 
 ## Rendering
 
@@ -132,7 +143,7 @@ Typed Image facts keep their current spellings:
 | Compilation | `IL` renders `CoreCLR` and `ReadyToRun` renders `ReadyToRun`, the current labels |
 | Architecture | `AnyCPU`, `AnyCPU (32-bit preferred)`, `x86`, `x64`, `ARM`, `ARM64`; the row is omitted when the fact is absent |
 | Signed | `Yes` when signed; the row is omitted when not signed, as today |
-| Reproducible | `Yes`, `No`, or `unavailable` when the debug directory cannot be read |
+| Reproducible | `Yes`, `No`, or bare `unavailable` when the debug directory cannot be read; the fact carries no reason |
 | File Size | Image byte length in the existing byte-size format |
 
 Renaming the `CoreCLR` label is a separate presentation decision.
@@ -165,6 +176,9 @@ Release gates in the CLI tests:
 - `Antlr` 3.5.0.2, which carries no Informational Version, keeps
   `Version | 3.5.0.2` from its Assembly Version;
 - the `-v:q` summary shows the same values as `Library Info` and no Modified;
+- a native PE asset, such as `runtimes/win-x64/native/capstone.dll` from
+  `Gee.External.Capstone` 2.3.0, keeps its current `Library Info` and `-v:q`
+  rows, including `Compilation | Native`;
 - an undecodable Company attribute renders `unavailable (undecodable-metadata)`;
 - legacy rows keep their current values for `System.Text.Json`.
 
