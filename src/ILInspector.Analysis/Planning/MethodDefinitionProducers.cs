@@ -224,10 +224,8 @@ public readonly ref struct MethodDefinitionView
     public TFact FactOf<TFact, TAccumulator, TResult>(
         MethodDefinitionProducer<TFact, TAccumulator, TResult> dependency)
     {
-        _producer.Require(
-            dependency,
-            ProducerDependencyKind.VisitNeedsVisit);
-        return _producer.Execution.FactFor(dependency, Token);
+        ArgumentNullException.ThrowIfNull(dependency);
+        return MethodDefinitionExecution.FactFor(_producer, dependency, Token);
     }
 
     /// <summary>The completed result of a declared result dependency.</summary>

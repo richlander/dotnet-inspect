@@ -58,6 +58,16 @@ public sealed class MethodDefinitionExecution
                 description.DependencyIndices[i]);
         }
 
+        // Each dependent reads its dependencies' runs directly, aligned with
+        // its declared dependencies, so a same-unit read needs no lookup.
+        foreach (ProducerState state in execution._states)
+        {
+            var runs = new IMethodDefinitionProducerRun[state.Dependencies.Length];
+            for (int j = 0; j < runs.Length; j++)
+                runs[j] = execution._states[state.Dependencies[j]].Run;
+            state.DependencyRuns = runs;
+        }
+
         if (!peReader.HasMetadata)
         {
             execution.CompleteWithoutUnits();
@@ -141,20 +151,38 @@ public sealed class MethodDefinitionExecution
         };
     }
 
-    internal TFact FactFor<TFact, TAccumulator, TResult>(
+    /// <summary>
+    /// The same-unit fact of a declared visit dependency, found through the
+    /// dependent's own dependency runs.
+    /// </summary>
+    internal static TFact FactFor<TFact, TAccumulator, TResult>(
+        ProducerState reader,
         MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
         int unitToken)
     {
-        if (_description.TryGetIndex(producer, out int index)
-            && _states[index].Run is MethodDefinitionProducer<TFact, TAccumulator, TResult>.Run run
-            && run.TryGetFact(unitToken, out TFact fact))
+        ImmutableArray<ProducerDependency> declared = reader.Run.Producer.Dependencies;
+        for (int i = 0; i < declared.Length; i++)
         {
-            return fact;
+            if (!ReferenceEquals(declared[i].Producer, producer)
+                || declared[i].Kind != ProducerDependencyKind.VisitNeedsVisit)
+            {
+                continue;
+            }
+
+            if (reader.DependencyRuns[i] is MethodDefinitionProducer<TFact, TAccumulator, TResult>.Run run
+                && run.TryGetFact(unitToken, out TFact fact))
+            {
+                return fact;
+            }
+
+            throw new ProducerContractException(
+                $"Producer '{producer.Identity}' has no fact for unit "
+                + $"0x{unitToken:X8}.");
         }
 
         throw new ProducerContractException(
-            $"Producer '{producer.Identity}' has no fact for unit "
-            + $"0x{unitToken:X8}.");
+            $"Producer '{reader.Run.Producer.Identity}' did not declare "
+            + $"a dependency on '{producer.Identity}'.");
     }
 
     int VisitUnits(
@@ -386,6 +414,9 @@ public sealed class MethodDefinitionExecution
         public ImmutableArray<int> Dependencies => dependencies;
 
         public bool HasDependencies { get; } = !dependencies.IsEmpty;
+
+        /// <summary>The dependencies' runs, aligned with the declared dependencies.</summary>
+        public IMethodDefinitionProducerRun[] DependencyRuns { get; set; } = [];
 
         public bool HasBodyLayer { get; } =
             (declaration.Layers & MethodDefinitionLayers.Body) != 0;
