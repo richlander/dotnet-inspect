@@ -393,6 +393,47 @@ public sealed class ProducerPlanningTests
         Assert.Equal(3, execution.Receipt.Producers.Length);
     }
 
+    [Theory]
+    [InlineData(ProducerTerminal.All)]
+    [InlineData(ProducerTerminal.Exists)]
+    public void ClosedQueryKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal)
+    {
+        ImmutableArray<byte>[] images =
+        [
+            BuildImage(Method.Safe("A"), Method.Safe("B"), Method.Safe("C")),
+            BuildImage(Method.Safe("A"), Method.Safe("B", readableBody: false), Method.Safe("C")),
+            BuildImage(Method.Unsafe("A"), Method.Safe("B")),
+            BuildImage(),
+        ];
+
+        foreach (ImmutableArray<byte> image in images)
+        {
+            foreach (string scopedType in (string[])["Sample", "Other"])
+            {
+                var kernel = new BodySizeProducer("Kernel", scopedType, allowsKernel: true);
+                var interpreted = new BodySizeProducer("Interpreted", scopedType, allowsKernel: false);
+
+                MethodDefinitionExecution k = Run(image, Plan(new ProducerRequest(kernel, terminal)));
+                MethodDefinitionExecution i = Run(image, Plan(new ProducerRequest(interpreted, terminal)));
+
+                ProducerResult<int> kr = k.ResultOf(kernel);
+                ProducerResult<int> ir = i.ResultOf(interpreted);
+                Assert.Equal(ir.Outcome, kr.Outcome);
+                Assert.Equal(ir.Value, kr.Value);
+                Assert.Equal(ir.Failure?.Unit, kr.Failure?.Unit);
+                Assert.Equal(i.Receipt.UnitsVisited, k.Receipt.UnitsVisited);
+                ProducerParticipation kp = k.Receipt.For(kernel);
+                ProducerParticipation ip = i.Receipt.For(interpreted);
+                Assert.Equal(
+                    (ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
+                    (kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+                Assert.Equal(
+                    ip.Layers.Select(layer => (layer.Layer, layer.Acquired)),
+                    kp.Layers.Select(layer => (layer.Layer, layer.Acquired)));
+            }
+        }
+    }
+
     [Fact]
     public void Planner_RetainsUnitFactsOnlyAsLongAsTheirReadersNeedThem()
     {
@@ -761,6 +802,29 @@ public sealed class ProducerPlanningTests
 
         internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
             reader.StringComparer.Equals(type.Name, scopedType);
+    }
+
+    /// <summary>A body-reading predicate: the unit's IL body is non-empty.</summary>
+    struct BodyReadPredicate : IMethodDefinitionPredicate
+    {
+        public bool Test(scoped MethodDefinitionView view) => view.GetBody().Size > 0;
+    }
+
+    /// <summary>An open query over <see cref="BodyReadPredicate"/>, with a type scope and a kernel toggle.</summary>
+    sealed class BodySizeProducer(string identity, string scopedType, bool allowsKernel)
+        : MethodDefinitionPredicateProducer<BodyReadPredicate>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Body)
+    {
+        internal override bool AllowsKernel => allowsKernel;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            reader.StringComparer.Equals(type.Name, scopedType)
+            || reader.StringComparer.Equals(type.Name, "<Module>");
     }
 
     /// <summary>Publishes the rows of the units its scope guard accepts.</summary>
