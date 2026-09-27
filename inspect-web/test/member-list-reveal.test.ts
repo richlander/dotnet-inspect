@@ -7,7 +7,7 @@ import {
 } from "../src/member-focus.ts";
 import {
   NAVIGATION_LIST_SELECTOR,
-  createNavigationScrollKeeper,
+  createMemberListRevealer,
   revealRowAtTop,
   type RevealableDocument,
   type RevealableList,
@@ -53,7 +53,7 @@ function createPage() {
       listeners.set(type, [...(listeners.get(type) ?? []), listener]);
     },
   };
-  const keeper = createNavigationScrollKeeper();
+  const revealer = createMemberListRevealer();
   const restorer = createMemberFocusRestorer();
   const frames: FrameRequestCallback[] = [];
   const revealable: RevealableDocument = document;
@@ -94,10 +94,9 @@ function createPage() {
       return list;
     },
     render(spec: ListSpec | null) {
-      keeper.beforeRender(revealable);
       if (list) list.isConnected = false;
       list = spec === null ? null : build(spec);
-      keeper.afterRender(revealable);
+      revealer.afterRender(revealable);
     },
     // renderPreservingMemberFocus: capture, render, then restore in the next frame.
     renderPreservingFocus(spec: ListSpec) {
@@ -153,36 +152,57 @@ test("a selection that arrives after the list is revealed on that render", () =>
 test("user input cancels a pending reveal", () => {
   const page = createPage();
   page.render(jsonElement(null));
-  page.list.scrollTop = 96;
   page.userInput("pointerdown");
   page.render(jsonElement(44));
 
-  // The click changed the selection, so the rebuilt list starts at the top (the click handler
-  // then brings the row into view); it is not moved to the reveal offset.
   assert.equal(page.list.scrollTop, 0);
-  assert.notEqual(page.list.scrollTop, 44 * ROW_HEIGHT);
 });
 
-test("a render that keeps the selection keeps the reader's scroll position", () => {
+test("user input ends a held reveal, so later rebuilds behave as before", () => {
   const page = createPage();
   page.render(jsonElement(30));
-  page.list.scrollTop = 400;
+  assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
+
+  page.userInput("keydown");
+  page.render(jsonElement(30));
+
+  assert.equal(page.list.scrollTop, 0);
+});
+
+test("the member focus restore still returns the reader to their position", () => {
+  const page = createPage();
+  page.render(jsonElement(30));
   page.userInput("pointerdown");
+  page.list.scrollTop = 400;
   page.renderPreservingFocus(jsonElement(30));
   page.flushFrames();
 
   assert.equal(page.list.scrollTop, 400);
 });
 
-test("a filter that selects another row starts the rebuilt list at the top", () => {
-  // Filtering selects the first match; the rebuilt list must not keep the old offset.
+test("typing in the type filter starts the rebuilt type list at the top", () => {
+  // The type list is never revealed or held; a same-selection filter rebuild resets it.
   const page = createPage();
-  const types = (rows: number, selected: string): ListSpec =>
-    ({ scope: "types", member: false, rows, viewportRows: 20, revealedRow: 0, selection: selected });
-  page.render(types(500, "type:A.Deep.Type"));
-  page.list.scrollTop = 4000;
+  const types = (rows: number): ListSpec => ({
+    scope: "types",
+    member: false,
+    rows,
+    viewportRows: 20,
+    revealedRow: 0,
+    selection: "type:System.Text.Json.JsonDocument",
+  });
+  page.render(types(400));
+  page.list.scrollTop = 3000;
   page.userInput("keydown");
-  page.render(types(120, "type:A.First.Match"));
+  page.render(types(250));
+
+  assert.equal(page.list.scrollTop, 0);
+});
+
+test("a selection change ends a held reveal", () => {
+  const page = createPage();
+  page.render(jsonElement(30));
+  page.render({ ...jsonElement(44), selection: "member:44" });
 
   assert.equal(page.list.scrollTop, 0);
 });
@@ -204,25 +224,6 @@ test("returning to a type after leaving its member list reveals the selection ag
   page.render(jsonElement(30));
 
   assert.equal(page.list.scrollTop, 30 * ROW_HEIGHT);
-});
-
-test("the type list keeps its scroll position across renders without revealing", () => {
-  const page = createPage();
-  const types: ListSpec = {
-    scope: "types",
-    member: false,
-    rows: 90,
-    viewportRows: 20,
-    revealedRow: 70,
-    selection: "type:Example.Type",
-  };
-  page.render(types);
-  assert.equal(page.list.scrollTop, 0);
-
-  page.list.scrollTop = 312;
-  page.render(types);
-
-  assert.equal(page.list.scrollTop, 312);
 });
 
 test("revealRowAtTop measures from the list's current scroll position", () => {

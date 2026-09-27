@@ -1,19 +1,21 @@
-// Keeps the navigation list's scroll position across renders, and reveals a restored member
-// selection at the top of its member list.
-//
-// Every render rebuilds the navigation list (`#type-list`), which resets its scroll position.
-// The keeper records the list's scope, selection, and scroll position before the render and
-// restores the position afterwards when both the scope and the selection are unchanged -- the
-// same key the member focus restore uses. A reader's position, or a reveal, therefore survives
-// the renders that follow (documentation, declarations, and other member detail loading), while
-// a change that selects another row, such as a filter selecting its first match, still starts
-// the rebuilt list at the top.
+// Reveals a restored member selection at the top of its member list, and holds it there until
+// the reader acts.
 //
 // A member list that appears for a new type scope arms a reveal. The first render that shows a
 // selected member in that scope moves the member's row to the top of the list, as far as the
 // rows after it allow. The selection may arrive in a later render than the list itself, as it
-// does for graph-member deep links. Any user input disarms a pending reveal, so clicking or
-// keyboard stepping in a list never makes it jump. The list scrolls itself; the page does not.
+// does for graph-member deep links.
+//
+// Every render rebuilds the navigation list (`#type-list`), which resets its scroll position,
+// and a restored view is followed by member detail renders (documentation, declarations). The
+// revealed offset is therefore reapplied after each rebuild while the list shows the same scope
+// and selection. Member focus snapshots taken between those renders capture the revealed
+// offset, so their restores keep it too.
+//
+// Any user input, or a change of scope or selection, ends both a pending reveal and a held one.
+// From then on the list behaves exactly as it did before: rebuilt lists start at the top unless
+// the member focus restore returns them to the reader's position. The list scrolls itself; the
+// page does not.
 
 export interface RevealableRow {
   getBoundingClientRect(): { top: number };
@@ -49,62 +51,54 @@ export function revealRowAtTop(list: RevealableList, row: RevealableRow): void {
   list.scrollTop = Math.min(Math.max(0, list.scrollTop + offset), maximum);
 }
 
-export interface NavigationScrollKeeper {
-  beforeRender(document: RevealableDocument): void;
+export interface MemberListRevealer {
   afterRender(document: RevealableDocument): void;
 }
 
-export function createNavigationScrollKeeper(): NavigationScrollKeeper {
+export function createMemberListRevealer(): MemberListRevealer {
   let listening = false;
-  let carried: { scope: string; selection: string; scrollTop: number } | null = null;
-  let seenMemberScope: string | null = null;
-  let revealArmed = false;
-  const disarm = () => {
-    revealArmed = false;
+  let seenScope: string | null = null;
+  let armed = false;
+  let held: { scope: string; selection: string; scrollTop: number } | null = null;
+  const stop = () => {
+    armed = false;
+    held = null;
   };
   return {
-    beforeRender(document) {
+    afterRender(document) {
       if (!listening) {
         listening = true;
         const options = { capture: true, passive: true } as const;
-        document.addEventListener("pointerdown", disarm, options);
-        document.addEventListener("keydown", disarm, options);
+        document.addEventListener("pointerdown", stop, options);
+        document.addEventListener("keydown", stop, options);
       }
       const list = document.querySelector(NAVIGATION_LIST_SELECTOR);
       const scope = list?.dataset.navScope;
-      carried = list && scope !== undefined
-        ? { scope, selection: list.dataset.navSelection ?? "", scrollTop: list.scrollTop }
-        : null;
-    },
-    afterRender(document) {
-      const list = document.querySelector(NAVIGATION_LIST_SELECTOR);
-      const scope = list?.dataset.navScope;
-      if (!list || scope === undefined) {
-        seenMemberScope = null;
-        revealArmed = false;
+      if (!list || scope === undefined || !list.classList.contains(MEMBER_LIST_CLASS)) {
+        seenScope = null;
+        stop();
         return;
       }
-      if (carried?.scope === scope
-        && carried.selection === (list.dataset.navSelection ?? ""))
-        list.scrollTop = carried.scrollTop;
-      carried = null;
-
-      if (!list.classList.contains(MEMBER_LIST_CLASS)) {
-        seenMemberScope = null;
-        revealArmed = false;
-        return;
+      const selection = list.dataset.navSelection ?? "";
+      if (held !== null) {
+        if (held.scope === scope && held.selection === selection) {
+          list.scrollTop = held.scrollTop;
+          return;
+        }
+        held = null;
       }
-      if (scope !== seenMemberScope) {
-        seenMemberScope = scope;
-        revealArmed = true;
+      if (scope !== seenScope) {
+        seenScope = scope;
+        armed = true;
       }
-      if (!revealArmed || list.clientHeight === 0)
+      if (!armed || list.clientHeight === 0)
         return;
       const row = list.querySelector(REVEALED_ROW_SELECTOR);
       if (!row)
         return;
       revealRowAtTop(list, row);
-      revealArmed = false;
+      armed = false;
+      held = { scope, selection, scrollTop: list.scrollTop };
     },
   };
 }
