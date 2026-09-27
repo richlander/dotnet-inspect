@@ -13,7 +13,7 @@ namespace ILInspector.Analysis.Planning;
 /// retired index probe used.
 /// </summary>
 public sealed class UnsafeEvidencePresenceProducer
-    : MethodDefinitionProducer<bool, bool>
+    : MethodDefinitionProducer<bool, bool, bool>
 {
     UnsafeEvidencePresenceProducer()
         : base(
@@ -42,18 +42,15 @@ public sealed class UnsafeEvidencePresenceProducer
         };
     }
 
-    internal override bool Complete(
-        IReadOnlyList<bool> facts,
-        MethodDefinitionCompletionView completion)
-    {
-        for (int i = 0; i < facts.Count; i++)
-        {
-            if (facts[i])
-                return true;
-        }
+    internal override bool Seed() => false;
 
-        return false;
-    }
+    internal override bool Accumulate(bool accumulator, bool fact) =>
+        accumulator | fact;
+
+    internal override bool Complete(
+        bool accumulator,
+        MethodDefinitionCompletionView completion) =>
+        accumulator;
 
     internal override bool Settles(bool fact) => fact;
 }
