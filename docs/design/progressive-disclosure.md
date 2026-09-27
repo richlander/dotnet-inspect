@@ -411,9 +411,9 @@ decides what a default view shows.
   acquisition therefore fails rather than reaching the network.
 - Otherwise, acquiring a missing PDB (`PdbAcquire`) is a default capability.
   Any gesture whose producers want PDB facts may request it.
-- Verbosity rules are unchanged. A section enters a verbosity preset by its
-  size and value, as described in [Verbosity](#verbosity), not by whether its
-  producer uses the network.
+- Verbosity presets are defined by size and value, as described in
+  [Verbosity](#verbosity), not by whether a section's producer uses the
+  network.
 - Fixed and `Verbose` (unbounded) sections keep their disclosure rules. A
   bounded section can appear by default even when its producer uses the
   network, and an unbounded inventory stays out of the default views even when
@@ -433,8 +433,9 @@ Only the policy that decides which capabilities a gesture requests has
 changed.
 
 Adoption status: this policy leads the implementation. Today the CLI requests
-`PdbAcquire` only on exact section selection or `-v:d`, and nothing yet shows
-a single subject's docs or source by default. Until adoption
+`PdbAcquire` only on exact section selection, `-v:d`, or explicit effective
+discovery. Package descriptions already show by default; a single type's docs
+and a single subject's source do not yet. Until adoption
 ([#8729](https://github.com/richlander/dotnet-inspect/issues/8729)) lands,
 the current behavior is what ships.
 

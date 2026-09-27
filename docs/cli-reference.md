@@ -521,7 +521,8 @@ not adopted this transport.
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
 `--offline` is the only way to guarantee no network dependence. Without it,
-any command may acquire packages and PDBs to answer the request. The
+commands other than plain `-D` discovery may acquire packages and PDBs to
+answer the request. The
 [network policy](design/progressive-disclosure.md#network-policy) owns this
 rule and its adoption status.
 
