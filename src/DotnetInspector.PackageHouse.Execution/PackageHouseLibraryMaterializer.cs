@@ -163,7 +163,7 @@ public static class PackageHouseLibraryMaterializer
                 required: false,
                 limits.MaxContentBytes,
                 cancellationToken,
-                captureNonSeekable: true);
+                captureContent: true);
             if (!TryAcceptEntry(
                     portablePdbPreparation,
                     entries,
@@ -560,7 +560,7 @@ public static class PackageHouseLibraryMaterializer
         bool required,
         long maxContentBytes,
         CancellationToken cancellationToken,
-        bool captureNonSeekable = false)
+        bool captureContent = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (content is IPackageContentEntryManifest manifest)
@@ -578,6 +578,15 @@ public static class PackageHouseLibraryMaterializer
                     path);
             }
 
+            if (captureContent)
+            {
+                return CaptureEntry(
+                    content,
+                    path,
+                    maxContentBytes,
+                    cancellationToken);
+            }
+
             return new(
                 EntryPreparationKind.Present,
                 path,
@@ -587,12 +596,10 @@ public static class PackageHouseLibraryMaterializer
         try
         {
             Stream? stream;
-            bool opened = captureNonSeekable
-                ? content.TryOpenEntry(path, out stream)
-                : content.TryOpenEntry(
-                    path,
-                    maxContentBytes,
-                    out stream);
+            bool opened = content.TryOpenEntry(
+                path,
+                maxContentBytes,
+                out stream);
             if (!opened || stream is null)
             {
                 return required
@@ -612,42 +619,13 @@ public static class PackageHouseLibraryMaterializer
                         EntryPreparationKind.ContentByteLimit,
                         path);
                 }
-                if (length is null && captureNonSeekable)
+                if (captureContent)
                 {
-                    using var captured = new MemoryStream();
-                    byte[] buffer = new byte[81_920];
-                    while (true)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        int maximumRead = checked(
-                            (int)Math.Min(
-                                buffer.Length,
-                                (maxContentBytes - captured.Length)
-                                    + 1));
-                        int read = stream.Read(
-                            buffer,
-                            0,
-                            maximumRead);
-                        if (read == 0)
-                            break;
-                        if (captured.Length + read
-                            > maxContentBytes)
-                        {
-                            return new(
-                                EntryPreparationKind
-                                    .ContentByteLimit,
-                                path);
-                        }
-                        captured.Write(buffer, 0, read);
-                    }
-
-                    cancellationToken.ThrowIfCancellationRequested();
-                    byte[] bytes = captured.ToArray();
-                    return new(
-                        EntryPreparationKind.Present,
+                    return CaptureStream(
+                        stream,
                         path,
-                        bytes.LongLength,
-                        bytes);
+                        maxContentBytes,
+                        cancellationToken);
                 }
 
                 return new(
@@ -662,6 +640,80 @@ public static class PackageHouseLibraryMaterializer
                 EntryPreparationKind.Unreadable,
                 path);
         }
+    }
+
+    private static EntryPreparation CaptureEntry(
+        IPackageContent content,
+        string path,
+        long maxContentBytes,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!content.TryOpenEntry(
+                    path,
+                    maxContentBytes,
+                    out Stream? stream)
+                || stream is null)
+            {
+                return new(
+                    EntryPreparationKind.Unreadable,
+                    path);
+            }
+
+            using (stream)
+            {
+                return CaptureStream(
+                    stream,
+                    path,
+                    maxContentBytes,
+                    cancellationToken);
+            }
+        }
+        catch (InvalidDataException)
+        {
+            return new(EntryPreparationKind.Unreadable, path);
+        }
+        catch (IOException)
+        {
+            return new(EntryPreparationKind.Unreadable, path);
+        }
+    }
+
+    private static EntryPreparation CaptureStream(
+        Stream stream,
+        string path,
+        long maxContentBytes,
+        CancellationToken cancellationToken)
+    {
+        using var captured = new MemoryStream();
+        byte[] buffer = new byte[81_920];
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int maximumRead = checked(
+                (int)Math.Min(
+                    buffer.Length,
+                    (maxContentBytes - captured.Length) + 1));
+            int read = stream.Read(buffer, 0, maximumRead);
+            if (read == 0)
+                break;
+            if (captured.Length + read > maxContentBytes)
+            {
+                return new(
+                    EntryPreparationKind.ContentByteLimit,
+                    path);
+            }
+            captured.Write(buffer, 0, read);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[] bytes = captured.ToArray();
+        return new(
+            EntryPreparationKind.Present,
+            path,
+            bytes.LongLength,
+            bytes);
     }
 
     private static bool TryAcceptEntry(

@@ -742,7 +742,7 @@ public static class LibraryAddressInspectionOperation
         return features;
     }
 
-    private static bool RequiresSource(
+    internal static bool RequiresSource(
         LibraryAddressIntent intent) =>
         intent switch
         {
@@ -932,7 +932,7 @@ public static class LibraryAddressInspectionOperation
                     detail),
             ]);
 
-    private static InspectionEnvelope<LibraryAddressInspectionOutcome>
+    internal static InspectionEnvelope<LibraryAddressInspectionOutcome>
         Envelope(
             LibraryAddressInspectionOutcome outcome,
             IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
