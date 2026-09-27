@@ -34,6 +34,13 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     static string RouteLearningBasePath =>
         FixtureCatalog.ServicesRouteLearningBase.AssemblyPath();
 
+    static string SystemTextJsonNetStandardPath =>
+        Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "IntrinsicCoreLibrary",
+            "System.Text.Json.dll");
+
     static string ExternalFocusRole(
         InspectionGraphDocument document,
         InspectionGraphEdge edge) =>
@@ -67,7 +74,10 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
                 nodePackages,
             PackageIntrinsicCoreLibraryIneligibilityReceipt
-                coreLibraryIneligibility) =
+                coreLibraryIneligibility,
+            ImmutableArray<
+                PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+                intrinsicCoreLibraryOccurrences) =
             await ExecuteAsync(caller, target, versionSkewedTarget);
         InspectionGraphEdge edge = Assert.Single(document.Edges);
         Assert.Equal(
@@ -98,6 +108,88 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 .Select(participant => participant.Registration)
                 .Distinct(ReferenceEqualityComparer.Instance)
                 .Count());
+        PackageIntrinsicCoreLibraryCallOccurrenceEvidence occurrence =
+            Assert.Single(intrinsicCoreLibraryOccurrences);
+        Assert.Equal(
+            "Forward",
+            occurrence.CallSite.Target.Name);
+        Assert.Equal(
+            "System",
+            occurrence.Correspondence.Type.Namespace);
+        Assert.Equal(
+            ["Void"],
+            occurrence.Correspondence.Type.Segments);
+    }
+
+    [Fact]
+    public async Task
+        IntrinsicCoreLibraryOccurrencesRetainExactPackageContextEvidence()
+    {
+        string systemTextJson = SystemTextJsonNetStandardPath;
+        PackageRootBinding root = PackageBindingForTarget(
+            "System.Text.Json",
+            "netstandard2.0",
+            systemTextJson);
+
+        (InspectionGraphDocument document,
+            _,
+            PackageIntrinsicCoreLibraryIneligibilityReceipt context,
+            ImmutableArray<
+                PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+                occurrences) =
+            await ExecuteCoreAsync(
+                root,
+                systemTextJson,
+                "JsonDocument",
+                "Dispose",
+                new(
+                    maxDepth: 4,
+                    maxNodes: 30),
+                PackageSupplyChainBaseline.Nothing,
+                WorkspacePlan.Empty);
+
+        Assert.NotEmpty(occurrences);
+        Assert.True(
+            occurrences
+                .Select(occurrence => occurrence.OccurrenceId)
+                .Distinct()
+                .Count() > 1);
+        Assert.All(
+            occurrences,
+            occurrence =>
+            {
+                Assert.Same(context, occurrence.Context);
+                Assert.Same(
+                    occurrence.Origin.Registration,
+                    occurrence.CallSite.Identity.SourceRegistration);
+                Assert.Same(
+                    root.Root.Identity,
+                    occurrence.Origin.Package);
+                TypeResolutionOutcome.Unavailable unavailable =
+                    Assert.IsType<TypeResolutionOutcome.Unavailable>(
+                        occurrence.Correspondence.Outcome);
+                Assert.IsType<
+                    AssemblyBindingTarget.IntrinsicCoreLibrary>(
+                        unavailable.Target);
+                AssemblyBindingOrigin.RequestingAssembly origin =
+                    Assert.IsType<
+                        AssemblyBindingOrigin.RequestingAssembly>(
+                        unavailable.Origin);
+                Assert.Same(
+                    occurrence.Origin.Registration,
+                    origin.Registration);
+                Assert.Equal(
+                    AssemblyResolutionScope.Platform,
+                    unavailable.Scope);
+                InspectionGraphOccurrence graphOccurrence =
+                    Assert.Single(
+                        document.Occurrences,
+                        candidate =>
+                            candidate.Id == occurrence.OccurrenceId);
+                Assert.Same(
+                    occurrence.CallSite,
+                    graphOccurrence.Evidence);
+            });
     }
 
     [Fact]
@@ -111,6 +203,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
                 nodePackages,
+            _,
             _) =
             await ExecuteAsync(root);
 
@@ -141,6 +234,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
                 nodePackages,
+            _,
             _) =
             await ExecuteWithPolicyAsync(
                 root,
@@ -183,7 +277,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 new WorkspaceRegistration.Ecosystem(ecosystem),
             ]);
 
-        (InspectionGraphDocument document, _, _) =
+        (InspectionGraphDocument document, _, _, _) =
             await ExecuteWithPolicyAsync(
                 root,
                 PackageSupplyChainBaseline
@@ -216,12 +310,16 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
                 nodePackages,
+            _,
             _) =
             await ExecuteCoreAsync(
                 root,
                 CallerBindingCallerPath,
                 "Caller",
                 "Create",
+                new(
+                    maxDepth: 2,
+                    maxNodes: 10),
                 PackageSupplyChainBaseline.Self,
                 plan,
                 dependency);
@@ -286,7 +384,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         InspectionGraphDocument Document,
         ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
         PackageIntrinsicCoreLibraryIneligibilityReceipt
-            CoreLibraryIneligibility)>
+            CoreLibraryIneligibility,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            IntrinsicCoreLibraryOccurrences)>
         ExecuteAsync(
             PackageRootBinding caller,
             params PackageRootBinding[] packages)
@@ -301,7 +401,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         InspectionGraphDocument Document,
         ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
         PackageIntrinsicCoreLibraryIneligibilityReceipt
-            CoreLibraryIneligibility)>
+            CoreLibraryIneligibility,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            IntrinsicCoreLibraryOccurrences)>
         ExecuteWithPolicyAsync(
             PackageRootBinding caller,
             PackageSupplyChainBaseline baseline,
@@ -312,6 +414,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             CallerPath,
             "Entry",
             "RunAcrossBoundary",
+            new(
+                maxDepth: 2,
+                maxNodes: 10),
             baseline,
             plan,
             packages);
@@ -320,7 +425,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         InspectionGraphDocument Document,
         ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
         PackageIntrinsicCoreLibraryIneligibilityReceipt
-            CoreLibraryIneligibility)>
+            CoreLibraryIneligibility,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            IntrinsicCoreLibraryOccurrences)>
         ExecuteAsync(
             PackageRootBinding caller,
             string focusAssemblyPath,
@@ -332,6 +439,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 focusAssemblyPath,
                 focusTypeName,
                 focusMethodName,
+                new(
+                    maxDepth: 2,
+                    maxNodes: 10),
                 PackageSupplyChainBaseline.Nothing,
                 WorkspacePlan.Empty,
                 packages);
@@ -340,12 +450,15 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         InspectionGraphDocument Document,
         ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
         PackageIntrinsicCoreLibraryIneligibilityReceipt
-            CoreLibraryIneligibility)>
+            CoreLibraryIneligibility,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            IntrinsicCoreLibraryOccurrences)>
         ExecuteCoreAsync(
             PackageRootBinding caller,
             string focusAssemblyPath,
             string focusTypeName,
             string focusMethodName,
+            MemberCallGraphCalleeNeighborhoodRequest graph,
             PackageSupplyChainBaseline baseline,
             WorkspacePlan plan,
             params PackageRootBinding[] packages)
@@ -387,9 +500,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                             focusAssemblyPath,
                             focusTypeName,
                             focusMethodName)),
-                    new(
-                        maxDepth: 2,
-                        maxNodes: 10),
+                    graph,
                     PackageSupplyChainBaselinePolicy.Create(
                         [caller.Root.Identity.PackageId],
                         baseline,
@@ -437,7 +548,8 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             return (
                 available.Document,
                 available.NodePackages,
-                available.IntrinsicCoreLibraryIneligibility);
+                available.IntrinsicCoreLibraryIneligibility,
+                available.IntrinsicCoreLibraryOccurrences);
         }
         finally
         {
@@ -453,6 +565,15 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
     private static PackageRootBinding PackageBinding(
         string packageId,
+        params string[] assemblyPaths) =>
+        PackageBindingForTarget(
+            packageId,
+            "net11.0",
+            assemblyPaths);
+
+    private static PackageRootBinding PackageBindingForTarget(
+        string packageId,
+        string targetFramework,
         params string[] assemblyPaths)
     {
         byte[] manifest = Encoding.UTF8.GetBytes(
@@ -480,7 +601,8 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             foreach (string assemblyPath in assemblyPaths)
             {
                 using Stream assembly = archive.CreateEntry(
-                    $"lib/net11.0/{Path.GetFileName(assemblyPath)}").Open();
+                    $"lib/{targetFramework}/{Path.GetFileName(assemblyPath)}")
+                    .Open();
                 assembly.Write(File.ReadAllBytes(assemblyPath));
             }
         }
@@ -495,7 +617,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             PackagePayloadOrigin.Download);
         return PackageRootBinding.CreateFromSource(
             payload,
-            "net11.0");
+            targetFramework);
     }
 
     private static Guid ModuleVersionId(string assemblyPath)
@@ -524,4 +646,5 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 node.Subject)
                 .Identity)
             .Member;
+
 }

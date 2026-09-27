@@ -184,6 +184,13 @@ public sealed class CallGraphCallSiteIdentity
         && _structuralCaller!.IsPortable;
 
     /// <summary>
+    /// Exact acquisition registration that supplied this physical call
+    /// occurrence. Null for structurally identified synthetic receipts.
+    /// </summary>
+    public AssemblyAcquisitionRegistration? SourceRegistration =>
+        _callerStorage?.SourceRegistration;
+
+    /// <summary>
     /// Opaque evidence for the acquisition registration that supplied this
     /// physical receipt. Null for structurally identified synthetic receipts.
     /// </summary>
@@ -220,7 +227,8 @@ public sealed record CallGraphCallSite(
     int EdgeId,
     CallGraphCallSiteIdentity Identity,
     DirectCall Call,
-    CallGraphDispatchKind DispatchKind);
+    CallGraphDispatchKind DispatchKind,
+    GraphNodeEvidence? TargetEvidence);
 
 /// <summary>
 /// One stable row of a <see cref="CallGraphProjection"/>.
@@ -1119,6 +1127,8 @@ public sealed partial class CallGraphProjection
             foreach (DirectCall call in callSites)
             {
                 ArgumentNullException.ThrowIfNull(call);
+                GraphNodeEvidence? targetEvidence =
+                    CallSiteTargetEvidence(to, callerDefinition, call);
                 var identity = new CallGraphCallSiteIdentity(
                     useAcquisitionReceiptIdentity
                         ? callerDefinition
@@ -1154,6 +1164,23 @@ public sealed partial class CallGraphProjection
                             fallbackLoopHint);
                         continue;
                     }
+                    if (existing.TargetEvidence is null
+                        && targetEvidence is not null)
+                    {
+                        _callSites[existingId] =
+                            existing with
+                            {
+                                TargetEvidence = targetEvidence,
+                            };
+                    }
+                    else if (existing.TargetEvidence is not null
+                        && targetEvidence is not null
+                        && !existing.TargetEvidence.Storage.Equals(
+                            targetEvidence.Storage))
+                    {
+                        throw new InvalidOperationException(
+                            "One physical call-site identity cannot carry contradictory target evidence.");
+                    }
                     edge.LegacyLoopHint = null;
                     edge.PhysicalAnyCallInLoop |= call.InLoop;
                     continue;
@@ -1169,9 +1196,47 @@ public sealed partial class CallGraphProjection
                         index,
                         identity,
                         call,
-                        DispatchKind(call)));
+                        DispatchKind(call),
+                        targetEvidence));
                 edge.CallSiteIds.Add(id);
             }
+        }
+
+        GraphNodeEvidence? CallSiteTargetEvidence(
+            int targetNodeId,
+            GraphNodeStorageKey? callerDefinition,
+            DirectCall call)
+        {
+            if (!useAcquisitionReceiptIdentity
+                || callerDefinition is null)
+            {
+                return null;
+            }
+
+            GraphNodeEvidence[] matches =
+            [
+                .. _nodes[targetNodeId].GraphEvidence.Where(
+                    evidence =>
+                        evidence.Storage.Kind
+                            == GraphNodeStorageKind.CallSite
+                        && ReferenceEquals(
+                            evidence.Storage.SourceRegistration,
+                            callerDefinition.SourceRegistration)
+                        && evidence.Storage.ModuleVersionId
+                            == call.EvidenceMethod.ModuleVersionId
+                        && evidence.Storage.MethodToken
+                            == call.EvidenceMethod.MetadataToken
+                        && evidence.Storage.ILOffset == call.ILOffset
+                        && evidence.Storage.OperandToken
+                            == call.OperandToken),
+            ];
+            return matches.Length switch
+            {
+                0 => null,
+                1 => matches[0],
+                _ => throw new InvalidOperationException(
+                    "One physical call site cannot identify several target-evidence records."),
+            };
         }
 
         static bool SameCallEvidence(
