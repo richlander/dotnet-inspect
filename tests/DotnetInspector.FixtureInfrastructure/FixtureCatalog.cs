@@ -175,6 +175,7 @@ public static class FixtureIds
     public const string SourceLinkVisualBasic = "sourcelink.visual-basic";
 
     public const string ResearchTargetSample = "research.target-sample";
+    public const string ResearchDependencyStructure = "research.dependency-structure";
     public const string ResearchTargetCorrespondenceV1 =
         "research.target-correspondence.v1";
     public const string ResearchTargetCorrespondenceV2 =
@@ -490,6 +491,20 @@ public static class FixtureCatalog
         "ILInspector.Research.TargetFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "research", "target", "accessor-role", "type-forwarder");
+
+    /// <summary>
+    /// Library Dependency Structure contract fixture: a three-namespace call
+    /// cycle with a dependent tail and a leaf, nested and global-namespace
+    /// types, lifted bodies, a method-group function reference, an external
+    /// generic call over a local type argument, <c>calli</c>, an array accessor,
+    /// and a namespace edge with seven contributing type edges.
+    /// </summary>
+    public static readonly FixtureDefinition ResearchDependencyStructure = Fixture(
+        FixtureIds.ResearchDependencyStructure,
+        "ILInspector.Research.DependencyStructureFixtures",
+        "ILInspector.Research.DependencyStructureFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "research", "dependency-structure");
 
     public static readonly FixtureDefinition ResearchTargetCorrespondenceV1 =
         Fixture(
@@ -1192,6 +1207,7 @@ public static class FixtureCatalog
         MatchBindingFacade,
         MatchBindingImplementation,
         ResearchTargetSample,
+        ResearchDependencyStructure,
         ResearchTargetCorrespondenceV1,
         ResearchTargetCorrespondenceV2,
     ];
@@ -1619,6 +1635,7 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.UnsafeChainC" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainC",
             "ILInspector.Decompiler.Fixtures.VbFinalizer" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.VbFinalizer",
             "ILInspector.Research.TargetFixtures" => "fixtures/research/ILInspector.Research.TargetFixtures",
+            "ILInspector.Research.DependencyStructureFixtures" => "fixtures/research/ILInspector.Research.DependencyStructureFixtures",
             "ResearchTargetCorrespondenceFixtures.V1" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V1",
             "ResearchTargetCorrespondenceFixtures.V2" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V2",
             "RunFaster.AllocationFixture" => "fixtures/runfaster/RunFaster.AllocationFixture",
