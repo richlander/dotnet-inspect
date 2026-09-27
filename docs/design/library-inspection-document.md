@@ -321,10 +321,17 @@ absent from its requested group rather than empty text. A fact whose evidence
 cannot be decoded is reported unavailable with a reason and does not fail the
 document or another group.
 
+Identity, Image, and Description are read from the same `ApiAssembly`
+content, so a failure to open that content fails the document even when a Type
+population was read first. Enablements may read separate implementation
+content; a failure to open it fails only the Enablements group.
+
 These related values are deliberately not Library facts:
 
-- **Source kind and coordinate** already belong to the `LibraryReference`
-  bound to the envelope. Hosts render them from that reference.
+- **Source kind and coordinate** belong to the `LibraryReference` bound to
+  the envelope, or to the host's own source resolution when the host
+  materializes a directly adapted image that does not carry them. Hosts render
+  them from that source.
 - **Deterministic** combines the reproducible flag with PDB path
   normalization, so it depends on companion or acquired symbol content. It
   stays with the SourceLink and PDB owner until that owner adopts a document
@@ -697,9 +704,10 @@ Adoption is staged through focused slices:
    their replacement. The first adoption is the Image, Description, and
    Enablements fact groups: produce them in the operation, expose them to
    Inspect Web through the Browser request, and render CLI `Library Info` from
-   the envelope plus `LibraryReference` provenance. Library Info counts whose
-   populations are not yet adopted stay on their legacy path until their own
-   slice.
+   the envelope plus source provenance, field by field as
+   [Library Info composition](library-info-composition.md) maps them. Library
+   Info counts whose populations are not yet adopted stay on their legacy path
+   until their own slice.
 
 The exact-Library API and package-wide Browser surface remain independent
 operations until a focused adoption proves which facts or populations the new
