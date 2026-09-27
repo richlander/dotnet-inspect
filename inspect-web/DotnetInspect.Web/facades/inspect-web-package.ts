@@ -16,6 +16,12 @@ export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" |
 
 export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "DeclarationNotFound" | number;
 
+export type BrowserCapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | number;
+
+export type BrowserCapabilityCatalogSearchShareKind = "available" | "nonProjectable" | number;
+
+export type BrowserCapabilityResourceKind = "Document" | "Route" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
@@ -29,6 +35,8 @@ export type BrowserExactLibraryApiInspectionFailureKind = number;
 export type BrowserExactLibraryApiInspectionOutcome = number;
 
 export type BrowserExactLibraryApiProjectionLimit = number;
+
+export type BrowserInspectionConsumerKind = "Cli" | "Browser" | "OperationBackedSection" | number;
 
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 
@@ -86,6 +94,8 @@ export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" 
 
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 
+export type BrowserResourceExplanationResourceKind = "Catalog" | "NavigationCollection" | "StructuralCategory" | "StructuralSection" | "StructuralItem" | "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
+
 export type CompiledDocumentationIncompleteReason = "Deadline" | "ContributionLimit" | "CompanionSelectionPartial" | "CompiledXmlByteLimit" | number;
 
 export type CompiledDocumentationRequestRejectionKind = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | number;
@@ -139,6 +149,64 @@ export interface BrowserAssemblySurface {
   readonly publicTypes: number;
   readonly publicMembers: number;
   readonly platformPack: string | null;
+}
+
+export interface BrowserCapabilityCatalogSearchBinding {
+  readonly identity: string;
+  readonly name: string;
+  readonly consumerKind: BrowserInspectionConsumerKind;
+  readonly gesture: string;
+  readonly resourcePath: string;
+}
+
+export interface BrowserCapabilityCatalogSearchDocument {
+  readonly query: string;
+  readonly similarityThreshold: number;
+  readonly candidateResourceCount: number;
+  readonly matchCount: number;
+  readonly returnedCount: number;
+  readonly isTruncated: boolean;
+  readonly results: ReadonlyArray<BrowserCapabilityCatalogSearchResult>;
+}
+
+export interface BrowserCapabilityCatalogSearchInspection {
+  readonly content: BrowserCapabilityCatalogSearchDocument;
+  readonly share: BrowserCapabilityCatalogSearchShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserCapabilityCatalogSearchResult {
+  readonly similarity: number;
+  readonly matchedTerm: string;
+  readonly matchSource: BrowserCapabilityCatalogSearchMatchSource;
+  readonly isSegment: boolean;
+  readonly resourceIdentity: BrowserCapabilityResourceIdentity;
+  readonly resourceKind: BrowserResourceExplanationResourceKind;
+  readonly resourceName: string;
+  readonly canonicalKeys: ReadonlyArray<string>;
+  readonly resourcePath: string;
+  readonly owningRoutes: ReadonlyArray<BrowserCapabilityCatalogSearchRoute>;
+  readonly productionBindings: ReadonlyArray<BrowserCapabilityCatalogSearchBinding>;
+}
+
+export interface BrowserCapabilityCatalogSearchRoute {
+  readonly identity: string;
+  readonly name: string;
+  readonly resourcePath: string;
+}
+
+export interface BrowserCapabilityCatalogSearchShare {
+  readonly kind: BrowserCapabilityCatalogSearchShareKind;
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserCapabilityResourceIdentity {
+  readonly kind: BrowserCapabilityResourceKind;
+  readonly identity: string;
+  readonly parentIdentity: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {
@@ -1371,6 +1439,7 @@ type $ManagedExports = {
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.1685943924": (operationId: string, prefix: string, termsJson: string, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
+            readonly "SearchCapabilities.146925470": (text: string, maximumResults: number) => string;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
         };
@@ -1776,6 +1845,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "SearchCapabilities.146925470");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.SearchCapabilities.146925470\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "SearchTypes.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes.271973316\u0027 is not callable.");
@@ -1994,6 +2075,12 @@ export async function runPackageQuery(operationId: string, prefix: string, terms
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, $serializeJsonInput(termsJson, "DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924", "termsJson"), targetFramework, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryResult;
+}
+
+export function searchCapabilities(text: string, maximumResults: number): BrowserCapabilityCatalogSearchInspection {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchCapabilities.146925470"](text, maximumResults);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserCapabilityCatalogSearchInspection;
 }
 
 export function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit> {

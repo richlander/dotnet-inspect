@@ -89,6 +89,7 @@ public sealed class ProductionFacadeContextTests
             "ResolvePackageDependencyVersion",
             "RunPackageActivity",
             "RunPackageQuery",
+            "SearchCapabilities",
             "SearchTypes",
         ],
         [LibraryAssembly] =
