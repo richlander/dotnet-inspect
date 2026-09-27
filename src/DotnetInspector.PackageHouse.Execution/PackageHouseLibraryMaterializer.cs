@@ -674,6 +674,10 @@ public static class PackageHouseLibraryMaterializer
         {
             return new(EntryPreparationKind.Unreadable, path);
         }
+        catch (PackageEntryNotMaterializedException)
+        {
+            return new(EntryPreparationKind.Unreadable, path);
+        }
         catch (IOException)
         {
             return new(EntryPreparationKind.Unreadable, path);
