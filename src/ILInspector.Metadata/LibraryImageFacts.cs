@@ -178,10 +178,12 @@ public sealed record AssemblyLibraryFactsObservation(
     private static LibraryArchitecture? ReadArchitecture(Machine machine, CorHeader? corHeader) =>
         machine switch
         {
-            Machine.I386 when corHeader?.Flags.HasFlag(CorFlags.Requires32Bit) == true =>
-                LibraryArchitecture.X86,
+            // Compilers mark 32-bit-preferred AnyCPU with both flags; x86 has
+            // Requires32Bit alone.
             Machine.I386 when corHeader?.Flags.HasFlag(CorFlags.Prefers32Bit) == true =>
                 LibraryArchitecture.AnyCpuPrefers32Bit,
+            Machine.I386 when corHeader?.Flags.HasFlag(CorFlags.Requires32Bit) == true =>
+                LibraryArchitecture.X86,
             Machine.I386 => LibraryArchitecture.AnyCpu,
             Machine.Amd64 => LibraryArchitecture.X64,
             Machine.Arm => LibraryArchitecture.Arm,

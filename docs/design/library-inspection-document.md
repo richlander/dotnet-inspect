@@ -312,8 +312,8 @@ come from the runtime pack. A Library realized only from a reference assembly
 receives that owner's `ReferenceAssembly` Unavailable outcome.
 
 Architecture is absent when the PE machine value is one the vocabulary does
-not name, as in reference assemblies and OS-specific ReadyToRun images. An
-unreadable debug directory makes reproducibility unavailable rather than false.
+not name, as in OS-specific ReadyToRun images. An unreadable debug directory
+makes reproducibility unavailable rather than false.
 
 A requested group appears in the document; an unrequested group is absent. A
 fact the image does not carry, such as a missing `Company` attribute, is

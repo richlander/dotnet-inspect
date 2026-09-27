@@ -58,6 +58,28 @@ public sealed class LibraryInspectionFactsTests
     }
 
     [Fact]
+    public async Task FactsOnlyPlan_DoesNotRunTheDeclarationInventory()
+    {
+        // The declaration inventory fails this image, so a facts-only plan can
+        // only succeed if it never runs the inventory.
+        byte[] image = LibraryInspectionTestLibrary.BuildMetadataImage(malformedPublicType: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+
+        Assert.IsType<LibraryInspectionOutcome.Failed>(Execute(
+            library,
+            new(new(LibraryTypeAccessibility.Public, new()), s_bounds)).Content);
+        LibraryDocument document = Document(Execute(
+            library,
+            new(types: null, s_bounds, image: new())));
+
+        Assert.Null(document.Types);
+        Assert.NotNull(document.Image);
+    }
+
+    [Fact]
     public async Task UnrequestedGroups_AreAbsent()
     {
         await using LibraryInspectionTestLibrary library = await SocketsAsync();

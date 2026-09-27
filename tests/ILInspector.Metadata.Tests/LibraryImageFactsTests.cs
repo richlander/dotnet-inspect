@@ -52,6 +52,24 @@ public sealed class LibraryImageFactsTests
         Assert.Equal(LibraryCompilationForm.IL, facts.Compilation);
     }
 
+    [Theory]
+    [InlineData(Platform.AnyCpu, LibraryArchitecture.AnyCpu)]
+    [InlineData(Platform.AnyCpu32BitPreferred, LibraryArchitecture.AnyCpuPrefers32Bit)]
+    [InlineData(Platform.X86, LibraryArchitecture.X86)]
+    [InlineData(Platform.X64, LibraryArchitecture.X64)]
+    [InlineData(Platform.Arm64, LibraryArchitecture.Arm64)]
+    public void CompilerPlatform_MapsToArchitecture(Platform platform, LibraryArchitecture expected)
+    {
+        // 32-bit-preferred requires an executable; Roslyn sets both
+        // Requires32Bit and Prefers32Bit for it.
+        AssemblyLibraryFactsObservation facts = Read(Compile(
+            "static class Program { static void Main() { } }",
+            OutputKind.ConsoleApplication,
+            platform));
+
+        Assert.Equal(expected, facts.Architecture);
+    }
+
     [Fact]
     public void UndecodableAndConflictingText_AreUnavailableWithoutAffectingOtherFacts()
     {
@@ -88,13 +106,16 @@ public sealed class LibraryImageFactsTests
         return session.LibraryFacts();
     }
 
-    private static byte[] Compile(string source)
+    private static byte[] Compile(
+        string source,
+        OutputKind kind = OutputKind.DynamicallyLinkedLibrary,
+        Platform platform = Platform.AnyCpu)
     {
         CSharpCompilation compilation = CSharpCompilation.Create(
             "FactsMatrix",
             [CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken)],
             [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+            new CSharpCompilationOptions(kind, platform: platform));
         using var stream = new MemoryStream();
         Microsoft.CodeAnalysis.Emit.EmitResult result =
             compilation.Emit(stream, cancellationToken: TestContext.Current.CancellationToken);
