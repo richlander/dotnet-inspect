@@ -223,6 +223,65 @@ about 4 microseconds, so fixed setup dominates. Rows kernels allocate within
 1 KB of the hand-rolled loop. merritt runs consistently higher than the other
 machines, and the cause is not yet known.
 
+## Row windows: skipping work
+
+Run `row-windows`, 2026-09-27, build `b35ce8ea5`. An open query split into a
+predicate and a projection, where the projection builds a legacy-shaped row:
+name, declaring type, and signature text. One phase kernel runs Discard, Rows,
+and Count phases over one cursor. The baseline is today's shape: build every
+row, then select the window. Every request returned identical rows from the
+kernel, a hand-written loop, and build-then-trim on all eight assemblies.
+
+**Dense population:** public, non-accessor methods on non-compiler-generated
+types, 403 to 22,475 rows. Speedup of the phase kernel over building every row
+and then trimming, mac:
+
+| Assembly | Rows | Build all, then trim | Head(6) | Window(4..6) | Window(100..110) | Window(1000..1010) | Window(4..6) + Count | All rows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| CommandLine | 403 | 191 µs | 51.5× | 64.6× | 23.7× | 14.9× | 13.9× | 1.0× |
+| Humanizer | 735 | 194 µs | 64.5× | 77.4× | 31.2× | 9.4× | 9.1× | 1.0× |
+| Mono.Cecil | 992 | 303 µs | 102.7× | 126.3× | 40.9× | 7.8× | 7.6× | 1.0× |
+| Newtonsoft.Json | 1509 | 476 µs | 158.6× | 190.3× | 58.7× | 13.8× | 10.0× | 1.0× |
+| System.Text.Json | 1337 | 462 µs | 124.8× | 148.9× | 59.2× | 14.4× | 11.3× | 1.0× |
+| NuGet.Packaging | 999 | 355 µs | 95.8× | 147.8× | 48.6× | 9.6× | 9.5× | 1.0× |
+| Roslyn C# | 13161 | 11.51 ms | 4109.9× | 4697.0× | 899.0× | 272.0× | 28.2× | 1.0× |
+| CoreLib | 22475 | 19.03 ms | 4756.4× | 5595.8× | 2606.2× | 630.0× | 37.1× | 1.0× |
+
+annies-mac-mini, merritt, and fernie agree within the same order of magnitude:
+Head(6) is 47× to 4,756× faster across machines and assemblies.
+
+- The kernel allocates 6 to 12 KB for any window, against 0.7 to 31 MB to
+  build every row.
+- Window(4..6) with Count runs the predicate over every unit but projects only
+  three rows, and is still 7× to 37× faster. The projection, not the
+  traversal, is most of a row's cost.
+- All rows through the kernel cost the same as building them by hand (1.0×),
+  so the phase kernel has no penalty when nothing can be skipped.
+
+**Sparse population:** the async methods in the same scope, 0 to 31 rows.
+Speedups, mac:
+
+| Assembly | Async rows | Legacy rows, then trim | Build all, then trim | Head(6): vs legacy | Head(6): vs build-all | Window(4..6)+Count: vs build-all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CommandLine | 3 | 198 µs | 67 µs | 3.0× | 1.0× | 1.0× |
+| Humanizer | 0 | 217 µs | 86 µs | 2.5× | 1.0× | 1.0× |
+| Mono.Cecil | 0 | 277 µs | 72 µs | 3.7× | 1.0× | 1.0× |
+| Newtonsoft.Json | 11 | 580 µs | 237 µs | 3.5× | 1.4× | 1.0× |
+| System.Text.Json | 8 | 524 µs | 211 µs | 3.5× | 1.4× | 1.0× |
+| NuGet.Packaging | 22 | 522 µs | 116 µs | 13.1× | 2.9× | 1.1× |
+| Roslyn C# | 0 | 4.35 ms | 1.37 ms | 3.1× | 1.0× | 1.0× |
+| CoreLib | 31 | 16.30 ms | 3.36 ms | 12.6× | 2.6× | 1.0× |
+
+- Head(6) against the legacy rows is 2.4× to 14.6× faster across machines,
+  because it asks one question and projects at most six rows.
+- Against building every async row, Head(6) gains only where six exist early
+  (NuGet.Packaging and CoreLib, 2.5× to 3×). When fewer than six exist, the
+  source must be exhausted to prove it, and nothing can be skipped.
+
+The kernel is within 0.96× to 1.15× of the hand-written loop in most cells.
+merritt and fernie show up to 1.88× on requests that finish in a few
+microseconds, where fixed setup dominates.
+
 ## Allocation profiles
 
 - **Async count.** About 254 KB per CommandLine scan in every variant, planned
@@ -277,7 +336,7 @@ first, then doing less per unit, then doing it faster.
 
 | Rank | Opportunity | Evidence | Owners | Author cost |
 | ---: | --- | --- | --- | --- |
-| 1 | Lower row selection into sources: Head, Skip, Window, and Tail as closings and stages, with stop policies | Rows are built in full and then trimmed; Exists over rows-then-check measured 5–758× | Semantic row selection, source delegation, QuerySpace, Producer Planning | None; derived from the request |
+| 1 | Lower row selection into sources: Head, Skip, Window, and Tail as closings and stages, with stop policies | Rows are built in full and then trimmed; the phase kernel measured 7× to 5,600× on windows over dense populations (see [Row windows](#row-windows-skipping-work)) | Semantic row selection, source delegation, QuerySpace, Producer Planning | None; derived from the request |
 | 2 | Split open queries into a predicate and a projection | Skipped and counted rows should pay only the predicate; legacy rows spend most of their cost formatting text | Producer Planning | Two members instead of one |
 | 3 | Source-native answers: counts from table sizes, random access, reverse order, and reference-table presence checks | A self-typed source, as in NLinq, can answer a closing without visiting | QuerySpace (#8577) | None for authors; per source |
 | 4 | Scope at coarser grains | Type scope already skips whole types; assemblies and packages are next | Producer Planning, QuerySpace | One predicate per grain |
