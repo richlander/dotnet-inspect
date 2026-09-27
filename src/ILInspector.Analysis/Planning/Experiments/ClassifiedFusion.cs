@@ -629,6 +629,7 @@ internal struct MethodKindClassifier : IUnitClassifier<MethodKind>
     public bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
         ClassifiedScope.IsScopedType(reader, type);
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public MethodKind Classify(ref MethodDefinitionUnit unit)
     {
         MetadataReader reader = unit.Reader;
@@ -647,6 +648,7 @@ internal struct PInvokeRowsSink : IFusedSink<MethodKind>
 
     public readonly bool IsDone => false;
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public void Accept(ref MethodDefinitionUnit unit, MethodKind key)
     {
         if (key == MethodKind.PInvoke)
@@ -660,6 +662,7 @@ internal struct AsyncCountSink : IFusedSink<MethodKind>
 
     public readonly bool IsDone => false;
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public void Accept(ref MethodDefinitionUnit unit, MethodKind key)
     {
         if (key == MethodKind.Async)
@@ -673,6 +676,7 @@ internal struct PointerExistsSink : IFusedSink<MethodKind>
 
     public readonly bool IsDone => Found;
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public void Accept(ref MethodDefinitionUnit unit, MethodKind key)
     {
         if (key == MethodKind.Other && ClassifiedScope.HasPointerSignature(unit.Reader, unit.MethodDefinition))

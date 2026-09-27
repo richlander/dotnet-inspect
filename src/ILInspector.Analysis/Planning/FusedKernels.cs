@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Analysis.Planning;
@@ -33,8 +34,13 @@ internal struct FusedPair<TFirst, TSecond, TKey> : IFusedSink<TKey>
     public TFirst First;
     public TSecond Second;
 
-    public readonly bool IsDone => First.IsDone && Second.IsDone;
+    public readonly bool IsDone
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => First.IsDone && Second.IsDone;
+    }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Accept(ref MethodDefinitionUnit unit, TKey key)
     {
         if (!First.IsDone)
