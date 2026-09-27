@@ -124,7 +124,7 @@ internal static class MetadataLensRenderer
                 output,
                 MetadataProjectionRenderer.Caveats(
                     entries,
-                    "library coordinate"));
+                    "library address"));
         }
 
         foreach (var table in ProjectSelected(inspection, selected, caveats, columns))
@@ -215,7 +215,7 @@ internal static class MetadataLensRenderer
             MetadataProjectionRenderer.RenderHeapEntries(entries, output, columns, format);
             foreach (string caveat in MetadataProjectionRenderer.Caveats(
                 entries,
-                "library coordinate"))
+                "library address"))
                 caveats.WriteLine(caveat);
         }
 

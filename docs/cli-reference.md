@@ -246,7 +246,7 @@ stderr rather than mixed into structured output.
 | Source | `type`/`member -S Source` / `@Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` | `Source` is authored-first and retains provider and fallback context. `@Source` adds forced `PDB Source` and `Decompiled Source` views plus `Source Diff`; SourceLink inventories remain separate. |
 | Performance analysis *(experimental)* | `library -S "Library Metrics"`, `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-library structural metrics, whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
-| Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
+| Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
@@ -457,9 +457,9 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect type JsonSerializer --package System.Text.Json -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
-dotnet-inspect library coordinate 0x060002EA+0x0 \
+dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
-dotnet-inspect library coordinate --file coordinates.txt \
+dotnet-inspect library address --file coordinates.txt \
   --library ./MyLibrary.dll
 ```
 
@@ -473,14 +473,14 @@ ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
 validated image header and section directory. Use `@Metadata` to discover or
 render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
 the ReadyToRun manifest metadata instead of the default CLI root, and
-`library coordinate` for one exact heap address in the selected root.
+`library address` for one exact heap address in the selected root.
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
-dotnet-inspect library coordinate "#Strings:0x1a4" \
+dotnet-inspect library address "#Strings:0x1a4" \
   --library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll
 dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
 ```
@@ -1196,7 +1196,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --pr
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
   --print --part body --markdown
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
-dotnet-inspect library coordinate 0x060002EA+0x0 \
+dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
@@ -1211,6 +1211,12 @@ bodies, including private and compiler-generated bodies when they are part of
 that population, without requiring `--all`. If an aggregate result identifies
 a non-public body and you follow it into an API-level command, that separate
 command may require `--all` to resolve the declaration.
+
+Some body-oriented commands also begin with an API lookup. In those commands,
+`--all` can be necessary to resolve a non-public, hidden, or obsolete Type or
+Member root. Once resolved, the implementation operation uses its complete
+admitted body population by default; `--all` does not widen traversal, select
+more relationships, or request every analysis.
 
 Exact `library ... -S "Library Metrics" --json` emits the complete Research
 `LibraryStructuralReportDocument`: the Analysis receipt and coverage,
@@ -1681,6 +1687,11 @@ their adopted Direct Use Clusters and Call Sites cohorts are described below.
 graph, and shows only calls crossing the selected supply-chain baseline plus
 the shortest baseline paths needed to reach them. Root asset selection stays
 exact; dependency traversal independently uses `--tfm` or the product default.
+In the OpenTelemetry example, `--all` is needed only because
+`AddOpenTelemetrySharedProviderBuilderServices` is a non-public starting
+declaration. It widens that API lookup; it does not mean all calls, remove the
+graph bounds, or widen the body population, relationship set, dependency
+traversal, or selected baseline.
 Each edge is typed as `connector`, `boundary`, or `unclassified-boundary`, and
 row-oriented output retains the physical MVID, MethodDef token, IL offset,
 operand token, call kind, dispatch kind, and loop state. A dependency member
@@ -1791,7 +1802,7 @@ its source-member, provider-type, target-member, extension-method, and physical
 call-site footprint. The rows name every source member, source token, target
 member, target token, call kind, evidence method, evidence token, and IL offset
 in that cluster. Use source and target identities for ordinary `member`
-inspection. Use the evidence token with the IL offset for `library coordinate`,
+inspection. Use the evidence token with the IL offset for `library address`,
 because a compiler-generated physical body can differ from the attributed
 source member. The cluster remains structural evidence rather than a
 source-inlining verdict.
@@ -1818,7 +1829,7 @@ dotnet-inspect member "<TargetType>" \
   -m "<TargetMember>" \
   -S @Source
 
-dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
+dotnet-inspect library address "<EvidenceToken>+<ILOffset>" \
   --library ./Consumer.dll
 ```
 

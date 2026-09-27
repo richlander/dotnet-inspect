@@ -746,11 +746,11 @@ with structural `explain`.
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
 exist to be selected. The family has two currencies: the IL coordinate, and the
-heap coordinate accepted by `library coordinate` (see
+heap coordinate accepted by `library address` (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not syntax elements, because one currency
-can have more than one spelling. `library coordinate` accepts either one exact
+can have more than one spelling. `library address` accepts either one exact
 IL coordinate or `--file` for batch reporting. Exact and file modes are
 mutually exclusive, so they are one member of this family rather than two.
 
@@ -766,7 +766,7 @@ Carriers behave consistently:
   so `-D` reflects the carrier (see the IL-offset case study below).
 - Absent the carrier, requesting a coordinate-scoped section is an error that
   names the missing carrier, for example
-  `IL coordinate sections require library coordinate <token>+<offset>`.
+  `IL coordinate sections require library address <token>+<offset>`.
 - Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
   `--columns`, `--count`, and the rest of the ladder like any other.
 
@@ -1375,7 +1375,7 @@ resolved by discarding one.
 
 A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library coordinate --file` and the `-D`/`--discover` listing. Each renders a
+`library address --file` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.
 
@@ -1615,7 +1615,7 @@ member MyType Method:1 --library MyLib.dll -S "Decompiled Source" > Method.cs
 
 ### Case study: IL offset as a shape catalogue
 
-`library coordinate` is a compact example of the shape ladder because one
+`library address` is a compact example of the shape ladder because one
 resolved coordinate can expose multiple sibling sections. The source-location
 section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
 source-line payload; the member-context section projects the same coordinate to
@@ -1628,7 +1628,7 @@ The default stays evidence-oriented and renders all applicable coordinate-scoped
 sections:
 
 ```bash
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll
+dotnet-inspect library address 0x06000002+0x1 --library My.dll
 ```
 
 ```md
@@ -1717,7 +1717,7 @@ dotnet-inspect library My.dll -D
 # Context: Source Location, Context: Member, Context: Instruction, Context: Exception,
 # Context: Callsite, and Context: Return Address are omitted.
 
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll -D
+dotnet-inspect library address 0x06000002+0x1 --library My.dll -D
 # Context: Source Location
 # Context: Member
 # Context: Instruction
@@ -1730,27 +1730,27 @@ The source-location section then projects cleanly:
 
 ```bash
 # Scalar
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the visually encoded resolved source line
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --print --raw
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --count
 # 1
 ```
@@ -1796,7 +1796,7 @@ The stable vocabulary is:
   decoration modifier.
 - `--plaintext` remains distinct from `--raw`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `library coordinate` supplies coordinate input that has no other expression
+- `library address` supplies coordinate input that has no other expression
   and gates the sections it makes meaningful. Coordinate input does not narrow
   a shape, and syntax qualifies for this family only if its input is a new
   currency. Exact and file IL coordinates spell the same currency, so they are
