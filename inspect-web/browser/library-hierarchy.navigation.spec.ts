@@ -360,7 +360,7 @@ for (const width of [1440, 800, 390]) {
     await expect(libraryOverview.locator(
       ".overview-identity .overview-enablements[aria-label=\"Enabled\"] .overview-enablement"))
       .toHaveText(["AOT", "Runtime Async"]);
-    const inspectionRequest = JSON.parse(await page.evaluate(
+    const inspectionRequest: unknown = JSON.parse(await page.evaluate(
       () => document.documentElement.dataset.libraryInspectionRequest ?? "null"));
     expect(inspectionRequest).toMatchObject({
       library: {
