@@ -295,3 +295,127 @@ public static class ClassifiedFusion
             rows.Any(static m => m.Classification == MethodClassification.Unsafe));
     }
 }
+
+/// <summary>
+/// Step A: the shared classification computed once per unit, cheapest first,
+/// in the legacy order. The three questions read it as a same-unit fact.
+/// </summary>
+public enum MethodKind : byte { OutOfScope, PInvoke, Async, Other }
+
+public sealed class MethodKindProducer : MethodDefinitionProducer<MethodKind, int, int>
+{
+    MethodKindProducer() : base("Experiment.MethodKind", 1, 0, MethodDefinitionLayers.Declaration) { }
+
+    public static MethodKindProducer Instance { get; } = new();
+
+    internal override MethodKind Visit(scoped MethodDefinitionView view)
+    {
+        if (!ClassifiedScope.IsScopedType(view.Reader, view.TypeDefinition)
+            || !ClassifiedScope.IsScopedMethod(view.Reader, view.MethodDefinition))
+        {
+            return MethodKind.OutOfScope;
+        }
+
+        if (ClassifiedScope.IsPInvoke(view.MethodDefinition))
+            return MethodKind.PInvoke;
+        return ClassifiedScope.IsAsync(view.Reader, view.MethodDefinition)
+            ? MethodKind.Async
+            : MethodKind.Other;
+    }
+
+    internal override int Seed() => 0;
+    internal override int Accumulate(int accumulator, MethodKind fact) => fact == MethodKind.OutOfScope ? accumulator : accumulator + 1;
+    internal override int Complete(int accumulator, MethodDefinitionCompletionView completion) => accumulator;
+}
+
+public sealed class SharedPInvokeRowsProducer : MethodDefinitionProducer<int, List<int>, ImmutableArray<int>>
+{
+    SharedPInvokeRowsProducer()
+        : base("Experiment.SharedPInvokeRows", 1, 0, MethodDefinitionLayers.Declaration,
+            static () => [new ProducerDependency(MethodKindProducer.Instance, ProducerDependencyKind.VisitNeedsVisit)])
+    {
+    }
+
+    public static SharedPInvokeRowsProducer Instance { get; } = new();
+
+    internal override int Visit(scoped MethodDefinitionView view) =>
+        view.FactOf(MethodKindProducer.Instance) == MethodKind.PInvoke ? view.Token : 0;
+
+    internal override List<int> Seed() => [];
+
+    internal override List<int> Accumulate(List<int> accumulator, int fact)
+    {
+        if (fact != 0)
+            accumulator.Add(fact);
+        return accumulator;
+    }
+
+    internal override ImmutableArray<int> Complete(List<int> accumulator, MethodDefinitionCompletionView completion) =>
+        [.. accumulator];
+}
+
+public sealed class SharedAsyncCountProducer : MethodDefinitionProducer<bool, int, int>
+{
+    SharedAsyncCountProducer()
+        : base("Experiment.SharedAsyncCount", 1, 0, MethodDefinitionLayers.Declaration,
+            static () => [new ProducerDependency(MethodKindProducer.Instance, ProducerDependencyKind.VisitNeedsVisit)])
+    {
+    }
+
+    public static SharedAsyncCountProducer Instance { get; } = new();
+
+    internal override bool Visit(scoped MethodDefinitionView view) =>
+        view.FactOf(MethodKindProducer.Instance) == MethodKind.Async;
+
+    internal override int Seed() => 0;
+    internal override int Accumulate(int accumulator, bool fact) => fact ? accumulator + 1 : accumulator;
+    internal override int Complete(int accumulator, MethodDefinitionCompletionView completion) => accumulator;
+}
+
+public sealed class SharedPointerPresenceProducer : MethodDefinitionProducer<bool, bool, bool>
+{
+    SharedPointerPresenceProducer()
+        : base("Experiment.SharedPointerPresence", 1, 0, MethodDefinitionLayers.Declaration,
+            static () => [new ProducerDependency(MethodKindProducer.Instance, ProducerDependencyKind.VisitNeedsVisit)])
+    {
+    }
+
+    public static SharedPointerPresenceProducer Instance { get; } = new();
+
+    internal override bool Visit(scoped MethodDefinitionView view) =>
+        view.FactOf(MethodKindProducer.Instance) == MethodKind.Other
+        && ClassifiedScope.HasPointerSignature(view.Reader, view.MethodDefinition);
+
+    internal override bool Seed() => false;
+    internal override bool Accumulate(bool accumulator, bool fact) => accumulator | fact;
+    internal override bool Complete(bool accumulator, MethodDefinitionCompletionView completion) => accumulator;
+    internal override bool Settles(bool fact) => fact;
+}
+
+public static class SharedClassifiedFusion
+{
+    static readonly WorkDescription s_fused = Plan(
+        new ProducerRequest(SharedPInvokeRowsProducer.Instance),
+        new ProducerRequest(SharedAsyncCountProducer.Instance),
+        new ProducerRequest(SharedPointerPresenceProducer.Instance, ProducerTerminal.Exists));
+
+    static WorkDescription Plan(params ProducerRequest[] requests) =>
+        ProducerPlanner.Plan(requests) is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new InvalidOperationException("The experiment request must plan.");
+
+    static T Value<T>(MethodDefinitionExecution execution, ProducerDeclaration<T> producer)
+    {
+        ProducerResult<T> result = execution.ResultOf(producer);
+        return result.HasValue ? result.Value! : throw new InvalidDataException(result.Failure?.Message);
+    }
+
+    public static ClassifiedAnswer PlannedFused(string path, PEReader peReader)
+    {
+        MethodDefinitionExecution execution = MethodDefinitionExecution.Execute(s_fused, path, peReader);
+        return new(
+            Value(execution, SharedPInvokeRowsProducer.Instance).Length,
+            Value(execution, SharedAsyncCountProducer.Instance),
+            Value(execution, SharedPointerPresenceProducer.Instance));
+    }
+}
