@@ -73,7 +73,7 @@ public static class LibraryMetricsInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteAnalysisReceipt(
+    internal static void WriteAnalysisReceipt(
         Utf8JsonWriter writer,
         LibraryBodyAnalysisReceipt receipt)
     {
@@ -382,7 +382,7 @@ public static class LibraryMetricsInspectionJson
         AnalysisIdentityJson.WriteType(writer, type);
     }
 
-    private static void WriteDiagnostics(
+    internal static void WriteDiagnostics(
         Utf8JsonWriter writer,
         IEnumerable<AnalysisDiagnostic> diagnostics)
     {

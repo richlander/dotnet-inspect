@@ -22,10 +22,12 @@ public static class InspectionGraphCommandDefinitions
         var libraries = CreateLibrariesCommand(opts);
         var cluster = CreateClusterCommand(opts);
         var calls = CreateCallsCommand(opts);
+        var structure = CreateStructureCommand(opts);
         command.Subcommands.Add(integrations);
         command.Subcommands.Add(libraries);
         command.Subcommands.Add(cluster);
         command.Subcommands.Add(calls);
+        command.Subcommands.Add(structure);
         command.SetAction(_ =>
         {
             HelpWriter.WriteHelp(command);
@@ -315,6 +317,62 @@ public static class InspectionGraphCommandDefinitions
                 baseline = default;
                 return false;
         }
+    }
+
+    static Command CreateStructureCommand(SharedOptions opts)
+    {
+        var command = new Command(
+            GraphStructureCommand.Name,
+            "Show one library's namespace layering, cycles, and explaining type edges");
+        var libraryOption = new Option<string?>("--library")
+        {
+            Description = "Local managed library to inspect",
+        };
+        var packageOption = new Option<string?>("--package")
+        {
+            Description = "NuGet package (ID or ID@VERSION); its namesake library is inspected",
+        };
+        var tfmOption = new Option<string?>("--tfm")
+        {
+            Description = "Target framework for --package (e.g., net10.0)",
+        };
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description = "Minified JSON (use with --json or --envelope)",
+        };
+        var outputPathOption = SharedOptions.CreateOutputPathOption();
+
+        command.Options.Add(libraryOption);
+        command.Options.Add(packageOption);
+        command.Options.Add(tfmOption);
+        command.Options.Add(opts.Json);
+        command.Options.Add(opts.Markdown);
+        command.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(command);
+        opts.AddEnvelopeOptionTo(command);
+        command.Options.Add(opts.Select);
+        command.Options.Add(compactOption);
+        command.Options.Add(outputPathOption);
+        command.Options.Add(opts.Verbose);
+        SharedOptions.AddOutputPathValidator(command, outputPathOption);
+
+        command.SetAction(async (parseResult, cancellationToken) =>
+            await GraphStructureCommand.ExecuteAsync(
+                new GraphStructureOptions
+                {
+                    Library = parseResult.GetValue(libraryOption),
+                    Package = parseResult.GetValue(packageOption),
+                    Tfm = parseResult.GetValue(tfmOption),
+                    Format = opts.ResolveFormat(parseResult),
+                    Envelope = parseResult.GetValue(opts.Envelope),
+                    CompactJson = parseResult.GetValue(compactOption),
+                    OutputPath = parseResult.GetValue(outputPathOption),
+                    Select = opts.ParseSelect(parseResult),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
+                    Verbose = parseResult.GetValue(opts.Verbose),
+                },
+                cancellationToken));
+        return command;
     }
 
     static Command CreateLibrariesCommand(SharedOptions opts)
