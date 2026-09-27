@@ -590,6 +590,30 @@ The parent population binding and each child population binding remain
 explicit. An aggregate such as "107 overloads" states which returned
 Member-group rows it covers and does not substitute for any child's Count.
 
+### Composition Count
+
+A `TypeDocument` request may ask for its composition: a set of exact Counts
+over its Member-group row set, one per projection value. Those values are each
+`accessibility` bucket and each `receiver` form. A separate Count covers
+hidden declarations, which no bucket intent admits without `--all`. For
+example, System.Text.Json 10.0.0 `JsonDocument` has:
+
+| Projection | Member-group rows | Declarations |
+| --- | ---: | ---: |
+| `accessibility = public` | 8 | 16 |
+| `accessibility = internal` | 24 | 44 |
+| `accessibility = private` | 19 | 20 |
+
+Each Count is an ordinary Count request with its own population binding. It
+equals the drained Rows of the same intent. The producer computes the whole
+composition in one pass over compact metadata, like nested Count. It must not
+run one Rows or Count operation per projection value, or construct rows to
+count them.
+
+Declaration Counts partition the base population. Member-group Counts do not,
+because one family can be a row under several bucket intents. A composition
+therefore never publishes a total that the bucket Counts do not state.
+
 ## Type Members row space
 
 `TypeDocument` may expose several declared Member-group row sets, such as
@@ -623,6 +647,21 @@ The same Member-group identity may therefore appear under several selected
 row intents with different child-population bindings and nested Counts.
 Unqualified `JsonSerializer.Deserialize` has 40 overloads;
 `receiver = extension` has 15, and `receiver != extension` has 25.
+
+The Type query binds `accessibility` the same way: as a membership projection
+over exact child declarations before Member-group formation. The owner-issued
+bucket of each declaration is defined in
+[API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope).
+The default projection is `accessibility = public`. For example, in
+System.Text.Json 10.0.0:
+
+- `JsonDocument.Parse` has 5 overloads under `accessibility = public` and 2
+  under `accessibility = private`;
+- the family has 7 overloads with every bucket selected; and
+- it is one Member-group row under each of those intents.
+
+A family whose declarations fall in several buckets is therefore a row in
+each of those buckets.
 
 Other distinctions needed for exact drill-down remain in the owner-issued
 Member-group key. A renderer may visually group distinct Member-group rows
@@ -1052,7 +1091,8 @@ owns the revised counted path:
    exact-row DocumentationHouse attachments.
 6. Compose exact Member SourceHouse attachments.
 7. Add the compact Type Member-group population and terminal-specific
-   QuerySpace execution, including nested exact-overload Count.
+   QuerySpace execution, including nested exact-overload Count, the
+   `accessibility` projection, and Composition Count.
 8. Implement `TypeDocument` over that population without the eager rich
    exact-Type/API-surface path.
 9. Bind the native Type Tree and section inventories to the shared route in
@@ -1095,6 +1135,12 @@ The implementation sequence must add Release gates proving:
 - `receiver = static | this | extension` is exhaustive for exact-overload rows,
   and source-applicable receiver predicates affect producer work before
   Member-group formation or row materialization;
+- `JsonDocument`'s Composition Count reports 8, 24, and 19 Member-group rows
+  and 16, 44, and 20 declarations for `public`, `internal`, and `private`.
+  Each Count equals the completely drained Rows of the same intent. One
+  metadata pass produces the whole composition without constructing rows;
+- `JsonDocument.Parse` is one Member-group row under `accessibility = public`
+  with 5 overloads and one under `accessibility = private` with 2;
 - Type-subject documentation can complete without Member-group-row
   documentation;
 - Count and default views invoke neither DocumentationHouse nor SourceHouse;
