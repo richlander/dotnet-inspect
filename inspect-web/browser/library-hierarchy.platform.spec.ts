@@ -168,6 +168,106 @@ test("Activity Back restores focus on the Platform route", async ({ page }) => {
   await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
+test("user focus movement cancels deferred Activity return focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.evaluate(() => {
+    const requestFrame = window.requestAnimationFrame.bind(window);
+    const heldFrames: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = callback => {
+      heldFrames.push(callback);
+      return heldFrames.length;
+    };
+    window.addEventListener("release-activity-focus-frames", () => {
+      window.requestAnimationFrame = requestFrame;
+      for (const callback of heldFrames.splice(0)) {
+        requestFrame(callback);
+      }
+    }, { once: true });
+  });
+
+  await page.goBack();
+  const search = page.locator("#open-search");
+  await search.click();
+  const spotlight = page.locator("#spotlight-input");
+  await expect(search).toBeFocused();
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("release-activity-focus-frames")));
+  await expect(spotlight).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(spotlight).toBeHidden();
+
+  const version = page.getByLabel("Platform version");
+  await version.selectOption(alternatePlatformVersion);
+  await expect(version).toHaveValue(alternatePlatformVersion);
+  await page.evaluate(() => new Promise<void>(complete =>
+    requestAnimationFrame(() => requestAnimationFrame(() => complete()))));
+  await expect(page.locator("[data-product-navigation-button]"))
+    .not.toBeFocused();
+});
+
+test("stale Activity callback preserves a newer Back return", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const platformLocation = page.url();
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.evaluate(() => {
+    const requestFrame = window.requestAnimationFrame.bind(window);
+    const heldFrames: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = callback => {
+      heldFrames.push(callback);
+      return heldFrames.length;
+    };
+    window.addEventListener("release-activity-focus-frames", () => {
+      window.requestAnimationFrame = requestFrame;
+      for (const callback of heldFrames.splice(0)) {
+        requestFrame(callback);
+      }
+    }, { once: true });
+  });
+
+  await page.goBack();
+  await expect(page).toHaveURL(platformLocation);
+  await page.locator("#open-search").click();
+  await page.goForward();
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.goBack();
+  await expect(page).toHaveURL(platformLocation);
+
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("release-activity-focus-frames")));
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
+});
+
+test("Activity Back restores menu focus on Query and Home routes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const productNavigation = page.locator("[data-product-navigation-button]");
+
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  await openProductDestination(page, "activity");
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(productNavigation).toBeFocused();
+
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await openProductDestination(page, "activity");
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await expect(productNavigation).toBeFocused();
+});
+
 test("platform-only Workspace preserves Query as its Back predecessor", async ({
   page,
 }) => {

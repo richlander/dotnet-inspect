@@ -16,7 +16,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageDownload Include="MessagePack" Version="[2.5.192]" />
     <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)messagepack/2.5.192/lib/net6.0/MessagePack.dll"
+          Link="RealAssets/ResourceTriage/MessagePack.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

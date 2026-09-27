@@ -81,7 +81,6 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.SourceLink.SourceLinkInspector", banned);
         Assert.Contains("T:ILInspector.Instructions.IlAssemblyDiff", banned);
         Assert.Contains("T:DotnetInspector.Services.PdbAcquisitionService", banned);
-        Assert.Contains("T:ILInspector.Analysis.LeakTriageAnalyzer", banned);
         Assert.Contains("T:ILInspector.Analysis.ResourceLifecycleAnalysis", banned);
         Assert.Contains("T:ILInspector.Decompiler.CSharpBodyDiff", banned);
         Assert.Contains("T:ILInspector.Decompiler.CSharpFindings", banned);

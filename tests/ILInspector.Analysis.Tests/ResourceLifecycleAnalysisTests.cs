@@ -1,9 +1,14 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using InertText;
 using Inspector.Findings;
+using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -134,6 +139,58 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Fact]
+    public void LifecycleRequest_PreservesWrapperControlFlowBoundaries()
+    {
+        LibraryBodyAnalysisExecution execution = Analyze();
+
+        ResourceLifecycleOutcome reinitialized = ExceptionalOutcome(
+            execution,
+            "ExternalReadThroughReinitializedMemory");
+        Assert.Single(
+            reinitialized.Boundaries.Where(
+                boundary => boundary.Call.Callee.Name == "Read"));
+
+        ResourceLifecycleOutcome loop = ExceptionalOutcome(
+            execution,
+            "ExternalReadThroughLoopReinitializedMemory");
+        Assert.Single(
+            loop.Boundaries.Where(
+                boundary => boundary.Call.Callee.Name == "Read"));
+        Assert.DoesNotContain(
+            loop.Boundaries,
+            boundary => boundary.Call.Callee.Name == "Observe");
+
+        ResourceLifecycleOutcome conditional = ExceptionalOutcome(
+            execution,
+            "ExternalReadThroughConditionallyResetMemory");
+        Assert.Single(
+            conditional.Boundaries.Where(
+                boundary => boundary.Call.Callee.Name == "Read"));
+
+        ResourceLifecycleOutcome disjoint = ExceptionalOutcome(
+            execution,
+            "DisjointMemoryUseDoesNotConsumeRent");
+        Assert.Equal(
+            ".ctor",
+            Assert.Single(disjoint.Boundaries).Call.Callee.Name);
+    }
+
+    [Fact]
+    public void WrapperControlFlowFixtures_UseInPlaceConstructors()
+    {
+        AssertInPlaceConstructor(
+            "ExternalReadThroughReinitializedMemory");
+        AssertInPlaceConstructor(
+            "ExternalReadThroughLoopReinitializedMemory",
+            minimumInitobjCount: 2);
+        AssertInPlaceConstructor(
+            "ExternalReadThroughConditionallyResetMemory",
+            minimumInitobjCount: 1);
+        AssertInPlaceConstructor(
+            "DisjointMemoryUseDoesNotConsumeRent");
+    }
+
+    [Fact]
     public void LifecycleRequest_CreditsFinallyCleanup()
     {
         LibraryBodyAnalysisExecution execution = Analyze();
@@ -147,6 +204,122 @@ public sealed class ResourceLifecycleAnalysisTests
                 root.Limitations.Select(static limitation =>
                     limitation.Detail)));
         Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                == ResourceLifecycleOutcomeKind
+                    .ExceptionalCleanupMissing);
+    }
+
+    [Fact]
+    public void AnalysisContext_PreservesMetadataExceptionIdentity()
+    {
+        const string methodName = "RentAcrossNestedFinallyCleanup";
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    methodName));
+        int methodToken = MetadataTokens.GetToken(methodHandle);
+        MethodBodyData body = Assert.IsType<MethodBodyReadResult.Available>(
+            MethodBodySource.Read(peReader, methodToken)).Body;
+        Guid moduleVersionId =
+            reader.GetGuid(reader.GetModuleDefinition().Mvid);
+
+        Assert.Throws<ArgumentException>(
+            () => MethodBodyAnalysisContext.Create(
+                FixtureMethod(Guid.Empty, methodToken, methodName),
+                body,
+                []));
+
+        MethodBodyAnalysisContext context =
+            MethodBodyAnalysisContext.Create(
+                FixtureMethod(
+                    moduleVersionId,
+                    methodToken,
+                    methodName),
+                body,
+                []);
+        MethodInstructions instructions = context.Instructions;
+        InstructionExceptionFlowFacts flow =
+            Assert.IsType<InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available>(
+                    instructions.ExceptionFlow).Value;
+
+        Assert.Equal(body.EvidenceId, flow.Body);
+        Assert.Equal(
+            body.ExceptionRegionCatalog.Clauses.Select(
+                static clause => clause.Id),
+            flow.Clauses.Select(static clause => clause.Id));
+
+        BodySignals signals = BodySignalAnalysis.Collect(
+            context,
+            static _ => false);
+        Assert.Equal(0, signals.Catches);
+        Assert.Equal(2, signals.Finallys);
+    }
+
+    [Fact]
+    public void BodySignals_DeclineWithoutMetadataExceptionCatalog()
+    {
+        MethodInstructions instructions =
+            MethodInstructions.Decode([0x2A], 1, []);
+        var context = new MethodBodyAnalysisContext(
+            FixtureMethod(
+                Guid.Empty,
+                0x06000001,
+                "Synthetic"),
+            instructions,
+            [],
+            []);
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => BodySignalAnalysis.Collect(
+                    context,
+                    static _ => false));
+
+        Assert.Contains(
+            "Physical exception-region evidence is unavailable",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("RentAcrossCatchAllCleanup")]
+    [InlineData("RentAcrossCatchExceptionCleanup")]
+    public void LifecycleRequest_CreditsCatchAllCleanup(
+        string methodName)
+    {
+        ResourceLifecycleRootResult root = Root(
+            Analyze(),
+            methodName);
+
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                == ResourceLifecycleOutcomeKind
+                    .ExceptionalCleanupMissing);
+    }
+
+    [Theory]
+    [InlineData("RentAcrossTypedCatchCleanup")]
+    [InlineData("RentAcrossSiblingTypedThenCatchAllCleanup")]
+    [InlineData("RentAcrossNestedTypedThenCatchAllCleanup")]
+    public void LifecycleRequest_DoesNotCreditInterceptedCatchCleanup(
+        string methodName)
+    {
+        ResourceLifecycleRootResult root = Root(
+            Analyze(),
+            methodName);
+
+        Assert.Contains(
             root.Outcomes,
             outcome =>
                 outcome.Kind
@@ -583,6 +756,69 @@ public sealed class ResourceLifecycleAnalysisTests
                 execution.ResourceLifecycle.Methods,
                 result => result.Method.Name == methodName)
                 .Roots);
+
+    static ResourceLifecycleOutcome ExceptionalOutcome(
+        LibraryBodyAnalysisExecution execution,
+        string methodName) =>
+        Assert.Single(
+            Root(execution, methodName).Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+
+    static void AssertInPlaceConstructor(
+        string methodName,
+        int minimumInitobjCount = 0)
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    methodName));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        var instructions = InstructionDecoder.Decode(
+            peReader.GetMethodBody(method.RelativeVirtualAddress)
+                .GetILBytes()
+            ?? []);
+
+        Assert.Contains(
+            Enumerable.Range(0, instructions.Length),
+            index => instructions[index].OpCode
+                    is ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                && instructions
+                    .Skip(index + 1)
+                    .Take(5)
+                    .Any(instruction =>
+                        instruction.OpCode == ILOpCode.Call));
+        Assert.True(
+            instructions.Count(instruction =>
+                instruction.OpCode == ILOpCode.Initobj)
+            >= minimumInitobjCount);
+    }
+
+    static MethodIdentity FixtureMethod(
+        Guid moduleVersionId,
+        int metadataToken,
+        string name) =>
+        new(
+            "ILInspector.Analysis.OwnershipFlowFixtures",
+            moduleVersionId,
+            TypeRef.Definition(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                "Ownership",
+                "Entry"),
+            name,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            metadataToken,
+            IsStatic: true);
 
     static void AssertOutcome(
         LibraryBodyAnalysisExecution execution,
