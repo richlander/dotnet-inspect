@@ -855,6 +855,26 @@ async function installFacades(
     library: `
       const uploadMode = ${JSON.stringify(libraryUpload)};
       const uploadInspection = ${JSON.stringify(uploadInspection)};
+      export async function inspectLibrary(request) {
+        document.documentElement.dataset.libraryInspectionRequest =
+          JSON.stringify(request);
+        return {
+          outcome: "Available",
+          detail: null,
+          assembly: null,
+          enablements: {
+            outcome: "Available",
+            role: "implementation-assembly",
+            failure: null,
+            items: [
+              { id: "aot-compatible", kind: "enabled", label: "AOT", reason: null },
+              { id: "runtime-async", kind: "enabled", label: "Runtime Async", reason: null },
+              { id: "memory-safety-v2", kind: "not-enabled", label: "Memory Safety v2", reason: null },
+            ],
+          },
+          diagnostics: [],
+        };
+      }
       export async function openUploadedLibrary(declaredName, content) {
         document.documentElement.dataset.libraryUploadRequest =
           JSON.stringify([declaredName, content.length]);

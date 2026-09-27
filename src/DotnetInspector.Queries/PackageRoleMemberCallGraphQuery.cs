@@ -67,7 +67,9 @@ public abstract record PackageRoleMemberCallGraphOutcome
         InspectionGraphDocument Document,
         ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
         PackageIntrinsicCoreLibraryIneligibilityReceipt
-            IntrinsicCoreLibraryIneligibility)
+            IntrinsicCoreLibraryIneligibility,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            IntrinsicCoreLibraryOccurrences)
         : PackageRoleMemberCallGraphOutcome;
 
     public sealed record Unavailable(
@@ -81,6 +83,39 @@ public abstract record PackageRoleMemberCallGraphOutcome
 public sealed record PackageRoleMemberCallGraphNodePackage(
     int NodeId,
     PackageRootIdentity Package);
+
+/// <summary>
+/// Owner-issued evidence that one physical intrinsic CoreLib call occurrence
+/// belongs to an exact CoreLib-ineligible package context.
+/// </summary>
+public sealed class PackageIntrinsicCoreLibraryCallOccurrenceEvidence
+{
+    internal PackageIntrinsicCoreLibraryCallOccurrenceEvidence(
+        int occurrenceId,
+        CallGraphCallSiteEvidence callSite,
+        Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+            correspondence,
+        PackageIntrinsicCoreLibraryParticipantEvidence origin,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt context)
+    {
+        OccurrenceId = occurrenceId;
+        CallSite = callSite;
+        Correspondence = correspondence;
+        Origin = origin;
+        Context = context;
+    }
+
+    public int OccurrenceId { get; }
+
+    public CallGraphCallSiteEvidence CallSite { get; }
+
+    public Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+        Correspondence { get; }
+
+    public PackageIntrinsicCoreLibraryParticipantEvidence Origin { get; }
+
+    public PackageIntrinsicCoreLibraryIneligibilityReceipt Context { get; }
+}
 
 /// <summary>
 /// Projects one exact implementation MethodDef through an existing
@@ -266,8 +301,90 @@ public static class PackageRoleMemberCallGraphQuery
             return new PackageRoleMemberCallGraphOutcome.Available(
                 document,
                 NodePackages(document, nodePackages),
-                intrinsicCoreLibraryIneligibility);
+                intrinsicCoreLibraryIneligibility,
+                IntrinsicCoreLibraryOccurrences(
+                    document,
+                    intrinsicCoreLibraryIneligibility));
         });
+    }
+
+    static ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+        IntrinsicCoreLibraryOccurrences(
+        InspectionGraphDocument document,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt context)
+    {
+        var result =
+            ImmutableArray.CreateBuilder<
+                PackageIntrinsicCoreLibraryCallOccurrenceEvidence>();
+        foreach (InspectionGraphOccurrence occurrence
+            in document.Occurrences)
+        {
+            if (occurrence.Evidence
+                    is not CallGraphCallSiteEvidence callSite)
+            {
+                continue;
+            }
+
+            AssemblyAcquisitionRegistration? source =
+                callSite.Identity.SourceRegistration;
+            if (source is null)
+                continue;
+
+            PackageIntrinsicCoreLibraryParticipantEvidence[] evidenceOrigins =
+                [
+                    .. context.Participants.Where(
+                        participant =>
+                            ReferenceEquals(
+                                participant.Registration,
+                                source)),
+                ];
+            if (evidenceOrigins.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    "A physical intrinsic CoreLib call occurrence does not identify exactly one participant in its package-role context.");
+            }
+
+            if (callSite.TargetEvidence?.Correspondence
+                    is not Analysis.CatalogMemberJoinProjection.Issued issued)
+            {
+                continue;
+            }
+
+            foreach (Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+                correspondence in issued.Evidence.OfType<
+                    Analysis.MemberCorrespondenceEvidence
+                        .UnresolvedBinding>())
+            {
+                if (correspondence.Outcome
+                        is not TypeResolutionOutcome.Unavailable
+                        {
+                            Target:
+                                AssemblyBindingTarget
+                                    .IntrinsicCoreLibrary,
+                            Origin:
+                                AssemblyBindingOrigin
+                                    .RequestingAssembly origin,
+                        })
+                {
+                    continue;
+                }
+                if (!ReferenceEquals(origin.Registration, source))
+                {
+                    throw new InvalidOperationException(
+                        "An intrinsic CoreLib request does not retain its physical call occurrence origin.");
+                }
+
+                result.Add(
+                    new PackageIntrinsicCoreLibraryCallOccurrenceEvidence(
+                        occurrence.Id,
+                        callSite,
+                        correspondence,
+                        evidenceOrigins[0],
+                        context));
+            }
+        }
+
+        return result.ToImmutable();
     }
 
     static ImmutableArray<PackageRoleMemberCallGraphNodePackage>

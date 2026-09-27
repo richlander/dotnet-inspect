@@ -64,6 +64,8 @@ public abstract record LibraryEnablement
 {
     private LibraryEnablement(LibraryEnablementId id) => Id = id;
 
+    // Serialize the identifier before case-specific fields such as reason.
+    [JsonPropertyOrder(-1)]
     public LibraryEnablementId Id { get; }
 
     /// <summary>The image carries the evidence that the capability was built in.</summary>

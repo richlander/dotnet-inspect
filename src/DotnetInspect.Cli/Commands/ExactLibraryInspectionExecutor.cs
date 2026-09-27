@@ -72,14 +72,11 @@ internal static class ExactLibraryInspectionExecutor
             return null;
         }
 
-        string? terminalFailure = null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
-        T? result = null;
+        AssemblyContextLibraryInspectionRun<T>? run = null;
         var workspace = new InspectionWorkspace();
         AssemblyContextGroup? group = null;
-        AssemblyContextLibraryAdapterResult.Completed? completed =
-            null;
         try
         {
             var participant = new AssemblyContextParticipant(
@@ -92,40 +89,22 @@ internal static class ExactLibraryInspectionExecutor
                     MaxRetainedImageBytes =
                         MaxAssemblyImageBytes,
                 });
-            AssemblyContextLibraryAdapterResult materialization =
-                await AssemblyContextLibraryAdapter.MaterializeAsync(
+            run = await AssemblyContextLibraryInspection.ExecuteAsync(
+                    AssemblyContextLibraryAdapter.MaterializeAsync(
                         group,
                         participant,
                         AssemblyContextLibraryRole.ApiOnly,
                         new AssemblyContextLibraryMaterializationLimits(
                             MaxAssemblyImageBytes,
                             MaxAssemblyImageBytes),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            if (materialization
-                is not AssemblyContextLibraryAdapterResult.Completed
-                    available)
-            {
-                terminalFailure = Describe(materialization);
-                if (materialization
-                    is AssemblyContextLibraryAdapterResult.Terminal
-                        terminal
-                    && terminal.CleanupFailures.Count > 0)
-                {
-                    cleanupFailures.Add(
-                        "Direct Library realization reported one or "
-                            + "more cleanup failures.");
-                }
-            }
-            else
-            {
-                completed = available;
-                result =
-                    inspect(
-                        new ExactLibraryInspectionSession(
-                            available.Reference,
-                            available.Owner));
-            }
+                        cancellationToken),
+                    (reference, owner) =>
+                        inspect(
+                            new ExactLibraryInspectionSession(
+                                reference,
+                                owner)))
+                .ConfigureAwait(false);
+            cleanupFailures.AddRange(run.CleanupFailures);
         }
         catch (Exception failure)
         {
@@ -133,44 +112,6 @@ internal static class ExactLibraryInspectionExecutor
         }
         finally
         {
-            if (completed is not null)
-            {
-                try
-                {
-                    await completed.Owner.DisposeAsync()
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    cleanupFailures.Add(
-                        "The direct Library owner could not retire.");
-                }
-                if (completed.Owner.CleanupFailures.Count > 0
-                    || completed.Owner.ReleaseFailures.Count > 0)
-                {
-                    cleanupFailures.Add(
-                        "The direct Library owner reported one or more "
-                            + "content release failures.");
-                }
-
-                try
-                {
-                    await completed.Artifacts.DisposeAsync()
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    cleanupFailures.Add(
-                        "The adjacent Artifact session could not retire.");
-                }
-                if (completed.Artifacts.CleanupFailures.Count > 0)
-                {
-                    cleanupFailures.Add(
-                        "The adjacent Artifact session reported one or "
-                            + "more cleanup failures.");
-                }
-            }
-
             try
             {
                 group?.Dispose();
@@ -198,13 +139,13 @@ internal static class ExactLibraryInspectionExecutor
 
         if (cleanupFailures.Count > 0)
             return null;
-        if (terminalFailure is not null)
+        if (run?.Failure is { } terminalFailure)
         {
             CommandError.Write(terminalFailure);
             return null;
         }
 
-        return result;
+        return run?.Result;
     }
 
     private static void WriteSelectionFailure(
@@ -227,28 +168,4 @@ internal static class ExactLibraryInspectionExecutor
                     "Unknown direct Library descriptor selection result.");
         }
     }
-
-    private static string Describe(
-        AssemblyContextLibraryAdapterResult result) =>
-        result switch
-        {
-            AssemblyContextLibraryAdapterResult.SnapshotRejected
-                rejected =>
-                "The selected Library image could not be captured "
-                    + $"({rejected.Failure.Kind}).",
-            AssemblyContextLibraryAdapterResult.Incomplete incomplete =>
-                "The selected Library image exceeds the direct inspection "
-                    + $"limit of {incomplete.MaxCapturedImageBytes} bytes.",
-            AssemblyContextLibraryAdapterResult.ArtifactNotPublished =>
-                "The selected Library image could not be published to "
-                    + "the ephemeral Artifact generation.",
-            AssemblyContextLibraryAdapterResult.MetadataNotProjected =>
-                "The selected Library image could not be projected as "
-                    + "managed Metadata.",
-            AssemblyContextLibraryAdapterResult.PortablePdbRejected =>
-                "The direct Library inspection rejected an unexpected "
-                    + "Portable PDB companion.",
-            _ => throw new InvalidOperationException(
-                "Unknown direct Library realization result."),
-        };
 }

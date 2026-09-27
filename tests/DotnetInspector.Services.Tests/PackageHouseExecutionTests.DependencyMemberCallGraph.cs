@@ -26,6 +26,13 @@ public sealed partial class PackageHouseExecutionTests
     private static string CallGraphTargetPath =>
         FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
 
+    private static string SystemTextJsonNetStandardPath =>
+        Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "IntrinsicCoreLibrary",
+            "System.Text.Json.dll");
+
     [Fact]
     public async Task
         DependencyMemberCallGraphInspectionPreparesTraversalAndReturnsEnvelope()
@@ -139,6 +146,9 @@ public sealed partial class PackageHouseExecutionTests
                         subject.PackageId,
                         subject.PackageVersion,
                         subject.TargetFramework)));
+        Assert.Single(
+            available.Document
+                .IntrinsicCoreLibraryContextNonParticipation);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Equal(
             [
@@ -150,6 +160,115 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             [CallGraphTargetPackage],
             environment.Clients[0].PayloadPackageIds);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        DependencyMemberCallGraphRetainsIntrinsicCoreLibraryContextNonParticipation()
+    {
+        string systemTextJson = SystemTextJsonNetStandardPath;
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior([RouteVersion]));
+        PackageRootBinding rootBinding =
+            CallGraphRootBindingFromAssembly(
+                "System.Text.Json",
+                systemTextJson);
+        RealizedPackageDependencyContext rootContext =
+            await RouteRootContextAsync(rootBinding);
+        PackageDependencyTraversalOutcome traversal =
+            await RouteTraversalAsync(
+                environment,
+                new PackageDependencyTraversalRootOccurrence(
+                    rootContext,
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources));
+        Assert.Empty(traversal.Edges);
+
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
+        WorkspaceScopeSnapshot rooted =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    empty.Revision,
+                    empty.PublicationBase,
+                    [rootBinding],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        PackageHouseOperation operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+        var request = new PackageDependencyMemberCallGraphRequest(
+            workspace,
+            rooted,
+            CurrentRegistrations(workspace),
+            traversal,
+            [rootBinding],
+            [],
+            new PackageDependencyMemberCallGraphFocus(
+                rootOccurrenceIndex: 0,
+                ModuleVersionId(systemTextJson),
+                MethodToken(
+                    systemTextJson,
+                    "JsonDocument",
+                    "Dispose")),
+            new(
+                maxDepth: 4,
+                maxNodes: 30),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        PackageDependencyMemberCallGraphOutcome.Completed completed =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphOutcome.Completed>(
+                await PackageDependencyMemberCallGraphOperation.ExecuteAsync(
+                    request,
+                    environment.CreateHouse(
+                        (_, _) => new InMemoryPackageStore()),
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        operation.RequestTimeout,
+                        operation.OperationTimeout)));
+
+        Assert.Empty(completed.Routes);
+        Assert.NotEmpty(
+            completed.IntrinsicCoreLibraryContextNonParticipation);
+        Assert.True(
+            completed.IntrinsicCoreLibraryContextNonParticipation
+                .Select(receipt => receipt.Occurrence.OccurrenceId)
+                .Distinct()
+                .Count() > 1);
+        Assert.All(
+            completed.IntrinsicCoreLibraryContextNonParticipation,
+            receipt =>
+            {
+                Assert.Same(
+                    completed.ScopeRevision,
+                    receipt.ScopeRevision);
+                Assert.Same(
+                    receipt.Occurrence.Origin.Registration,
+                    receipt.Occurrence.CallSite.Identity
+                        .SourceRegistration);
+                Assert.Same(
+                    rootBinding.Root.Identity,
+                    receipt.Occurrence.Origin.Package);
+                TypeResolutionOutcome.Unavailable unavailable =
+                    Assert.IsType<TypeResolutionOutcome.Unavailable>(
+                        receipt.Occurrence.Correspondence.Outcome);
+                Assert.IsType<
+                    AssemblyBindingTarget.IntrinsicCoreLibrary>(
+                        unavailable.Target);
+                AssemblyBindingOrigin.RequestingAssembly origin =
+                    Assert.IsType<
+                        AssemblyBindingOrigin.RequestingAssembly>(
+                        unavailable.Origin);
+                Assert.Same(
+                    receipt.Occurrence.Origin.Registration,
+                    origin.Registration);
+                Assert.Equal(
+                    AssemblyResolutionScope.Platform,
+                    unavailable.Scope);
+            });
         await environment.AssertRootSettledAsync();
     }
 
@@ -1213,6 +1332,51 @@ public sealed partial class PackageHouseExecutionTests
                 CallGraphRootPackage,
                 RouteVersion),
             contentFactory(content),
+            "tests",
+            PackagePayloadOrigin.Download);
+        return PackageRootBinding.CreateFromSource(
+            payload,
+            "netstandard2.0");
+    }
+
+    private static PackageRootBinding CallGraphRootBindingFromAssembly(
+        string packageId,
+        string assemblyPath)
+    {
+        byte[] manifest = Encoding.UTF8.GetBytes(
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{RouteVersion}}</version>
+                <authors>dotnet-inspect</authors>
+                <description>Intrinsic CoreLib call-graph fixture.</description>
+              </metadata>
+            </package>
+            """);
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(
+            stream,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream nuspec = archive.CreateEntry(
+                $"{packageId}.nuspec").Open())
+            {
+                nuspec.Write(manifest);
+            }
+            using Stream assembly = archive.CreateEntry(
+                $"lib/netstandard2.0/{Path.GetFileName(assemblyPath)}")
+                .Open();
+            assembly.Write(File.ReadAllBytes(assemblyPath));
+        }
+
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, RouteVersion),
+            new InMemoryPackageContent(
+                stream.ToArray(),
+                fromCache: false,
+                producerKey: "tests"),
             "tests",
             PackagePayloadOrigin.Download);
         return PackageRootBinding.CreateFromSource(
