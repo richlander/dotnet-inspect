@@ -28,8 +28,13 @@
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="../ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../ILInspector.CSharp/ILInspector.CSharp.csproj" />
+    <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../ILInspector.Research/ILInspector.Research.csproj" />
+    <ProjectReference Include="../ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Libraries\DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="..\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
   </ItemGroup>
 
