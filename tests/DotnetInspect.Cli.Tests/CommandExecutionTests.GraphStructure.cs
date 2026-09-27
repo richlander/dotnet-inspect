@@ -45,6 +45,12 @@ public partial class CommandExecutionTests
             ["Alpha", "Beta", "Gamma"],
             cycle.EnumerateArray().Select(static ns => ns.GetString()));
         Assert.NotEmpty(content.GetProperty("typeEdges").EnumerateArray());
+        JsonElement boxType = Assert.Single(
+            content.GetProperty("types").EnumerateArray(),
+            static type => type.GetProperty("typeKey").GetString() == "Boxes.Box`1");
+        Assert.Equal("Boxes", boxType.GetProperty("namespace").GetString());
+        Assert.Equal(JsonValueKind.Object, boxType.GetProperty("type").ValueKind);
+        Assert.False(string.IsNullOrEmpty(boxType.GetProperty("display").GetString()));
         Assert.NotEmpty(content.GetProperty("externalNamespaceEdges").EnumerateArray());
         Assert.Equal(
             "nonProjectable",
@@ -70,6 +76,50 @@ public partial class CommandExecutionTests
             "graph", "structure", "--library", DependencyStructureFixture(), "-S", "Nope");
         Assert.Equal(1, unknownExit);
         Assert.Contains("Unknown section 'Nope'", unknownError);
+    }
+
+    [Fact]
+    public async Task GraphStructure_OutWritesEveryFormatToTheFile()
+    {
+        string directory = Directory.CreateTempSubdirectory("graph-structure-out").FullName;
+        try
+        {
+            string markdown = Path.Combine(directory, "structure.md");
+            var (exit, output, error) = await RunAppAsync(
+                "graph", "structure", "--library", DependencyStructureFixture(), "--out", markdown);
+            Assert.True(exit == 0, error);
+            Assert.DoesNotContain("# Dependency Structure", output);
+            Assert.Contains("## Cycles", File.ReadAllText(markdown));
+
+            string tsv = Path.Combine(directory, "cycles.tsv");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "graph", "structure", "--library", DependencyStructureFixture(),
+                "-S", "Cycles", "--tsv", "--out", tsv);
+            Assert.True(tsvExit == 0, tsvError);
+            Assert.DoesNotContain("Alpha, Beta, Gamma", tsvOutput);
+            Assert.Contains("Alpha, Beta, Gamma", File.ReadAllText(tsv));
+
+            string json = Path.Combine(directory, "structure.json");
+            var (jsonExit, _, jsonError) = await RunAppAsync(
+                "graph", "structure", "--library", DependencyStructureFixture(), "--json", "--out", json);
+            Assert.True(jsonExit == 0, jsonError);
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(json));
+            Assert.Equal("qualified", document.RootElement.GetProperty("completeness").GetString());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GraphStructure_RejectsSectionSelectionWithCompleteJson()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "graph", "structure", "--library", DependencyStructureFixture(), "--json", "-S", "Cycles");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("-S cannot be combined with --json or --envelope", error);
     }
 
     [Fact]

@@ -368,7 +368,7 @@ public static class LibraryMetricsInspectionJson
         writer.WriteEndObject();
     }
 
-    private static void WriteTypeIdentity(
+    internal static void WriteTypeIdentity(
         Utf8JsonWriter writer,
         TypeRef type)
     {

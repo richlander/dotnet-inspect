@@ -52,7 +52,9 @@ public static class LibraryDependencyStructureInspectionJson
         foreach (LibraryDependencyTypeNode node in document.Types)
         {
             writer.WriteStartObject();
-            writer.WriteString("typeKey", node.TypeKey);
+            // typeKey, display, and the structured type identity (join currency
+            // shared with Library Metrics).
+            LibraryMetricsInspectionJson.WriteTypeIdentity(writer, node.Type);
             writer.WriteString("namespace", node.Namespace);
             writer.WriteNumber("intraTypeRelationshipCount", node.IntraTypeRelationshipCount);
             writer.WriteEndObject();

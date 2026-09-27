@@ -80,6 +80,11 @@ public static class GraphStructureCommand
             },
             (assemblyEntry, failure) => unavailable.Add($"{assemblyEntry.Path}: {failure}"));
 
+        // A library that could not be opened is always visible, even when
+        // another library was selected for inspection.
+        foreach (string failure in unavailable)
+            CommandError.WriteWarning($"Could not open {failure}");
+
         if (selectionError is not null)
         {
             CommandError.Write(selectionError);
@@ -158,6 +163,15 @@ public static class GraphStructureCommand
 
     static bool TryResolveSections(GraphStructureOptions options, out string[] sections)
     {
+        if ((options.Envelope || options.Format == OutputFormat.Json)
+            && options.Select is { Length: > 0 })
+        {
+            CommandError.Write(
+                "-S cannot be combined with --json or --envelope; they emit the complete document.");
+            sections = [];
+            return false;
+        }
+
         if (options.Select is not { Length: > 0 } select)
         {
             sections = GraphStructureViewSections.Default;
@@ -220,32 +234,38 @@ public static class GraphStructureCommand
                 formatter,
                 GraphStructureViewContext.Default,
                 writerOptions);
-        switch (options.Format)
-        {
-            case OutputFormat.Table:
-            case OutputFormat.Tsv:
-            case OutputFormat.Jsonl:
-                OutputFormatter.WriteProjectedTable(
-                    Console.Out,
-                    showHeader: !options.NoHeader,
-                    tsv: options.Format == OutputFormat.Tsv,
-                    jsonl: options.Format == OutputFormat.Jsonl,
-                    columns: null,
-                    fields: null,
-                    serialize,
-                    maxRows: null);
-                break;
-            default:
-                MarkoutSerializer.Serialize(
-                    view,
-                    Console.Out,
-                    options.Format == OutputFormat.PlainText
-                        ? new PlainTextFormatter()
-                        : new MarkdownFormatter(),
-                    GraphStructureViewContext.Default,
-                    OutputFormatter.CreateProjectedWriterOptions(null, null, null));
-                break;
-        }
+        OutputDestination.Write(
+            options.OutputPath,
+            rowWindow: null,
+            output =>
+            {
+                switch (options.Format)
+                {
+                    case OutputFormat.Table:
+                    case OutputFormat.Tsv:
+                    case OutputFormat.Jsonl:
+                        OutputFormatter.WriteProjectedTable(
+                            output,
+                            showHeader: !options.NoHeader,
+                            tsv: options.Format == OutputFormat.Tsv,
+                            jsonl: options.Format == OutputFormat.Jsonl,
+                            columns: null,
+                            fields: null,
+                            serialize,
+                            maxRows: null);
+                        break;
+                    default:
+                        MarkoutSerializer.Serialize(
+                            view,
+                            output,
+                            options.Format == OutputFormat.PlainText
+                                ? new PlainTextFormatter()
+                                : new MarkdownFormatter(),
+                            GraphStructureViewContext.Default,
+                            OutputFormatter.CreateProjectedWriterOptions(null, null, null));
+                        break;
+                }
+            });
         return 0;
     }
 
