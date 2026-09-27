@@ -170,9 +170,11 @@ internal static class BrowserLibraryDocumentOperation
             cancellationToken);
     }
 
+    // Facts-only: the Browser lowers no Type population yet, so the plan
+    // requests none and the operation runs no declaration inventory.
     internal static LibraryInspectionPlan Plan(BrowserLibraryInspectionPlan plan) =>
         new(
-            new LibraryTypePopulationRequest(LibraryTypeAccessibility.Public, new()),
+            types: null,
             s_bounds,
             plan.Enablements ? new LibraryEnablementsRequest() : null);
 

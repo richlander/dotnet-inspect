@@ -229,7 +229,8 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         bool malformedPublicType = false,
         bool includeModuleExport = false,
         bool includeGlobalType = false,
-        string metadataVersion = "v4.0.30319")
+        string metadataVersion = "v4.0.30319",
+        bool undecodableCompany = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -242,13 +243,42 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
             default);
         if (includeAssembly)
         {
-            metadata.AddAssembly(
+            AssemblyDefinitionHandle assembly = metadata.AddAssembly(
                 metadata.GetOrAddString("Probe"),
                 new Version(1, 0, 0, 0),
                 default,
                 default,
                 default,
                 default);
+            if (undecodableCompany)
+            {
+                // An AssemblyCompanyAttribute whose string claims more bytes
+                // than the blob holds; C# cannot emit this shape.
+                TypeReferenceHandle company = metadata.AddTypeReference(
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("System.Runtime"),
+                        new Version(11, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default),
+                    metadata.GetOrAddString("System.Reflection"),
+                    metadata.GetOrAddString("AssemblyCompanyAttribute"));
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature)
+                    .MethodSignature(isInstanceMethod: true)
+                    .Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters => parameters.AddParameter().Type().String());
+                metadata.AddCustomAttribute(
+                    assembly,
+                    metadata.AddMemberReference(
+                        company,
+                        metadata.GetOrAddString(".ctor"),
+                        metadata.GetOrAddBlob(signature)),
+                    metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x05, 0x41 }));
+            }
         }
 
         metadata.AddTypeDefinition(
