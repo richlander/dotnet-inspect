@@ -431,7 +431,7 @@ The curated verbosity contract is:
 | --- | --- |
 | Quiet | Headless compact summary only |
 | Minimal | High-value info section, excluding unbounded work |
-| Normal | Terse and informative, network-free base sections |
+| Normal | Terse and informative base sections |
 | Detailed | All bounded base sections |
 
 Compact identity fields are reserved for quiet verbosity. Minimal does not
