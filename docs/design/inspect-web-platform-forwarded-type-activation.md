@@ -205,7 +205,7 @@ an empty route.
 ## Presentation boundary
 
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
-owns the normal Type inventory row, Metadata-only forwarded-Type subject,
+owns the normal Type inventory row, Overview-only forwarded-Type subject,
 forwarding explanation, action label, accessibility, focus, and interaction.
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) owns
 current-authority validation, effect installation, history, synchronization,
@@ -275,16 +275,49 @@ route display fields. They do not replace the managed owner gates.
 | [Structured type-forwarding resolution](type-forwarding-resolution.md) | Structured Type identity, declaration probing, exact forwarding hops, terminal definition or typed non-success |
 | Browser Platform Library projection | Exact selected Library surface, declaration inventory, and operation generation |
 | This owner | Forwarder admission, opaque action, current-authority validation, detached route projection, and immediate destination descriptor |
-| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Forwarded-Type inventory row, Metadata-only lens, explanation, and action interaction |
+| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Forwarded-Type inventory row, Overview-only lens, explanation, and action interaction |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Effect installation, canonical location, history, synchronization, and focus |
 
 The delivery tracked by #8288 is:
 
 1. lock and implement this route owner in #8289;
-2. adopt forwarder rows, Metadata-only subjects, generated transport, and the
-   production Browser interaction in #8290; and
-3. record the user-visible Browser capability and its PR on the current release
+2. complete #8290's separately approved backend slice: package-backed
+   resolution, exact immediate-destination realization, and generated
+   facade/ordinary Worker transport;
+3. adopt forwarder rows, Overview-only subjects, and the production Browser
+   interaction in #8290; and
+4. record the user-visible Browser capability and its PR on the current release
    tracker before merge.
+
+The backend slice does not by itself advertise the website experience as
+supported. Presentation still owns installing the returned destination,
+retiring the active view when navigating elsewhere, and reopening a returning
+Library view to obtain fresh actions.
+
+The package-backed callback consumes the captured source plan and the
+workspace owner's representative runtime identifier. Destination realization
+uses the exact assembly identity from the route, then verifies the reopened
+Library's identity, MVID, and configured source before returning it. The
+existing workspace coordinate uses the legacy cache-producer spelling, so
+that comparison uses the selected configured authority's cache spelling;
+it does not equate that spelling with Package Source's modern producer key.
+
+`PlatformForwarders_ProductionSourceOpensEachXmlLibraryAndRenewsActions`
+exercises the complete, unmodified runtime package, both immediate
+destinations, the ordinary final definition, cancellation, stale actions, and
+return-to-view renewal. It is classified Slow and owned by the focused
+pre-merge Release gate:
+
+```sh
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release -- \
+  --filter-method '*PlatformForwarders_*'
+```
+
+`PlatformForwarders_SourceFailurePreservesContribution` is PR-fast.
+`engine-worker-ordinary.test.ts` owns opaque-action and non-success transport.
+Facade regeneration is currently blocked by #8681, reproduced at unchanged
+parent head `b8813f909`; generated-facade integration and TypeScript checking
+are not yet validated.
 
 The adopter retires the current success-shaped empty Type inventory for
 supported forwarding Platform Libraries. It does not replace facade Library

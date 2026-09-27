@@ -88,6 +88,9 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     openUploadedLibrary: () => unexpected("openUploadedLibrary"),
   },
   package: {
+    openPlatformForwarderView: () => unexpected("openPlatformForwarderView"),
+    activatePlatformForwarder: () => unexpected("activatePlatformForwarder"),
+    closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
@@ -1851,6 +1854,54 @@ test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () =>
   assert.equal(encode(["id", null, excessive]).kind, "rejected");
 });
 
+test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
+  const calls: unknown[][] = [];
+  const result = {
+    status: "stale" as const,
+    message: "The Library view changed.",
+    view: null,
+    hops: [
+      { sourceAssembly: "System.Xml", targetAssembly: "System.Xml.ReaderWriter" },
+      { sourceAssembly: "System.Xml.ReaderWriter", targetAssembly: "System.Private.Xml" },
+    ],
+    resolutionKind: "Resolved",
+    terminalAssembly: "System.Private.Xml",
+    houseStatus: "Completed",
+    sourceStatus: null,
+  };
+  const state = fixture({
+    package: {
+      openPlatformForwarderView: async (...args) => {
+        calls.push(args);
+        return result;
+      },
+      activatePlatformForwarder: async (action) => {
+        calls.push([action]);
+        return result;
+      },
+      closePlatformForwarderView: (view) => {
+        calls.push([view]);
+        return false;
+      },
+    },
+  });
+  const opened = state.client.package.openPlatformForwarderView(
+    "net11.0", "11.0.0-rc.1.26425.128", "System.Xml.dll", "netcore.app",
+  );
+  const activated = state.client.package.activatePlatformForwarder("opaque-action");
+  const closed = state.client.package.closePlatformForwarderView("opaque-view");
+  await state.environment.flushAsync();
+  assert.deepEqual(await opened, result);
+  assert.deepEqual(await activated, result);
+  assert.equal(await closed, false);
+  assert.deepEqual(calls, [
+    ["net11.0", "11.0.0-rc.1.26425.128", "System.Xml.dll", "netcore.app"],
+    ["opaque-action"],
+    ["opaque-view"],
+  ]);
+  state.host.dispose();
+});
+
 test("a closed-epoch ordinary client cannot dispatch into a replacement", async () => {
   let calls = 0;
   const state = fixture({
@@ -1897,15 +1948,18 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "openUploadedLibrary",
     ],
     package: [
+      "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
+      "closePlatformForwarderView",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
       "loadRuntimePack",
       "loadRuntimePackAssembly",
       "matchPackageDependencyCoordinate",
+      "openPlatformForwarderView",
       "packageCacheStats",
       "prefetchPlatformPacks",
       "queryLibraries",
@@ -2006,7 +2060,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 86);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 89);
 
   const state = fixture();
   const groups = [
