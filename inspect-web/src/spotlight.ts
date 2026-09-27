@@ -82,6 +82,19 @@ interface TypeResult {
   ranges: readonly HighlightRange[];
 }
 
+export interface ManagedTypeResult {
+  kind: "managed-type";
+  identity: string;
+  action: string | null;
+  reason: string | null;
+  name: string;
+  namespace: string;
+  library: string;
+  source: string;
+  typeKind: string;
+  ranges: readonly HighlightRange[];
+}
+
 interface MemberResult {
   kind: "member";
   pkg: SpotlightPackage;
@@ -103,6 +116,7 @@ export type SpotlightResult =
   | PackageActivityResult
   | FrameworkLibraryResult
   | TypeResult
+  | ManagedTypeResult
   | MemberResult;
 
 export type RemovableSpotlightResult = PackageLoadedResult | PackageRecentResult;
@@ -137,8 +151,11 @@ interface SpotlightOptions {
   commandContext: () => CommandContext | null;
   schedulePackageFetch: () => void;
   resetPackageSearch: () => void;
+  resetTypeSearch?: () => void;
   packageSearchLoading: () => boolean;
   packageSearchError?: () => string;
+  typeSearchLoading?: () => boolean;
+  typeSearchError?: () => string;
   packageCount: () => number;
   render: () => void;
   focusAfterDismiss?: () => void;
@@ -174,6 +191,7 @@ const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   "pkg-loaded": "Packages",
   "pkg-nuget": "Packages",
   type: "Types",
+  "managed-type": "Types",
   member: "Members",
   "framework-lib": "Libraries",
 };
@@ -243,6 +261,8 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
         result.pkg.activeFramework ?? "",
         result.type.id,
       ]);
+    case "managed-type":
+      return JSON.stringify([result.kind, result.identity]);
     case "member":
       return JSON.stringify([
         result.kind,
@@ -427,6 +447,21 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="spotlight-item-ns">${escapeHtml(result.type.name)}${packageName}</span>
       </button>`;
     }
+    if (result.kind === "managed-type") {
+      const source = [result.namespace, result.library, result.source]
+        .filter(Boolean)
+        .join(" · ");
+      const unavailable = result.action === null
+        ? ` aria-disabled="true" title="${escapeHtml(
+            result.reason ?? "This Type is unavailable.",
+          )}"`
+        : "";
+      return `<button ${base}${unavailable} data-sl-managed-type="${escapedIdentity}">
+        <span class="kind-icon">${options.kindIcon(result.typeKind)}</span>
+        <span class="spotlight-item-name">${options.highlightRanges(result.name, result.ranges)}</span>
+        <span class="spotlight-item-ns">${escapeHtml(source)}</span>
+      </button>`;
+    }
 
     const packageName = options.packageCount() > 1
       ? ` · ${escapeHtml(result.pkg.id)}`
@@ -439,10 +474,18 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function resultsHtml(items: readonly SpotlightResult[]): string {
-    const searchError = state.spotlightScope === "all" || state.spotlightScope === "packages"
-      ? options.packageSearchError?.() : "";
-    const errorHtml = searchError
-      ? `<div class="spotlight-hint" role="status">${escapeHtml(searchError)}</div>`
+    const packageSearch = state.spotlightScope === "all"
+      || state.spotlightScope === "packages";
+    const typeSearch = state.spotlightScope === "all"
+      || state.spotlightScope === "types";
+    const searchErrors = [
+      packageSearch ? options.packageSearchError?.() : "",
+      typeSearch ? options.typeSearchError?.() : "",
+    ].filter(Boolean);
+    const errorHtml = searchErrors.length > 0
+      ? `<div class="spotlight-hint" role="status">${searchErrors
+          .map(error => escapeHtml(error))
+          .join("<br>")}</div>`
       : "";
     if (!items.length) {
       if (errorHtml) return errorHtml;
@@ -478,9 +521,12 @@ export function createSpotlight(options: SpotlightOptions) {
       html += rowHtml(result, index);
     });
     html += errorHtml;
-    if (!searchError && options.packageSearchLoading()
-      && (state.spotlightScope === "all" || state.spotlightScope === "packages")) {
+    if (searchErrors.length === 0 && options.packageSearchLoading()
+      && packageSearch) {
       html += '<div class="spotlight-hint">Searching nuget.org…</div>';
+    }
+    if (options.typeSearchLoading?.() && typeSearch) {
+      html += '<div class="spotlight-hint">Searching Workspace Types…</div>';
     }
     return html;
   }
@@ -708,6 +754,7 @@ export function createSpotlight(options: SpotlightOptions) {
     boundInput = null;
     dismissedPackageIds.clear();
     options.resetPackageSearch();
+    options.resetTypeSearch?.();
     state.spotlightOpen = false;
     state.spotlightQuery = "";
     state.spotlightScope = "all";
@@ -744,6 +791,7 @@ export function createSpotlight(options: SpotlightOptions) {
     dismissedPackageIds.clear();
     interactionGeneration++;
     options.resetPackageSearch();
+    options.resetTypeSearch?.();
     state.spotlightOpen = true;
     state.spotlightQuery = seed;
     state.spotlightScope = availableScope(scope) ?? "all";

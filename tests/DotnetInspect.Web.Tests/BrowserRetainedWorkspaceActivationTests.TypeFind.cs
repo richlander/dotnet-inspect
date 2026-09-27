@@ -158,6 +158,43 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                         Catalog.BrowserRetainedWorkspaceActivationService
                             .Owner.ResolveTypeFindAction(action)));
 
+            string selectionJson =
+                await Catalog.CatalogExports.ActivateSpotlightDestination(
+                    actions[0]);
+            Catalog.BrowserSpotlightActionResult selection =
+                Assert.IsType<Catalog.BrowserSpotlightActionResult>(
+                    JsonSerializer.Deserialize(
+                        selectionJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserSpotlightActionResult));
+            Assert.Equal("navigation", selection.Status);
+            Assert.NotNull(selection.Navigation);
+            Assert.True(
+                selection.Navigation.Outcome.Kind == "Applied",
+                $"{selection.Navigation.Outcome.Kind}: "
+                    + selection.Navigation.Outcome.Message);
+            Assert.Equal(
+                "System.Text.Json.JsonSerializer",
+                selection.Selection?.DefinitionId);
+            Assert.Equal(
+                "System.Text.Json",
+                selection.Selection?.AssemblyName);
+            Assert.Null(selection.Surface);
+            Assert.Null(selection.SelectedType);
+            Assert.Null(selection.Reason);
+
+            string repeatedJson =
+                await Catalog.CatalogExports.ActivateSpotlightDestination(
+                    actions[0]);
+            Catalog.BrowserSpotlightActionResult repeated =
+                Assert.IsType<Catalog.BrowserSpotlightActionResult>(
+                    JsonSerializer.Deserialize(
+                        repeatedJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserSpotlightActionResult));
+            Assert.Equal("blocked", repeated.Status);
+            Assert.Equal("Stale", repeated.ActivationStatus);
+
             string staleJson = await Metadata.MetadataExports.FindTypes(
                 posting.RetainedDefinitionId,
                 posting.RealizationId,
@@ -239,6 +276,49 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                             captured);
                 }
             });
+
+        BrowserTypeFindCandidateActivation package =
+            completed.Result.Activations.First(
+                activation => activation.Source
+                    == BrowserTypeFindActivationSource.Package);
+        TypeDeclarationLocatorSectionResult.Evaluated projected =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                completed.Result.Find.Content);
+        TypeDeclarationLocatorSectionCandidate packageCandidate =
+            projected.Answers[package.Candidate.AnswerOrdinal - 1]
+                .Candidates[package.Candidate.CandidateOrdinal - 1];
+        BrowserTypeFindActivationResult.Navigation navigation =
+            Assert.IsType<BrowserTypeFindActivationResult.Navigation>(
+                await owner.ActivateTypeFindActionAsync(
+                    package.Action!,
+                    TestContext.Current.CancellationToken));
+        Assert.True(
+            navigation.Result.Consumer.Outcome.Kind
+                == NavigationOutcomeKind.Applied,
+            $"{navigation.Result.Consumer.Outcome.Kind}: "
+                + navigation.Result.Consumer.Outcome.Message);
+        Assert.Equal(
+            packageCandidate.Name.ToMetadataFullName(),
+            navigation.Selection.DefinitionId);
+
+        BrowserTypeFindCandidateActivation framework =
+            completed.Result.Activations.First(
+                activation => activation.Source
+                    == BrowserTypeFindActivationSource.Framework);
+        TypeDeclarationLocatorSectionCandidate frameworkCandidate =
+            projected.Answers[framework.Candidate.AnswerOrdinal - 1]
+                .Candidates[framework.Candidate.CandidateOrdinal - 1];
+        BrowserTypeFindActivationResult.Framework frameworkResult =
+            Assert.IsType<BrowserTypeFindActivationResult.Framework>(
+                await owner.ActivateTypeFindActionAsync(
+                    framework.Action!,
+                    TestContext.Current.CancellationToken));
+        BrowserFrameworkDeclarationEffect.Type frameworkType =
+            Assert.IsType<BrowserFrameworkDeclarationEffect.Type>(
+                frameworkResult.Effect);
+        Assert.Equal(
+            frameworkCandidate.Name.ToMetadataFullName(),
+            frameworkType.SelectedType.DefinitionId);
     }
 
     [Fact]

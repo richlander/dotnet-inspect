@@ -54,6 +54,7 @@ type LibraryOperations = "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
+  | "findTypes"
   | "queryLibraryApiDiff"
   | "queryMemberDeclaration"
   | "queryPlatformMemberDeclaration"
@@ -103,6 +104,7 @@ type CatalogOperations =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
+  | "activateSpotlightDestination"
   | "cancelRetainedWorkspaceActivation"
   | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"

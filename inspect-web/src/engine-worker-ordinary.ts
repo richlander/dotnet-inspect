@@ -67,6 +67,7 @@ type LibraryOperationName = "openUploadedLibrary";
 
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
+  | "findTypes"
   | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
@@ -115,6 +116,7 @@ type CatalogOperationName =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
+  | "activateSpotlightDestination"
   | "cancelRetainedWorkspaceActivation"
   | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
@@ -1093,6 +1095,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
       ) => facades.metadata.cancelLibraryApiDiff(...args),
     ),
+    findTypes: valueOperation(
+      "ordinary-metadata-find-types",
+      4,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["findTypes"]>
+      ) => facades.metadata.findTypes(...args),
+    ),
     queryLibraryApiDiff: valueOperation(
       "ordinary-metadata-query-library-api-diff",
       2,
@@ -1451,6 +1461,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args,
       ),
     ),
+    activateSpotlightDestination: valueOperation(
+      "ordinary-catalog-activate-spotlight-destination",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["activateSpotlightDestination"]
+        >
+      ) => facades.catalog.activateSpotlightDestination(...args),
+    ),
     cancelRetainedWorkspaceActivation: valueOperation(
       "ordinary-catalog-cancel-retained-workspace-activation",
       1,
@@ -1776,6 +1796,9 @@ export function bindEngineWorkerOrdinaryClient(
       cancelLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
       ),
+      findTypes: bind(
+        engineWorkerOrdinaryOperations.metadata.findTypes,
+      ),
       queryLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
       ),
@@ -1928,6 +1951,10 @@ export function bindEngineWorkerOrdinaryClient(
       activateRetainedWorkspaceDefinitionWithCredentials: bind(
         engineWorkerOrdinaryOperations.catalog
           .activateRetainedWorkspaceDefinitionWithCredentials,
+      ),
+      activateSpotlightDestination: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .activateSpotlightDestination,
       ),
       cancelRetainedWorkspaceActivation: bind(
         engineWorkerOrdinaryOperations.catalog

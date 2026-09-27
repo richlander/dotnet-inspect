@@ -213,6 +213,34 @@ test("Spotlight uses local type matches until the engine is ready", () => {
     /if \(!state\.engineReady\) return spotlightFallbackMatches\(query, cache\.pool\);[\s\S]*inspectSearchTypes\(query, cache\.candidates\)/);
 });
 
+test("retained Workspace Spotlight uses managed Type Find and opaque activation", () => {
+  const results =
+    appSource.match(/function spotlightResults\(\): SpotlightResult\[\] \{[\s\S]*?\n}\n\ninterface NugetSearchResult/)?.[0]
+    ?? "";
+  const activation =
+    appSource.match(/async function pickManagedSpotlightType\([\s\S]*?\n}\n\nasync function recordManagedSpotlightNavigation/)?.[0]
+    ?? "";
+
+  assert.match(
+    results,
+    /spotlightTypeFind\.schedule\(\s*activeRetainedWorkspacePosting,[\s\S]*state\.spotlightOpen && requestsTypes/);
+  assert.match(
+    results,
+    /activeRetainedWorkspacePosting !== null[\s\S]*kind: "managed-type"/);
+  assert.match(
+    activation,
+    /activateSpotlightDestination\(result\.action\)/);
+  assert.match(
+    activation,
+    /recordManagedSpotlightNavigation\([\s\S]*acknowledgeRetainedWorkspaceNavigation/);
+  assert.match(
+    activation,
+    /abandonRetainedWorkspaceNavigation/);
+  assert.doesNotMatch(
+    activation,
+    /result\.(?:library|package|namespace)|split\(|includes\(/);
+});
+
 test("loading brand links back to the site root", () => {
   assert.match(
     appSource,
@@ -1076,7 +1104,7 @@ test("Spotlight searches framework Libraries without offering a Platform root", 
   assert.ok(results, "frameworkLibrarySpotlightResults was not found");
   assert.match(
     results,
-    /if \(platformSurfaceLoaded\(\)\) \{[\s\S]*spotlightTypeMatches\(query\)/);
+    /if \(platformSurfaceLoaded\(\)[\s\S]*activeRetainedWorkspacePosting === null\) \{[\s\S]*spotlightTypeMatches\(query\)/);
   assert.match(results, /kind: "framework-lib"/);
   assert.doesNotMatch(results, /kind: "platform"|rtpack-suggest/);
 });
