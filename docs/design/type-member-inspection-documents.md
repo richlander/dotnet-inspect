@@ -592,27 +592,38 @@ Member-group rows it covers and does not substitute for any child's Count.
 
 ### Composition Count
 
-A `TypeDocument` request may ask for its composition: a set of exact Counts
-over its Member-group row set, one per projection value. Those values are each
-`accessibility` bucket and each `receiver` form. A separate Count covers
-hidden declarations, which no bucket intent admits without `--all`. For
-example, System.Text.Json 10.0.0 `JsonDocument` has:
+A `TypeDocument` request may ask for its composition: a set of exact Counts,
+each reported in two units, Member-group rows and exact declarations.
+
+- **Accessibility Counts** cover every bucket, whatever `accessibility` term
+  the request itself carries. The picker therefore stays truthful after the
+  reader selects another bucket. Each bucket's Count equals the drained Rows of
+  `accessibility = <bucket>` under the request's hidden admission: hidden
+  declarations are counted only when the request admits them, as `--all`
+  does. A bucket with no declarations is published as 0.
+- **Receiver Counts** cover the declarations the request's own `accessibility`
+  term admits, one per `receiver` form. Each equals the drained Rows of that
+  intent plus the `receiver` value.
+
+For example, System.Text.Json 10.0.0 `JsonDocument` has:
 
 | Projection | Member-group rows | Declarations |
 | --- | ---: | ---: |
 | `accessibility = public` | 8 | 16 |
+| `accessibility = protected` | 0 | 0 |
 | `accessibility = internal` | 24 | 44 |
-| `accessibility = private` | 19 | 20 |
+| `accessibility = private` | 26 | 27 |
 
-Each Count is an ordinary Count request with its own population binding. It
-equals the drained Rows of the same intent. The producer computes the whole
-composition in one pass over compact metadata, like nested Count. It must not
-run one Rows or Count operation per projection value, or construct rows to
-count them.
+Each Count is an ordinary Count request with its own population binding. The
+producer computes the whole composition in one pass over compact metadata,
+like nested Count. It must not run one Rows or Count operation per projection
+value, or construct rows to count them.
 
-Declaration Counts partition the base population. Member-group Counts do not,
-because one family can be a row under several bucket intents. A composition
-therefore never publishes a total that the bucket Counts do not state.
+Declaration Counts partition the population: `JsonDocument`'s 87 declarations
+are 16 + 0 + 44 + 27. Member-group Counts do not, because one family can be a
+row under several bucket intents: the 8 + 24 + 26 bucket rows cover 54
+distinct families. A composition therefore never publishes a total that its
+Counts do not state.
 
 ## Type Members row space
 
@@ -1135,10 +1146,13 @@ The implementation sequence must add Release gates proving:
 - `receiver = static | this | extension` is exhaustive for exact-overload rows,
   and source-applicable receiver predicates affect producer work before
   Member-group formation or row materialization;
-- `JsonDocument`'s Composition Count reports 8, 24, and 19 Member-group rows
-  and 16, 44, and 20 declarations for `public`, `internal`, and `private`.
-  Each Count equals the completely drained Rows of the same intent. One
-  metadata pass produces the whole composition without constructing rows;
+- `JsonDocument`'s Composition Count reports 8, 0, 24, and 26 Member-group
+  rows and 16, 0, 44, and 27 declarations for `public`, `protected`,
+  `internal`, and `private`, whatever bucket the request selects. Each Count
+  equals the completely drained Rows of the same intent. One metadata pass
+  produces the whole composition without constructing rows;
+- the private bucket includes ordinary private fields such as `s_nullLiteral`,
+  which a name heuristic must not exclude;
 - `JsonDocument.Parse` is one Member-group row under `accessibility = public`
   with 5 overloads and one under `accessibility = private` with 2;
 - Type-subject documentation can complete without Member-group-row

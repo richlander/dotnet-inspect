@@ -19,13 +19,14 @@ accessibility chips state the whole population before any non-public row is
 loaded:
 
 ```text
-public | 8    internal | 24    private | 19
+public | 8    protected | 0    internal | 24    private | 26
 ```
 
 The list shows the 8 public Member-group rows. The reader selects `private`.
 The Browser requests that Type's Rows under `accessibility = private` and shows
-19 rows, including the two private `Parse` overloads that the public view never
-listed. The selection stays for the session, so the next Type opens on
+26 rows, including the two private `Parse` overloads that the public view never
+listed. The chips keep their counts, because the composition covers every
+bucket whatever bucket is selected. The selection stays for the session, so the next Type opens on
 `private` with its own truthful count, even when that count is 0.
 
 The CLI asks the same questions of the same population. Its Type-subject
@@ -37,12 +38,12 @@ $ dotnet-inspect type JsonDocument --package System.Text.Json@10.0.0 --count
 16
 $ dotnet-inspect type JsonDocument --package System.Text.Json@10.0.0 \
     --where "accessibility=private" --count
-20
+27
 ```
 
 Each host counts its own row unit: Member-group rows in the Browser list,
-declarations in the CLI's Member Index. Both numbers come from one Composition
-Count, which carries both units. Neither host counts rows it has loaded.
+declarations in the CLI's Member Index. Both numbers come from the Composition
+Count, which reports both units. Neither host counts rows it has loaded.
 
 ## Typed handoffs
 
@@ -63,7 +64,10 @@ Count, which carries both units. Neither host counts rows it has loaded.
   `ApiSurfaceExtractor` and again in `CountSummaryMembers`. Two copies would
   let a Count disagree with its Rows. A raw metadata scan is not enough: it
   counted 4651 System.Text.Json members where include-all extraction admits
-  4357.
+  4357. The Metadata admission also decides what is compiler-generated. The
+  CLI's name heuristic (`MemberFilters.IsCompilerGenerated`) drops ordinary
+  fields such as `JsonDocument.s_nullLiteral`, so it cannot stay between the
+  Count and the CLI's Rows.
 - **Contract roles.** An explicit interface implementation or finalizer that
   the public default admits today stays in the `public` bucket, with its role
   visible, as `ApiAccessibility.Classify` already does. The Browser's host-side
@@ -99,7 +103,8 @@ the step says otherwise.
 3. Deliver #8430 step 7 with the `accessibility` projection and Composition
    Count.
 4. CLI: route Type-subject Rows and `--count` through that population. This
-   retires the Type-subject materialize-then-count path.
+   retires the Type-subject materialize-then-count path and the Member Index
+   name heuristic.
 5. Inspect Web: show the Composition Count on the chips. Request Rows per
    selected bucket, and keep the selection for the session. This retires the
    host-side composition counting and role mapping.
