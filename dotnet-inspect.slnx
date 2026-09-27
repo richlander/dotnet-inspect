@@ -108,6 +108,7 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.TypeDependencyReference/ILInspector.Metadata.TypeDependencyReference.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.CloneSearchFixtures/DotnetInspector.CloneSearchFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures/DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredRidFixtures/DotnetInspector.RestoredRidFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" />

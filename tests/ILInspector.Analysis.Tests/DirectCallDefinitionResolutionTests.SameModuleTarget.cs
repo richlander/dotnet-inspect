@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -37,6 +38,42 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 }));
 
         Assert.Equal(DirectCallTargetUnresolvedReason.Ambiguous, target.Reason);
+    }
+
+    [Fact]
+    public void SameModuleTarget_UndecodableCalleeIsUnsupportedNotMalformed()
+    {
+        // A target signature past the decode depth budget: well-formed input
+        // that the decoder does not support.
+        byte[] unreadable = new byte[SignatureBlobGuard.DefaultMaxDepth + 4];
+        unreadable[0] = 0x00;
+        unreadable[1] = 0x00;
+        unreadable.AsSpan(2, SignatureBlobGuard.DefaultMaxDepth + 1).Fill(0x1D);
+        unreadable[^1] = 0x1C;
+
+        DirectCallTarget.Unresolved target =
+            Assert.IsType<DirectCallTarget.Unresolved>(
+                SameModuleTarget(new()
+                {
+                    TargetSignature = unreadable,
+                    TargetReturnValue = SyntheticStackValue.Null,
+                    PopCallReturn = true,
+                }));
+
+        Assert.Equal(DirectCallTargetUnresolvedReason.UnsupportedSignature, target.Reason);
+    }
+
+    [Fact]
+    public void SameModuleTarget_MalformedGenericDeclaringTypeIsMalformed()
+    {
+        DirectCallTarget.Unresolved target =
+            Assert.IsType<DirectCallTarget.Unresolved>(
+                SameModuleTarget(new()
+                {
+                    CallViaMalformedGenericDeclaringType = true,
+                }));
+
+        Assert.Equal(DirectCallTargetUnresolvedReason.MalformedSignature, target.Reason);
     }
 
     [Fact]

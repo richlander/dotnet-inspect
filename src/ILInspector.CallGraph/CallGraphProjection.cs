@@ -184,6 +184,13 @@ public sealed class CallGraphCallSiteIdentity
         && _structuralCaller!.IsPortable;
 
     /// <summary>
+    /// Exact acquisition registration that supplied this physical call
+    /// occurrence. Null for structurally identified synthetic receipts.
+    /// </summary>
+    public AssemblyAcquisitionRegistration? SourceRegistration =>
+        _callerStorage?.SourceRegistration;
+
+    /// <summary>
     /// Opaque evidence for the acquisition registration that supplied this
     /// physical receipt. Null for structurally identified synthetic receipts.
     /// </summary>
@@ -220,7 +227,8 @@ public sealed record CallGraphCallSite(
     int EdgeId,
     CallGraphCallSiteIdentity Identity,
     DirectCall Call,
-    CallGraphDispatchKind DispatchKind);
+    CallGraphDispatchKind DispatchKind,
+    GraphNodeEvidence? TargetEvidence);
 
 /// <summary>
 /// One stable row of a <see cref="CallGraphProjection"/>.
@@ -859,6 +867,7 @@ public sealed partial class CallGraphProjection
                     childId,
                     nodeId,
                     child.ParentEdgeCallSites,
+                    child.ParentEdgeCallSiteEvidence,
                     child.ParentEdgeCallerDefinition,
                     child.Perf is { InLoop: true },
                     child.Perf?.LoopHint,
@@ -897,6 +906,7 @@ public sealed partial class CallGraphProjection
                     nodeId,
                     childId,
                     child.ParentEdgeCallSites,
+                    child.ParentEdgeCallSiteEvidence,
                     child.ParentEdgeCallerDefinition,
                     child.Perf is { InLoop: true },
                     child.Perf?.LoopHint,
@@ -1094,6 +1104,7 @@ public sealed partial class CallGraphProjection
             int from,
             int to,
             ImmutableArray<DirectCall> callSites,
+            ImmutableArray<GraphNodeEvidence> callSiteTargetEvidence,
             GraphNodeStorageKey? callerDefinition,
             bool fallbackInLoop,
             string? fallbackLoopHint,
@@ -1115,10 +1126,27 @@ public sealed partial class CallGraphProjection
                     fallbackLoopHint);
                 return;
             }
-
-            foreach (DirectCall call in callSites)
+            if (!callSiteTargetEvidence.IsDefaultOrEmpty
+                && callSiteTargetEvidence.Length != callSites.Length)
             {
+                throw new InvalidOperationException(
+                    "Physical call sites and target evidence must remain aligned.");
+            }
+
+            for (var callIndex = 0;
+                callIndex < callSites.Length;
+                callIndex++)
+            {
+                DirectCall call = callSites[callIndex];
                 ArgumentNullException.ThrowIfNull(call);
+                GraphNodeEvidence? targetEvidence =
+                    callSiteTargetEvidence.IsDefaultOrEmpty
+                        ? null
+                        : callSiteTargetEvidence[callIndex];
+                ValidateCallSiteTargetEvidence(
+                    call,
+                    callerDefinition,
+                    targetEvidence);
                 var identity = new CallGraphCallSiteIdentity(
                     useAcquisitionReceiptIdentity
                         ? callerDefinition
@@ -1154,6 +1182,23 @@ public sealed partial class CallGraphProjection
                             fallbackLoopHint);
                         continue;
                     }
+                    if (existing.TargetEvidence is null
+                        && targetEvidence is not null)
+                    {
+                        _callSites[existingId] =
+                            existing with
+                            {
+                                TargetEvidence = targetEvidence,
+                            };
+                    }
+                    else if (existing.TargetEvidence is not null
+                        && targetEvidence is not null
+                        && !existing.TargetEvidence.Storage.Equals(
+                            targetEvidence.Storage))
+                    {
+                        throw new InvalidOperationException(
+                            "One physical call-site identity cannot carry contradictory target evidence.");
+                    }
                     edge.LegacyLoopHint = null;
                     edge.PhysicalAnyCallInLoop |= call.InLoop;
                     continue;
@@ -1169,8 +1214,37 @@ public sealed partial class CallGraphProjection
                         index,
                         identity,
                         call,
-                        DispatchKind(call)));
+                        DispatchKind(call),
+                        targetEvidence));
                 edge.CallSiteIds.Add(id);
+            }
+        }
+
+        static void ValidateCallSiteTargetEvidence(
+            DirectCall call,
+            GraphNodeStorageKey? callerDefinition,
+            GraphNodeEvidence? targetEvidence)
+        {
+            if (targetEvidence is null)
+            {
+                return;
+            }
+
+            GraphNodeStorageKey storage = targetEvidence.Storage;
+            if (storage.Kind != GraphNodeStorageKind.CallSite
+                || storage.ModuleVersionId
+                    != call.EvidenceMethod.ModuleVersionId
+                || storage.MethodToken
+                    != call.EvidenceMethod.MetadataToken
+                || storage.ILOffset != call.ILOffset
+                || storage.OperandToken != call.OperandToken
+                || callerDefinition is not null
+                    && !ReferenceEquals(
+                        storage.SourceRegistration,
+                        callerDefinition.SourceRegistration))
+            {
+                throw new InvalidOperationException(
+                    "Physical call-site target evidence does not match its exact call.");
             }
         }
 

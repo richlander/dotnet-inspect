@@ -440,6 +440,7 @@ import {
   type ContentFrameFocusTarget,
   type ContentFramePane,
 } from "./content-frame.ts";
+import { createMemberListRevealer } from "./member-list-reveal.ts";
 import {
   bindTypePanel,
   createMemberSourcePartSelector,
@@ -717,6 +718,10 @@ export type {
   BrowserUploadedLibraryInspection,
 } from "./facades/inspect-web-library.d.ts";
 import type {
+  BrowserLibraryEnablements,
+  BrowserLibraryInspectionRequest,
+} from "./facades/inspect-web-library.d.ts";
+import type {
   BrowserMemberDeclaration,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
@@ -744,6 +749,8 @@ import type {
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
 
+const memberListRevealer = createMemberListRevealer();
+
 type ProductionEngineWorkerModule =
   typeof import("./engine-worker-client.ts");
 
@@ -768,6 +775,7 @@ let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectOpenUploadedLibrary:
   EngineClient["library"]["openUploadedLibrary"];
+let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
@@ -966,6 +974,7 @@ async function loadEngineModule() {
         inspectClearWorkspacePackageOccurrences,
     } = engineClient.package);
     ({
+      inspectLibrary: inspectLibraryDocument,
       openUploadedLibrary: inspectOpenUploadedLibrary,
     } = engineClient.library);
     ({
@@ -1264,6 +1273,8 @@ const initialState = {
     new Map<string, BrowserExactLibraryApiInspection>(),
   libraryApiLoads: new Set<string>(),
   libraryApiErrors: new Map<string, string>(),
+  libraryEnablements: new Map<string, BrowserLibraryEnablements | null>(),
+  libraryEnablementLoads: new Set<string>(),
   packageDependencies: null,
   packageDependenciesLoading: false,
   packageDependenciesError: "",
@@ -1425,6 +1436,9 @@ interface StateOverrides {
     Map<string, BrowserExactLibraryApiInspection>;
   libraryApiLoads: Set<string>;
   libraryApiErrors: Map<string, string>;
+  // Enablements per Library; null records a load that produced no facts.
+  libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
+  libraryEnablementLoads: Set<string>;
   packageDependencies: BrowserPackageDependencies | null;
   packagePruning: BrowserPackagePruningResult | null;
   dependenciesGroupIndex: number | null;
@@ -6520,6 +6534,7 @@ function memberNavOverloadHeat(group: { key: string }, index: number) {
         heatStrength: overload.heatStrength,
         hub: overload.hub,
         description: overload.description,
+        size: overload.size,
       }
     : null;
 }
@@ -7072,6 +7087,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
+    memberListRevealer.afterRender(document);
     scheduleTypeHeat();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
@@ -7639,6 +7655,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadVisibleSource();
     maybeAutoLoadTypeMetadata();
     maybeAutoLoadLibraryApi();
+    maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackageOpportunities();
@@ -7970,7 +7987,6 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
-    shortKind,
   });
 }
 
@@ -9501,6 +9517,96 @@ function maybeAutoLoadLibraryApi() {
     `Loading ${library.name} public API`);
 }
 
+function libraryEnablementsRequest(
+  pkg: AppPackage,
+  library: ReturnType<typeof packageLibraries>[number],
+): BrowserLibraryInspectionRequest | null {
+  const plan = { enablements: true };
+  if (pkg.isRuntimePack) {
+    if (!library.platformPack) return null;
+    return {
+      library: {
+        kind: "Platform",
+        package: null,
+        platform: {
+          targetFramework: pkg.activeFramework,
+          platformVersion: pkg.version,
+          assemblyFileName: `${library.name}.dll`,
+          pack: library.platformPack,
+        },
+      },
+      plan,
+    };
+  }
+  if (state.rootKind === "library") return null;
+  return {
+    library: {
+      kind: "Package",
+      package: {
+        packageId: pkg.id,
+        version: pkg.version,
+        targetFramework: pkg.activeFramework,
+        assemblyId: library.id,
+      },
+      platform: null,
+    },
+    plan,
+  };
+}
+
+async function loadLibraryEnablements(
+  pkg: AppPackage,
+  library: ReturnType<typeof packageLibraries>[number],
+  request: BrowserLibraryInspectionRequest,
+) {
+  const key = libraryApiSignature(pkg, library);
+  state.libraryEnablementLoads.add(key);
+  try {
+    const inspection = await inspectLibraryDocument(request);
+    state.libraryEnablements.set(key, inspection.enablements ?? null);
+  } catch {
+    // Enablements are silent on failure: badges never guess.
+    state.libraryEnablements.set(key, null);
+  } finally {
+    state.libraryEnablementLoads.delete(key);
+    if (state.package
+      && packageIdentityEquals(state.package, pkg)
+      && selectedLibrary()?.id === library.id
+      && state.atLibraryRoot
+      && state.libraryLens === "overview") {
+      renderPreservingContentFrameFocus();
+    }
+  }
+}
+
+function maybeAutoLoadLibraryEnablements() {
+  if (!state.atLibraryRoot || state.libraryLens !== "overview") return;
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg || !library) return;
+  const key = libraryApiSignature(pkg, library);
+  if (state.libraryEnablements.has(key)
+    || state.libraryEnablementLoads.has(key)) return;
+  const request = libraryEnablementsRequest(pkg, library);
+  if (!request) return;
+  observeAsync(
+    loadLibraryEnablements(pkg, library, request),
+    `Reading ${library.name} enablements`);
+}
+
+function enabledLibraryEnablements(
+  pkg: AppPackage,
+  library: { id: string } | null,
+) {
+  if (!library) return [];
+  const facts =
+    state.libraryEnablements.get(libraryApiSignature(pkg, library));
+  if (!facts || facts.outcome !== "Available") return [];
+  return facts.items
+    .filter(item => item.kind === "enabled")
+    .map(item => ({ id: String(item.id), label: item.label }));
+}
+
 function renderPackageOverview() {
   const pkg = currentPackage();
   const documentsSection =
@@ -9593,6 +9699,7 @@ function renderLibraryCompositionOverview(
     details: library
       ? [library.asset || "Managed library", libraryIdentity(library)]
       : [`${libraries.length} managed ${libraries.length === 1 ? "library" : "libraries"}`, pkg.activeFramework],
+    enablements: enabledLibraryEnablements(pkg, library),
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
@@ -9684,6 +9791,7 @@ function renderLibraryOverview() {
     displayName: library.name,
     iconHtml: renderInspectedSubjectIcon(pkg),
     details: [library.asset || "Managed library", libraryIdentity(library)],
+    enablements: enabledLibraryEnablements(pkg, library),
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,

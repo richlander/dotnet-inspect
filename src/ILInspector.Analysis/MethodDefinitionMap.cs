@@ -72,6 +72,11 @@ internal sealed class MethodDefinitionMap
         MethodIdentity scope = call.EvidenceMethod;
         if (scope.HasInvalidGenericParameterDeclaration)
             return MethodResolution.Fail(DirectCallTargetUnresolvedReason.InvalidGenericDeclaration);
+        // An undecodable callee (for example one past the signature budget) is
+        // unsupported, not malformed; its declaring type would otherwise fail
+        // the malformed-shape check below. The token is 0 either way.
+        if (call.Callee.Kind == MemberKind.Unsupported)
+            return MethodResolution.Fail(DirectCallTargetUnresolvedReason.UnsupportedSignature);
         if (!TryGetDeclaringTypeParameterCount(
                 scope.DeclaringType,
                 out int callerTypeParameterCount)
