@@ -253,18 +253,25 @@ to it.
 - **Where Analysis authenticates the ultimate owner** (lifted lambdas, local
   functions, and async `MoveNext`), it returns that owner. This is the same
   association `DirectCall.Caller` carries.
+- **Async `MoveNext` ignores scope:** one whose ultimate owner authenticates is
+  associated module-wide, even when it lies outside a scoped result's body
+  scope.
 - **One exception, in an unscoped result:** an async `MoveNext` whose lifted
-  source's owner cannot be resolved maps to that immediate lifted source. The
-  calls made by that `MoveNext` keep the physical `MoveNext` as
-  `DirectCall.Caller`.
-- **Scoped results fail closed:** they return `null` for that case and for
-  lifted bodies outside the scope.
+  source's owner cannot be resolved maps to that immediate lifted source,
+  unless the source's compiler-generated name is malformed. The calls made by
+  that `MoveNext` keep the physical `MoveNext` as `DirectCall.Caller`.
+- **Scoped results withhold that fallback:** they return `null` for it, and for
+  lambdas and local functions outside the scope.
 - **Never associated:** sync iterators, and state-machine or display-class
   constructors.
 
 Its first production consumer is Library Dependency Structure, which uses it to
-attribute call targets. `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
-gates the exception on the focused result.
+attribute call targets. Gates:
+
+- `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource`: the module-wide
+  async association.
+- `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`:
+  the unscoped fallback and the scoped `null`, on the focused result.
 
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
