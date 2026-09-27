@@ -80,13 +80,20 @@ A **closed query** is an open query with a terminal:
 | Terminal | Answer | May stop early |
 | --- | --- | --- |
 | Exists | Whether any selected unit satisfies the predicate | Yes, at the first |
-| Count at least N | Whether N selected units satisfy it | Yes, at the Nth |
+| AtLeast(N) | Whether N selected units satisfy it | Yes, at the Nth |
 | Count | How many selected units satisfy it | No |
 | Rows | The selected units' projections, in unit order | No |
+| Head(N) | The first N selected units' projections | Yes, at the Nth |
+| Window(A..B) | The selected units at positions A through B | Yes, at position B |
+| Tail(N) | The last N selected units' projections | No, unless the source can traverse in reverse |
 | Fold | An owner-defined aggregation, such as a call graph | No |
 
-Rows derives Count, Count derives Count at least N, and Exists is Count at
-least one. Closings of the same open query at different thresholds merge to
+Head, Window, Tail, and Top mean what
+[semantic row selection](semantic-row-selection.md) defines: Head is a lenient
+clamp, and a strict Window fails when its start does not exist. This pattern
+expresses them as closings; it does not redefine them.
+
+Rows derives Count, Count derives AtLeast(N), and Exists is AtLeast(1). Closings of the same open query at different thresholds merge to
 the largest. Fold derives nothing, because its aggregation belongs to its
 owner. When several consumers close the same open query, the most expansive
 closing is executed and the others are derived.
@@ -98,6 +105,68 @@ the executed Rows fails at a unit, a derived Count fails too. A derived Exists
 that was already settled at an earlier unit stays settled, because its own
 execution would have stopped there before reaching the failure.
 
+## Phases
+
+A closing lowers to **phases** over one cursor. A phase pairs a
+**processor**, which decides what happens to each selected unit, with a
+**condition**, which decides when the phase ends:
+
+| Processor | What it does with each selected unit |
+| --- | --- |
+| Discard | Nothing; only the predicate runs |
+| Count | Counts it |
+| Rows | Projects it and keeps the row |
+| Buffer(N) | Keeps the most recent N |
+| Top(N by key) | Keeps the best N in a bounded heap |
+| Fold | Folds it, as its owner defines |
+
+| Condition | When the phase ends |
+| --- | --- |
+| Never | At the end of the source |
+| At N | After N selected units |
+| StopWhen(policy) | When a declared policy over progress says so |
+
+When a phase ends, the cursor either stops or passes, still in place, to the
+next phase. A **stage** is a phase that passes the cursor on. Skip(N) is the
+stage that discards N selected units and continues.
+
+Every phase ends in one of two recorded ways: its condition was met, or the
+source was exhausted first. The closing's owner interprets which. Head(N)
+accepts exhaustion with fewer rows. Window(A..B) turns exhaustion during its
+skip into the owner's failure. The same record is the completion evidence that
+[source delegation](source-delegation.md) requires: reached N, or exhausted.
+
+The named closings are the surface, and each lowers to phases:
+
+| Closing | Phases |
+| --- | --- |
+| Count | Count until never |
+| Exists | Discard until 1 |
+| AtLeast(N) | Count until N |
+| Rows | Rows until never |
+| Head(N) | Rows until N |
+| Skip(N), as a stage | Discard until N, then the next phase |
+| Window(A..B) | Skip(A - 1), then Head(B - A + 1) |
+| Tail(N) | Buffer(N) until never |
+
+Merging follows from phases. Closings of the same open query run their
+processors on the shared cursor, and the pass continues until every phase is
+done. "Rows 4 to 6 of 22" is Window(4..6) and Count merged: the predicate runs
+to the end for the count, and only three rows are projected. Derivation is
+processor subsumption: Rows subsumes Count, and Count subsumes AtLeast(N).
+
+A **stop policy** is a pure function of progress, such as selected units,
+rows emitted, or which closings are settled. It is declared with the request,
+so its stop is exact and explainable. An **interruption** is an external stop,
+such as a user abort, a budget, or a full page. It is recorded as an
+incomplete stop and never presented as an exact answer. Both stop at a unit
+boundary, before the next untrusted read.
+
+Names differ by layer. Commands and authors use the closing names. The plan
+uses processors, conditions, and phases. Kernels take each processor and
+condition as a struct type parameter, and a sequence of phases becomes a small
+state machine in one loop.
+
 ## Lowering
 
 Lowering follows one rule: carry type currency from the request through the
@@ -107,7 +176,7 @@ explained, and carried between hosts. Execution becomes types wherever the
 shape is known.
 
 A closed query may be lowered to a **kernel**: one loop specialized to its
-predicate or projection and its terminal, with nothing else to coordinate in
+predicate or projection and its phases, with nothing else to coordinate in
 its pass. A closed query written as a constant in code is a concrete
 instantiation decided at compile time. A closed query composed at runtime
 selects a kernel once per execution, never once per unit.
@@ -168,12 +237,16 @@ one read.
   and out of scope, and an empty image. The gate is
   `ProducerPlanningTests.ClosedQueryKernel_MatchesTheInterpretedExecutor`, on
   the experiment branch.
-- **Thresholds and Rows.** Count at least N and Rows kernels match the
+- **Thresholds and Rows.** AtLeast(N) and Rows kernels match the
   reference execution under the same gate, in
   `ProducerPlanningTests.ClosedQueryKernel_MatchesTheInterpretedExecutor` and
   `RowsKernel_MatchesTheInterpretedExecutor`, on the experiment branch; merged
   thresholds are gated by
   `Planner_MergesExistsThresholdsToTheLargestAndAllDominates`.
+- **Phases.** Closings lowered to phases publish what the named closings'
+  reference executions publish, including a strict Window's failure after
+  exhaustion and Head's lenient clamp. This is **unverified**; today's kernels
+  implement Count, Exists, AtLeast(N), and Rows directly.
 - **Typed fused kernels.** A typed fused kernel matches the interpreted fused
   pass's results and outcomes. This is **unverified**: the first typed fused
   kernel fails the whole request on a unit failure rather than each question.

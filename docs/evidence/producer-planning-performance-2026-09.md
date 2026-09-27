@@ -206,10 +206,10 @@ hand-rolled loop:
 | Rows | annies-mac-mini | 1.08–1.34× | 1.02–1.06× |
 | Rows | merritt | 1.10–1.53× | 1.05–1.19× |
 | Rows | fernie | 1.09–1.33× | 1.02–1.07× |
-| Count at least 5 | mac | 1.04–1.25× | 1.00–1.03× |
-| Count at least 5 | annies-mac-mini | 1.06–1.25× | 1.02–1.04× |
-| Count at least 5 | merritt | 1.08–1.42× | 1.03–1.18× |
-| Count at least 5 | fernie | 1.06–1.25× | 1.01–1.06× |
+| AtLeast(5) | mac | 1.04–1.25× | 1.00–1.03× |
+| AtLeast(5) | annies-mac-mini | 1.06–1.25× | 1.02–1.04× |
+| AtLeast(5) | merritt | 1.08–1.42× | 1.03–1.18× |
+| AtLeast(5) | fernie | 1.06–1.25× | 1.01–1.06× |
 
 | Legacy path | Machine | Multiple of hand-rolled |
 | --- | --- | ---: |
@@ -306,21 +306,24 @@ source may take such work, proven by completion evidence, with
 [semantic row selection](../design/semantic-row-selection.md) owns what Head,
 Tail, Window, and Top mean. No production source has adopted delegation yet.
 
-In the terms of [open and closed queries](../design/open-and-closed-queries.md):
+In the terms of [open and closed queries](../design/open-and-closed-queries.md),
+which now records these as phases over one cursor (a processor and a
+condition per phase), and with the names settled on 2026-09-27:
 
 - **Head(N)**, for `-n N`, closes an open query with Rows and a stop policy
   at N selected units. Its witness is reaching N, or exhausting the source
   with fewer.
-- **Skip(N)**, proposed as `CountContinue(N)`, is a stage: it consumes N
+- **Skip(N)**, first proposed as `CountContinue(N)`, is a stage: it discards N
   selected units, testing only the predicate, and hands the live cursor to the
-  next participant.
+  next phase.
 - **Window(A..B)**, for `--rows A..B`, is Skip(A - 1) followed by
   Head(B - A + 1) over one cursor. When fewer than A units exist, proving the
   window fails requires exhausting the source, and that failure stays the row
   selection owner's decision, reported as evidence.
 - **Tail(N)** keeps only the last N selected units and projects them at the
   end. It stops early only on a source that can traverse in reverse.
-- **Stop policies**, proposed as `CountExitOracle`, decide when to stop from
+- **Stop policies**, first proposed as `CountExitOracle` and declared as
+  `StopWhen(policy)`, decide when to stop from
   progress: Head, thresholds, and every question settled in a fused pass. A
   declared policy is a pure function of progress, so its stop is exact and
   explainable. An external stop, such as a user abort, a budget, or a page that
@@ -330,13 +333,15 @@ In the terms of [open and closed queries](../design/open-and-closed-queries.md):
   other than traversal order, Head and Window cannot stop early; a bounded
   top-N with deferred projection still avoids projecting the rest.
 
-In a kernel, each stage, terminal, and stop policy is a struct type parameter,
-so `Skip(3)` followed by `Head(3)` compiles into one loop, as the typed fused
-kernel does.
+In a kernel, each processor and condition is a struct type parameter, so
+`Skip(3)` followed by `Head(3)` compiles into one loop, as the typed fused
+kernel does. "Oracle" is avoided as a name, because in this repository it
+means the reference implementation that tests compare against.
 
-The first measurement should be Head(6), Skip(3) then Head(3), and Skip(99)
-then Head(11) over the async-methods open query, with the projection split
-out and made realistically expensive. It should compare them with building
+The first measurement should be one phase kernel with Discard, Count, and Rows
+processors, running Head(6), Skip(3) then Head(3), and Skip(99) then Head(11)
+over the async-methods open query, with the projection split out and made
+realistically expensive. It should compare them with building
 every row and then selecting, and with a hand-written loop.
 
 ## Reproducing
