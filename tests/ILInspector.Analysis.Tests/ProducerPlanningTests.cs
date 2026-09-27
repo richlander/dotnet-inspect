@@ -99,10 +99,10 @@ public sealed class ProducerPlanningTests
         MethodDefinitionExecution execution = Run(
             image,
             UnsafeEvidencePresence.Description);
-        ProducerResult<bool> result = execution.ResultOf(
+        ProducerResult<int> result = execution.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Stopped, result.Outcome);
-        Assert.True(result.Value);
+        Assert.Equal(1, result.Value);
         ProducerParticipation participation = execution.Receipt.For(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(2, participation.UnitsAttempted);
@@ -119,10 +119,10 @@ public sealed class ProducerPlanningTests
             Plan(new ProducerRequest(
                 UnsafeEvidencePresenceProducer.Instance,
                 ProducerTerminal.All)));
-        ProducerResult<bool> allResult = all.ResultOf(
+        ProducerResult<int> allResult = all.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Complete, allResult.Outcome);
-        Assert.True(allResult.Value);
+        Assert.Equal(1, allResult.Value);
         Assert.Equal(
             3,
             all.Receipt.For(UnsafeEvidencePresenceProducer.Instance)
@@ -162,7 +162,7 @@ public sealed class ProducerPlanningTests
                     "Fixture.dll",
                     failsFirst));
         Assert.Contains("N.Sample::Broken", exception.Message, StringComparison.Ordinal);
-        ProducerResult<bool> result = Run(
+        ProducerResult<int> result = Run(
                 failsFirst,
                 UnsafeEvidencePresence.Description)
             .ResultOf(UnsafeEvidencePresenceProducer.Instance);
