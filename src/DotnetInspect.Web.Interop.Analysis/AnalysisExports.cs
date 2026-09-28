@@ -126,7 +126,28 @@ public static partial class AnalysisExports
                                 : allocation.Escape.ToString(),
                         allocation.InLoop,
                         allocation.EstimatedSizeBytes,
-                        allocation.Detail)),
+                        allocation.Detail,
+                        [
+                            .. allocation.LifetimeEvidence.Uses.Select(
+                                use =>
+                                    new BrowserAllocationLifetimeUse(
+                                        use.ILOffset,
+                                        ILAnalysis.SemanticFactProjection
+                                            .FormatLifetimeUseKind(
+                                                use.Kind))),
+                        ],
+                        [
+                            .. allocation.LifetimeEvidence.Limitations
+                                .Select(
+                                    limitation =>
+                                        new BrowserAllocationLifetimeLimitation(
+                                            ILAnalysis.SemanticFactProjection
+                                                .FormatLifetimeLimitationKind(
+                                                    limitation.Kind),
+                                            limitation.ILOffset,
+                                            limitation.Operation?
+                                                .ToString())),
+                        ])),
             ],
             [
                 .. analysis.DirectCalls.Select(
