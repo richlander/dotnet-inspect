@@ -132,18 +132,18 @@ function fixture(
 }
 
 test("Settings resolves generated terms through the declared tier map", () => {
-  const catalog = resolveStyleCatalog(fixture());
+  const resolved = resolveStyleCatalog(fixture());
 
-  assert.equal(catalog.snapshotIdentity, `sha256:${"0".repeat(64)}`);
-  assert.equal(catalog.tiers.length, 1);
-  assert.equal(catalog.tiers[0]!.term.identity.value, "naming");
-  assert.equal(catalog.tiers[0]!.choices.length, 1);
+  assert.equal(resolved.snapshotIdentity, `sha256:${"0".repeat(64)}`);
+  assert.equal(resolved.tiers.length, 1);
+  assert.equal(resolved.tiers[0]!.term.identity.value, "naming");
+  assert.equal(resolved.tiers[0]!.choices.length, 1);
   assert.equal(
-    catalog.tiers[0]!.choices[0]!.term.identity.value,
+    resolved.tiers[0]!.choices[0]!.term.identity.value,
     "readable-locals");
-  assert.equal(catalog.tiers[0]!.choices[0]!.oracleEndorsed, true);
+  assert.equal(resolved.tiers[0]!.choices[0]!.oracleEndorsed, true);
   assert.equal(
-    catalog.tiers[0]!.choices[0]!.conflictGroup,
+    resolved.tiers[0]!.choices[0]!.conflictGroup,
     "local-names");
 });
 
