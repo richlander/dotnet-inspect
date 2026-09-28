@@ -121,10 +121,12 @@ The checked-in rules provide full gate coverage for these dependency claims:
    assembly edges are a ceiling rather than the desired endpoint: the CLI may
    consume L1, L2, and L3 under the inspection-layer contract, while
    [#8843](https://github.com/richlander/dotnet-inspect/issues/8843) owns
-   focused command-family retirement of historical low-level edges. The rule
-   covers both graphs because the source-used `CSharpText.MemberSlicing`
-   project emits no CLI `AssemblyRef`, while eight repository assemblies
-   appear in compiled metadata without direct project edges.
+   focused command-family retirement of historical low-level edges. Separate
+   rules preserve each graph's ceiling: the source-used
+   `CSharpText.MemberSlicing` project emits no CLI `AssemblyRef`, while eight
+   repository assemblies appear in compiled metadata without direct project
+   edges. Moving either kind of edge into the other graph therefore requires
+   an explicit policy change.
 6. The Inspect Web executable depends directly only on the .NET platform,
    `TsJsExport.Contracts`, Web Core, and the declared capability facade
    assemblies. Core and facade implementation boundaries remain separate

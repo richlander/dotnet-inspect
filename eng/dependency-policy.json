@@ -84,10 +84,68 @@
       ]
     },
     {
-      "id": "dotnet-inspect-cli-stays-within-host-ratchet",
+      "id": "dotnet-inspect-cli-project-dependencies-stay-within-host-ratchet",
       "source": "docs/design/inspection-layers.md#the-layers; composition tracker #8843",
       "graphs": [
-        "project",
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Cli"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"
+      ],
+      "allowOnly": [
+        "CSharpText",
+        "CSharpText.MemberSlicing",
+        "DotnetInspector.Cache",
+        "DotnetInspector.DocumentationHouse.Direct",
+        "DotnetInspector.Ecosystems",
+        "DotnetInspector.Libraries",
+        "DotnetInspector.LibraryMetadata",
+        "DotnetInspector.MetadataRendering",
+        "DotnetInspector.Networking",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse",
+        "DotnetInspector.PlatformHouse.Execution.Installed",
+        "DotnetInspector.PlatformHouse.Execution.Packages",
+        "DotnetInspector.PlatformHouse.Installed",
+        "DotnetInspector.PlatformHouse.Packages",
+        "DotnetInspector.PlatformQueries",
+        "DotnetInspector.Platforms",
+        "DotnetInspector.Platforms.Installed",
+        "DotnetInspector.Platforms.Packages",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.ResearchSections",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Sections.Installed",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceSelection",
+        "DotnetInspector.Vocabulary",
+        "ILInspector.Analysis",
+        "ILInspector.CallGraph",
+        "ILInspector.CSharp",
+        "ILInspector.Decompiler",
+        "ILInspector.ILDiff",
+        "ILInspector.Instructions",
+        "ILInspector.Metadata",
+        "ILInspector.Research",
+        "ILInspector.SourceLink",
+        "InertText",
+        "Inspector.Artifacts.Local",
+        "Inspector.Artifacts.Workspaces",
+        "Inspector.Findings",
+        "Inspector.Text",
+        "QuerySpace"
+      ]
+    },
+    {
+      "id": "dotnet-inspect-cli-assembly-dependencies-stay-within-host-ratchet",
+      "source": "docs/design/inspection-layers.md#the-layers; composition tracker #8843",
+      "graphs": [
         "assembly"
       ],
       "targets": [
@@ -99,7 +157,6 @@
       "allowOnly": [
         "$platform",
         "CSharpText",
-        "CSharpText.MemberSlicing",
         "DotnetInspector.Cache",
         "DotnetInspector.DocumentationHouse.Contracts",
         "DotnetInspector.DocumentationHouse.Direct",
