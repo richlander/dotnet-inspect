@@ -50,7 +50,8 @@ internal static class LibraryMetadataService
         AssemblyIntegrationOpportunitiesEntry?
             integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null)
+        Sections.InspectionTrace? trace = null,
+        bool readLibraryDocument = true)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -495,12 +496,15 @@ internal static class LibraryMetadataService
                     typeFilter: options.TypeFilter);
             }
 
-            await ReadLibraryDocumentAsync(
-                    inspection,
-                    path,
-                    packageName,
-                    isPlatformAssembly)
-                .ConfigureAwait(false);
+            if (readLibraryDocument)
+            {
+                await ReadLibraryDocumentAsync(
+                        inspection,
+                        path,
+                        packageName,
+                        isPlatformAssembly)
+                    .ConfigureAwait(false);
+            }
             return inspection;
         }
         catch (OperationCanceledException)
@@ -867,6 +871,18 @@ internal static class LibraryMetadataService
                 break;
         }
     }
+
+    /// <summary>
+    /// Whether the request renders the Library document's scalar fields: the
+    /// Library Info section, or the <c>-v:q</c> context line. Other requests
+    /// skip the second image read.
+    /// </summary>
+    internal static bool WantsLibraryDocument(
+        SectionQueryPlan sectionPlan,
+        LibraryOptions options) =>
+        OutputFormatter.ShouldRenderLibraryContext(options)
+        || sectionPlan.Demands.Any(
+            static demand => demand.Section == SectionNames.LibraryInfo);
 
     /// <summary>
     /// The adapter role the host selected: package and Platform images outside a

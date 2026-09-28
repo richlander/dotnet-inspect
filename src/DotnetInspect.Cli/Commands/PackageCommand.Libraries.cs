@@ -304,6 +304,8 @@ public partial class PackageCommand
         }
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(commandDemand: commandQueryDemand);
+        bool readLibraryDocument =
+            LibraryMetadataService.WantsLibraryDocument(sectionPlan, libraryOptions);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -473,7 +475,8 @@ public partial class PackageCommand
                         assemblyReference
                         ?? subject.AssemblyReference,
                     integrationsEntry: integrations,
-                    integrationOpportunitiesEntry: opportunities);
+                    integrationOpportunitiesEntry: opportunities,
+                    readLibraryDocument: readLibraryDocument);
             }
 
             LibraryInspection? inspection;
