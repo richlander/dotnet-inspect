@@ -73,13 +73,13 @@ The Ecosystem set changes:
   all-known Workspace plan, with its `Azure.`, `Microsoft.Azure.`,
   `Microsoft.Extensions.Azure`, `Aspire.Azure.`, and `Aspire.Hosting.Azure.`
   prefixes.
-- **AI keeps one prefix and eight roots.** Its prefix population becomes
+- **AI keeps one prefix and seven roots.** Its prefix population becomes
   `Microsoft.Extensions.AI` alone, which reaches the Microsoft.Extensions.AI
   family (provider bridges such as `Microsoft.Extensions.AI.OpenAI` and the
   `Microsoft.Extensions.AI.Evaluation` packages); the
   `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, and
   `ModelContextProtocol` prefixes are removed. Its core becomes, in
-  preference order, eight roots observed on 2026-09-27:
+  preference order, seven roots observed on 2026-09-27:
 
   | Package | Version | Publisher repository |
   | --- | --- | --- |
@@ -90,7 +90,6 @@ The Ecosystem set changes:
   | `Google.GenAI` | 1.22.0 | `googleapis/dotnet-genai` |
   | `ModelContextProtocol` | 2.2.0 | `modelcontextprotocol/csharp-sdk` |
   | `Microsoft.Agents.AI` | 1.22.0 | `microsoft/agent-framework` |
-  | `Anthropic.SDK` | 5.10.0 | `tghamm/Anthropic.SDK` (community) |
 
   The AI Ecosystem's scenario is `IChatClient`-style model consumption.
   Vector stores are a separate scenario and are not mixed in:
@@ -98,9 +97,9 @@ The Ecosystem set changes:
   prefix is removed. That prefix matched only the abstractions and a
   conformance-test package; vector-store providers live under
   `Microsoft.SemanticKernel.Connectors.*` and would need their own
-  Ecosystem. At the product owner's request, the community-published
-  `Anthropic.SDK` is included alongside Anthropic's official SDK;
-  `Mistral.SDK` from the same author is not.
+  Ecosystem. Community-published
+  `Anthropic.SDK` and `Mistral.SDK` are not lab-published SDKs and are not
+  included.
 
 - **ASP.NET Core becomes zero-root.** Its platform population is its hub;
   `Microsoft.AspNetCore.OpenApi` and
@@ -117,7 +116,7 @@ The Ecosystem set changes:
 
 The guiding rule is **root the hub, prefix the fan-out**. An Ecosystem needs
 no root when a platform population is its hub. Runtime 0, ASP.NET Core 0,
-Microsoft.Extensions 0, Aspire 2, AI 8, Blazor 4, and .NET MAUI 5 are all
+Microsoft.Extensions 0, Aspire 2, AI 7, Blazor 4, and .NET MAUI 5 are all
 within the bound.
 
 ## Partitioned platform populations
@@ -173,7 +172,7 @@ and remain bounded by their own candidate limits and source page limits
 | [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | `package activity --ecosystem` and the Browser picker scope by the Ecosystem's prefixes through the existing `PackagePrefix` selection |
 | [Platform library population declaration](platform-library-population-declaration.md) | Assembly-name selection within a platform family, so `Microsoft.Extensions*` assemblies partition out of both shared frameworks |
 | [Package-backed platform realization](package-backed-platform-realization.md) | Realization honors the selection for CLI and Browser |
-| [Ecosystem dependency recognition](ecosystem-dependency-recognition.md) | AI associations become `Microsoft.Extensions.AI` plus exact package and assembly associations for the eight roots; Azure associations removed |
+| [Ecosystem dependency recognition](ecosystem-dependency-recognition.md) | AI associations become `Microsoft.Extensions.AI` plus exact package and assembly associations for the seven roots, so community `Anthropic.SDK` stays unrecognized; Azure associations removed |
 | [Workspace definitions](workspace-definitions.md) | Packet format 3 carries Ecosystem declarations inline, so the data slice needs no format change and verifies that a packet naming `ecosystem.azure` still restores or fails visibly. The partition slice changes the platform-population encoding in the share packet (`["t", family]`) and definition JSON to carry the selection, with a stated treatment for older packets that carry only the family |
 
 ## Slices
@@ -193,7 +192,7 @@ amends its owner's document with its code.
    namespace roots and summary; update the dependency-recognition profile;
    add the core bound to pack validation with a boundary test at twelve and
    thirteen entries. With slice 2 in place, `depends-ecosystem=ai` matches
-   the eight roots and the `Microsoft.Extensions.AI` prefix; packages only
+   the seven roots and the `Microsoft.Extensions.AI` prefix; packages only
    the removed prefixes matched, such as `Microsoft.Extensions.VectorData.*`,
    stop matching.
 4. **Package activity.** CLI and Browser adopt prefix scope; the Browser
