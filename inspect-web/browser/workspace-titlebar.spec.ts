@@ -44,6 +44,9 @@ async function renderSpotlightFooter(
       schedulePackageFetch: () => {},
       resetPackageSearch: () => {},
       packageSearchLoading: () => false,
+      scheduleCapabilitySearch: () => {},
+      resetCapabilitySearch: () => {},
+      capabilitySearchLoading: () => false,
       packageCount: () => 1,
       render: () => {},
     });

@@ -48,6 +48,7 @@ type PackageOperations =
   | "resolvePackageDependencyVersion"
   | "runPackageActivity"
   | "runPackageQuery"
+  | "searchCapabilities"
   | "searchTypes";
 
 type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";

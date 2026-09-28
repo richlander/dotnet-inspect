@@ -385,7 +385,8 @@ Spotlight as the one search experience for:
 - Libraries;
 - Types;
 - Members;
-- platform inputs; and
+- platform inputs;
+- installed capabilities; and
 - commands.
 
 The row-one Search control uses the expanded label
@@ -412,6 +413,28 @@ the `Libraries` group, with `.NET` or `ASP.NET Core` source disclosure. Their
 selection may use Platform-owned realization internally, but neither that
 provenance nor the existence of a resident runtime pack creates a user-facing
 Platform result.
+
+Capability search participates only in Spotlight's `All` scope. It adds no
+persistent scope chip or shell control. Matching installed resources appear in
+one transient `Capabilities` group; a capability such as `library-literal` is
+a result named `Library literal`, not a `Literals` category. Each row presents
+the owner-issued resource name with its resource kind, owning route, and first
+canonical key as secondary metadata.
+
+The result identity is the capability search result's canonical Resource Path.
+The shell does not reconstruct identity from the displayed name, metadata, or
+array position. Activation follows the typed available Browser binding. The
+first production binding opens Package Query without executing it; selecting a
+Query Facet also opens that exact owner-issued term's editor with an empty
+value. Capability search remains local and resource-free and runs
+independently of the network-backed package search.
+
+This is deliberately host-specific interactive rendering over the generated
+Browser capability-search transport. Capability Catalog Search continues to
+own result construction and ranking; Spotlight owns grouping, row lowering,
+selection, and destination activation. A completed empty capability result
+contributes no `Capabilities` group to the blended result list, matching the
+group's transient nature rather than adding a persistent empty-state row.
 
 Spotlight's
 [destination-activation
