@@ -52,7 +52,7 @@ internal static class LibraryApiDiffOutput
                     DiffViewText.Field($"{beforeVersion} -> {afterVersion}"),
                     DiffViewText.Field(reason),
                     null, null, null, null, null, null, null,
-                    null, null,
+                    null, null, null,
                     failures.Count == 0 ? null : DiffViewText.Prose(reason))
                 {
                     InspectionFailures = failures.Count == 0 ? null : failures,
@@ -315,7 +315,7 @@ internal static class LibraryApiDiffOutput
     {
         DiffDocumentView document = DiffOutputFormatter.BuildDocumentView(
             name, beforeVersion, afterVersion,
-            changes, null, null, null, []);
+            changes, null, null, []);
         Console.WriteLine(JsonSerializer.Serialize(
             document, DiffJsonContext.Default.DiffDocumentView));
     }

@@ -30,9 +30,16 @@
     <PackageDownload Include="CrestApps.AgentSkills.Mcp.OrchardCore"
                      Version="[1.2.0]" />
     <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
+    <PackageDownload Include="System.Text.Json" Version="[9.0.0];[10.0.0]" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/DiffAnalysis/9.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/DiffAnalysis/10.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
           Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"
           CopyToOutputDirectory="PreserveNewest" />

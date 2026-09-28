@@ -270,6 +270,12 @@ public sealed class ResourceExplanationView
                         value.Summary,
                         consumerKind: Display(value.ConsumerKind),
                         gesture: value.Gesture),
+                ResourceExplanationDetail.AnalysisDetails value =>
+                    Empty(
+                        value.Identity,
+                        $"Revision {value.Revision}; cost {value.Cost}. "
+                        + string.Join("; ", value.Participations)
+                        + "."),
                 _ => Empty(),
             };
 
@@ -382,6 +388,10 @@ public sealed record ResourceExplanationResourceRow(
                 name = details.Name;
                 memberCount = details.ExposedFacetCount;
                 break;
+            case ResourceExplanationDetail.AnalysisDetails details:
+                name = details.Name;
+                memberCount = null;
+                break;
             default:
                 throw new InvalidOperationException(
                     "Unknown Resource Explanation detail variant.");
@@ -456,6 +466,10 @@ public sealed record ResourceExplanationResourceRow(
             .Replace(
                 nameof(ResourceExplanationOwner.Consumer),
                 "Consumer",
+                StringComparison.Ordinal)
+            .Replace(
+                nameof(ResourceExplanationOwner.AnalysisRequests),
+                "Analysis Requests",
                 StringComparison.Ordinal);
 }
 
@@ -484,7 +498,15 @@ public sealed record ResourceExplanationRelationshipRow(
         new(
             sourcePath ?? "(external)",
             Display(relationship.RelationshipKind),
-            relationship.TargetPath?.Value ?? "(not navigable)",
+            relationship.TargetPath?.Value
+                ?? relationship.Target switch
+                {
+                    ResourceExplanationIdentity.OperationSurface target =>
+                        $"{target.Operation} / {target.Surface}",
+                    ResourceExplanationIdentity.IssuedFinding target =>
+                        $"{target.Operation} / {target.Surface} / {target.Descriptor}",
+                    _ => "(not navigable)",
+                },
             relationship.TargetOwner switch
             {
                 ResourceExplanationOwner.ResourceExplanation =>
@@ -495,6 +517,8 @@ public sealed record ResourceExplanationRelationshipRow(
                     "Inspection Capability Composition",
                 ResourceExplanationOwner.QuerySpace => "Query Space",
                 ResourceExplanationOwner.Consumer => "Consumer",
+                ResourceExplanationOwner.AnalysisRequests =>
+                    "Analysis Requests",
                 _ => relationship.TargetOwner.ToString(),
             });
 

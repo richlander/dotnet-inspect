@@ -14,6 +14,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Queries;
 using InertText;
 using Markout;
 
@@ -161,8 +162,8 @@ public class DiffCommandTests
                     hostile),
             ],
         };
-        FindingTransitionsView transitions =
-            DiffOutputFormatter.BuildFindingTransitionsView(
+        TransitionsView transitions =
+            DiffOutputFormatter.BuildTransitionsView(
                 hostile,
                 [
                     new FindingTransitionRow(
@@ -185,8 +186,8 @@ public class DiffCommandTests
                 changes,
                 analysis,
                 implementation,
-                transitions,
-                []);
+                [],
+                transitions: transitions);
         DiffFullView full =
             DiffOutputFormatter.BuildFullView(
                 hostile,
@@ -266,11 +267,11 @@ public class DiffCommandTests
                 "analysis_diff_note",
                 "implementation_diff_summary",
                 "implementation_diff_note",
-                "finding_transitions_summary",
+                "transitions_summary",
                 "changes",
                 "analysis_diff",
                 "implementation_diff",
-                "finding_transitions",
+                "transitions",
             ],
             names);
         Assert.DoesNotContain(names, name => name.EndsWith("_text", StringComparison.Ordinal));
@@ -543,7 +544,6 @@ public class DiffCommandTests
                 changes: null,
                 analysisDiff: null,
                 implementationDiff: null,
-                findingTransitions: null,
                 inspectionFailures: [failure]);
 
         Assert.Contains(
@@ -608,12 +608,12 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_TypeIntroduction_IsNativeAddedPair()
+    public void ApiTransitions_TypeIntroduction_IsNativeAddedPair()
     {
         var oldSurface = new ApiSurface();
         var newSurface = DiffSurface(DiffType("Sample", "Widget"));
 
-        var rows = DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             oldSurface,
             newSurface,
             "1.0.0",
@@ -631,12 +631,12 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_TypePresent_ReportsBothSides()
+    public void ApiTransitions_TypePresent_ReportsBothSides()
     {
         var oldSurface = DiffSurface(DiffType("Sample", "Widget"));
         var newSurface = DiffSurface(DiffType("Sample", "Widget"));
 
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        var row = Assert.Single(DiffCommand.BuildAnalysisTransitions(
             oldSurface,
             newSurface,
             "1.0.0",
@@ -649,13 +649,13 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_TypeChanged_ReportsNativeDetail()
+    public void ApiTransitions_TypeChanged_ReportsNativeDetail()
     {
         var oldType = DiffType("Sample", "Widget");
         var newType = DiffType("Sample", "Widget");
         newType.IsSealed = true;
 
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        var row = Assert.Single(DiffCommand.BuildAnalysisTransitions(
             DiffSurface(oldType),
             DiffSurface(newType),
             "1.0.0",
@@ -669,9 +669,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_CaseOnlyTypeChangePreservesBothIdentities()
+    public void ApiTransitions_CaseOnlyTypeChangePreservesBothIdentities()
     {
-        var rows = DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             DiffSurface(DiffType("Sample", "Widget")),
             DiffSurface(DiffType("Sample", "widget")),
             "1.0.0",
@@ -693,9 +693,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_MemberFilterPreservesCaseOnlyTypeIdentities()
+    public void ApiTransitions_MemberFilterPreservesCaseOnlyTypeIdentities()
     {
-        var rows = DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             DiffSurface(DiffType(
                 "Sample",
                 "Widget",
@@ -708,7 +708,6 @@ public class DiffCommandTests
             "2.0.0",
             new DiffOptions
             {
-                Finding = MetadataFindings.MemberDescriptor.Id,
                 TypeFilter = ["Sample.Widget"],
                 MemberFilter = ["Run"],
             });
@@ -720,7 +719,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_MemberFilterPreservesFailureOwnedType()
+    public void ApiTransitions_MemberFilterPreservesFailureOwnedType()
     {
         var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
@@ -736,7 +735,7 @@ public class DiffCommandTests
                 OwningTypeDefinition = owner,
             });
 
-        var rows = DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             partialSurface,
             DiffSurface(DiffType(
                 "Sample",
@@ -746,38 +745,33 @@ public class DiffCommandTests
             "2.0.0",
             new DiffOptions
             {
-                Finding = MetadataFindings.MemberDescriptor.Id,
                 TypeFilter = ["Sample.Widget"],
                 MemberFilter = ["Run"],
             });
 
-        Assert.Collection(
-            rows.OrderBy(row => row.Target, StringComparer.Ordinal),
-            row =>
-            {
-                Assert.Equal("Sample.Widget", row.Target);
-                Assert.Equal("FindingComparison.Failed", row.Transition);
-            },
-            row => Assert.Equal("PairFinding.Added", row.Transition));
+        // The failure-owned old type is outside the api producer's healthy
+        // population; its incompleteness is reported as an inspection failure.
+        var row = Assert.Single(rows);
+        Assert.Equal("PairFinding.Added", row.Transition);
+        Assert.StartsWith("Sample.widget.Run~", row.Target, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void BuildFindingTransitions_MemberFilterPrefersExactCase()
+    public void ApiTransitions_MemberFilterPrefersExactCase()
     {
         var surface = DiffSurface(
             DiffType("Sample", "widget", DiffMember("Run")),
             DiffType("Sample", "Widget"));
 
         var error = Assert.Throws<InvalidOperationException>(() =>
-            DiffCommand.BuildFindingTransitions(
+            DiffCommand.BuildAnalysisTransitions(
                 surface,
                 surface,
                 "1.0.0",
                 "2.0.0",
                 new DiffOptions
                 {
-                    Finding = MetadataFindings.MemberDescriptor.Id,
-                    TypeFilter = ["Sample.Widget"],
+                        TypeFilter = ["Sample.Widget"],
                     MemberFilter = ["Run"],
                 }));
 
@@ -785,7 +779,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_ExactFailedTypePreventsCaseFallback()
+    public void ApiTransitions_ExactFailedTypePreventsCaseFallback()
     {
         var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
@@ -803,15 +797,14 @@ public class DiffCommandTests
             });
 
         var error = Assert.Throws<InvalidOperationException>(() =>
-            DiffCommand.BuildFindingTransitions(
+            DiffCommand.BuildAnalysisTransitions(
                 oldSurface,
                 new ApiSurface(),
                 "1.0.0",
                 "2.0.0",
                 new DiffOptions
                 {
-                    Finding = MetadataFindings.MemberDescriptor.Id,
-                    TypeFilter = ["Sample.Widget"],
+                        TypeFilter = ["Sample.Widget"],
                     MemberFilter = ["Run"],
                 }));
 
@@ -822,9 +815,12 @@ public class DiffCommandTests
     [InlineData("Widget")]
     [InlineData("sample.widget")]
     [InlineData("*Widget")]
-    public void BuildFindingTransitions_PartialTypeCanonicalizesSelector(
+    public void ApiTransitions_FailureOwnedTypeIsOutsideTheApiPopulation(
         string selector)
     {
+        // The api producer compares the healthy surface subset; a type whose
+        // row failed to decode is reported through the command's Inspection
+        // Failures (exit 1), never as a per-type success row.
         var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
         var partialSurface = new ApiSurface();
@@ -839,25 +835,24 @@ public class DiffCommandTests
                 OwningTypeDefinition = owner,
             });
 
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        Assert.Empty(DiffCommand.BuildAnalysisTransitions(
             partialSurface,
             new ApiSurface(),
             "1.0.0",
             "2.0.0",
             new DiffOptions
             {
-                Finding = MetadataFindings.MemberDescriptor.Id,
                 TypeFilter = [selector],
             }));
-
-        Assert.Equal("Sample.Widget", row.Target);
-        Assert.Equal("FindingComparison.Failed", row.Transition);
+        Assert.NotEmpty(
+            ApiComparisonQuery.Execute(partialSurface, new ApiSurface())
+                .ApiDiff.InspectionFailures);
     }
 
     [Fact]
-    public void BuildFindingTransitions_TypeMissingAtBothEndpoints_HasNoPair()
+    public void ApiTransitions_TypeMissingAtBothEndpoints_HasNoPair()
     {
-        var rows = DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             DiffSurface(DiffType("Sample", "Existing")),
             DiffSurface(DiffType("Sample", "Existing")),
             "1.0.0",
@@ -868,12 +863,12 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_MemberIntroduction_UsesResolvedTarget()
+    public void ApiTransitions_MemberIntroduction_UsesResolvedTarget()
     {
         var oldSurface = DiffSurface(DiffMember("Existing"));
         var newSurface = DiffSurface(DiffMember("Existing"), DiffMember("Added"));
 
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        var row = Assert.Single(DiffCommand.BuildAnalysisTransitions(
             oldSurface,
             newSurface,
             "1.0.0",
@@ -892,19 +887,18 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_TypeScopedMemberCensus_DoesNotRequireMemberSelector()
+    public void ApiTransitions_TypeScopedMemberCensus_DoesNotRequireMemberSelector()
     {
         var oldSurface = DiffSurface(DiffMember("Existing"));
         var newSurface = DiffSurface(DiffMember("Existing"), DiffMember("Added"));
 
-        var rows = DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             oldSurface,
             newSurface,
             "1.0.0",
             "2.0.0",
             new DiffOptions
             {
-                Finding = "api.member",
                 TypeFilter = ["Sample.Widget"],
             });
 
@@ -915,21 +909,21 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_TypeAttributeCensus_ReportsAppliedOccurrences()
+    public void ApiTransitions_TypeAttributeCensus_ReportsAppliedOccurrences()
     {
         var oldType = DiffType("Sample", "Widget");
         oldType.Attributes = ["System.Obsolete(\"old\")"];
         var newType = DiffType("Sample", "Widget");
         newType.Attributes = ["System.Obsolete(\"new\")"];
 
-        var rows = DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             DiffSurface(oldType),
             DiffSurface(newType),
             "1.0.0",
             "2.0.0",
             new DiffOptions
             {
-                Finding = "api.attribute",
+                Analysis = ["api-attribute"],
                 TypeFilter = ["Sample.Widget"],
             });
 
@@ -940,12 +934,12 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_RemovedMember_ReportsOldSide()
+    public void ApiTransitions_RemovedMember_ReportsOldSide()
     {
         var oldSurface = DiffSurface(DiffMember("Removed"));
         var newSurface = DiffSurface(DiffType("Sample", "Widget"));
 
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        var row = Assert.Single(DiffCommand.BuildAnalysisTransitions(
             oldSurface,
             newSurface,
             "1.0.0",
@@ -962,12 +956,12 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_MemberMissingAtBothEndpoints_IsInvalidTarget()
+    public void ApiTransitions_MemberMissingAtBothEndpoints_IsInvalidTarget()
     {
         var surface = DiffSurface(DiffType("Sample", "Widget"));
 
         var error = Assert.Throws<InvalidOperationException>(() =>
-            DiffCommand.BuildFindingTransitions(
+            DiffCommand.BuildAnalysisTransitions(
                 surface,
                 surface,
                 "1.0.0",
@@ -982,9 +976,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildAllocationFindingTransitions_AddedOccurrence_IsNativeAddedPair()
+    public void AllocationAnalysisTransitions_AddedOccurrence_IsNativeAddedPair()
     {
-        var rows = BuildAllocationFindingTransitions("RegressesAllocInLoop");
+        var rows = AllocationAnalysisTransitions("RegressesAllocInLoop");
 
         var added = Assert.Single(rows, row => row.Transition == "PairFinding.Added");
         Assert.Equal("analysis.allocation", added.Finding);
@@ -995,19 +989,19 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildAllocationFindingTransitions_RetainsPresentAndRemovedOccurrences()
+    public void AllocationAnalysisTransitions_RetainsPresentAndRemovedOccurrences()
     {
-        var rows = BuildAllocationFindingTransitions("ImprovesAlloc");
+        var rows = AllocationAnalysisTransitions("ImprovesAlloc");
 
         Assert.Single(rows, row => row.Transition == "PairFinding.Present");
         Assert.Equal(2, rows.Count(row => row.Transition == "PairFinding.Removed"));
     }
 
     [Fact]
-    public void BuildAllocationFindingTransitions_FacetChange_IsNativeChangedPair()
+    public void AllocationAnalysisTransitions_FacetChange_IsNativeChangedPair()
     {
         var changed = Assert.Single(
-            BuildAllocationFindingTransitions("SameAllocationCountBecomesHot"));
+            AllocationAnalysisTransitions("SameAllocationCountBecomesHot"));
 
         Assert.Equal("PairFinding.Changed", changed.Transition);
         Assert.Contains("in loop: False -> True", changed.Detail);
@@ -1016,15 +1010,15 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildAllocationFindingTransitions_EmptyCensuses_HaveNoPair()
+    public void AllocationAnalysisTransitions_EmptyCensuses_HaveNoPair()
     {
-        Assert.Empty(BuildAllocationFindingTransitions("Stable"));
+        Assert.Empty(AllocationAnalysisTransitions("Stable"));
     }
 
     [Fact]
-    public void BuildCallSiteFindingTransitions_AddedOccurrence_IsNativeAddedPair()
+    public void CallSiteAnalysisTransitions_AddedOccurrence_IsNativeAddedPair()
     {
-        var rows = BuildCallSiteFindingTransitions("RegressesAllocInLoop");
+        var rows = CallSiteAnalysisTransitions("RegressesAllocInLoop");
 
         var added = Assert.Single(rows, row =>
             row.Transition == "PairFinding.Added"
@@ -1041,9 +1035,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildCallSiteFindingTransitions_ChangedCallee_IsRemovedAndAdded()
+    public void CallSiteAnalysisTransitions_ChangedCallee_IsRemovedAndAdded()
     {
-        var rows = BuildCallSiteFindingTransitions("CallToken");
+        var rows = CallSiteAnalysisTransitions("CallToken");
 
         Assert.Contains(rows, row =>
             row.Transition == "PairFinding.Removed"
@@ -1054,10 +1048,10 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildCallSiteFindingTransitions_LoopFacetChange_IsNativeChangedPair()
+    public void CallSiteAnalysisTransitions_LoopFacetChange_IsNativeChangedPair()
     {
         var changed = Assert.Single(
-            BuildCallSiteFindingTransitions("SameAllocationCountBecomesHot"),
+            CallSiteAnalysisTransitions("SameAllocationCountBecomesHot"),
             row => row.Target.Contains(".Add(", StringComparison.Ordinal));
 
         Assert.Equal("PairFinding.Changed", changed.Transition);
@@ -1067,15 +1061,15 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildCallSiteFindingTransitions_EmptyCensuses_HaveNoPair()
+    public void CallSiteAnalysisTransitions_EmptyCensuses_HaveNoPair()
     {
-        Assert.Empty(BuildCallSiteFindingTransitions("Stable"));
+        Assert.Empty(CallSiteAnalysisTransitions("Stable"));
     }
 
     [Fact]
-    public void BuildUnsafetyFindingTransitions_AddedOperation_IsNativeAddedPair()
+    public void UnsafetyAnalysisTransitions_AddedOperation_IsNativeAddedPair()
     {
-        var rows = BuildUnsafetyFindingTransitions("AddsUnsafe");
+        var rows = UnsafetyAnalysisTransitions("AddsUnsafe");
 
         var added = Assert.Single(rows, row =>
             row.Transition == "PairFinding.Added"
@@ -1087,9 +1081,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildUnsafetyFindingTransitions_RetainsPresentOperations()
+    public void UnsafetyAnalysisTransitions_RetainsPresentOperations()
     {
-        var rows = BuildUnsafetyFindingTransitions("MethodToken");
+        var rows = UnsafetyAnalysisTransitions("MethodToken");
 
         Assert.Contains(rows, row =>
             row.Transition == "PairFinding.Present"
@@ -1097,15 +1091,15 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildUnsafetyFindingTransitions_EmptyCensuses_HaveNoPair()
+    public void UnsafetyAnalysisTransitions_EmptyCensuses_HaveNoPair()
     {
-        Assert.Empty(BuildUnsafetyFindingTransitions("Stable"));
+        Assert.Empty(UnsafetyAnalysisTransitions("Stable"));
     }
 
     [Fact]
-    public void BuildCSharpFindingTransitions_ChangedLine_UsesNativePairs()
+    public void CSharpAnalysisTransitions_ChangedLine_UsesNativePairs()
     {
-        var rows = BuildCSharpFindingTransitions("ConstantValue");
+        var rows = CSharpAnalysisTransitions("ConstantValue");
 
         Assert.Contains(rows, row =>
             row.Transition == "PairFinding.Removed"
@@ -1120,9 +1114,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildIlFindingTransitions_ChangedOperation_UsesNativePairs()
+    public void IlAnalysisTransitions_ChangedOperation_UsesNativePairs()
     {
-        var rows = BuildIlFindingTransitions("ConstantValue");
+        var rows = IlAnalysisTransitions("ConstantValue");
 
         Assert.Contains(rows, row =>
             row.Transition == "PairFinding.Removed"
@@ -1138,9 +1132,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildIlFindingTransitions_RemovedMethods_UseNativePairs()
+    public void IlAnalysisTransitions_RemovedMethods_UseNativePairs()
     {
-        var rows = BuildIlFindingTransitions(
+        var rows = IlAnalysisTransitions(
             "Removed:1",
             "DiffFixtureSample.MethodRemovalSample");
 
@@ -1151,9 +1145,9 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildIlFindingTransitions_AbsentBodyToBody_UsesAddedPairs()
+    public void IlAnalysisTransitions_AbsentBodyToBody_UsesAddedPairs()
     {
-        var rows = BuildIlFindingTransitions(
+        var rows = IlAnalysisTransitions(
             "BodyState",
             "DiffFixtureSample.BodyStateSample");
 
@@ -1264,7 +1258,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_AttributeFailureRendersFailedTopology()
+    public void ApiTransitions_AttributeFailureRendersFailedTopology()
     {
         var oldSurface = DiffSurface(DiffType("Sample", "Widget"));
         oldSurface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
@@ -1274,14 +1268,14 @@ public class DiffCommandTests
             "BadImageFormatException",
             "malformed enum attribute"));
 
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        var row = Assert.Single(DiffCommand.BuildAnalysisTransitions(
             oldSurface,
             DiffSurface(DiffType("Sample", "Widget")),
             "v1",
             "v2",
             new DiffOptions
             {
-                Finding = "api.attribute",
+                Analysis = ["api-attribute"],
                 TypeFilter = ["Sample.Widget"],
             }));
 
@@ -1292,48 +1286,57 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildFindingTransitions_MemberTopologyOnlyTransitionProducesRow()
+    public void ApiTransitions_TypeIntroductionWithoutMembersHasNoTopologyRow()
     {
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        // The api comparison is library-wide, so its topology is not a fact
+        // about the Type surface; only the api.type pair projects.
+        var row = Assert.Single(DiffCommand.BuildAnalysisTransitions(
             new ApiSurface(),
             DiffSurface(DiffType("Sample", "Widget")),
             "v1",
             "v2",
             new DiffOptions
             {
-                Finding = "api.member",
                 TypeFilter = ["Sample.Widget"],
             }));
 
-        Assert.Equal("FindingComparison.Complete", row.Transition);
-        Assert.Equal("subject-absent", row.OldInspection);
-        Assert.Equal("complete", row.NewInspection);
-        Assert.Null(row.Detail);
+        Assert.Equal("PairFinding.Added", row.Transition);
+        Assert.Equal("api.type", row.Finding);
+        Assert.Equal("Sample.Widget", row.Target);
     }
 
     [Fact]
-    public void BuildFindingTransitions_RemovedMemberRetainsEndpointTopology()
+    public void ApiTransitions_TypeSurfaceProjectsTypeThenMemberRows()
     {
-        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+        var rows = DiffCommand.BuildAnalysisTransitions(
             DiffSurface(DiffMember("Run")),
             new ApiSurface(),
             "v1",
             "v2",
             new DiffOptions
             {
-                Finding = "api.member",
                 TypeFilter = ["Sample.Widget"],
-            }));
+            });
 
-        Assert.Equal("PairFinding.Removed", row.Transition);
-        Assert.Equal("complete", row.OldInspection);
-        Assert.Equal("subject-absent", row.NewInspection);
+        Assert.Collection(
+            rows,
+            row =>
+            {
+                Assert.Equal("api.type", row.Finding);
+                Assert.Equal("PairFinding.Removed", row.Transition);
+            },
+            row =>
+            {
+                Assert.Equal("api.member", row.Finding);
+                Assert.Equal("PairFinding.Removed", row.Transition);
+                Assert.Equal("complete", row.OldInspection);
+            });
     }
 
     [Fact]
-    public void RenderFindingTransitionsMarkdown_LabelsPairBoundary()
+    public void RenderTransitionsMarkdown_LabelsPairBoundary()
     {
-        var view = DiffOutputFormatter.BuildFindingTransitionsView(
+        var view = DiffOutputFormatter.BuildTransitionsView(
             "Sample",
             [new FindingTransitionRow(
                     "PairFinding.Added",
@@ -1348,9 +1351,10 @@ public class DiffCommandTests
             "1.0.0",
             "2.0.0");
 
-        var markdown = DiffOutputFormatter.RenderFindingTransitionsView(view);
+        var markdown = DiffOutputFormatter.RenderTransitionsView(view);
 
-        Assert.Contains("## Finding Transitions", markdown);
+        Assert.Contains("## Transitions", markdown);
+        Assert.DoesNotContain("Finding Transitions", markdown);
         Assert.Contains("PairFinding.Added", markdown);
         Assert.Contains("Sample.Widget", markdown);
         Assert.Contains("1.0.0", markdown);
@@ -1502,14 +1506,14 @@ public class DiffCommandTests
         return count;
     }
 
-    private static IReadOnlyList<FindingTransitionRow> BuildAllocationFindingTransitions(
+    private static IReadOnlyList<FindingTransitionRow> AllocationAnalysisTransitions(
         string member)
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
         var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
         var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
         var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
-        return DiffCommand.BuildAllocationFindingTransitions(
+        return DiffCommand.BuildAnalysisTransitions(
             [oldPath],
             [newPath],
             oldSurface,
@@ -1518,20 +1522,20 @@ public class DiffCommandTests
             "v2",
             new DiffOptions
             {
-                Finding = AnalysisFindings.AllocationDescriptor.Id,
+                Analysis = ["allocation"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = [member],
             });
     }
 
-    private static IReadOnlyList<FindingTransitionRow> BuildCallSiteFindingTransitions(
+    private static IReadOnlyList<FindingTransitionRow> CallSiteAnalysisTransitions(
         string member)
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
         var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
         var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
         var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
-        return DiffCommand.BuildCallSiteFindingTransitions(
+        return DiffCommand.BuildAnalysisTransitions(
             [oldPath],
             [newPath],
             oldSurface,
@@ -1540,20 +1544,20 @@ public class DiffCommandTests
             "v2",
             new DiffOptions
             {
-                Finding = AnalysisFindings.CallSiteDescriptor.Id,
+                Analysis = ["call-site"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = [member],
             });
     }
 
-    private static IReadOnlyList<FindingTransitionRow> BuildUnsafetyFindingTransitions(
+    private static IReadOnlyList<FindingTransitionRow> UnsafetyAnalysisTransitions(
         string member)
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
         var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
         var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
         var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
-        return DiffCommand.BuildUnsafetyFindingTransitions(
+        return DiffCommand.BuildAnalysisTransitions(
             [oldPath],
             [newPath],
             oldSurface,
@@ -1562,20 +1566,20 @@ public class DiffCommandTests
             "v2",
             new DiffOptions
             {
-                Finding = AnalysisFindings.UnsafetyDescriptor.Id,
+                Analysis = ["unsafety"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = [member],
             });
     }
 
-    private static IReadOnlyList<FindingTransitionRow> BuildCSharpFindingTransitions(
+    private static IReadOnlyList<FindingTransitionRow> CSharpAnalysisTransitions(
         string member)
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
         var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
         var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
         var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
-        return DiffCommand.BuildCSharpFindingTransitions(
+        return DiffCommand.BuildAnalysisTransitions(
             [oldPath],
             [newPath],
             oldSurface,
@@ -1584,13 +1588,13 @@ public class DiffCommandTests
             "v2",
             new DiffOptions
             {
-                Finding = CSharpFindings.LineDescriptor.Id,
+                Analysis = ["csharp"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = [member],
             });
     }
 
-    private static IReadOnlyList<FindingTransitionRow> BuildIlFindingTransitions(
+    private static IReadOnlyList<FindingTransitionRow> IlAnalysisTransitions(
         string member,
         string type = "DiffFixtureSample.DiffSample")
     {
@@ -1598,7 +1602,7 @@ public class DiffCommandTests
         var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
         var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
         var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
-        return DiffCommand.BuildIlFindingTransitions(
+        return DiffCommand.BuildAnalysisTransitions(
             [oldPath],
             [newPath],
             oldSurface,
@@ -1607,7 +1611,7 @@ public class DiffCommandTests
             "v2",
             new DiffOptions
             {
-                Finding = IlFindings.OperationDescriptor.Id,
+                Analysis = ["il"],
                 TypeFilter = [type],
                 MemberFilter = [member],
             });
@@ -2783,7 +2787,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_DiffCategoryWithFindingTransitions_ReportsCompositionError()
+    public async Task ExecuteAsync_DiffCategoryWithTransitions_ReportsRouteCompositionError()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
             DiffCommand.ExecuteAsync(new DiffOptions
@@ -2792,15 +2796,14 @@ public class DiffCommandTests
                 Select =
                 [
                     SectionCategoryNames.Diff,
-                    DiffSections.FindingTransitions.Name,
+                    DiffSections.Transitions.Name,
                 ],
                 TypeFilter = ["Sample.Widget"]
             }));
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
-        Assert.Contains("focused endpoint-confirmation lens", error, StringComparison.Ordinal);
-        Assert.Contains("use @Diff", error, StringComparison.Ordinal);
+        Assert.Contains("Summary and Transitions cannot be combined with Analysis Diff", error, StringComparison.Ordinal);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -2843,7 +2846,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_FindingTransitions_ComposesJson()
+    public async Task ExecuteAsync_TransitionsView_RendersApiMemberTransition()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
         var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
@@ -2852,31 +2855,27 @@ public class DiffCommandTests
             DiffCommand.ExecuteAsync(new DiffOptions
             {
                 LibraryVersionRange = $"{v1}..{v2}",
-                Select = ["Finding Transitions"],
-                JsonOutput = true,
+                Select = ["Transitions"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = ["ConstantValue"]
             }));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        using var document = System.Text.Json.JsonDocument.Parse(output);
-        Assert.Equal(
-            "1 selected Finding transition.",
-            document.RootElement.GetProperty("finding_transitions_summary").GetString());
-        var transition = Assert.Single(
-            document.RootElement.GetProperty("finding_transitions").EnumerateArray());
-        Assert.Equal("PairFinding.Present", transition.GetProperty("transition").GetString());
-        Assert.Equal(
-            "complete",
-            transition.GetProperty("old_inspection").GetString());
-        Assert.Equal(
-            "complete",
-            transition.GetProperty("new_inspection").GetString());
+        Assert.Contains("## Transitions", output, StringComparison.Ordinal);
+        Assert.Contains("1 selected Finding transition.", output, StringComparison.Ordinal);
+        Assert.Contains("| PairFinding.Present | api.member |", output, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_AllocationFindingTransitions_ComposesJson()
+    [Theory]
+    [InlineData("allocation", "RegressesAllocInLoop", "analysis.allocation", "Newobj")]
+    [InlineData("call-site", "RegressesAllocInLoop", "analysis.call-site", ".Add(")]
+    [InlineData("unsafety", "AddsUnsafe", "analysis.unsafety", "StackAlloc")]
+    public async Task ExecuteAsync_SingleBodyAnalysis_DefaultsToTransitionsView(
+        string analysis,
+        string member,
+        string finding,
+        string target)
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
         var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
@@ -2885,87 +2884,19 @@ public class DiffCommandTests
             DiffCommand.ExecuteAsync(new DiffOptions
             {
                 LibraryVersionRange = $"{v1}..{v2}",
-                JsonOutput = true,
-                Finding = AnalysisFindings.AllocationDescriptor.Id,
+                Analysis = [analysis],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
-                MemberFilter = ["RegressesAllocInLoop"]
+                MemberFilter = [member]
             }));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        using var document = System.Text.Json.JsonDocument.Parse(output);
-        Assert.False(document.RootElement.TryGetProperty("changes", out _));
-        var transitions = document.RootElement
-            .GetProperty("finding_transitions")
-            .EnumerateArray()
-            .ToList();
-        Assert.Contains(transitions, transition =>
-            transition.GetProperty("transition").GetString() == "PairFinding.Added"
-            && transition.GetProperty("finding").GetString() == "analysis.allocation");
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_CallSiteFindingTransitions_ComposesJson()
-    {
-        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
-        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
-
-        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
-            DiffCommand.ExecuteAsync(new DiffOptions
-            {
-                LibraryVersionRange = $"{v1}..{v2}",
-                JsonOutput = true,
-                Finding = AnalysisFindings.CallSiteDescriptor.Id,
-                TypeFilter = ["DiffFixtureSample.DiffSample"],
-                MemberFilter = ["RegressesAllocInLoop"]
-            }));
-
-        Assert.Equal(0, exitCode);
-        Assert.Empty(error);
-        using var document = System.Text.Json.JsonDocument.Parse(output);
-        Assert.False(document.RootElement.TryGetProperty("changes", out _));
-        var transitions = document.RootElement
-            .GetProperty("finding_transitions")
-            .EnumerateArray()
-            .ToList();
-        Assert.Contains(transitions, transition =>
-            transition.GetProperty("transition").GetString() == "PairFinding.Added"
-            && transition.GetProperty("finding").GetString() == "analysis.call-site"
-            && transition.GetProperty("target").GetString()!.Contains(
-                ".Add(",
-                StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_UnsafetyFindingTransitions_ComposesJson()
-    {
-        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
-        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
-
-        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
-            DiffCommand.ExecuteAsync(new DiffOptions
-            {
-                LibraryVersionRange = $"{v1}..{v2}",
-                JsonOutput = true,
-                Finding = AnalysisFindings.UnsafetyDescriptor.Id,
-                TypeFilter = ["DiffFixtureSample.DiffSample"],
-                MemberFilter = ["AddsUnsafe"]
-            }));
-
-        Assert.Equal(0, exitCode);
-        Assert.Empty(error);
-        using var document = System.Text.Json.JsonDocument.Parse(output);
-        Assert.False(document.RootElement.TryGetProperty("changes", out _));
-        var transitions = document.RootElement
-            .GetProperty("finding_transitions")
-            .EnumerateArray()
-            .ToList();
-        Assert.Contains(transitions, transition =>
-            transition.GetProperty("transition").GetString() == "PairFinding.Added"
-            && transition.GetProperty("finding").GetString() == "analysis.unsafety"
-            && transition.GetProperty("target").GetString()!.Contains(
-                "StackAlloc",
-                StringComparison.Ordinal));
+        Assert.Contains("# Transitions:", output, StringComparison.Ordinal);
+        Assert.Contains(
+            output.Split('\n'),
+            line => line.StartsWith("| PairFinding.Added | " + finding + " |", StringComparison.Ordinal)
+                && line.Contains(target, StringComparison.Ordinal));
+        Assert.DoesNotContain("## Changes", output, StringComparison.Ordinal);
     }
 
     [Fact]
