@@ -106,6 +106,36 @@ public sealed class OracleOperatorTests
     }
 
     [Fact]
+    public void EveryOperator_ActsOnlyOnTheElementsThatRemain()
+    {
+        // The pinned NLinq's array fold restarts from index zero; the fixture's
+        // operators must act only on what a partial pull left.
+        int[] input = [1, 2, 3, 4, 5];
+        IEnumerable<int> remaining = input.Skip(1);
+
+        ArrayEnumerator<int> source = input.AsNLinq();
+        source.TryGetNext(out _);
+        Assert.Equal(remaining.TakeLast(5), source.TakeLast<ArrayEnumerator<int>, int>(5));
+
+        source = input.AsNLinq();
+        source.TryGetNext(out _);
+        Assert.Equal(remaining.Take(2), Drain(source.Take<ArrayEnumerator<int>, int>(2)));
+
+        source = input.AsNLinq();
+        source.TryGetNext(out _);
+        Assert.Equal(remaining.Skip(2), Drain(source.Skip<ArrayEnumerator<int>, int>(2)));
+
+        source = input.AsNLinq();
+        source.TryGetNext(out _);
+        Assert.True(source.TryTakeExactly<ArrayEnumerator<int>, int>(4, out List<int> exact));
+        Assert.Equal(remaining, exact);
+
+        source = input.AsNLinq();
+        source.TryGetNext(out _);
+        Assert.False(source.TryTakeExactly<ArrayEnumerator<int>, int>(5, out _));
+    }
+
+    [Fact]
     public void NegativeCounts_AreRejected()
     {
         int[] input = [1, 2, 3];

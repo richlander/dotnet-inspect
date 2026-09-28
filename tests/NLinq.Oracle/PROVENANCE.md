@@ -20,6 +20,17 @@ infrastructure: it is never built into a shipped artifact, so it is not listed
 in `THIRD-PARTY-NOTICES.TXT`. Adding a `LICENSE` file upstream would complete
 the record.
 
+## Upstream behavior the fixture avoids
+
+`Fold` on `ArrayEnumerator`, `ListEnumerator`, and `ImmutableArrayEnumerator`
+restarts from the first element regardless of what `TryGetNext` already
+pulled. Their `Count` and `ReadOnlyListEnumerator`'s inherited `Fold` do respect
+the position. The
+fixture's operators therefore pull with `TryGetNext` and never fold a source
+that may be partially consumed; `MethodDefinitionRows.Fold` continues from its
+position. `OracleOperatorTests.EveryOperator_ActsOnlyOnTheElementsThatRemain`
+gates this.
+
 ## File checksums
 
 SHA-256 of each file as copied:
