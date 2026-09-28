@@ -195,14 +195,17 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   - Otherwise, Count and Exists run alone, with no `IdentityText` declared.
   - Each requested row order is applied by the query to the one set of folded
     rows.
-- **Rows order is a typed request parameter,** not a host sort. Today's
-  outputs use two orders, and a query offers both:
-  - **Model order:** declaring type, then method name, using today's
-    comparers. Async rows are sorted by kind first, compared ordinally. The
-    JSON and model outputs use it.
-  - **Display order:** declaring type, then method name and signature. The
-    Markdown Async Methods view uses it today
-    (`LibraryInspectionView.cs`).
+- **Rows order is a typed request parameter,** not a host sort. A query
+  offers exactly the orders today's outputs use:
+
+  | Analyzer | Model order (JSON, `LibraryInspection`) | Display order (Markdown view) |
+  | --- | --- | --- |
+  | Async | kind (ordinal), then declaring type, then method name (default comparer) | declaring type, method name, signature (`OrdinalIgnoreCase`) |
+  | P/Invoke | declaring type, then method name (default comparer) | declaring type, method name, module name, signature (`OrdinalIgnoreCase`) |
+  | Pointer signature | declaring type, then method name (default comparer) | none; the list has no Markdown view |
+
+  The model orders are the ones in `LibraryMetadataService`, and the display
+  orders are the ones in `LibraryInspectionView.cs`.
 
   A host names the order it shows, and the query returns rows in that order.
   No host sorts or projects rows itself.
@@ -230,7 +233,7 @@ Each consumer asks only for what it shows:
 | Consumer | Asks for |
 | --- | --- |
 | Async Methods section | async rows, or Count for `--count` |
-| P/Invoke Methods section | P/Invoke rows |
+| P/Invoke Methods section | P/Invoke rows, or Count for `--count` |
 | Pointer-signature method list (`UnsafeMethods`) | pointer rows |
 | Signals | Count for pointer ("public pointer signatures"); Count for P/Invoke when the metadata-wide P/Invoke count is unavailable |
 | LibraryInfo counts | Count for each analyzer |
@@ -289,6 +292,12 @@ work, tracked in #8733, and not part of this change.
 - **Malformed pointer signature under Count.** It fails the pointer analyzer
   with a typed `Failed` outcome naming the method, and never publishes a
   silently reduced count.
+- **Section `--count`.** `--count` on the Async Methods and P/Invoke Methods
+  sections requests Count and declares no `IdentityText`.
+- **Display order.** A P/Invoke overload pair on one type, `Run(int)` from
+  `a.dll` and `Run(bool)` from `z.dll`, shows in the legacy order. Async rows
+  that differ only by kind, or only by signature, show in the legacy order in
+  both the model and the display.
 - **Consumer output equivalence.** A request for Signals alone gives the same
   numeric pointer and P/Invoke counts as legacy. The Async Kind signal is
   unchanged, because it does not read the classified result. A public P/Invoke
