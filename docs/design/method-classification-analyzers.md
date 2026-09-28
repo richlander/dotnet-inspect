@@ -185,7 +185,9 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   execution, with each consumer's own closing. Only the Finding asks for
   Rows. The merged rows, in legacy order, and the Finding inspection built
   from them come only when the Finding is requested. Signals and LibraryInfo
-  counts get Count and Exists closings, which declare no `IdentityText`, so
+  counts get Count and Exists closings, matching what each shows today
+  (`AuditSignalBuilder` shows counts for pointer and P/Invoke, and the async
+  kinds present), which declare no `IdentityText`, so
   they spend no identity budget. No host merges results by hand.
 
 Hosts only bind. A section registers the query and the closing it shows.
@@ -201,7 +203,7 @@ Each consumer asks only for what it shows:
 | Async Methods section | async rows, or Count for `--count` |
 | P/Invoke Methods section | P/Invoke rows |
 | Pointer-signature method list (`UnsafeMethods`) | pointer rows |
-| Signals | Exists for P/Invoke and pointer; Exists for each async kind |
+| Signals | Count for pointer ("public pointer signatures"); Count for P/Invoke when the metadata-wide P/Invoke count is unavailable; Exists for each async kind |
 | LibraryInfo counts | Count for each analyzer |
 | Classified-method Finding | Rows of all three, merged |
 
@@ -251,6 +253,10 @@ work, tracked in #8733, and not part of this change.
 
 ## Verification
 
+- **Consumer output equivalence.** A request for Signals alone gives the same
+  numeric pointer and P/Invoke counts, and the same async kind, as legacy.
+  The scanner test fixture with several pointer-signature methods covers it,
+  and no host counts anything.
 - **Equivalence on real assets.** For each analyzer, and for the merged rows,
   output equals `MethodClassificationScanner.Scan` field by field on the
   repository's pinned test packages. Boundary fixtures:
