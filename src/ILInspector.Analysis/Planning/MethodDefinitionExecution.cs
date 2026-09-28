@@ -425,7 +425,7 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 MetadataTokens.GetToken(typeHandle),
                 "(type scope)",
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return false;
         }
@@ -454,7 +454,7 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 MetadataTokens.GetToken(typeHandle),
                 "(type scope)",
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return false;
         }
@@ -483,7 +483,7 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 MetadataTokens.GetToken(unit.MethodHandle),
                 unit.Label,
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return null;
         }
@@ -521,7 +521,7 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 MetadataTokens.GetToken(unit.MethodHandle),
                 unit.Label,
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return;
         }
@@ -619,7 +619,7 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 0,
                 "(completion)",
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return;
         }

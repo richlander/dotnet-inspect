@@ -39,11 +39,26 @@ public sealed record CriticalFailure(
     string Unit,
     string Message);
 
-/// <summary>Where and why a producer failed.</summary>
+/// <summary>
+/// Where and why a producer failed: the unit's content-free coordinates
+/// (its token) and the failure's kind, with a bounded message.
+/// </summary>
 public sealed record ProducerFailure(
     int UnitToken,
     string Unit,
-    string Message);
+    string Message)
+{
+    /// <summary>The longest failure message recorded, so a hostile input cannot inflate one.</summary>
+    public const int MaxMessageLength = 256;
+
+    internal static string Describe(Exception ex)
+    {
+        string message = $"{ex.GetType().Name}: {ex.Message}";
+        return message.Length <= MaxMessageLength
+            ? message
+            : message[..MaxMessageLength];
+    }
+}
 
 /// <summary>One producer's typed result and outcome.</summary>
 public sealed record ProducerResult<T>(

@@ -538,8 +538,70 @@ public sealed class MethodRowGateTests
         Assert.Null(execution.Receipt.Critical);
         ProducerResult<int> failed = execution.ResultOf(pointer);
         Assert.Equal(ProducerOutcome.Failed, failed.Outcome);
-        Assert.Contains("Short", failed.Failure!.Unit);
+        Assert.StartsWith("MethodDef 0x", failed.Failure!.Unit);
         Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(flags).Outcome);
+    }
+
+    [Fact]
+    public void RecoverableFailure_LabelReadsNoNameText()
+    {
+        // A malformed signature on a method with a 16.7M-character name, in a
+        // plan with no IdentityText: the failure is recorded by token only.
+        GateFixtureImage builder = Ordinary();
+        builder.Type("N", "Named").Method(new string('n', 16_700_000), Bytes(0x00, 0x01, 0x01));
+        ImmutableArray<byte> image = builder.Build();
+        var pointer = new GateProducer<PointerPredicate>("Pointer", MethodDefinitionLayers.SignatureShape);
+
+        foreach (bool kernel in new[] { true, false })
+        {
+            var producer = new GateProducer<PointerPredicate>("Pointer", MethodDefinitionLayers.SignatureShape, kernel: kernel);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(producer)));
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            ProducerResult<int> result = execution.ResultOf(producer);
+            Assert.Equal(ProducerOutcome.Failed, result.Outcome);
+            Assert.True(result.Failure!.Unit.Length <= 32, result.Failure.Unit);
+            Assert.True(result.Failure.Message.Length <= ProducerFailure.MaxMessageLength);
+            Assert.True(allocated < 8 * 1024 * 1024, $"Allocated {allocated:N0} bytes.");
+        }
+    }
+
+    [Fact]
+    public void IdentityText_MalformedMetadataFailsTheReaderOnly()
+    {
+        // A type whose namespace handle points past the #Strings heap. Budget
+        // remains, so this is malformed metadata, not exhaustion: the identity
+        // producer fails and an independent flags-only producer completes.
+        GateFixtureImage builder = Ordinary();
+        builder.Type("N", "Broken", namespaceOverride: MetadataTokens.StringHandle(0xFFFF))
+            .Method("Imported", attributes: MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl, implAttributes: MethodImplAttributes.PreserveSig);
+        ImmutableArray<byte> image = builder.Build();
+        var rows = new GateProducer<IdentityPredicate>("Rows", MethodDefinitionLayers.IdentityText);
+        var flags = new GateProducer<AlwaysPredicate>("Flags", MethodDefinitionLayers.Flags);
+
+        MethodDefinitionExecution execution = Run(
+            image,
+            Plan(new ProducerRequest(rows), new ProducerRequest(flags)));
+
+        Assert.Null(execution.Receipt.Critical);
+        Assert.Equal(ProducerOutcome.Failed, execution.ResultOf(rows).Outcome);
+        Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(flags).Outcome);
+    }
+
+    [Fact]
+    public void IdentityText_EveryReturnedTextIsInert()
+    {
+        GateFixtureImage builder = Ordinary();
+        builder.Type("N", "Esc").Method("Run\u001B[31mRed", GateFixtureImage.VoidSignature(static t => t.Int32()));
+        ImmutableArray<byte> image = builder.Build();
+        var texts = new GateProducer<AllTextPredicate>("Texts", MethodDefinitionLayers.IdentityText);
+        AllTextPredicate.Seen.Clear();
+
+        Run(image, Plan(new ProducerRequest(texts)));
+
+        Assert.Contains(AllTextPredicate.Seen, static text => text.Contains("Red", StringComparison.Ordinal));
+        Assert.All(AllTextPredicate.Seen, static text => Assert.DoesNotContain('\u001B', text));
     }
 
     [Fact]
@@ -790,6 +852,31 @@ public sealed class MethodRowGateTests
     struct PointerPredicate : IMethodDefinitionPredicate
     {
         public readonly bool Test(scoped MethodDefinitionView view) => view.SignatureHasPointer;
+    }
+
+    struct AllTextPredicate : IMethodDefinitionPredicate
+    {
+        public static readonly List<string> Seen = [];
+
+        public readonly bool Test(scoped MethodDefinitionView view)
+        {
+            MethodRowIdentity identity = view.Identity;
+            Seen.Add(identity.MethodName.ToString());
+            Seen.Add(identity.DeclaringType.ToString());
+            Seen.Add(identity.Namespace.ToString());
+            Seen.Add(identity.Signature.ToString());
+            if (identity.ReturnType is { } returnType)
+                Seen.Add(returnType.ToString());
+            if (identity.Anchor is { } anchor)
+            {
+                Seen.Add(anchor.StableSelector.ToString());
+                Seen.Add(anchor.CanonicalSignature.ToString());
+                Seen.Add(anchor.TypeFullName.ToString());
+                Seen.Add(anchor.MemberName.ToString());
+            }
+
+            return true;
+        }
     }
 
     struct ModulePredicate : IMethodDefinitionPredicate

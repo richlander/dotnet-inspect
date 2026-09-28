@@ -69,8 +69,20 @@ public sealed record MethodRowIdentity(
     InertString DeclaringType,
     InertString Namespace,
     InertString Signature,
-    MemberAnchor? Anchor,
+    MethodRowAnchor? Anchor,
     InertString? ReturnType);
+
+/// <summary>
+/// A row's member anchor. <see cref="Key"/> is the semantic identity, the key
+/// used for correspondence and Findings, and is never display text. Every text
+/// the gate returns for the anchor is inert.
+/// </summary>
+public sealed record MethodRowAnchor(
+    MemberAnchor Key,
+    InertString StableSelector,
+    InertString CanonicalSignature,
+    InertString TypeFullName,
+    InertString MemberName);
 
 /// <summary>
 /// A scoped, read-only view of the type being visited, for a gate
@@ -348,6 +360,10 @@ internal sealed class MethodRowGate
         _identityWorkRemaining -= amount;
     }
 
+    bool LegacyIdentityBudgetExhausted =>
+        _identityWorkRemaining <= 0
+        || _identityDecodeFailures >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures;
+
     /// <summary>Aborts if any identity-text read exhausted the budget.</summary>
     void AbortIfIdentityExhausted()
     {
@@ -369,11 +385,7 @@ internal sealed class MethodRowGate
         MetadataReader reader = IdentityReader;
         MethodDefinition method = reader.GetMethodDefinition(_methodHandle);
         TypeDefinition type = reader.GetTypeDefinition(_typeHandle);
-        MethodAnchorInfo? anchor = null;
-        string? methodName = null;
-        string? signature = null;
-        string? declaringType = null;
-        string? @namespace = null;
+        MethodAnchorInfo? anchor;
         try
         {
             anchor = MethodRowProjection.TryCreateMethodIdentity(
@@ -382,7 +394,34 @@ internal sealed class MethodRowGate
                 method,
                 ref _identityDecodeFailures,
                 ref _identityWorkRemaining);
+        }
+        catch (Exception) when (_identityExhausted)
+        {
             AbortIfIdentityExhausted();
+            throw;
+        }
+        catch (BadImageFormatException) when (LegacyIdentityBudgetExhausted)
+        {
+            // MethodRowProjection throws when its own work or decode-failure
+            // budget is exhausted; any other malformed metadata is a
+            // recoverable failure of the producer reading identity text.
+            bool failures = _identityDecodeFailures
+                >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures;
+            Abort(
+                failures ? IdentityDecodeFailures : IdentityWork,
+                failures
+                    ? "The identity decode-failure budget is exhausted."
+                    : "The identity work budget is exhausted.");
+            throw;
+        }
+
+        AbortIfIdentityExhausted();
+        string methodName;
+        string signature;
+        string declaringType;
+        string @namespace;
+        try
+        {
             methodName = reader.GetString(method.Name);
             signature = MethodRowProjection.FormatSignatureOrFallback(
                 reader,
@@ -404,27 +443,22 @@ internal sealed class MethodRowGate
             // The decoder's signal, or whatever a Metadata formatter turned it
             // into: exhaustion is recorded, so it always aborts.
             AbortIfIdentityExhausted();
-        }
-        catch (BadImageFormatException)
-        {
-            // MethodRowProjection throws BadImageFormatException only when a
-            // legacy budget is exhausted.
-            bool failures = _identityDecodeFailures
-                >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures;
-            Abort(
-                failures ? IdentityDecodeFailures : IdentityWork,
-                failures
-                    ? "The identity decode-failure budget is exhausted."
-                    : "The identity work budget is exhausted.");
+            throw;
         }
 
-        AbortIfIdentityExhausted();
         _identity = new MethodRowIdentity(
-            Inert(methodName!),
-            Inert(declaringType!),
-            Inert(@namespace!),
-            Inert(signature!),
-            anchor?.Anchor,
+            Inert(methodName),
+            Inert(declaringType),
+            Inert(@namespace),
+            Inert(signature),
+            anchor is null
+                ? null
+                : new MethodRowAnchor(
+                    anchor.Anchor,
+                    Inert(anchor.Anchor.StableSelector),
+                    Inert(anchor.Anchor.CanonicalSignature),
+                    Inert(anchor.Anchor.TypeFullName),
+                    Inert(anchor.Anchor.MemberName)),
             anchor is null ? null : Inert(anchor.ReturnType));
         _identityRead = true;
         return _identity;

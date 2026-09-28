@@ -182,7 +182,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         Exception ex)
     {
         state.Outcome = ProducerOutcome.Failed;
-        state.Failure = new ProducerFailure(token, unit, $"{ex.GetType().Name}: {ex.Message}");
+        state.Failure = new ProducerFailure(token, unit, ProducerFailure.Describe(ex));
         state.IsActive = false;
     }
 }

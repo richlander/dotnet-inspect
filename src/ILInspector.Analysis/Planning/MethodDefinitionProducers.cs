@@ -554,9 +554,11 @@ internal struct MethodDefinitionUnit(
         _body ??= _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
 
+    /// <summary>
+    /// A content-free label for a recoverable failure: the MethodDef token.
+    /// A failure is recorded without reading any name, so a hostile name
+    /// cannot inflate a diagnostic.
+    /// </summary>
     public readonly string Label =>
-        LibraryMethodAnalysisRunner.MethodLabel(
-            _reader,
-            TypeHandle,
-            MethodHandle);
+        $"MethodDef 0x{MetadataTokens.GetToken(MethodHandle):X8}";
 }

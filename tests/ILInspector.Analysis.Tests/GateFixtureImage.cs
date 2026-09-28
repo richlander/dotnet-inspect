@@ -17,6 +17,7 @@ internal sealed class GateFixtureImage
     readonly List<FixtureType> _types = [];
     readonly AssemblyReferenceHandle _dependency;
     readonly ModuleReferenceHandle _native;
+    readonly List<string> _namespacePatches = [];
 
     public GateFixtureImage()
     {
@@ -70,9 +71,15 @@ internal sealed class GateFixtureImage
     }
 
     /// <summary>Starts a type; methods added next belong to it.</summary>
-    public FixtureType Type(string ns, string name, FixtureType? enclosing = null)
+    public FixtureType Type(
+        string ns,
+        string name,
+        FixtureType? enclosing = null,
+        StringHandle? namespaceOverride = null)
     {
-        var type = new FixtureType(ns, name, enclosing);
+        var type = new FixtureType(ns, name, enclosing) { NamespaceOverride = namespaceOverride };
+        if (namespaceOverride is not null)
+            _namespacePatches.Add(name);
         _types.Add(type);
         return type;
     }
@@ -140,7 +147,42 @@ internal sealed class GateFixtureImage
             new BlobBuilder());
         var output = new BlobBuilder();
         pe.Serialize(output);
-        return [.. output.ToArray()];
+        byte[] bytes = output.ToArray();
+        if (_namespacePatches.Count > 0)
+            PatchNamespaces(bytes);
+        return [.. bytes];
+    }
+
+    /// <summary>
+    /// Points each patched type's Namespace column past the #Strings heap:
+    /// MetadataBuilder cannot emit an invalid string handle, so the column is
+    /// rewritten in the serialized image.
+    /// </summary>
+    void PatchNamespaces(byte[] bytes)
+    {
+        using var peReader = new PEReader(ImmutableArray.Create(bytes));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int start = peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef);
+        int rowSize = reader.GetTableRowSize(TableIndex.TypeDef);
+        int stringIndexSize = reader.GetHeapSize(HeapIndex.String) > ushort.MaxValue ? 4 : 2;
+        int row = 0;
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            if (_namespacePatches.Contains(reader.GetString(reader.GetTypeDefinition(handle).Name)))
+            {
+                int column = start + row * rowSize + 4 + stringIndexSize;
+                bytes[column] = 0xFF;
+                bytes[column + 1] = 0xFF;
+                if (stringIndexSize == 4)
+                {
+                    bytes[column + 2] = 0;
+                    bytes[column + 3] = 0;
+                }
+            }
+
+            row++;
+        }
     }
 
     public static BlobBuilder StaticSignature(Action<SignatureTypeEncoder> returnType, params Action<SignatureTypeEncoder>[] parameters)
@@ -180,6 +222,7 @@ internal sealed class GateFixtureImage
         public string Namespace { get; } = ns;
         public string Name { get; } = name;
         public FixtureType? Enclosing { get; } = enclosing;
+        public StringHandle? NamespaceOverride { get; init; }
         public List<FixtureMethod> Methods { get; } = [];
 
         public FixtureType Method(

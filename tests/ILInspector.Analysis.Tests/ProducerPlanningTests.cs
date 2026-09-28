@@ -161,14 +161,14 @@ public sealed class ProducerPlanningTests
                 () => UnsafeEvidencePresence.HasEvidence(
                     "Fixture.dll",
                     failsFirst));
-        Assert.Contains("N.Sample::Broken", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("MethodDef 0x06000001", exception.Message, StringComparison.Ordinal);
         ProducerResult<int> result = Run(
                 failsFirst,
                 UnsafeEvidencePresence.Description)
             .ResultOf(UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Failed, result.Outcome);
         Assert.False(result.HasValue);
-        Assert.Equal("N.Sample::Broken", result.Failure!.Unit);
+        Assert.Equal("MethodDef 0x06000001", result.Failure!.Unit);
 
         ImmutableArray<byte> evidenceFirst = BuildImage(
             Method.Unsafe("Earlier"),
@@ -250,7 +250,7 @@ public sealed class ProducerPlanningTests
 
         ProducerResult<int> failed = execution.ResultOf(failing);
         Assert.Equal(ProducerOutcome.Failed, failed.Outcome);
-        Assert.Equal("N.Sample::B", failed.Failure!.Unit);
+        Assert.Equal("MethodDef 0x06000002", failed.Failure!.Unit);
         ProducerResult<int> spared = execution.ResultOf(independent);
         Assert.Equal(ProducerOutcome.Complete, spared.Outcome);
         Assert.Equal(3, spared.Value);
@@ -693,7 +693,7 @@ public sealed class ProducerPlanningTests
                 () => UnsafeEvidencePresence.HasEvidence(
                     "Fixture.dll",
                     invalidHeader));
-        Assert.Contains("<Module>::M0", exception.Message, StringComparison.Ordinal);
+        Assert.Matches("MethodDef 0x06[0-9A-F]{6}", exception.Message);
     }
 
     static WorkDescription Plan(params ProducerRequest[] requests) =>
