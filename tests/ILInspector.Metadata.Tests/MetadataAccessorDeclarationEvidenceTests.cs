@@ -552,6 +552,57 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                 rejected.Failure.Mechanism);
     }
 
+    [Theory]
+    [InlineData(new byte[] { 0xA8, 0x00, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x01, 0x08, 0x01 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x10, 0x01 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x45, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x1D, 0x01 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x0F, 0x10, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x14, 0x08, 0x00, 0x00, 0x00 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x1B, 0x00, 0x01, 0x01, 0x01 })]
+    public void Mdp007_MalformedPropertySignatureGrammarRejectsRoot(
+        byte[] signature)
+    {
+        using var fixture = new Fixture(
+            BuildPropertyRawRootImage(signature));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Property));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.RootDeclaration,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.SignatureDecode,
+            rejected.Failure.Mechanism);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x08, 0x00, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x10, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x0F, 0x01 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x1D, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x14, 0x08, 0x01, 0x00, 0x00 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x1B, 0x00, 0x00, 0x01 })]
+    public void Mdp007_LegalPropertySignatureGrammarPostsRoot(
+        byte[] signature)
+    {
+        using var fixture = new Fixture(
+            BuildPropertyRawRootImage(signature));
+
+        Assert.IsType<MetadataAccessorDeclarationResult.Posted>(
+            Run(
+                fixture,
+                MetadataAccessorDeclarationKind.Property));
+    }
+
     [Fact]
     public void Mdp007_CensusFailurePrecedesRootSignatureDecode()
     {
@@ -1421,6 +1472,31 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             property,
             MethodSemanticsAttributes.Setter,
             setter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildPropertyRawRootImage(byte[] signatureBytes)
+    {
+        var metadata = CreateMetadata();
+        AddModuleType(
+            metadata,
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        foreach (byte value in signatureBytes)
+            signature.WriteByte(value);
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.SpecialName,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(signature));
+        metadata.AddPropertyMap(owner, property);
         return Serialize(metadata);
     }
 

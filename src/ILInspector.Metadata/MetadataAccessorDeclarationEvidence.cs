@@ -804,22 +804,20 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         if (decoded.IsDegraded
             || signature.ReturnType.IsDegraded
             || signature.ParameterTypes.Any(
-                static parameter => parameter.IsDegraded)
-            || signature.Header.Kind != SignatureKind.Property
-            || signature.Header.HasExplicitThis
-            || signature.Header.IsGeneric
-            || signature.GenericParameterCount != 0
-            || signature.RequiredParameterCount
-                != signature.ParameterTypes.Length
-            || IsVoid(signature.ReturnType))
+                static parameter => parameter.IsDegraded))
         {
             throw new BadImageFormatException(
                 "The PropertyDef signature is not a complete ordinary property signature.");
         }
 
-        ValidateType(signature.ReturnType, generic);
-        foreach (TypeNode parameter in signature.ParameterTypes)
-            ValidateType(parameter, generic);
+        string? signatureFailure =
+            MetadataStructuralTypeValidator.ValidatePropertySignature(
+                signature,
+                generic.TypeParameters.Count,
+                "The PropertyDef signature");
+        if (signatureFailure is not null)
+            throw new BadImageFormatException(signatureFailure);
+
         var parameters =
             ImmutableArray.CreateBuilder<MetadataTypeIdentity>(
                 signature.ParameterTypes.Length);
