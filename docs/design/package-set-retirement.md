@@ -185,8 +185,10 @@ amends its owner's document with its code.
 2. **`depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
    its recorded prefixes. Results are unchanged today, because every current
    core entry and set member already matches its pack's prefix; only the
-   evidence basis changes, from prefix to exact package, for core entries
-   and former set members. This lands before the data
+   evidence basis changes. Set members match as exact packages today, so
+   former set members that are not core entries move from exact-package to
+   package-prefix evidence, and core entries not already in a set (the
+   Microsoft.Extensions and AI cores) move from prefix to exact package. This lands before the data
    slice so AI's new roots match as soon as they exist.
 3. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions and
    ASP.NET Core cores; set the Aspire core; replace the AI core, reduce its
@@ -198,8 +200,10 @@ amends its owner's document with its code.
    the removed prefixes matched stop matching: the
    `Microsoft.Extensions.VectorData.*`, `Microsoft.Agents.AI.*`, and
    `ModelContextProtocol.*` families other than the roots themselves. When
-   AI is registered, those packages also stop classifying as supply-chain
-   baseline, and the new roots `OpenAI`, `Anthropic`, and `Google.GenAI`
+   AI is registered, the `Microsoft.Agents.AI.*` and `ModelContextProtocol.*`
+   packages also stop classifying as supply-chain baseline (the
+   `Microsoft.Extensions.VectorData.*` packages remain baseline whenever
+   Microsoft.Extensions is also registered, through its prefix), and the new roots `OpenAI`, `Anthropic`, and `Google.GenAI`
    start classifying as baseline because baseline matches registered core
    packages exactly; the baseline owner's contract is unchanged, only its
    data.
@@ -216,7 +220,9 @@ amends its owner's document with its code.
    package-set catalog export (`PackageChangesExports`), its
    `BrowserPackageChangesPackageSetCatalog` contract, and the
    `package-list-changes-package-sets` Worker startup kind become an
-   Ecosystem catalog listing Ecosystems that record at least one prefix.
+   Ecosystem catalog listing Ecosystems that record at least one prefix, and
+   the `BrowserPackageChangesRequest.PackageSetId` and Worker `packageSetId`
+   request fields become an Ecosystem selection.
 5. **Partitioned platform populations.** Assembly-name selection in platform
    populations, honored by realization and carried by the share packet and
    definition JSON, adopted by Runtime, ASP.NET Core, and
@@ -224,7 +230,9 @@ amends its owner's document with its code.
    assembly twice. The slice's own design confirms that assembly reference
    resolution does not depend on the partitioned population, so an
    ASP.NET Core-only selection still resolves references to
-   `Microsoft.Extensions*` assemblies it no longer lists.
+   `Microsoft.Extensions*` assemblies it no longer lists, and states how the
+   ASP.NET Core population loader, which would stop realizing those
+   assemblies, and Microsoft.Extensions, which has no loader, are treated.
 6. **Search flags.** Today `--ecosystem` exists only on `find`, where it
    registers Ecosystems inertly and adds no search content, and
    `implements`, `extensions`, and `depends` have no `--ecosystem` at all.
