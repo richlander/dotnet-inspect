@@ -104,13 +104,16 @@ separate member.
 An explicit interface implementation is a private member whose MethodImpl
 declaration is a member of an interface. It keeps its member kind (method,
 property, or event) and belongs to the bucket of the interface it implements,
-because exactly the consumers who can see that interface can reach it. An
+because exactly the consumers who can see that interface can reach it. That
+bucket is the `api.accessibility` classification of the interface's declared
+accessibility. An interface referenced from another assembly is public to this
+assembly's consumers, so no other assembly is resolved. An
 implementation of a public interface, such as `IEnumerator.Current`, belongs to
 `public`. An implementation of a non-public interface in the same assembly,
 such as `JsonSerializerContext`'s implementation of the internal
 `IBuiltInJsonTypeInfoResolver.IsCompatibleWithOptions`, belongs to that
-interface's bucket, here `internal`. A member reachable by its own name keeps
-its own accessibility even when a MethodImpl also targets an interface member.
+interface's bucket, here `internal`. A non-private member keeps its own
+accessibility even when a MethodImpl also targets an interface member.
 A finalizer belongs to `protected`, its declared accessibility. A view shows
 each declaration with the parts visible at its selected accessibility:
 `public` shows `BytesPending { get; }`, and every bucket shows
@@ -120,7 +123,7 @@ each declaration with the parts visible at its selected accessibility:
 of the Type itself (method, property, event, or field), including accessor
 methods. A method or field record belongs to the bucket of its own
 accessibility flag. A property or event record, which has no flag of its own,
-takes the accessibility defined above from its accessors. Attached extension
+takes its accessors' join defined above, not its interface's bucket. Attached extension
 declarations are records of their declaring Type, so they appear only under C#
 spelling.
 

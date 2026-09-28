@@ -117,10 +117,12 @@ rows it has loaded.
   two `private` records. A C# finalizer, which the public default shows today
   through its MethodImpl, moves to `protected`, its declared accessibility.
   Explicit implementations of internal interfaces, which the public default
-  also shows today (`JsonSerializerContext`, and 766 MethodImpl rows on public
-  System.Private.CoreLib 10.0.8 Types such as `System.Byte`'s `IUtfChar<byte>`
-  members), move to
-  their interface's bucket. The Browser's host-side mapping of explicit
+  also shows today, move to their interface's bucket: `JsonSerializerContext`'s
+  implementation, and the 736 private implementation bodies among the 766
+  MethodImpl rows to internal interfaces on public System.Private.CoreLib
+  10.0.8 Types, such as `System.Byte`'s `IUtfChar<byte>` members. The other 30
+  are public bodies, such as `Vector<T>.op_Division` implementing the internal
+  `ISimdVector<TSelf,T>`, and keep `public`. The Browser's host-side mapping of explicit
   implementations to `private` and finalizers to `protected` retires.
 - **Heat over non-public rows.**
   [Implementation profiles](inspect-web-implementation-profiles.md) currently
