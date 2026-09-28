@@ -102,9 +102,11 @@ test("constructor, opaque, and shadowed-container values remain unsafe", () => {
     writeFileSync(join(fixtureRoot, "builtins.ts"), `
 export type SafeStandardMap = Map<string, string>;
 export type CallbackStandardMap = Map<string, () => boolean>;
+export type BroadObjectAlias = Object;
 `);
     writeFileSync(join(fixtureRoot, "state.ts"), `
 import type {
+  BroadObjectAlias,
   CallbackStandardMap,
   SafeStandardMap,
 } from "./builtins";
@@ -112,6 +114,7 @@ class ConstructorOnly {}
 type Map<T> = { callback: () => boolean; payload: T };
 type EmptyAlias = {};
 type NestedEmptyAlias = EmptyAlias;
+type Object = { value: string };
 type SyntheticState = {
   direct: typeof ConstructorOnly;
   nested: { constructorValue: typeof ConstructorOnly };
@@ -122,6 +125,8 @@ type SyntheticState = {
   emptyObject: {};
   emptyAlias: EmptyAlias;
   nestedEmptyAlias: NestedEmptyAlias;
+  broadObjectAlias: BroadObjectAlias;
+  authoredObject: Object;
   shadowedMap: Map<string>;
   safeStandardMap: SafeStandardMap;
   callbackStandardMap: CallbackStandardMap;
@@ -139,6 +144,8 @@ function cloneSyntheticState(state: SyntheticState) {
     emptyObject: state.emptyObject,
     emptyAlias: state.emptyAlias,
     nestedEmptyAlias: state.nestedEmptyAlias,
+    broadObjectAlias: state.broadObjectAlias,
+    authoredObject: state.authoredObject,
     shadowedMap: state.shadowedMap,
     safeStandardMap: state.safeStandardMap,
     callbackStandardMap: state.callbackStandardMap,
@@ -165,6 +172,7 @@ function cloneSyntheticState(state: SyntheticState) {
       assert.deepEqual(
         propertiesRequiringCloneProjection(session, state),
         [
+          "broadObjectAlias",
           "callback",
           "callbackStandardMap",
           "direct",
@@ -196,6 +204,7 @@ function cloneSyntheticState(state: SyntheticState) {
           .map(([name]) => name)
           .sort(),
         [
+          "broadObjectAlias",
           "callback",
           "callbackStandardMap",
           "direct",
@@ -291,7 +300,13 @@ function projectionRequiredTypes(
     const properties = applicable(session.getProperties(type.handle));
 
     if (
-      isOpaqueFunctionCarrier(type, properties, indexInfos, baseTypes)
+      isOpaqueFunctionCarrier(
+        session,
+        type,
+        properties,
+        indexInfos,
+        baseTypes,
+      )
       || callSignatures.length > 0
       || constructSignatures.length > 0
     ) {
@@ -339,6 +354,7 @@ function projectionRequiredTypes(
 }
 
 function isOpaqueFunctionCarrier(
+  session: TypeScriptSemanticFactsSession,
   type: TypeFact,
   properties: readonly SymbolFact[],
   indexInfos: readonly IndexInfoFact[],
@@ -351,13 +367,25 @@ function isOpaqueFunctionCarrier(
     || type.category === TypeCategory.TypeParameter
     || (type.category === TypeCategory.Object
       && (
-        type.display === "Object"
+        isDefaultLibraryObjectType(session, type)
         || (
           properties.length === 0
           && indexInfos.length === 0
           && baseTypes.length === 0
         )
       ));
+}
+
+function isDefaultLibraryObjectType(
+  session: TypeScriptSemanticFactsSession,
+  type: TypeFact,
+): boolean {
+  if (type.symbol === undefined) return false;
+  const symbol = resolved(session.getSymbol(type.symbol));
+  return symbol.displayName === "Object"
+    && symbol.declarations.some(declaration =>
+      resolved(session.getDeclaration(declaration)).sourceFileClassification
+        === SourceFileClassification.DefaultLibrary);
 }
 
 function symbolType(
