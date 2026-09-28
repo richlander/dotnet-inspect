@@ -314,6 +314,9 @@ dotnet run --project tests/DotnetInspect.Web.Tests -c Release -- \
 ```
 
 `PlatformForwarders_SourceFailurePreservesContribution` is PR-fast.
+`ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` includes
+`OpenPlatformForwarderView`, `ActivatePlatformForwarder`, and
+`ClosePlatformForwarderView` in the closed Package export inventory.
 `engine-worker-ordinary.test.ts` owns opaque-action and non-success transport.
 `eng/generate-inspect-web-engine-facade.sh` generates the canonical Package
 facade from the managed exports, compares recipe and direct generation, and
