@@ -44,13 +44,17 @@ public static class SignatureBlobGuard
     /// <summary>The kind of signature the blob encodes, which determines its header layout.</summary>
     public enum Kind
     {
-        /// <summary>A MethodDefSig / MethodRefSig (also property signatures): header, [generic
-        /// param count], param count, return type, parameters.</summary>
+        /// <summary>A MethodDefSig / MethodRefSig: header, [generic param count],
+        /// param count, return type, parameters.</summary>
         Method,
 
         /// <summary>A StandAloneMethodSig used by <c>calli</c>. Unlike other method signatures,
         /// this permits a sentinel for both managed vararg and unmanaged cdecl conventions.</summary>
         StandaloneMethod,
+
+        /// <summary>A PropertySig: PROPERTY header, param count, return type,
+        /// parameters.</summary>
+        Property,
 
         /// <summary>A FieldSig: header, custom-mods, type.</summary>
         Field,
@@ -421,13 +425,50 @@ public static class SignatureBlobGuard
                     work,
                     depth: 1,
                     allowCdeclSentinel: kind == Kind.StandaloneMethod,
-                    requireMethodKind: false,
+                    requireMethodKind: true,
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
+
+            case Kind.Property:
+                return SeedPropertyRoots(
+                    ref blob,
+                    work,
                     ref remainingTypeNodes,
                     ref nodeBudgetExceeded);
 
             default:
                 return false;
         }
+    }
+
+    static bool SeedPropertyRoots(
+        ref BlobReader blob,
+        Stack<WorkItem> work,
+        ref int remainingTypeNodes,
+        ref bool nodeBudgetExceeded)
+    {
+        SignatureHeader header = blob.ReadSignatureHeader();
+        if (header.RawValue is not (0x08 or 0x28))
+            return true;
+
+        int paramCount = blob.ReadCompressedInteger();
+        if (paramCount < 0
+            || (long)paramCount + 1 > blob.RemainingBytes)
+        {
+            return true;
+        }
+        if ((long)paramCount + 1 > remainingTypeNodes)
+        {
+            nodeBudgetExceeded = true;
+            return true;
+        }
+
+        remainingTypeNodes -= paramCount + 1;
+        var state = new MethodState(allowsSentinel: false);
+        for (int i = paramCount - 1; i >= 0; i--)
+            work.Push(WorkItem.MethodParameter(depth: 1, state));
+        work.Push(WorkItem.Type(depth: 1));
+        return false;
     }
 
     static bool SeedMethodRoots(

@@ -110,6 +110,7 @@ public class SignatureBlobGuardTests
     public void CompleteMethodSignature_RejectsTruncationAndTrailingBytes()
     {
         Assert.True(GuardCompleteMethodSig([0x00, 0x00, 0x01]));
+        Assert.False(GuardCompleteMethodSig([0x08, 0x00, 0x01]));
         Assert.False(GuardCompleteMethodSig([0x00]));
         Assert.False(GuardCompleteMethodSig([0x00, 0x00, 0x01, 0xFF]));
 
@@ -122,6 +123,18 @@ public class SignatureBlobGuardTests
                 reader.GetStandaloneSignature(handle).Signature,
                 SignatureBlobGuard.Kind.Method));
     }
+
+    [Theory]
+    [InlineData(new byte[] { 0x08, 0x00, 0x01 }, true)]
+    [InlineData(new byte[] { 0x28, 0x00, 0x01 }, true)]
+    [InlineData(new byte[] { 0x08, 0x01, 0x08, 0x10, 0x08 }, true)]
+    [InlineData(new byte[] { 0x00, 0x00, 0x01 }, false)]
+    [InlineData(new byte[] { 0x18, 0x00, 0x01 }, false)]
+    [InlineData(new byte[] { 0x08, 0x01, 0x08, 0x41, 0x08 }, false)]
+    public void PropertySignature_RequiresCompletePropertyGrammar(
+        byte[] signature,
+        bool accepted)
+        => Assert.Equal(accepted, GuardCompletePropertySig(signature));
 
     [Fact]
     public void TrailingBytes_AreUnsafe()
@@ -506,6 +519,17 @@ public class SignatureBlobGuardTests
             reader,
             reader.GetStandaloneSignature(handle).Signature,
             SignatureBlobGuard.Kind.Method);
+    }
+
+    static bool GuardCompletePropertySig(byte[] signature)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteBytes(signature);
+        var (reader, handle) = BuildStandaloneSig(blob);
+        return SignatureBlobGuard.IsSafeAndCompleteToDecode(
+            reader,
+            reader.GetStandaloneSignature(handle).Signature,
+            SignatureBlobGuard.Kind.Property);
     }
 
     static bool GuardStandaloneMethodSig(BlobBuilder sig)
