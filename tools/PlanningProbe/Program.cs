@@ -58,6 +58,31 @@ if (args[0] == "rwcheck")
     return;
 }
 
+if (args[0] == "pvcheck")
+{
+    // Dense: Naive Planner, LINQ, NLinq, and Planner answer one open query and must agree.
+    // Async: Old, NLinq, and Planner must agree on the answer and the method names.
+    int mismatches = 0;
+    foreach (string dll in args.Skip(1))
+    {
+        var img = ImmutableArray.Create(File.ReadAllBytes(dll));
+        foreach (string closing in (string[])["exists", "count", "head", "tail", "rows", "window"])
+        {
+            string[] dense = [.. ((string[])["naive", "linq", "nlinq", "after"]).Select(impl => Run($"pc:{closing}:{impl}", dll, img))];
+            string[] sparse = [.. ((string[])["old", "nlinq", "after"]).Select(impl => Run($"pa:{closing}:{impl}", dll, img))];
+            bool denseAgree = dense.All(a => a == dense[0]);
+            bool sparseAgree = sparse.All(a => a == sparse[0]);
+            mismatches += (denseAgree ? 0 : 1) + (sparseAgree ? 0 : 1);
+            Console.WriteLine(
+                $"{Path.GetFileName(dll),-36} {closing,-7} dense {(denseAgree ? dense[0] : "MISMATCH " + string.Join(" / ", dense))}"
+                + $"\tasync {(sparseAgree ? sparse[0] : "MISMATCH " + string.Join(" / ", sparse))}");
+        }
+    }
+
+    Console.WriteLine($"mismatches={mismatches}");
+    return;
+}
+
 if (args[0] == "pccheck")
 {
     int mismatches = 0;
@@ -118,7 +143,9 @@ foreach (string path in args.Skip(2))
     // Postcard variants time the closing itself; the answer text is built once, above.
     Action timed = variant.StartsWith("pc:", StringComparison.Ordinal)
         ? () => { using var pe = new PEReader(image); GC.KeepAlive(PostcardProbe.Exec(variant, path, pe)); }
-        : () => Run(variant, path, image);
+        : variant.StartsWith("pa:", StringComparison.Ordinal)
+            ? () => { using var pe = new PEReader(image); GC.KeepAlive(PostcardProbe.ExecAsync(variant, path, pe)); }
+            : () => Run(variant, path, image);
     for (int i = 0; i < 5; i++)
         timed();
 
@@ -169,6 +196,7 @@ static string Run(string variant, string path, ImmutableArray<byte> image)
         "c-typed-fused" => TypedClassifiedFusion.Run(peReader).ToString(),
         _ when variant.StartsWith("rw:", StringComparison.Ordinal) => RowWindow(variant, peReader),
         _ when variant.StartsWith("pc:", StringComparison.Ordinal) => PostcardProbe.Describe(PostcardProbe.Exec(variant, path, peReader)),
+        _ when variant.StartsWith("pa:", StringComparison.Ordinal) => PostcardProbe.DescribeNames(PostcardProbe.ExecAsync(variant, path, peReader)),
         "c-legacy" => ClassifiedFusion.Legacy(peReader).ToString(),
         "c-hand-separate" => ClassifiedFusion.HandSeparate(peReader).ToString(),
         "c-hand-fused" => ClassifiedFusion.HandFused(peReader).ToString(),

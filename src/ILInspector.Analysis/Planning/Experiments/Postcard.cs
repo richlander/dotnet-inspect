@@ -76,7 +76,45 @@ public sealed class DenseRowsFoldProducer
         accumulator.DrainToImmutable();
 }
 
-/// <summary>A closing's answer, compared across Before, NLinq, and After.</summary>
+/// <summary>Rows over the async population, as a fold-contract producer run by the reference executor.</summary>
+public sealed class AsyncRowsFoldProducer
+    : MethodDefinitionProducer<ProjectedRow<MethodTextRow>, ImmutableArray<MethodTextRow>.Builder, ImmutableArray<MethodTextRow>>
+{
+    AsyncRowsFoldProducer()
+        : base("Experiment.Postcard.AsyncRows", 1, 0, MethodDefinitionLayers.Declaration)
+    {
+    }
+
+    public static AsyncRowsFoldProducer Instance { get; } = new();
+
+    internal override bool HasTypeScope => true;
+
+    internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+        AsyncMethodScope.IsCountedType(reader, type);
+
+    internal override ProjectedRow<MethodTextRow> Visit(scoped MethodDefinitionView view) =>
+        AsyncMethodScope.IsCountedMethod(view.Reader, view.MethodDefinition)
+            ? new(true, MethodText.Row(view.Reader, view.TypeDefinition, view.MethodDefinition))
+            : default;
+
+    internal override ImmutableArray<MethodTextRow>.Builder Seed() => ImmutableArray.CreateBuilder<MethodTextRow>();
+
+    internal override ImmutableArray<MethodTextRow>.Builder Accumulate(
+        ImmutableArray<MethodTextRow>.Builder accumulator,
+        ProjectedRow<MethodTextRow> fact)
+    {
+        if (fact.Selected)
+            accumulator.Add(fact.Row);
+        return accumulator;
+    }
+
+    internal override ImmutableArray<MethodTextRow> Complete(
+        ImmutableArray<MethodTextRow>.Builder accumulator,
+        MethodDefinitionCompletionView completion) =>
+        accumulator.DrainToImmutable();
+}
+
+/// <summary>A closing's answer, compared across the columns.</summary>
 public readonly record struct PostcardAnswer(bool? Exists, int? Count, IReadOnlyList<MethodTextRow>? Rows, bool Failed);
 
 public static class Postcard
@@ -182,6 +220,68 @@ public static class Postcard
         }
 
         return rows.MoveToImmutable();
+    }
+
+    // Naive Planner -----------------------------------------------------
+
+    /// <summary>The planner asked for Rows, then the closing applied with LINQ over the returned rows.</summary>
+    public static PostcardAnswer NaivePlanner(string closing, string path, PEReader peReader) =>
+        FromList(closing, After("rows", path, peReader).Rows!);
+
+    // Async population --------------------------------------------------
+
+    static readonly WorkDescription s_asyncRows = Plan(new ProducerRequest(AsyncRowsFoldProducer.Instance));
+
+    /// <summary>The planner over the async population, each closing pushed into the plan.</summary>
+    public static PostcardAnswer AsyncPlanner(string closing, string path, PEReader peReader)
+    {
+        switch (closing)
+        {
+            case "exists":
+                return new(AsyncClosedQueries.Exists(kernel: true, path, peReader), null, null, false);
+            case "count":
+                return new(null, AsyncClosedQueries.Count(kernel: true, path, peReader), null, false);
+            case "rows":
+            {
+                ProducerResult<ImmutableArray<MethodTextRow>> result = MethodDefinitionExecution
+                    .Execute(s_asyncRows, path, peReader)
+                    .ResultOf(AsyncRowsFoldProducer.Instance);
+                return result.HasValue
+                    ? new(null, null, result.Value, false)
+                    : throw new InvalidDataException(result.Failure?.Message);
+            }
+            case "head":
+                return FromWindow(RowPhaseKernel.Run<AsyncMethodRowPredicate, MethodTextProjection, MethodTextRow>(
+                    peReader, RowWindowRequest.Head(N)));
+            case "window":
+            {
+                RowWindowResult<MethodTextRow> result = RowPhaseKernel.Run<AsyncMethodRowPredicate, MethodTextProjection, MethodTextRow>(
+                    peReader, RowWindowRequest.Window(WindowFirst, WindowLast));
+                // Strict: the window succeeds only with every row from A to B.
+                return result.Rows.Length == WindowLast - WindowFirst + 1
+                    ? new(null, null, result.Rows, false)
+                    : new(null, null, null, true);
+            }
+            case "tail":
+                return new(null, null, TailKernel<AsyncMethodRowPredicate, MethodTextProjection, MethodTextRow>(peReader, N), false);
+            default:
+                throw new ArgumentException(closing);
+        }
+    }
+
+    /// <summary>
+    /// The legacy product code on a question it answers: MethodClassificationScanner
+    /// rows filtered to async, then LINQ. A method that is both async and has a
+    /// pointer signature emits an async row and an Unsafe row; filtering to async
+    /// keeps one row per method, so no deduplication is needed.
+    /// </summary>
+    public static PostcardAnswer AsyncOld(string closing, PEReader peReader)
+    {
+        List<MethodTextRow> rows = MethodClassificationScanner.Scan(peReader)
+            .Where(static m => m.Classification is MethodClassification.RuntimeAsync or MethodClassification.StateMachineAsync)
+            .Select(static m => new MethodTextRow(m.MethodName, m.DeclaringType, m.Signature))
+            .ToList();
+        return FromList(closing, rows);
     }
 
     // Old ---------------------------------------------------------------
