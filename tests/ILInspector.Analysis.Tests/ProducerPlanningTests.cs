@@ -397,6 +397,29 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
+    public void TypeScope_AFailedTypePredicateFailsSamePassDependentsAsAPrerequisite()
+    {
+        // Both type predicates fail on the same type, and the dependency is
+        // an ordinary same-pass visit dependency, not a guard. The dependency
+        // is decided first, so the dependent reports its failed prerequisite
+        // rather than a failure of its own.
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new FailingTypeScopeParityProducer("Parity");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: null,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(ProducerOutcome.Failed, execution.Receipt.For(classifier).Outcome);
+        ProducerResult<string> result = execution.ResultOf(guarded);
+        Assert.Equal(ProducerOutcome.PrerequisiteFailed, result.Outcome);
+        Assert.Equal("Parity", result.FailedPrerequisite);
+    }
+
+    [Fact]
     public void ScopeGuard_OnAProducerThatDoesNotClassifyIsAContractViolation()
     {
         ImmutableArray<byte> image = BuildImage(Method.Safe("A"));
@@ -807,11 +830,42 @@ public sealed class ProducerPlanningTests
             reader.StringComparer.Equals(type.Name, scopedType);
     }
 
+    /// <summary>Classifies units by parity, but its type predicate always fails.</summary>
+    sealed class FailingTypeScopeParityProducer(string identity)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            throw new BadImageFormatException("Guard type scope fixture failure.");
+    }
+
     /// <summary>Publishes the rows of the units its scope guard accepts.</summary>
     sealed class GuardedRowsProducer(
         string identity,
         ProducerDeclaration guard,
-        ulong acceptedClasses,
+        ulong? acceptedClasses,
         bool failingTypeScope = false)
         : MethodDefinitionProducer<int, List<int>, string>(
             identity,

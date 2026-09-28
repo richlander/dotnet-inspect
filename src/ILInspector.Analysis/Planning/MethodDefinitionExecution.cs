@@ -246,6 +246,10 @@ public sealed class MethodDefinitionExecution
             bool anyActiveProducer = false;
             foreach (ProducerState state in visiting)
             {
+                // A prerequisite that failed on an earlier producer's type
+                // predicate fails this producer before its own is asked.
+                if (state.HasDependencies)
+                    FailIfPrerequisiteFailed(state);
                 if (!state.IsActive)
                     continue;
                 bool inScope = true;
