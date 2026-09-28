@@ -162,6 +162,40 @@ public sealed class MethodClassificationAnalyzerTests
         Assert.Equal(0, count.Receipt.IdentityWorkCharged);
     }
 
+    [Theory]
+    [InlineData(ProducerTerminal.Rows, ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Complete, ProducerTerminal.Rows)]
+    [InlineData(ProducerTerminal.Rows, ProducerTerminal.Exists)]
+    [InlineData(ProducerTerminal.Exists, ProducerTerminal.Rows)]
+    [InlineData(ProducerTerminal.Complete, ProducerTerminal.Exists)]
+    [InlineData(ProducerTerminal.Exists, ProducerTerminal.Complete)]
+    public void Planner_DistinctClosingsForOneProducerAreAContractError(ProducerTerminal first, ProducerTerminal second)
+    {
+        // Planning never ranks or merges closings, so no order yields a lossy plan.
+        ProducerContractException error = Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
+        [
+            new ProducerRequest(AsyncAnalyzer.Instance, first),
+            new ProducerRequest(AsyncAnalyzer.Instance, second),
+        ]));
+        Assert.Contains(AsyncAnalyzer.Instance.Identity, error.Message, StringComparison.Ordinal);
+        Assert.Contains(first.ToString(), error.Message, StringComparison.Ordinal);
+        Assert.Contains(second.ToString(), error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(ProducerTerminal.Rows)]
+    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Exists)]
+    public void Planner_IdenticalDuplicateRequestIsAccepted(ProducerTerminal terminal)
+    {
+        WorkDescription description = Plan(
+            new ProducerRequest(AsyncAnalyzer.Instance, terminal),
+            new ProducerRequest(AsyncAnalyzer.Instance, terminal));
+
+        Assert.Equal(terminal, description.TerminalOf(AsyncAnalyzer.Instance));
+        Assert.Equal([AsyncAnalyzer.Instance], description.Producers);
+    }
+
     [Fact]
     public void Analyzers_KernelEqualsTheInterpretedExecutor()
     {
