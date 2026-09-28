@@ -11,6 +11,7 @@ import {
   other,
   surface,
   platformVersion,
+  alternatePlatformVersion,
   openProductDestination,
   installFacades,
   type BrowserAssemblySurface,
@@ -403,6 +404,34 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
     },
   });
+
+  await chooseSubject(page, "platform", "Platform");
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version"))
+    .toHaveValue(alternatePlatformVersion);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").first().click();
+  await chooseSubject(page, "member", "Member");
+  await chooseInspector(page, "data-member-section", "source", "Source");
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    new RegExp(alternatePlatformVersion.replaceAll(".", "\\.")),
+  );
+  const ordinaryRequest = JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-platform-member-source-request",
+    ) ?? "[]",
+  ) as unknown[];
+  expect(ordinaryRequest).toHaveLength(10);
+  expect(ordinaryRequest[9]).toBeNull();
 });
 
 test("Platform Call Graph demo publishes the exact Library and member", async ({

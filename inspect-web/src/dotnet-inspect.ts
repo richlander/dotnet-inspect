@@ -1326,7 +1326,6 @@ const initialState = {
   graphMemberNavigationTitle: "",
   pendingGraphMemberDeepLink: null,
   platformStack: [],
-  platformDemoContextId: null,
   platformDrillLoading: false,
   platformDrillError: "",
   memberFacts: null,
@@ -1456,7 +1455,6 @@ interface StateOverrides {
   memberCallGraph: InspectedCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
-  platformDemoContextId: string | null;
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
@@ -5257,7 +5255,6 @@ function removeWorkspacePackageRow(key: string): void {
 }
 
 function clearWorkspacePackages() {
-  state.platformDemoContextId = null;
   const discarded = state.packages;
   state.packages = [];
   state.package = null;
@@ -6346,7 +6343,7 @@ function typeHeatWorkspaceGeneration(pkg: AppPackage) {
 
 function platformDemoContextIdFor(pkg: AppPackage | null) {
   if (!pkg?.isRuntimePack) return null;
-  return pkg.platformContextId ?? state.platformDemoContextId;
+  return pkg.platformContextId ?? null;
 }
 
 // Member-list heat: after a Type's member list paints, one request covers every
@@ -20779,7 +20776,6 @@ async function installPlatformHomeDemoSource(
       "The native Platform Library path did not retain the engine-run demo surface.");
   }
   source.package.platformContextId = source.contextId;
-  state.platformDemoContextId = source.contextId;
   return true;
 }
 

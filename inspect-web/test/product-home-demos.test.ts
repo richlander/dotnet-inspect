@@ -262,7 +262,6 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   const state = {
     package: pkg,
     packages: [pkg],
-    platformDemoContextId: null as string | null,
     callGraphTraversalFramework: "net12.0",
     selectedOverloadIndex: 0,
     selectedBodyTarget: null,
@@ -288,7 +287,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     selectedType: () => type,
     selectedMember: () => ({ overloads: [overload] }),
     selectedConcreteOverload: () => overload,
-    currentPackage: () => pkg,
+    currentPackage: () => state.package,
     assemblyDescriptorForType: () => pkg.assemblies[0],
     platformPackForAssembly: () => "netcore.app",
     callGraphInspection: {
@@ -311,7 +310,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     runInNewContext("loadSelectedMemberCallGraph()", context));
   await Promise.resolve<unknown>(runInNewContext(
     'installPlatformHomeDemoSource(prepared, activation, "demo", 1)', context));
-  assert.equal(state.platformDemoContextId, prepared.contextId);
+  assert.equal(pkg.platformContextId, prepared.contextId);
   await load();
   overload.name = "Deserialize";
   overload.signature = "Deserialize()";
@@ -326,17 +325,27 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     ["net12.0", "net12.0", "net12.0"]);
   assert.equal(drills[0]!.contextId, "demo-context");
   assert.equal(loads[0]!.signature, loads[2]!.signature);
-  const retained = { ...state };
-  runInNewContext("clearWorkspacePackages()", context);
-  assert.equal(state.platformDemoContextId, null);
-  state.package = pkg;
+  const retainedPackage = structuredClone(pkg);
+  state.package = {
+    ...pkg,
+    version: "11.0.0",
+    activeFramework: "net11.0",
+    platformContextId: null,
+  };
   await load();
   assert.equal(loads[3]!.platformContextId, null);
   assert.notEqual(loads[0]!.signature, loads[3]!.signature);
-  Object.assign(state, retained);
+  state.package = pkg;
+  runInNewContext("clearWorkspacePackages()", context);
+  assert.equal(pkg.platformContextId, null);
+  state.package = pkg;
   await load();
-  assert.equal(loads[4]!.platformContextId, "demo-context");
-  assert.equal(loads[4]!.signature, loads[0]!.signature);
+  assert.equal(loads[4]!.platformContextId, null);
+  state.package = retainedPackage;
+  state.packages = [retainedPackage];
+  await load();
+  assert.equal(loads[5]!.platformContextId, "demo-context");
+  assert.equal(loads[5]!.signature, loads[0]!.signature);
 });
 
 test("Platform activation rejects mixed exact targets before model installation", () => {
