@@ -935,6 +935,43 @@ test("product navigation discloses startup-dependent destinations", async ({
   }
 });
 
+test.describe("Capability Spotlight search over real Wasm", () => {
+  test.describe.configure({ timeout: 180_000 });
+
+  test("discovers library literal and opens its Package Query facet", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("https://");
+
+    const result = page.locator(
+      '[data-sl-capability="package-query/query/facets/library-literal"]',
+    );
+    await expect(result).toBeVisible();
+    await expect(result).toContainText("Library literal");
+    await expect(result)
+      .toContainText("Query facet · Package Query · library-literal");
+    await expect(page.locator(".spotlight-group").filter({
+      hasText: "Capabilities",
+    })).toBeVisible();
+
+    await result.click();
+
+    await expect(page).toHaveURL(/\/query$/);
+    const literalEditor = page.locator("[data-query-term-draft-value]");
+    await expect(literalEditor).toBeVisible();
+    await expect(literalEditor).toBeFocused();
+    await expect(literalEditor).toHaveValue("https://");
+    await expect(
+      page.locator('[data-query-term-form="draft"]'),
+    ).toHaveAttribute("aria-label", "library literal");
+  });
+});
+
 test.describe("Package Query website over real Wasm", () => {
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({
     page,
@@ -1664,9 +1701,12 @@ test.describe("Package Activity website over real Wasm", () => {
     await homeSearch.fill("activity");
     // Package-search completion replaces the result list, so settle it before clicking
     // the built-in Activity route.
-    await expect(page.locator(".spotlight-hint"))
-      .toHaveText("Searching nuget.org…");
-    await expect(page.locator(".spotlight-hint")).toHaveCount(0);
+    const packageSearchHint = page.getByText(
+      "Searching nuget.org…",
+      { exact: true },
+    );
+    await expect(packageSearchHint).toBeVisible();
+    await expect(packageSearchHint).toHaveCount(0);
     await page.locator('[data-sl-package-activity="1"]').click();
     await expect(page).toHaveURL(/\/activity$/);
     await page.goBack();
