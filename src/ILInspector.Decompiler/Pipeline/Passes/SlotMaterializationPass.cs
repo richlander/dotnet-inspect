@@ -29,9 +29,9 @@ public readonly record struct SlotMaterializationDecision(
 /// <summary>
 /// Materializes decided synthetic stack slots as typed locals
 /// (value-typed-emission.md, slice 5b-2; the #2209 trajectory commitment).
-/// A slot whose loads testify to one type and whose stores are all at that
-/// type — which coercion insertion guarantees for the wrappable population —
-/// is a fully decided variable: it becomes a real local via
+/// A slot whose loads testify to one type and whose stores are exact,
+/// coercion-renderable, or carry owner-issued assignment testimony for that
+/// type is a fully decided variable: it becomes a real local via
 /// <see cref="IrFunction.AddLocal"/>, keeping its <c>S_{slot}</c> name so slot
 /// references read the same — declaration order and form may still change
 /// (materialized locals append to the locals table, and a single-store local
@@ -208,7 +208,8 @@ public sealed class SlotMaterializationPass : IIrPass
 
             if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
             {
-                bool exactStorage = candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType))
+                bool supportedStorage = candidate.Stores.All(store =>
+                        HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes))
                     && (slotType.Kind == TypeRefKind.Definition
                         && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                             || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
@@ -219,12 +220,13 @@ public sealed class SlotMaterializationPass : IIrPass
                         || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellByRefLikeValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellGenericParameterStorageType(slotType, function));
-                if (!exactStorage)
+                if (!supportedStorage)
                     candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
                 else if (candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
                     candidate.Vetoes |= SlotMaterializationVeto.PendingStorageSwap;
             }
-            if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true
+            if (candidate.Stores.Any(store =>
+                    !HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes)
                     && !CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
                 candidate.Vetoes |= SlotMaterializationVeto.UnrenderableStoreType;
@@ -263,6 +265,14 @@ public sealed class SlotMaterializationPass : IIrPass
                     element,
                     "System",
                     "Void");
+
+        static bool HasSupportedStorageAssignment(
+            IrExpression value,
+            TypeRef target,
+            IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+            => CoercionDomain.IsAtTarget(value, target)
+                || value is Conditional conditional
+                    && conditional.CanAssignReferenceArmsTo(target, shapes);
 
         static TypeRef? UnanimousManagedReferenceStoreType(
             IReadOnlyList<StoreStackSlot> stores)

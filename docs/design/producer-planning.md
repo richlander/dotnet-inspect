@@ -382,7 +382,12 @@ The gate offers two tiers of access:
   - flags;
   - a name comparison done in place, with no string materialized;
   - an attribute type match;
-  - a yes/no signature-shape walk.
+  - a yes/no signature-shape walk;
+  - a result from a
+    [Metadata semantic substrate](metadata-semantic-substrates.md), such as
+    `StateMachineRelationshipIndex`, whose own budgets bound its total work.
+    The substrate's global budget exhaustion aborts the execution.
+    Its per-row rejection is a recoverable failure.
 
   They charge no execution budget. Their total work across an execution is
   linear in the image's metadata size. An accessor that walks a structure,
@@ -401,8 +406,9 @@ A row the gate cannot read is a recoverable failure, handled as in
 
 **Field demand is declared before work.** A producer declares the fields it
 reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
-`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`, and
-`IdentityText`, beside `Body` and `ModuleLookup`. Reading an undeclared field
+`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`,
+`StateMachineRelationship`, and `IdentityText`, beside `Body` and
+`ModuleLookup`. Reading an undeclared field
 throws `ProducerContractException`, exactly as reading an undeclared layer
 does. That runtime contract is the enforcement gate. From the declarations,
 the planner:

@@ -420,8 +420,12 @@ public static class IrPasses
         // Consume exclusive two-load address spills atomically, after expression
         // movement is finished and before their surviving storage materializes.
         new PointerElementCompoundAssignmentPass(),
-        // A decided in-domain slot (one testified type, all stores at it or
-        // renderably coercible) is a finished variable: materialize it as a
+        // Refresh reference assignment testimony immediately before storage
+        // consumes it. Final binding still runs after later rewrites.
+        new ReferenceSlotTargetBindingPass(),
+        // A decided slot (one testified type, every store exact, renderably
+        // coercible, or carrying issued assignment testimony) is a finished
+        // variable: materialize it as a
         // typed local BEFORE insertion, so its minted locals are coerced at
         // their sinks like any local (slice 5b-2; the assertion diff caught
         // the reverse ordering leaving them bare).
@@ -520,7 +524,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
+        [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

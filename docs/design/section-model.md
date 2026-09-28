@@ -919,9 +919,10 @@ The diff command's current authored ownership is:
 | `@Diff` | `Changes`, `Analysis Diff`, `Implementation Diff` |
 
 `@Diff` is the base category and groups the three comparison sections that may
-compose in one document. `Finding Transitions` remains exact-name-only because
-it requires a focused type or type-qualified member and does not compose with
-comparison sections.
+compose in one document. `Summary` and `Transitions` remain exact-name-only
+because they are views of an analysis-set result selected with `--analysis`
+([Analysis selection](command-transition-model.md#analysis-selection)) and do
+not compose with the comparison routes.
 
 ## Project category map
 
