@@ -928,12 +928,23 @@ public partial class ApiCommand
 
         if (options.Tree)
         {
-            if (sections is not { Count: 1 }
-                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
+            bool memberGroupTree =
+                options.MemberFilter.Count == 1
+                && options.OverloadIndex is null
+                && string.IsNullOrWhiteSpace(options.MemberDigest)
+                && options.MemberGenericArity is null
+                && options.Select is null
+                && !options.SelectDefault;
+            if (!memberGroupTree
+                && (sections is not { Count: 1 }
+                    || !sections.Contains(
+                        SectionNames.CallGraph,
+                        StringComparer.OrdinalIgnoreCase)))
             {
                 CommandError.Write(
                     "--tree requires exactly one selected tree shape.",
-                    "Use -S \"Call Graph\" --tree.");
+                    "Use an exact member-group name or "
+                        + "-S \"Call Graph\" --tree.");
                 return false;
             }
         }
