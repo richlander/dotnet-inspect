@@ -165,6 +165,11 @@ A closed-document operation reads one already-populated immutable
 `GraphDocument`. It performs no relationship discovery and invokes no
 provider.
 
+The closed-document binding reuses the relationship equality admitted by that
+document. Its detached receipt carries the document's runtime identity rather
+than retaining the document, so local-id results stay associated with exactly
+the structure that issued them.
+
 The operation is structurally exact over the supplied document when it
 exhausts its declared structural scope. That does not make the document a
 complete representation of the caller's domain. For example, Graph can answer

@@ -21,6 +21,11 @@ public sealed record GraphConsumerObservation(
     IReadOnlyList<string> Characteristics,
     IReadOnlyList<string> Limits,
     IReadOnlyList<string> Failures,
+    IReadOnlyList<string> NeighborhoodNodes,
+    IReadOnlyList<string> FocusRelationships,
+    GraphStructuralCompletion NeighborhoodCompletion,
+    GraphStructuralCompletion FocusCompletion,
+    GraphExecutionWorkReceipt NeighborhoodReceipt,
     Type SubjectType,
     Type RelationshipType);
 
@@ -109,6 +114,28 @@ public static class GraphDirectConsumer
         limits.Clear();
         failures.Clear();
 
+        GraphNeighborhoodResult neighborhood =
+            GraphDocumentExecution.Neighborhood(
+                document,
+                new GraphNeighborhoodPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    maxDepth: 1,
+                    rootNodeIds: [0],
+                    entries: []));
+        GraphFocusResult focus =
+            GraphDocumentExecution.Focus(
+                document,
+                new GraphFocusPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    [
+                        new(0, GraphScopeMembership.Inside),
+                        new(1, GraphScopeMembership.Outside),
+                    ],
+                    originNodeIds: [0],
+                    GraphFocusReachability.FromOrigins));
+
         return new(
             [.. document.Nodes.Select(node => node.Subject.Name)],
             [.. document.Edges.Select(edge => edge.Relationship.Kind)],
@@ -118,6 +145,13 @@ public static class GraphDirectConsumer
                 characteristic => characteristic.Payload.Name)],
             [.. document.Limits.Select(limit => limit.Payload.Reason)],
             [.. document.Failures.Select(failure => failure.Payload.Message)],
+            [.. neighborhood.NodeIds.Select(id =>
+                document.Nodes[id].Subject.Name)],
+            [.. focus.ExitEdgeIds.Select(id =>
+                document.Edges[id].Relationship.Kind)],
+            neighborhood.Completion,
+            focus.Completion,
+            neighborhood.Receipt,
             typeof(Service),
             typeof(DependsOn));
     }
