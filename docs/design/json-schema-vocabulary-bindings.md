@@ -11,7 +11,7 @@ The pattern is designed but not yet implemented.
 term identities. [`ts-jsexport`](ts-jsexport.md) and
 `ILInspector.JsExportSurface` supply the authenticated, direction-specific JSON
 wire contract. The progressive compact JSONL work tracked by
-[#8595](https://github.com/richlander/dotnet-inspect/issues/8595) is the first
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) is the first
 transport adopter.
 
 ## Owner and exact claim
@@ -666,10 +666,11 @@ This focused pattern has four counted steps to production:
    the `package-query.durable-row` descriptor through the generated Inspect Web
    facade and remove any authored schema or column metadata introduced during
    development.
-4. **Progressive JSONL adoption.** #8595 makes the Package Query row writer and
-   stream consume the same positional declaration, requires the exact
-   descriptor identity in the request and completion, and publishes compact
-   JSONL records through the existing event bridge.
+4. **Progressive JSONL adoption.**
+   [Progressive JSONL Delivery](progressive-jsonl-delivery.md) makes the Package
+   Query row writer and stream consume the same positional declaration,
+   requires the exact descriptor identity in the request and completion, and
+   publishes compact JSONL records through the existing event bridge.
 
 Step 2 retires the TypeScript-only location of `WireDeclarationPlan`; it does
 not retire or replace its behavior. Step 4 changes only the new compact stream
