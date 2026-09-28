@@ -280,6 +280,51 @@ public sealed class MethodClassificationQueryTests
         Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Complete>(inspection.Value)
             .Findings.Select(static finding => finding.Payload);
 
+    [Theory]
+    [InlineData(FixtureIds.AnalysisAsyncSiblingFriend, "MalformedAsyncSourceFixture", "AnalyzeAsync")]
+    [InlineData(FixtureIds.AnalysisLookalike, null, null)]
+    public void Async_AcceptedDeparture_RejectedRelationshipFails(string fixtureId, string? type, string? method)
+    {
+        string path = FixtureCatalog.Get(fixtureId).AssemblyPath();
+        ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
+
+        using var peReader = new PEReader(File.OpenRead(path));
+        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [count]);
+
+        var failed = Assert.IsType<ClassificationAnswer.Failed>(result.AnswerTo(count));
+        if (type is not null)
+        {
+            Assert.Contains(type, failed.Failure.Unit);
+            Assert.Contains(method!, failed.Failure.Unit);
+        }
+
+        Assert.Null(result.Critical);
+    }
+
+    [Fact]
+    public void Async_AcceptedDeparture_SpoofedAttributeIsNotAsync()
+    {
+        string path = FixtureCatalog.Get(FixtureIds.AnalysisSpoofSystemRuntime).AssemblyPath();
+        using (var legacyReader = new PEReader(File.OpenRead(path)))
+        {
+            Assert.Contains(
+                MethodClassificationScanner.Scan(legacyReader),
+                static row => row.MethodName == "Analyze"
+                    && row.DeclaringType == "System.AsyncAttributeSpoofer"
+                    && row.Classification == MethodClassification.StateMachineAsync);
+        }
+
+        ClassificationQuestion rows = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows);
+        using var peReader = new PEReader(File.OpenRead(path));
+        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [rows]);
+
+        var listed = Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(rows));
+        Assert.DoesNotContain(
+            listed.Methods,
+            static row => row.MethodName.ToString() == "Analyze"
+                && row.DeclaringType.ToString() == "System.AsyncAttributeSpoofer");
+    }
+
     static void AssertRows(List<ClassifiedMethodInfo> expected, ClassificationAnswer answer)
     {
         var rows = Assert.IsType<ClassificationAnswer.Rows>(answer).Methods;
