@@ -847,7 +847,42 @@ respective owners.
 ## Type navigation
 
 This owner renders product-issued Type inventory rows and their activation
-descriptors. Package and Library navigation may also expose Types where their
+descriptors.
+
+Inventory rows are a directed display, not a data list: a row says what its
+subject is rather than repeating which kind it is, because the kind icon
+already carries the kind.
+
+- A Type row shows its display name and its member count.
+- A single-member row shows a method's compact parameter list (the member
+  name and unqualified parameter types, as nested overload rows spell them)
+  or a property's, field's, or event's unqualified value type.
+- An overload family's parent row shows its overload count and family-level
+  status, and colors its name differently from single-member rows. The name
+  color marks a row that holds overloads, together with the overload count, so
+  it does not rely on color alone. It uses its own token, distinct from heat's
+  background tint and from the parent row's heat-status tokens. Its nested rows
+  follow
+  [Overload rows](inspect-web-implementation-profiles.md#overload-rows).
+- A Member-group row counts the declarations in view: a family row shows
+  `5×`, and a row with one declaration in view keeps its single-member
+  detail. When the request's accessibility, receiver, or hidden admission
+  leaves N of the group's declarations out of view, the row gains a secondary
+  `+N` in a dim token after that count or detail, such as `Parse 5× +2` and
+  `ParseValue(ref Utf8JsonReader) +5` in the `public` view. Name search does
+  not add to N, because search narrows the rows the reader asked to see. N
+  counts declarations, the same unit as the Member heading and the
+  accessibility counts, and comes from product-issued Counts of the group's
+  [exact-overload population](type-member-inspection-documents.md#member-overloads-row-space),
+  not from host arithmetic over rows. The row shows no marker while those
+  Counts are outstanding or when nothing is out of view, and it never shows
+  `+0`. When those Counts fail or are incomplete, the row shows `+?` in the
+  theme error token, so a failure does not read as nothing out of view. The
+  row's accessible description states N in the request's own terms, for
+  example "2 more overloads are outside the public view", or states that the
+  out-of-view count is unavailable.
+- A row without structured detail, such as a graph-only target, keeps its
+  kind word. Package and Library navigation may also expose Types where their
 owning lens requires it, but no second Library filter is introduced. Placement
 beside Type and Member working surfaces and replacement by the narrow
 inventory/detail push state are owned by

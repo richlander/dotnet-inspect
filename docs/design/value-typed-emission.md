@@ -104,29 +104,64 @@ both its arm evidence and its existing merged-result fallback. Binding
 intersects the arms' accepted targets without inferring class hierarchies.
 Unknown targets do not acquire reference proof.
 
-The final emission boundary binds after reconstruction and materialization,
-with coalesce assignment testimony already available. Raised, lowered, and
-nested bodies share that path; detached reconstruction bodies wait for their
-host's final binding. Cloning retains issued testimony, and final binding
-refreshes it after operand rewrites. Printing queries the issued evidence
-rather than walking conditional arms to recover the reference decision.
+The storage boundary first refreshes coalesce assignment testimony and then
+conditional target testimony immediately before materialization. A
+function-scope slot may materialize at its one testified storage type when
+every store is already exact or is a conditional whose issued reference
+targets include that type. This is C# assignment testimony, not a replacement
+for the conditional's natural type or a general reference-conversion rule.
+Existing storage spellability, pending-swap, testimony, scope, and atomic-copy
+gates still apply. Other reference-producing expressions remain under their
+existing exact-storage boundary.
+
+The final emission boundary binds again after later rewrites, with coalesce
+assignment testimony already available. Raised, lowered, and nested bodies
+share these paths; detached reconstruction bodies wait for their host's
+binding. Cloning retains issued testimony, and each binding refreshes it after
+operand rewrites. Printing queries the issued evidence for target-aware
+conditional spelling, but the residual stack-slot unifier no longer consults
+reference-conditional compatibility.
 
 This retirement preserves existing numeric, char, and enum rendering,
-merged-result fallback, and exact-storage admission. It neither changes
-`Conditional.ResultType` nor substitutes a narrower assignment type for it.
-General reference conversions and conditional overload-binding repair remain
-separate work; target compatibility alone does not authorize either.
+merged-result fallback, and overload-binding anti-narrowing. It neither
+changes `Conditional.ResultType` nor substitutes a narrower assignment type
+for it. General reference conversions and conditional overload-binding repair
+remain separate work; target compatibility alone does not authorize either.
 
 Newtonsoft.Json 13.0.4's `IsoDateTimeConverter.set_DateTimeFormat` is the
 published witness (#1767): the null/string producer and string field consumer
-must continue to share one assigned local. `ReferenceConditionalBindingTests`
-pins that assembly and gates raised/lowered binding, nested alternatives,
-null/unknown/value boundaries, clone/refresh, and storage non-actions in
-Release. Its Slow native family belongs to Deep Inspect and the focused
-pre-merge gate; the setter retains its measured temporary-induced `OpcodeDiff`
-rather than claiming exact fidelity. Fixed-input censuses and Render A/B
-measure population effects; the retirement does not promise fewer residual
-slots.
+must continue to share one assigned local, and that local must now be
+materialized before printing. `ReferenceConditionalBindingTests` pins that
+assembly and gates raised/lowered binding, nested alternatives,
+null/unknown/value boundaries, clone/refresh, compatible and incompatible
+storage, atomic copies, and the printer-boundary retirement in Release. Its
+Slow native family belongs to Deep Inspect and the focused pre-merge gate; the
+setter retains its measured temporary-induced `OpcodeDiff` rather than
+claiming exact fidelity.
+
+On the fixed 14-assembly, 89,065-method corpus, storage-boundary binding moves
+materialization from 41,643 materialized and 774 retained slots to 41,808
+materialized and 605 retained slots. Four additional slots complete through
+independently finalized nested bodies, so the printer boundary falls by 169
+slots: stores 1,236 to 1,051, loads 1,001 to 817, distinct slots 767 to 598,
+and methods with residual slots 519 to 414. The key ownership measure moves
+from 305 to 137 multi-candidate slots unified by the printer; single-candidate
+slots move 332 to 331, direct copies 108 to 107, declarations 658 to 622, and
+the 143 un-unified split slots remain unchanged. Both censuses report zero pass
+bugs.
+
+Render A/B covers 46,945 methods across the 13 assemblies whose structural
+baseline is available: six methods change only declaration placement or form,
+with two valid-to-valid and four invalid-to-invalid transitions and no
+valid-to-invalid transition. The Microsoft.CodeAnalysis.CSharp baseline remains
+unavailable because the unchanged base fails its structural projection for
+`LocalRewriter.MergeArgumentsAndSideEffects`; a supplemental product-render
+hash comparison covers all 89,065 methods and identifies 15 changed methods,
+all reviewed as declaration-only movement or initialization. The two changed
+methods that were valid in the supported Render A/B population retain their
+pre-existing `OpcodeDiff` compile-back verdicts on both base and head. This
+evidence proves the measured population and observed output movement, not
+semantic equivalence for the unavailable structural population.
 
 ### Primitive-join target testimony
 
@@ -742,14 +777,32 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 
    At materialization, a slot whose stores are all Boolean-valued may recover
    the Boolean identity of an integer-typed load consumed by a Boolean sink
-   or condition. Every load still testifies: a numeric use conflicts, and an
-   underivable use vetoes recovery. This is identity recovery, not an
-   integer-to-Boolean conversion; mixed Boolean/integer stores retain the
-   existing `BooleanSinkIdentityRecovery` boundary. Earlier raising passes
-   retain their original testimony so materialization does not preempt their
-   constant or control-flow decisions. The printer uses the same Boolean-sink
-   rule for lowered and still-deferred slots instead of maintaining a second
-   sink vocabulary.
+   or condition. Canonical `ldc.i4.0`/`ldc.i4.1` stores are Boolean-valued when
+   every load in that proven live range testifies Boolean;
+   `BooleanSlotIdentityPass` retypes those constants through the existing
+   typed-constant owner before materialization replaces the carrier with a
+   local. Every load still testifies: a numeric use conflicts, an underivable
+   use vetoes recovery, and any other integer producer retains the existing
+   `BooleanSinkIdentityRecovery` boundary. This is identity recovery, not an
+   integer-to-Boolean conversion. Earlier raising passes retain their original
+   testimony so materialization does not preempt their constant or control-flow
+   decisions. The printer uses the same Boolean-sink rule for lowered and
+   still-deferred slots instead of maintaining a second sink vocabulary.
+
+   Live-range splitting consumes that same Boolean sink testimony when the
+   importer's `LoadStackSlot.Type` still reports the I4 storage width. It may
+   distinguish a completed Boolean range from a later integer range only when
+   the existing block-local proof already establishes the store/load boundary;
+   it does not add a control-flow edge, move an expression, or reinterpret an
+   integer producer outside the canonical zero/one set. Microsoft.CodeAnalysis
+   Common 5.0.0
+   `ControlFlowGraphBuilder.VisitConditionalAccess` is the motivating witness:
+   its Boolean flag range ends before the same evaluation-stack position is
+   reused for an integer capture ID. The identity split lets the Boolean range
+   materialize and leaves the later integer expression to normal inlining.
+   `RealRoslynReusedBooleanCarrierSplitsBeforeMaterialization` gates the
+   compiler-produced shape; synthetic positive and non-Boolean-neighbor tests
+   gate the identity boundary.
 
    A Boolean `box` operand is also a semantic Boolean observer: its metadata
    token names the boxed value type, not the evaluation-stack storage width.

@@ -106,7 +106,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     [InlineData("--alloc-regressions", null)]
     [InlineData("--pdb-source", null)]
     [InlineData("--repo", ".")]
-    [InlineData("--finding", "api.type")]
+    [InlineData("--analysis", "api")]
     [InlineData("--legend", null)]
     [InlineData("-S", "Changes")]
     [InlineData("-v", "q")]

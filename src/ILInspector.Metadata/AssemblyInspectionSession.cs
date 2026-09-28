@@ -151,6 +151,19 @@ public sealed class AssemblyInspectionSession :
             state);
     }
 
+    /// <summary>
+    /// Lends the session's open reader to <paramref name="inspect"/> for the
+    /// duration of the call, as <see cref="PdbContext.InspectImage{TResult}"/>
+    /// does, so a host-neutral query can plan work over it without reopening
+    /// the source.
+    /// </summary>
+    public TResult InspectImage<TResult>(Func<PEReader, TResult> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        _image.EnsureAlive();
+        return inspect(_image.PEReader);
+    }
+
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata
     {
@@ -492,6 +505,16 @@ public sealed class AssemblyInspectionSession :
     {
         _image.EnsureAlive();
         return LibraryEnablementFacts.Read(_image.PEReader);
+    }
+
+    /// <summary>
+    /// Image and Description facts read from this image alone
+    /// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+    /// </summary>
+    public AssemblyLibraryFactsObservation LibraryFacts()
+    {
+        _image.EnsureAlive();
+        return AssemblyLibraryFactsObservation.Read(_image.PEReader);
     }
 
     /// <summary>Presence flags for assembly-level features.</summary>

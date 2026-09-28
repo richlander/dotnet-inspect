@@ -940,6 +940,47 @@ construction. Duplicate getter, setter, add, remove, or raise roles are rejected
 rather than collapsed by last-write-wins projection. Only the validated bounded
 rows may construct the typed accessor aggregate.
 
+The completed aggregate also owns the exact root declaration shape. A property
+retains its inert PropertyDef name, raw attributes, raw signature header,
+generic and required-parameter counts, value type, and ordered index-parameter
+types. An event retains its inert EventDef name, raw attributes, and exact
+event type. These identities use the same bounded structural type projection
+and reader-scoped local-TypeDef index as MethodDef declaration evidence.
+
+Conventional accessor consistency is a Metadata validity fact, not a CSharp
+inference. Getter return and index parameters must equal the PropertyDef value
+and index parameters. A setter returns `void`, preserves the index-parameter
+prefix, and accepts the non-void PropertyDef value type last. Add and remove
+methods return `void` and accept exactly the EventDef type. Each conventional
+method's static flag agrees with its callable-signature instance bit; property
+accessors also agree with the PropertyDef instance bit. Conventional accessors
+share static, virtual, abstract, new-slot, and final shape. A raise method
+retains its own complete ordinary method signature because it describes event
+invocation, not add/remove handler correspondence; it is not compared with the
+EventDef type. `Other` occurrences remain lossless aggregate facts and do not
+acquire CSharp accessor constraints. Any failed required correspondence rejects
+the aggregate with its validation stage and mechanism.
+
+Custom modifiers remain part of the exact accessor signature. Metadata unwraps
+them only when deciding whether a setter, add, or remove return category is
+`void`; for example, compiler-produced `void modreq(IsExternalInit)` remains a
+valid setter return here even when downstream CSharp policy cannot represent
+the init-only declaration in its current slice.
+
+The post composes the existing Metadata memory-safety owner rather than
+creating a reduced safety model. It retains the module rules, declaring-type
+layout, root declaration caller-contract and pointer evidence, and
+occurrence-bound caller-contract and pointer evidence for every associated
+MethodDef. The memory-safety index remains independently bounded and is built
+at most once per declaration session; the operation observer records that
+materialization and each retained safety read.
+
+This root-shape post does not provide the reverse join from an interface
+declaration MethodDef to its PropertyDef or EventDef aggregate. Explicit-
+interface accessor composition must consume a separately owner-issued join;
+it may not scan MethodSemantics, infer from accessor names, or silently broaden
+this root-shape contract across the MethodImpl boundary.
+
 `PropertyDefinition.GetAccessors()` and `EventDefinition.GetAccessors()` are
 not valid census inputs for untrusted metadata: those SRM convenience
 projections allocate the complete `Other` array before returning, collapse
@@ -972,8 +1013,12 @@ debiting that same row budget again, and separately charges retained
 associations before adding them to the index. That distinct budget protects
 retained bytes and may reject every dependent property/event projection even
 when the image passed its broader row ceiling; no unindexed streaming fallback
-is allowed. Repeated requests through the same declaration session reuse that
-already charged immutable result or typed rejection. Retained handles can be
+is allowed. The retained-association charge also bounds the immutable
+association-range index built from those rows. After the complete pass validates
+global nondecreasing association order, aggregate requests locate their
+contiguous association range through that index without rescanning unrelated
+rows. Repeated requests through the same declaration session reuse that already
+charged immutable result or typed rejection. Retained handles can be
 interpreted only through its current live assembly session, so cached success
 cannot bypass the session liveness check. No aggregate result is posted until
 the primitive reaches the physical end of the table or returns rejection; an
@@ -1021,6 +1066,12 @@ reimplement the admission stages. The validation matrix gate must cover:
   including malformed and over-budget dependencies;
 - duplicate standard roles, invalid combined role flags, dangling method
   handles, and cross-declaring-type associations;
+- exact root names, raw attributes, property signatures, event types, and
+  memory-safety evidence on real compiler-produced declarations;
+- getter return, setter value, setter index-prefix, add/remove event-type,
+  staticness, and conventional declaration-modifier disagreement;
+- a valid raise method whose invocation parameters differ from the EventDef
+  type, proving that Metadata preserves rather than misclassifies it;
 - a retained row whose signature is rejected;
 - an aggregate with one rejected accessor;
 - a valid retained declaration that produces an empty presentation section.
@@ -1031,9 +1082,11 @@ Most exact implementation types remain deferred, but the facts have one
 Metadata owner. `MetadataMethodDeclarationEvidence.OperatorCandidate` posts
 the `SpecialName`-anchored operator candidacy fact without applying C# shape
 policy. `MetadataAccessorDeclarationEvidence` posts one complete property or
-event aggregate from the lossless association census, retaining every physical
-occurrence and its exact `MetadataMethodDeclarationEvidence`; typed rejection
-keeps census, ownership, dependency-posting, and budget failure visible.
+event aggregate from the lossless association census. It retains the exact
+root shape and safety evidence plus every physical occurrence, exact
+`MetadataMethodDeclarationEvidence`, and occurrence-bound safety evidence;
+typed rejection keeps root decode, correspondence, census, ownership,
+dependency-posting, and budget failure visible.
 
 | Fact | Required distinctions |
 | --- | --- |

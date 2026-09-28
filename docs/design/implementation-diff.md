@@ -602,8 +602,8 @@ population is a typed body-signal failure. The body-signal producer
 classifies inspection topology over those endpoints under
 [Finding inspection topology](finding-nomenclature.md#typed-inspection-topology).
 
-The body-signal path is host-neutral. The CLI `diff` Finding Transitions and
-Analysis Diff routes adopt it first. Browser/Wasm adopts the same query
+The body-signal path is host-neutral. The CLI `diff --analysis` body analyses
+and the Analysis Diff route adopt it first. Browser/Wasm adopts the same query
 through the website Implementation Diff track, with no second targeting
 path.
 
@@ -2153,7 +2153,7 @@ keeps that richer row and suppresses the duplicate generic Finding failure.
 Synthetic add/remove rows from the same failed C# hunk are omitted; genuine
 body absence and independently decoded partial IL evidence remain visible.
 
-The `diff --finding csharp.line` and `diff --finding il.op` focused lenses read
+The `diff --analysis csharp` and `diff --analysis il` analyses read
 those retained comparisons and render native `PairFinding` cases. Missing
 members and methods without bodies remain distinct inspection states. IL
 retention pairs the union of declared method identities, so added, removed, and

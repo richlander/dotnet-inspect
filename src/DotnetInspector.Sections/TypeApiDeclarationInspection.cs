@@ -555,6 +555,15 @@ public static class TypeApiDeclarationInspection
 
     static bool IsApiVisible(ApiMember member)
     {
+        // A private explicit interface implementation is not API-visible
+        // (docs/design/type-api-declarations.md#selection-and-scope). Its
+        // property or event row carries its interface's bucket for the Member
+        // inventory, so its accessors decide here.
+        if (member.SignatureModel?.Accessors.Any(accessor =>
+                accessor.IsExplicitInterfaceImplementation == true) == true)
+        {
+            return false;
+        }
         if (member.MethodImplementation is { } implementation)
         {
             MethodAttributes accessibility =

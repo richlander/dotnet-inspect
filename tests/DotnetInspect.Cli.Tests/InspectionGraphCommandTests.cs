@@ -54,7 +54,7 @@ public sealed class InspectionGraphCommandTests
             []);
 
     static InspectionGraphRelationshipDescriptor TestTypeRelationship
-        { get; } =
+    { get; } =
         new(
             "integration.type-test",
             InspectionGraphOwner.Queries,
@@ -1365,7 +1365,7 @@ public sealed class InspectionGraphCommandTests
         var presentation =
             await Counts("DotnetInspector.Presentation.dll");
         Assert.Equal(
-            (41, 15, 8, 1273),
+            (52, 15, 8, 1508),
             presentation);
 
         var metadataRendering =
@@ -2592,7 +2592,7 @@ public sealed class InspectionGraphCommandTests
                     });
                 var evidence = Assert.IsType<
                     InspectionGraphIntegrationFailureEvidence>(
-                        missing.Evidence);
+                        missing.Payload.Evidence);
                 Assert.Contains(
                     evidence.Details,
                     detail =>
@@ -3052,7 +3052,8 @@ public sealed class InspectionGraphCommandTests
             graph.Limits,
             [
                 new InspectionGraphFailure(
-                    InspectionGraphIntegrationsCatalog.ProjectionFailure,
+                    new InspectionGraphFailurePayload(
+                        InspectionGraphIntegrationsCatalog.ProjectionFailure),
                     InspectionGraphTarget.Node(2)),
             ]);
 
@@ -3118,11 +3119,12 @@ public sealed class InspectionGraphCommandTests
                     graph.Limits,
                     [
                         new InspectionGraphFailure(
-                            InspectionGraphIntegrationsCatalog
-                                .ProjectionFailure,
-                            InspectionGraphTarget.Node(2),
-                            new InspectionGraphIntegrationFailureEvidence(
-                                [detail])),
+                            new InspectionGraphFailurePayload(
+                                InspectionGraphIntegrationsCatalog
+                                    .ProjectionFailure,
+                                new InspectionGraphIntegrationFailureEvidence(
+                                    [detail])),
+                            InspectionGraphTarget.Node(2)),
                     ]);
             });
 
@@ -3313,9 +3315,9 @@ public sealed class InspectionGraphCommandTests
             [],
             [
                 new InspectionGraphLimit(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
-                        new InspectionGraphInducedSubjectBoundEvidence(3)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        new InspectionGraphInducedSubjectBoundEvidence(3))),
             ],
             []);
     }
@@ -3361,9 +3363,9 @@ public sealed class InspectionGraphCommandTests
             [],
             [
                 new InspectionGraphLimit(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
-                        new InspectionGraphInducedSubjectBoundEvidence(3)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        new InspectionGraphInducedSubjectBoundEvidence(3))),
             ],
             []);
     }
@@ -3429,9 +3431,9 @@ public sealed class InspectionGraphCommandTests
             [],
             [
                 new InspectionGraphLimit(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
-                        new InspectionGraphInducedSubjectBoundEvidence(2)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        new InspectionGraphInducedSubjectBoundEvidence(2))),
             ],
             []);
     }
@@ -3490,9 +3492,9 @@ public sealed class InspectionGraphCommandTests
             [],
             [
                 new InspectionGraphLimit(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
-                        new InspectionGraphInducedSubjectBoundEvidence(1)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        new InspectionGraphInducedSubjectBoundEvidence(1))),
             ],
             []);
     }
@@ -3515,10 +3517,12 @@ public sealed class InspectionGraphCommandTests
             graph.Limits,
             [
                 new InspectionGraphFailure(
-                    InspectionGraphIntegrationsCatalog.ProjectionFailure,
+                    new InspectionGraphFailurePayload(
+                        InspectionGraphIntegrationsCatalog.ProjectionFailure),
                     InspectionGraphTarget.Node(0)),
                 new InspectionGraphFailure(
-                    InspectionGraphIntegrationsCatalog.ProjectionFailure,
+                    new InspectionGraphFailurePayload(
+                        InspectionGraphIntegrationsCatalog.ProjectionFailure),
                     InspectionGraphTarget.Node(1)),
             ]);
     }
@@ -3547,9 +3551,9 @@ public sealed class InspectionGraphCommandTests
             [],
             [
                 new InspectionGraphLimit(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
-                        new InspectionGraphInducedSubjectBoundEvidence(2)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        new InspectionGraphInducedSubjectBoundEvidence(2))),
             ],
             []);
     }

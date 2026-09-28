@@ -359,7 +359,7 @@ public sealed class DocumentationQueryTests
 
     [Fact]
     public async Task
-        ImplementationSubjectResolver_AccessorIsUnavailable()
+        ImplementationSubjectResolver_ExplicitPropertyIsUnavailable()
     {
         CompiledSource compiled =
             CompileDocumentationQuerySource(
@@ -391,7 +391,13 @@ public sealed class DocumentationQueryTests
             candidate =>
                 candidate.FullName
                     == "DocumentationQuery.Accessor.Subject");
-        ApiMember getter = Assert.Single(
+        // The explicit getter composes into its property row, so the
+        // property, not its accessor, is the documentation subject. The
+        // implementation resolver resolves only method subjects.
+        ApiMember property = Assert.Single(
+            type.Members,
+            candidate => candidate.Kind == "property");
+        Assert.DoesNotContain(
             type.Members,
             candidate =>
                 candidate.MethodSemantics
@@ -400,7 +406,7 @@ public sealed class DocumentationQueryTests
             DocumentationSubjectReference.ForMember(
                 correspondence,
                 type,
-                getter);
+                property);
 
         Assert.IsType<
             DocumentationImplementationSubjectResolution.Unavailable>(
@@ -1293,9 +1299,17 @@ public sealed class DocumentationQueryTests
             .. Directory.EnumerateFiles(
                 runtimeDirectory,
                 "*.dll",
-                SearchOption.TopDirectoryOnly),
+                SearchOption.TopDirectoryOnly)
+                .Where(IsManagedAssembly),
             typeof(CSharpSourceText).Assembly.Location,
         ];
+    }
+
+    private static bool IsManagedAssembly(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        return pe.PEHeaders.CorHeader is not null;
     }
 
     private static byte[] DocumentationQueryAssemblyBytes() =>

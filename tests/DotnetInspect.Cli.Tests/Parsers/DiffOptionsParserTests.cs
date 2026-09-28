@@ -57,6 +57,7 @@ public class DiffOptionsParserTests
         var legacyAuthoredSourceOption = new Option<bool>("--authored-source") { Hidden = true };
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var findingOption = new Option<string?>("--finding");
+        var analysisOption = new Option<string[]>("--analysis") { AllowMultipleArgumentsPerToken = false };
         var legendOption = new Option<bool>("--legend");
         var compactOption = new Option<bool>("--compact");
 
@@ -89,6 +90,7 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(legacyAuthoredSourceOption);
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
+        diffCommand.Options.Add(analysisOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
         diffCommand.Options.Add(opts.Envelope);
@@ -106,7 +108,7 @@ public class DiffOptionsParserTests
             implementationOption,
             historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, countOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
-            changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
+            changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption);
 
         return (root, opts, args);
     }
@@ -121,6 +123,39 @@ public class DiffOptionsParserTests
         var result = DiffOptionsParser.Parse(parseResult, opts, cmdArgs);
         var success = Assert.IsType<DiffOptionsParser.Success>(result);
         return success.Options;
+    }
+
+    [Fact]
+    public void AnalysisOption_SplitsCommasAndConcatenatesRepeatsInOrder()
+    {
+        var options = ParseSuccess(
+            "diff",
+            "--package", "System.Text.Json@9.0.0..10.0.0",
+            "--analysis", "api,call-site",
+            "--analysis", "allocation");
+
+        Assert.Equal(["api", "call-site", "allocation"], options.Analysis!);
+    }
+
+    [Fact]
+    public void AnalysisOption_KeepsEmptyTokensForSetValidation()
+    {
+        var options = ParseSuccess(
+            "diff",
+            "--package", "System.Text.Json@9.0.0..10.0.0",
+            "--analysis", "api,,il");
+
+        Assert.Equal(["api", "", "il"], options.Analysis!);
+    }
+
+    [Fact]
+    public void AnalysisOption_OmittedSelectsOperationDefault()
+    {
+        var options = ParseSuccess(
+            "diff",
+            "--package", "System.Text.Json@9.0.0..10.0.0");
+
+        Assert.Null(options.Analysis);
     }
 
     [Fact]

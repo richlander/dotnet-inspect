@@ -738,12 +738,12 @@ public static class JsonWireMemberRules
                 return ResolveNamedTypeNullCapability(
                     shape.Definition,
                     assemblyIdentity,
-                    typesByScopedIdentity);
+                    typesByScopedIdentity) ?? !shape.IsValueType;
             case ApiTypeShapeKind.Named:
                 return ResolveNamedTypeNullCapability(
                     shape.Definition,
                     assemblyIdentity,
-                    typesByScopedIdentity);
+                    typesByScopedIdentity) ?? !shape.IsValueType;
             case ApiTypeShapeKind.Primitive:
                 return CanPrimitiveValueBeNull(shape.Primitive);
             default:

@@ -9,6 +9,7 @@ public sealed class MetadataDeclarationSession : IDisposable
     MetadataOperationContext? _operationContext;
     MetadataImageAdmissionResult? _imageAdmission;
     MetadataTypeDefinitionIndex? _typeDefinitionIndex;
+    MemorySafetyMetadataIndex? _memorySafetyIndex;
     MethodSemanticsAssociationSession? _methodSemanticsAssociations;
     Dictionary<
         MetadataAccessorDeclarationRequest,
@@ -49,6 +50,38 @@ public sealed class MetadataDeclarationSession : IDisposable
             EnsureAccess();
             return _methodSemanticsAssociations!;
         }
+    }
+
+    public MetadataMethodGroupInspectionOutcome InspectMethodGroup(
+        MetadataTypeDefinitionName declaringType,
+        string methodName,
+        int startOrdinal,
+        int maximumRows,
+        bool materializeRows,
+        MetadataMethodAccessibilityFilter accessibility,
+        MetadataMethodReceiverFilter receiver,
+        bool includeHidden,
+        int maximumMembers,
+        int maximumRetainedTextCharacters)
+    {
+        EnsureAccess();
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+            return new MetadataMethodGroupInspectionOutcome.Failed();
+
+        return MetadataMethodGroupInspection.Read(
+            _assemblySession!
+                .GetMetadataReaderForDeclarationSession(),
+            _methodSemanticsAssociations!.Post(),
+            declaringType,
+            methodName,
+            startOrdinal,
+            maximumRows,
+            materializeRows,
+            accessibility,
+            receiver,
+            includeHidden,
+            maximumMembers,
+            maximumRetainedTextCharacters);
     }
 
     public MetadataMethodDeclarationResult PostMethodDeclaration(
@@ -131,7 +164,9 @@ public sealed class MetadataDeclarationSession : IDisposable
                             .GetMetadataReaderForDeclarationSession(),
                         operation,
                         _methodSemanticsAssociations!,
-                        PostMethodDeclaration)
+                        PostMethodDeclaration,
+                        GetOrCreateTypeDefinitionIndex,
+                        GetOrCreateMemorySafetyIndex)
                     .Post(request, token);
             }
 
@@ -283,6 +318,21 @@ public sealed class MetadataDeclarationSession : IDisposable
                 beforeRetainText);
     }
 
+    MemorySafetyMetadataIndex GetOrCreateMemorySafetyIndex()
+    {
+        EnsureAccess();
+        if (_memorySafetyIndex is not null)
+            return _memorySafetyIndex;
+
+        _operationContext!.ObserveWork(
+            MetadataOperationWorkKind
+                .MemorySafetyIndexMaterialization);
+        return _memorySafetyIndex =
+            MemorySafetyMetadataIndex.Create(
+                _assemblySession!
+                    .GetMetadataReaderForDeclarationSession());
+    }
+
     void EnsureAccess()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -310,6 +360,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         _methodSemanticsAssociations!.Retire();
         _imageAdmission = null;
         _typeDefinitionIndex = null;
+        _memorySafetyIndex = null;
         _methodSemanticsAssociations = null;
         _accessorDeclarations!.Clear();
         _accessorDeclarations = null;

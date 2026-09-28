@@ -3751,7 +3751,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_FixedOverviewCountIncludesPackageFiles()
+    public async Task Package_MultiplePackages_FileCountIncludesPackageFiles()
     {
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
@@ -3770,6 +3770,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
+                "@Files",
                 "--count");
 
             Assert.Equal(0, exit);

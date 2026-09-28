@@ -17,7 +17,7 @@ Verbosity levels:
 | ----- | ---- | ------- | ---- |
 | Quiet | `-v:q` | Compact identity and context | No |
 | Minimal (default) | `-v:m` or none | One high-value base section | Yes |
-| Normal | `-v:n` | Multiple network-free base sections | No |
+| Normal | `-v:n` | Multiple base sections | No |
 | Detailed | `-v:d` | All applicable base sections | No |
 
 The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments; `PDB Source` is Portable-PDB-selected, checksum-verified source acquired locally or through SourceLink. `-S @Source` selects the authored-first `Source`, forced PDB and decompiled provider views, and `Source Diff`; `-S @Decompiler` selects decompiler and analysis views such as `Annotated Source` and `IL`. The `Facts` section — the structured member/offset/line-keyed table of the same Research overlay facts — is opt-in via `-S "Facts"` / `--tsv`.
@@ -156,10 +156,10 @@ grep -o 'Source: [A-Za-z]*'
 
 ## 5. Normal verbosity (package)
 
-> Goal: Normal shows multiple network-free base sections. No tips.
+> Goal: Normal shows multiple base sections. No tips.
 
 ```prompt
-Show the standard network-free details for System.CommandLine.
+Show the standard details for System.CommandLine.
 ```
 
 ```bash

@@ -89,10 +89,12 @@ public sealed class ProductionFacadeContextTests
             "ResolvePackageDependencyVersion",
             "RunPackageActivity",
             "RunPackageQuery",
+            "SearchCapabilities",
             "SearchTypes",
         ],
         [LibraryAssembly] =
         [
+            "InspectLibrary",
             "OpenUploadedLibrary",
         ],
         [MetadataAssembly] =
@@ -156,6 +158,7 @@ public sealed class ProductionFacadeContextTests
             "AcknowledgeRetainedWorkspaceNavigation",
             "ActivateRetainedWorkspaceDefinition",
             "ActivateRetainedWorkspaceDefinitionWithCredentials",
+            "ActivateSpotlightDestination",
             "AdmitRetainedWorkspacePackage",
             "AdmitRetainedWorkspacePlatform",
             "CancelRetainedWorkspaceActivation",
@@ -221,10 +224,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 106 operations, and no operation name in two modules: a move that forgot to delete its
+        // 109 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(106, everyExport.Length);
+        Assert.Equal(109, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

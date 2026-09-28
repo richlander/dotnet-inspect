@@ -14,16 +14,21 @@ public static class FindOutputFormatter
     /// </summary>
     public static FindResultView BuildView(
         List<TypeFindResult> results,
-        string? title = null)
+        string? title = null,
+        List<MemberFindResult>? members = null)
     {
         var matchCount = results.Count(
             r => r.Match != TypeFindMatchKind.NotFound);
+        bool hasMembers = members is { Count: > 0 };
 
         return new FindResultView(
             Field(title ?? "Find Results"),
-            matchCount == 0 ? Prose("No types found matching the pattern.") : null)
+            matchCount == 0 && !hasMembers ? Prose("No types found matching the pattern.") : null)
         {
             Matches = matchCount,
+            Members = hasMembers
+                ? BuildMemberView(members!).Results
+                : null,
             Results = matchCount == 0 ? null : results.Select(r => new FindRow(
                 Field(r.Pattern),
                 Field(r.Match == TypeFindMatchKind.NotFound ? "-" : r.Type),

@@ -154,81 +154,6 @@ public static class ResourceLifecycleAnalysis
                     == ResourceLifecycleOutcomeKind
                         .MissingReleaseOnNormalPath));
 
-    public static FindingInspection<ResourceLifecycleOccurrence> InspectAssembly(
-        string path,
-        FindingSubject subject)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return InspectAssembly(
-            () => LibraryBodyIndex.Open(
-                path,
-                LibraryBodyAnalysisFeatures.LeakTriage),
-            subject);
-    }
-
-    public static FindingInspection<ResourceLifecycleOccurrence> InspectAssembly(
-        Func<LibraryBodyIndex> openIndex,
-        FindingSubject subject)
-    {
-        ArgumentNullException.ThrowIfNull(openIndex);
-        ArgumentNullException.ThrowIfNull(subject);
-
-        try
-        {
-            LeakTriageResult result =
-                openIndex().LeakTriage;
-            if (!result.Failures.IsEmpty)
-            {
-                LeakTriageFailure first = result.Failures[0];
-                string count = result.Failures.Length == 1
-                    ? "one method"
-                    : $"{result.Failures.Length} methods";
-                return new FindingInspection<ResourceLifecycleOccurrence>.Failed(
-                    new InspectionError(
-                        subject,
-                        AnalysisFindings.ResourceLifecycleDescriptor,
-                        $"Resource lifecycle analysis was incomplete for {count}; "
-                        + $"first failure at method token 0x{first.MethodToken:X8} "
-                        + $"during {FailurePhase(first.Kind)} "
-                        + $"({first.Reason})."));
-            }
-
-            var occurrences = result
-                .ExceptionPathCandidates
-                .Select(CreateOccurrence);
-            return new FindingInspection<ResourceLifecycleOccurrence>.Complete(
-                AnalysisFindings.InspectResourceLifecycles(occurrences, subject));
-        }
-        catch (Exception ex) when (
-            ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
-                or InvalidOperationException
-                or ArgumentException
-                or OverflowException
-                or IndexOutOfRangeException)
-        {
-            return new FindingInspection<ResourceLifecycleOccurrence>.Failed(
-                new InspectionError(
-                    subject,
-                    AnalysisFindings.ResourceLifecycleDescriptor,
-                    $"{ex.GetType().Name}: {ex.Message}"));
-        }
-    }
-
-    static ResourceLifecycleOccurrence CreateOccurrence(
-        ArrayPoolExceptionPathCandidate candidate)
-        => new(
-            candidate.Method,
-            "ArrayPool<T>",
-            "pool-churn-on-exception",
-            candidate.RentOffset,
-            candidate.Boundaries
-                .Select(boundary => new ResourceBoundaryEvidence(
-                    boundary.ILOffset,
-                    boundary.Operation))
-                .ToImmutableArray());
-
     static ResourceLifecycleOccurrence CreateOccurrence(
         MethodIdentity method,
         ResourceOccurrenceRoot root,
@@ -273,19 +198,4 @@ public static class ResourceLifecycleAnalysis
                 AnalysisFindings.ResourceLifecycleDescriptor,
                 reason));
 
-    static string FailurePhase(LeakTriageFailureKind kind) =>
-        kind switch
-        {
-            LeakTriageFailureKind.InstructionDecoding =>
-                "instruction decoding",
-            LeakTriageFailureKind.MethodResolution =>
-                "method resolution",
-            LeakTriageFailureKind.MethodMetadata =>
-                "method metadata validation",
-            LeakTriageFailureKind.BodyAcquisition =>
-                "method body acquisition",
-            LeakTriageFailureKind.ControlFlowAnalysis =>
-                "control-flow analysis",
-            _ => "analysis",
-        };
 }

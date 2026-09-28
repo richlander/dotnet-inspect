@@ -11,6 +11,47 @@ namespace DotnetInspector.Ecosystems.Tests;
 public sealed class EcosystemWorkspaceConstructionTests
 {
     [Fact]
+    public void RetiredAzureDeclarationStillRestoresFromADefinition()
+    {
+        // Definitions carry Ecosystem declarations inline, so a Workspace
+        // shared before Azure's removal restores without the product pack.
+        var azure = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.azure"),
+            ["Azure"],
+            [new PackageCoordinate("Azure.Identity")],
+            [
+                new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                    new PackagePrefixDeclaration("Azure.")),
+            ]);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version3,
+            "shared-before-retirement",
+            [],
+            registrations: [new WorkspaceRegistration.Ecosystem(azure)]);
+
+        var restored = Assert.IsType<WorkspaceDefinition>(
+            InspectionDefinitionJson.Parse(
+                InspectionDefinitionJson.Serialize(workspace)));
+
+        WorkspaceEcosystemRegistrationDeclaration declaration =
+            Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                Assert.Single(restored.Registrations)).Declaration;
+        Assert.Equal("ecosystem.azure", declaration.Id.Value);
+        Assert.Equal(
+            "Azure.Identity",
+            Assert.Single(declaration.CorePackages).PackageId);
+        Assert.Equal(
+            "Azure.",
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                Assert.Single(declaration.Populations)).Prefix.Prefix);
+        Assert.True(EcosystemPackId.TryCreate(
+            "ecosystem.azure",
+            out EcosystemPackId? retired));
+        Assert.IsType<EcosystemPackLookupResult.Unknown>(
+            EcosystemPackCatalog.Lookup(retired));
+    }
+
+    [Fact]
     public void ShippedDeclarationsPreserveRegisteredPackagesTopicOverlapAndAspireIntegrationCurrency()
     {
         foreach (EcosystemPackDescriptor pack in EcosystemPackCatalog.Discover())
@@ -55,15 +96,14 @@ public sealed class EcosystemWorkspaceConstructionTests
         Assert.Equal("Aspire.", Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
             Assert.Single(aspire.Populations)).Prefix.Prefix);
         Assert.Same(EcosystemIntegrationScanner.AspireBinding, aspire.IntegrationScanner);
-        Assert.Equal("Aspire.Hosting", Assert.Single(aspire.CorePackages).PackageId);
+        Assert.Equal(
+            ["Aspire.Hosting", "Aspire.Hosting.Testing"],
+            aspire.CorePackages.Select(package => package.PackageId));
+        Assert.Empty(aspNetCore.CorePackages);
+        Assert.Empty(SelectKnown(EcosystemPackIds.MicrosoftExtensions).CorePackages);
         var ai = SelectKnown(EcosystemPackIds.AI);
         Assert.Equal(
-            [
-                "Microsoft.Extensions.AI",
-                "Microsoft.Extensions.VectorData",
-                "Microsoft.Agents.AI",
-                "ModelContextProtocol",
-            ],
+            ["Microsoft.Extensions.AI"],
             ai.Populations.Select(item =>
                 Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
                     item).Prefix.Prefix));
@@ -80,57 +120,14 @@ public sealed class EcosystemWorkspaceConstructionTests
                 ai.Populations[0]).Prefix;
         Assert.True(extensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
         Assert.True(aiExtensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
-        var azure = SelectKnown(EcosystemPackIds.Azure);
-        Assert.Equal(
-            [
-                "Microsoft.Extensions.Azure",
-                "Azure.AI.OpenAI",
-                "Microsoft.Azure.SignalR",
-                "Aspire.Azure.AI.OpenAI",
-                "Aspire.Hosting.Azure.SignalR",
-                "Azure.Identity",
-                "Azure.Security.KeyVault.Secrets",
-                "Azure.Storage.Blobs",
-                "Azure.Messaging.ServiceBus",
-            ],
-            azure.CorePackages.Select(package => package.PackageId));
-        Assert.Equal(
-            [
-                "Azure.",
-                "Microsoft.Azure.",
-                "Microsoft.Extensions.Azure",
-                "Aspire.Azure.",
-                "Aspire.Hosting.Azure.",
-            ],
-            azure.Populations.Select(item =>
-                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
-                    item).Prefix.Prefix));
-        PackagePrefixDeclaration azurePackagePrefix =
-            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
-                azure.Populations[0]).Prefix;
-        PackagePrefixDeclaration microsoftAzurePrefix =
-            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
-                azure.Populations[1]).Prefix;
-        PackagePrefixDeclaration azureExtensionsPrefix =
-            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
-                azure.Populations[2]).Prefix;
-        PackagePrefixDeclaration aspireAzurePrefix =
-            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
-                azure.Populations[3]).Prefix;
-        PackagePrefixDeclaration aspireHostingAzurePrefix =
-            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
-                azure.Populations[4]).Prefix;
-        Assert.True(azurePackagePrefix.MatchesPackageId("Azure.AI.OpenAI"));
-        Assert.True(microsoftAzurePrefix.MatchesPackageId("Microsoft.Azure.SignalR"));
-        Assert.True(microsoftAzurePrefix.MatchesPackageId("Microsoft.Azure.Storage.Blob"));
-        Assert.True(extensionsPrefix.MatchesPackageId("Microsoft.Extensions.Azure"));
-        Assert.True(azureExtensionsPrefix.MatchesPackageId("Microsoft.Extensions.Azure"));
         Assert.True(Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
             Assert.Single(aspire.Populations)).Prefix.MatchesPackageId(
-                "Aspire.Azure.AI.OpenAI"));
-        Assert.True(aspireAzurePrefix.MatchesPackageId("Aspire.Azure.AI.OpenAI"));
-        Assert.True(aspireHostingAzurePrefix.MatchesPackageId(
-            "Aspire.Hosting.Azure.SignalR"));
+                "Aspire.Hosting.Redis"));
+        Assert.True(EcosystemPackId.TryCreate(
+            "ecosystem.azure",
+            out EcosystemPackId? retiredAzure));
+        Assert.IsType<EcosystemPackLookupResult.Unknown>(
+            EcosystemPackCatalog.Lookup(retiredAzure));
         var blazor = SelectKnown(EcosystemPackIds.Blazor);
         Assert.Equal(
             [

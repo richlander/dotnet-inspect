@@ -483,9 +483,8 @@ test("family projection uses Type definition ID plus stable selector and keeps p
   );
   assert.deepEqual(
     projected.family.rows.flatMap(row =>
-      row.physicalRows.map(physical =>
-        physical.relativeInstructionPercent)),
-    [100, 50, 25],
+      row.physicalRows.map(physical => physical.instructionText)),
+    ["20 instructions", "10 instructions", "5 instructions"],
   );
   assert.equal(projected.family.relationships[0], relationship);
   assert.equal(
@@ -661,70 +660,6 @@ test("family ordering uses largest physical body, roster ties, and measured-firs
       row.profile.instructionCount),
     [30, 10],
   );
-});
-
-test("relative bars are suppressed for one row and uniformly tiny families", () => {
-  const oneProfile = available({
-    content: content({
-      profiles: [profile()],
-      overloadRelationships: [],
-    }),
-  });
-  const one = projectImplementationProfileFamily(
-    oneProfile,
-    selection(),
-  );
-  assert.equal(one.status, "available");
-  if (one.status === "available") {
-    assert.equal(one.family.relativeBarsVisible, false);
-    assert.equal(
-      one.family.rows[0]?.physicalRows[0]?.relativeInstructionPercent,
-      null,
-    );
-  }
-
-  const tiny = available({
-    content: content({
-      profiles: [
-        profile({ instructionCount: 8, branchCount: 0 }),
-        profile({
-          methodKey: "logical-string",
-          evidenceMethodKey: "logical-string",
-          instructionCount: 4,
-          branchCount: 0,
-          outgoingOverloadTargetCount: 0,
-          publicMembers: [{
-            typeDefinitionId: "type:Example.Widget",
-            member: "M",
-            stableSelector: "M(string)",
-            bodyTokens: [0x06000002],
-          }],
-        }),
-      ],
-      overloadRelationships: [],
-    }),
-  });
-  const projectedTiny = projectImplementationProfileFamily(tiny, selection());
-  assert.equal(projectedTiny.status, "available");
-  if (projectedTiny.status === "available")
-    assert.equal(projectedTiny.family.relativeBarsVisible, false);
-
-  const tinyContent = tiny.content;
-  assert.ok(tinyContent);
-  const tinyWithBranch = available({
-    content: {
-      ...tinyContent,
-      profiles: tinyContent.profiles.map((item, index) =>
-        index === 1 ? { ...item, branchCount: 1 } : item),
-    },
-  });
-  const structural = projectImplementationProfileFamily(
-    tinyWithBranch,
-    selection(),
-  );
-  assert.equal(structural.status, "available");
-  if (structural.status === "available")
-    assert.equal(structural.family.relativeBarsVisible, true);
 });
 
 test("available, incomplete, empty, rejected, failed, and unavailable remain distinct", () => {
@@ -968,7 +903,7 @@ test("the coordinator retains producer-failed state and retries only explicitly"
   assert.equal(queries, 2);
 });
 
-test("rendering exposes textual evidence, raw metrics, relationships, and accessible relative bars", () => {
+test("rendering exposes textual evidence, raw metrics, and relationships", () => {
   const projected = projectImplementationProfileFamily(
     available(),
     selection(),
@@ -980,17 +915,30 @@ test("rendering exposes textual evidence, raw metrics, relationships, and access
   assert.match(html, /Generated physical body/);
   assert.match(html, /Branches: 2/);
   assert.match(html, /Async evidence/);
-  assert.match(
-    html,
-    /role="img" aria-label="20 instructions; 100% of the largest physical body in this overload family"/,
-  );
+  assert.match(html, /<p class="implementation-profile-instruction-cue">20 instructions<\/p>/);
+  assert.doesNotMatch(html, /role="img"/);
   assert.match(html, /Raw implementation metrics/);
   assert.match(html, /Distinct opcode count/);
   assert.match(html, /Incoming sibling-overload callers/);
   assert.match(html, /Exact sibling-overload relationships \(1\)/);
   assert.match(html, /logical-int/);
   assert.match(html, /logical-string/);
-  assert.match(html, /Raw counts remain authoritative/);
+});
+
+test("rendering one overload shows only that overload's evidence", () => {
+  const projected = projectImplementationProfileFamily(
+    available(),
+    selection(),
+  );
+  assert.equal(projected.status, "available");
+  if (projected.status !== "available") return;
+  const html = renderImplementationProfileState(
+    projected,
+    escapeHtml,
+    "M(string)",
+  );
+  assert.equal(html.match(/class="implementation-profile-overload/g)?.length, 1);
+  assert.match(html, /M\(string\)/);
 });
 
 test("rendering distinguishes incomplete and producer failure without relying on color", () => {

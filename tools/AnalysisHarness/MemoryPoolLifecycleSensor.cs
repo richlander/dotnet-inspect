@@ -35,7 +35,7 @@ public enum MemoryPoolLifecycleFormat { Markdown, Tsv, Jsonl }
 
 /// <summary>
 /// The MemoryPool lifecycle corpus sensor (#2439 Slice 3): a measurement-only census that adds a
-/// second resource family alongside the ArrayPool leak-triage work. It reads each assembly with
+/// second resource family alongside the generic ArrayPool lifecycle work. It reads each assembly with
 /// SRM, finds every call to <c>MemoryPool&lt;T&gt;.Rent</c> (the acquire), tracks the returned
 /// <c>IMemoryOwner&lt;T&gt;</c> through the shared reaching-definitions def/use web, and classifies
 /// the site by how the owner is released:

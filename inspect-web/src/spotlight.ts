@@ -7,6 +7,13 @@ import {
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 import { packageRemoveButton } from "./package-removal.ts";
+import {
+  replaceChildrenPreservingRenderedInteractions,
+} from "./rendered-interaction.ts";
+import type {
+  BrowserCapabilityCatalogSearchResult,
+  BrowserResourceExplanationResourceKind,
+} from "./facades/inspect-web-package.d.ts";
 
 type LensDefinition = readonly [id: string, label: string];
 type SpotlightFocus = "input" | "chips";
@@ -60,6 +67,13 @@ interface PackageActivityResult {
   kind: "package-activity";
 }
 
+export interface SpotlightCapabilityResult {
+  kind: "capability";
+  query: string;
+  capability: BrowserCapabilityCatalogSearchResult;
+  ranges: readonly HighlightRange[];
+}
+
 interface FrameworkLibraryResult {
   kind: "framework-lib";
   assembly: string;
@@ -76,6 +90,19 @@ interface TypeResult {
   kind: "type";
   pkg: SpotlightPackage;
   type: SpotlightType;
+  ranges: readonly HighlightRange[];
+}
+
+export interface ManagedTypeResult {
+  kind: "managed-type";
+  identity: string;
+  action: string | null;
+  reason: string | null;
+  name: string;
+  namespace: string;
+  library: string;
+  source: string;
+  typeKind: string;
   ranges: readonly HighlightRange[];
 }
 
@@ -98,8 +125,10 @@ export type SpotlightResult =
   | SpotlightPackageResult
   | PackageQueryResult
   | PackageActivityResult
+  | SpotlightCapabilityResult
   | FrameworkLibraryResult
   | TypeResult
+  | ManagedTypeResult
   | MemberResult;
 
 export type RemovableSpotlightResult = PackageLoadedResult | PackageRecentResult;
@@ -134,8 +163,15 @@ interface SpotlightOptions {
   commandContext: () => CommandContext | null;
   schedulePackageFetch: () => void;
   resetPackageSearch: () => void;
+  resetTypeSearch?: () => void;
   packageSearchLoading: () => boolean;
   packageSearchError?: () => string;
+  typeSearchLoading?: () => boolean;
+  typeSearchError?: () => string;
+  typeSearchNotice?: () => string;
+  scheduleCapabilitySearch: () => void;
+  resetCapabilitySearch: () => void;
+  capabilitySearchMessage?: () => string;
   packageCount: () => number;
   render: () => void;
   focusAfterDismiss?: () => void;
@@ -168,9 +204,11 @@ const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   "pkg-recent": "Recent",
   "package-query": "Query",
   "package-activity": "Query",
+  capability: "Capabilities",
   "pkg-loaded": "Packages",
   "pkg-nuget": "Packages",
   type: "Types",
+  "managed-type": "Types",
   member: "Members",
   "framework-lib": "Libraries",
 };
@@ -230,6 +268,8 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
       return JSON.stringify([result.kind, result.prefix]);
     case "package-activity":
       return JSON.stringify([result.kind]);
+    case "capability":
+      return JSON.stringify([result.kind, result.capability.resourcePath]);
     case "framework-lib":
       return JSON.stringify([result.kind, result.tfm ?? "", result.version ?? "", result.pack, result.assembly]);
     case "type":
@@ -240,6 +280,8 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
         result.pkg.activeFramework ?? "",
         result.type.id,
       ]);
+    case "managed-type":
+      return JSON.stringify([result.kind, result.identity]);
     case "member":
       return JSON.stringify([
         result.kind,
@@ -252,6 +294,26 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
     default:
       throw new Error("Unknown Spotlight result.");
   }
+}
+
+export function spotlightCapabilityDraftValue(
+  result: SpotlightCapabilityResult,
+): string {
+  return result.capability.matchSource === "ExampleValue"
+    ? result.query
+    : "";
+}
+
+export function distinctSpotlightResults(
+  results: readonly SpotlightResult[],
+): SpotlightResult[] {
+  const identities = new Set<string>();
+  return results.filter(result => {
+    const identity = spotlightResultIdentity(result);
+    if (identities.has(identity)) return false;
+    identities.add(identity);
+    return true;
+  });
 }
 
 function isTextInputTarget(value: EventTarget | null): value is HTMLInputElement {
@@ -271,12 +333,41 @@ function isPackageAdditionResult(result: SpotlightResult): result is SpotlightPa
     || (result.kind === "pkg-loaded" && !result.pkg.isRuntimePack);
 }
 
+function capabilityKindLabel(
+  kind: BrowserResourceExplanationResourceKind,
+): string {
+  switch (kind) {
+    case "InspectionDocument":
+      return "Inspection document";
+    case "HostNeutralRoute":
+      return "Route";
+    case "QuerySpace":
+      return "Query space";
+    case "QueryFacet":
+      return "Query facet";
+    case "ConsumerBinding":
+      return "Consumer binding";
+    default:
+      return "Capability";
+  }
+}
+
+function sentenceCase(value: string): string {
+  return value.length === 0
+    ? value
+    : `${value[0]!.toUpperCase()}${value.slice(1)}`;
+}
+
 export function createSpotlight(options: SpotlightOptions) {
   let boundInput: HTMLInputElement | null = null;
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
   let renderedResults: readonly SpotlightResult[] = [];
+  let renderedResultsByIdentity = new Map<string, SpotlightResult>();
   let selectedResultIdentity: string | null = null;
+  const boundResultControls = new WeakSet<HTMLElement>();
+  const boundRemoveControls = new WeakSet<HTMLElement>();
+  const boundModalBackdrops = new WeakSet<Element>();
   const dismissedPackageIds = new Set<string>();
   let dismissalQuery = state.spotlightQuery;
   let packageAddition: PackageAdditionOptions | null = null;
@@ -289,18 +380,22 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function results(): SpotlightResult[] {
-    if (packageAddition) return options.searchResults().filter(isPackageAdditionResult);
+    if (packageAddition) {
+      return distinctSpotlightResults(options.searchResults())
+        .filter(isPackageAdditionResult);
+    }
     if (state.spotlightScope === "commands") {
       const context = options.commandContext();
       return context
-        ? commandPaletteResults(context, options.lenses())
+        ? distinctSpotlightResults(commandPaletteResults(context, options.lenses()))
         : [];
     }
+    const searchResults = distinctSpotlightResults(options.searchResults());
     if (dismissalQuery !== state.spotlightQuery) {
       dismissedPackageIds.clear();
       dismissalQuery = state.spotlightQuery;
     }
-    return options.searchResults().filter(result =>
+    return searchResults.filter(result =>
       result.kind !== "pkg-nuget"
       || !dismissedPackageIds.has(result.hit.id.toLowerCase()));
   }
@@ -313,27 +408,35 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function withRemoveButton(
     result: SpotlightResult,
-    index: number,
     row: string,
   ): string {
     if (!removable(result)) return row;
+    const identity = spotlightResultIdentity(result);
     const label = result.kind === "pkg-recent"
       ? `Forget ${result.entry.id} from recent packages`
       : `Remove ${result.pkg.id} ${result.pkg.version} ${result.pkg.activeFramework ?? ""} from Workspace`;
     return `<div class="package-search-row" role="presentation">${row}${packageRemoveButton(
-      "data-sl-remove", String(index), label, escapeHtml)}</div>`;
+      "data-sl-remove", identity, label, escapeHtml)}</div>`;
   }
 
   function rowHtml(result: SpotlightResult, index: number): string {
     const selected = index === state.spotlightIndex;
+    const identity = spotlightResultIdentity(result);
     if (result.kind === "command") {
-      return commandPaletteRowHtml(result, index, selected, escapeHtml);
+      return commandPaletteRowHtml(
+        result,
+        index,
+        selected,
+        identity,
+        escapeHtml,
+      );
     }
 
     const selectedClass = selected ? "selected" : "";
-    const base = `id="spotlight-result-${index}" class="spotlight-item ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}"${packageAddition ? ' tabindex="-1"' : ""}`;
+    const escapedIdentity = escapeHtml(identity);
+    const base = `id="spotlight-result-${index}" class="spotlight-item ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}" data-sl-result-identity="${escapedIdentity}" data-rendered-interaction-key="spotlight-result:${escapedIdentity}"${packageAddition ? ' tabindex="-1"' : ""}`;
     if (result.kind === "pkg-loaded") {
-      return withRemoveButton(result, index, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
+      return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
@@ -353,7 +456,7 @@ export function createSpotlight(options: SpotlightOptions) {
       const version = result.entry.version && result.entry.version !== "latest"
         ? result.entry.version
         : "";
-      return withRemoveButton(result, index, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
+      return withRemoveButton(result, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${version ? `${escapeHtml(version)} · ` : ""}recent</span>
@@ -376,6 +479,21 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="spotlight-item-ns">Review product package changes over time</span>
       </button>`;
     }
+    if (result.kind === "capability") {
+      const capability = result.capability;
+      const route = capability.owningRoutes[0]?.name;
+      const key = capability.canonicalKeys[0];
+      const metadata = [
+        capabilityKindLabel(capability.resourceKind),
+        route,
+        key,
+      ].filter(value => value !== undefined && value.length > 0).join(" · ");
+      return `<button ${base} data-sl-capability="${escapeHtml(capability.resourcePath)}">
+        <span class="kind-icon sl-capability">◇</span>
+        <span class="spotlight-item-name">${options.highlightRanges(sentenceCase(capability.resourceName), result.ranges)}</span>
+        <span class="spotlight-item-ns">${escapeHtml(metadata)}</span>
+      </button>`;
+    }
     if (result.kind === "framework-lib") {
       const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
       const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
@@ -396,6 +514,21 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="spotlight-item-ns">${escapeHtml(result.type.name)}${packageName}</span>
       </button>`;
     }
+    if (result.kind === "managed-type") {
+      const source = [result.namespace, result.library, result.source]
+        .filter(Boolean)
+        .join(" · ");
+      const unavailable = result.action === null
+        ? ` aria-disabled="true" title="${escapeHtml(
+            result.reason ?? "This Type is unavailable.",
+          )}"`
+        : "";
+      return `<button ${base}${unavailable} data-sl-managed-type="${escapedIdentity}">
+        <span class="kind-icon">${options.kindIcon(result.typeKind)}</span>
+        <span class="spotlight-item-name">${options.highlightRanges(result.name, result.ranges)}</span>
+        <span class="spotlight-item-ns">${escapeHtml(source)}</span>
+      </button>`;
+    }
 
     const packageName = options.packageCount() > 1
       ? ` · ${escapeHtml(result.pkg.id)}`
@@ -408,10 +541,23 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function resultsHtml(items: readonly SpotlightResult[]): string {
-    const searchError = state.spotlightScope === "all" || state.spotlightScope === "packages"
-      ? options.packageSearchError?.() : "";
-    const errorHtml = searchError
-      ? `<div class="spotlight-hint" role="status">${escapeHtml(searchError)}</div>`
+    const packageSearch = state.spotlightScope === "all"
+      || state.spotlightScope === "packages";
+    const typeSearch = state.spotlightScope === "all"
+      || state.spotlightScope === "types";
+    const packageError = packageSearch ? options.packageSearchError?.() : "";
+    const typeError = typeSearch ? options.typeSearchError?.() : "";
+    const capabilityMessage = state.spotlightScope === "all"
+      ? options.capabilitySearchMessage?.()
+      : "";
+    const errorHtml = [packageError, typeError, capabilityMessage]
+      .filter(message => Boolean(message))
+      .map(message =>
+        `<div class="spotlight-hint" role="status">${escapeHtml(message)}</div>`)
+      .join("");
+    const typeNotice = typeSearch ? options.typeSearchNotice?.() ?? "" : "";
+    const noticeHtml = typeNotice
+      ? `<div class="spotlight-hint" role="status">${escapeHtml(typeNotice)}</div>`
       : "";
     if (!items.length) {
       if (errorHtml) return errorHtml;
@@ -427,10 +573,14 @@ export function createSpotlight(options: SpotlightOptions) {
         }
         return '<div class="spotlight-empty">Search packages, types, and members, or enter PackageId@Version.</div>';
       }
-      if (options.packageSearchLoading()) {
+      if ((packageSearch && options.packageSearchLoading())
+        || (typeSearch && options.typeSearchLoading?.())) {
         return '<div class="spotlight-empty">Searching…</div>';
       }
-      return `<div class="spotlight-empty">Nothing matches “${escapeHtml(query)}”.</div>`;
+      const empty = typeNotice
+        ? `No confirmed matches for “${escapeHtml(query)}”.`
+        : `Nothing matches “${escapeHtml(query)}”.`;
+      return `<div class="spotlight-empty">${empty}</div>${noticeHtml}`;
     }
 
     const grouped = state.spotlightScope === "all";
@@ -447,9 +597,12 @@ export function createSpotlight(options: SpotlightOptions) {
       html += rowHtml(result, index);
     });
     html += errorHtml;
-    if (!searchError && options.packageSearchLoading()
-      && (state.spotlightScope === "all" || state.spotlightScope === "packages")) {
+    html += noticeHtml;
+    if (!packageError && options.packageSearchLoading() && packageSearch) {
       html += '<div class="spotlight-hint">Searching nuget.org…</div>';
+    }
+    if (options.typeSearchLoading?.() && typeSearch) {
+      html += '<div class="spotlight-hint">Searching Workspace Types…</div>';
     }
     return html;
   }
@@ -495,6 +648,9 @@ export function createSpotlight(options: SpotlightOptions) {
     const items = results();
     restoreSelection(items);
     renderedResults = items;
+    renderedResultsByIdentity = new Map(
+      items.map(item => [spotlightResultIdentity(item), item]),
+    );
     return items;
   }
 
@@ -571,21 +727,29 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function bindResultClicks(root: ParentNode): void {
-    root.querySelectorAll<HTMLElement>("[data-sl-index]").forEach(item => {
+    root.querySelectorAll<HTMLElement>("[data-sl-result-identity]").forEach(item => {
+      if (boundResultControls.has(item)) return;
+      boundResultControls.add(item);
+      const identity = item.dataset.slResultIdentity;
+      if (!identity) return;
       item.addEventListener("click", () => {
-        const index = Number(item.dataset.slIndex);
-        const result = renderedResults[index];
+        const result = renderedResultsByIdentity.get(identity);
         if (result) pick(result);
       });
     });
     root.querySelectorAll<HTMLElement>("[data-sl-remove]").forEach(button => {
-      button.addEventListener("click", () =>
-        removeResultAt(Number(button.dataset.slRemove)));
+      if (boundRemoveControls.has(button)) return;
+      boundRemoveControls.add(button);
+      const identity = button.dataset.slRemove;
+      if (!identity) return;
+      button.addEventListener("click", () => {
+        const result = renderedResultsByIdentity.get(identity);
+        if (result) removeResult(result);
+      });
     });
   }
 
-  function removeResultAt(index: number): boolean {
-    const result = renderedResults[index];
+  function removeResult(result: SpotlightResult | undefined): boolean {
     if (!result || !removable(result)) return false;
     const input = document.querySelector<HTMLInputElement>("#spotlight-input");
     const start = input?.selectionStart ?? state.spotlightQuery.length;
@@ -598,6 +762,10 @@ export function createSpotlight(options: SpotlightOptions) {
     replacement?.focus({ preventScroll: true });
     replacement?.setSelectionRange(start, end);
     return true;
+  }
+
+  function removeResultAt(index: number): boolean {
+    return removeResult(renderedResults[index]);
   }
 
   function focus(selection?: {
@@ -627,7 +795,10 @@ export function createSpotlight(options: SpotlightOptions) {
     const container = document.querySelector<HTMLElement>("#spotlight-results");
     if (!container) return;
     const items = resultsForRender();
-    container.innerHTML = resultsHtml(items);
+    replaceChildrenPreservingRenderedInteractions(
+      container,
+      resultsHtml(items),
+    );
     bindResultClicks(container);
     syncActiveDescendant(items.length);
     container.querySelector(".spotlight-item.selected")
@@ -650,6 +821,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightIndex = 0;
     selectedResultIdentity = null;
     options.schedulePackageFetch();
+    options.scheduleCapabilitySearch();
     refresh();
     focus();
   }
@@ -659,6 +831,8 @@ export function createSpotlight(options: SpotlightOptions) {
     boundInput = null;
     dismissedPackageIds.clear();
     options.resetPackageSearch();
+    options.resetTypeSearch?.();
+    options.resetCapabilitySearch();
     state.spotlightOpen = false;
     state.spotlightQuery = "";
     state.spotlightScope = "all";
@@ -666,6 +840,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
     renderedResults = [];
+    renderedResultsByIdentity = new Map();
     selectedResultIdentity = null;
   }
 
@@ -694,6 +869,8 @@ export function createSpotlight(options: SpotlightOptions) {
     dismissedPackageIds.clear();
     interactionGeneration++;
     options.resetPackageSearch();
+    options.resetTypeSearch?.();
+    options.resetCapabilitySearch();
     state.spotlightOpen = true;
     state.spotlightQuery = seed;
     state.spotlightScope = availableScope(scope) ?? "all";
@@ -703,6 +880,7 @@ export function createSpotlight(options: SpotlightOptions) {
     renderedResults = [];
     selectedResultIdentity = null;
     options.schedulePackageFetch();
+    options.scheduleCapabilitySearch();
     options.render();
     focus();
   }
@@ -930,6 +1108,7 @@ export function createSpotlight(options: SpotlightOptions) {
           updateChips();
         }
         options.schedulePackageFetch();
+        options.scheduleCapabilitySearch();
         updateResults();
       });
       options.keybindings.register({
@@ -947,30 +1126,39 @@ export function createSpotlight(options: SpotlightOptions) {
     if (mode === "modal") {
       root.querySelector("#spotlight-cancel")?.addEventListener("click", close);
       const backdrop = root.querySelector("#spotlight-backdrop");
-      if (backdrop) options.keybindings.register({
-        id: "spotlight-package-addition.dismiss-or-tab",
-        key: ["Tab", "Escape"],
-        allowExtraModifiers: true,
-        priority: WORKBENCH_KEYBINDING_PRIORITY.element,
-        available: () => packageAddition !== null,
-        run: event => {
-          if (event.key === "Escape") close();
-          else {
-            const cancel = root.querySelector<HTMLButtonElement>("#spotlight-cancel");
-            const target = document.activeElement === cancel ? input : cancel;
-            target?.focus();
-          }
-          return true;
-        },
-      }, backdrop);
-      backdrop?.addEventListener(
-        "mousedown",
-        event => {
-          const target = event.target;
-          if (hasElementId(target) && target.id === "spotlight-backdrop") close();
-        },
-      );
-      focus(selection);
+      if (backdrop && !boundModalBackdrops.has(backdrop)) {
+        boundModalBackdrops.add(backdrop);
+        options.keybindings.register({
+          id: "spotlight-package-addition.dismiss-or-tab",
+          key: ["Tab", "Escape"],
+          allowExtraModifiers: true,
+          priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+          available: () => packageAddition !== null,
+          run: event => {
+            if (event.key === "Escape") close();
+            else {
+              const currentInput =
+                root.querySelector<HTMLInputElement>("#spotlight-input");
+              const cancel =
+                root.querySelector<HTMLButtonElement>("#spotlight-cancel");
+              const target =
+                document.activeElement === cancel ? currentInput : cancel;
+              target?.focus();
+            }
+            return true;
+          },
+        }, backdrop);
+        backdrop.addEventListener(
+          "mousedown",
+          event => {
+            const target = event.target;
+            if (hasElementId(target) && target.id === "spotlight-backdrop") close();
+          },
+        );
+      }
+      const activeResultIdentity = document.activeElement
+        ?.getAttribute("data-sl-result-identity") ?? undefined;
+      if (activeResultIdentity === undefined) focus(selection);
     }
   }
 

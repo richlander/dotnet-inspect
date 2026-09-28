@@ -64,6 +64,8 @@ public abstract record LibraryEnablement
 {
     private LibraryEnablement(LibraryEnablementId id) => Id = id;
 
+    // Serialize the identifier before case-specific fields such as reason.
+    [JsonPropertyOrder(-1)]
     public LibraryEnablementId Id { get; }
 
     /// <summary>The image carries the evidence that the capability was built in.</summary>
@@ -114,13 +116,20 @@ public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> It
     internal static LibraryEnablementFacts Read(PEReader peReader)
     {
         MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-        if (IsReferenceAssembly(reader))
+        ReferenceAssemblyState reference = ReadReferenceAssemblyState(reader);
+        if (reference != ReferenceAssemblyState.Implementation)
         {
+            // An unnameable assembly attribute might be ReferenceAssemblyAttribute,
+            // so the reference rule cannot be decided.
+            LibraryEnablementUnavailableReason reason =
+                reference == ReferenceAssemblyState.Reference
+                    ? LibraryEnablementUnavailableReason.ReferenceAssembly
+                    : LibraryEnablementUnavailableReason.UndecodableMetadata;
             return new(
             [
-                Unavailable(LibraryEnablementId.AotCompatible, LibraryEnablementUnavailableReason.ReferenceAssembly),
-                Unavailable(LibraryEnablementId.RuntimeAsync, LibraryEnablementUnavailableReason.ReferenceAssembly),
-                Unavailable(LibraryEnablementId.MemorySafetyV2, LibraryEnablementUnavailableReason.ReferenceAssembly),
+                Unavailable(LibraryEnablementId.AotCompatible, reason),
+                Unavailable(LibraryEnablementId.RuntimeAsync, reason),
+                Unavailable(LibraryEnablementId.MemorySafetyV2, reason),
             ]);
         }
 
@@ -137,19 +146,34 @@ public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> It
     private const string AotCompatibleKey = "IsAotCompatible";
     private const MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000;
 
-    private static bool IsReferenceAssembly(MetadataReader reader)
+    private enum ReferenceAssemblyState
+    {
+        Implementation,
+        Reference,
+        Undecidable,
+    }
+
+    private static ReferenceAssemblyState ReadReferenceAssemblyState(MetadataReader reader)
     {
         if (!reader.IsAssembly)
-            return false;
+            return ReferenceAssemblyState.Implementation;
 
+        bool undecidable = false;
         foreach (CustomAttributeHandle handle in reader.GetAssemblyDefinition().GetCustomAttributes())
         {
             CustomAttribute attribute = reader.GetCustomAttribute(handle);
-            if (AttributeReader.GetAttributeTypeName(reader, attribute.Constructor) == ReferenceAssemblyAttribute)
-                return true;
+            try
+            {
+                if (AttributeReader.GetAttributeTypeName(reader, attribute.Constructor) == ReferenceAssemblyAttribute)
+                    return ReferenceAssemblyState.Reference;
+            }
+            catch (BadImageFormatException)
+            {
+                undecidable = true;
+            }
         }
 
-        return false;
+        return undecidable ? ReferenceAssemblyState.Undecidable : ReferenceAssemblyState.Implementation;
     }
 
     private static LibraryEnablement ReadAotCompatible(MetadataReader reader)
@@ -165,19 +189,9 @@ public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> It
         foreach (CustomAttributeHandle handle in reader.GetAssemblyDefinition().GetCustomAttributes())
         {
             CustomAttribute attribute = reader.GetCustomAttribute(handle);
-            string? typeName;
-            try
-            {
-                typeName = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
-            }
-            catch (BadImageFormatException)
-            {
-                // An undecodable constructor might name AssemblyMetadataAttribute.
-                undecodable = true;
-                continue;
-            }
-
-            if (typeName != AssemblyMetadataAttribute)
+            // Every assembly attribute is nameable here: an unnameable one
+            // already made the reference rule undecidable.
+            if (AttributeReader.GetAttributeTypeName(reader, attribute.Constructor) != AssemblyMetadataAttribute)
                 continue;
 
             if (!TryReadKeyValue(reader, attribute, out string? key, out string? value))

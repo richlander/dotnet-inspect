@@ -193,7 +193,7 @@ public static class ApiOutputFormatter
                     declaration.DeclarationKind
                     == LibraryTypeDeclarationKind.Definition);
         int forwarders = declarations.Length - definitions;
-        if (document.Types.Binding.DeclarationSelection
+        if (document.Types!.Binding.DeclarationSelection
                 == LibraryTypeDeclarationSelection
                     .DefinitionsAndForwarders
             && definitions == 0)

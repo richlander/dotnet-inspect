@@ -34,7 +34,11 @@ import type {
   BrowserRetainedWorkspacePackageAdmissionResult,
   BrowserRetainedWorkspacePlatformAdmissionResult,
   BrowserRetainedWorkspacePosting,
+  BrowserSpotlightActionResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
+import type {
+  BrowserTypeFindResult,
+} from "../src/facades/inspect-web-metadata.d.ts";
 import type {
   BrowserPackageLoadResult,
   BrowserPackageSurface,
@@ -84,6 +88,7 @@ function sourceComparisonJsonTextFixture(
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
   library: {
+    inspectLibrary: () => unexpected("inspectLibrary"),
     openUploadedLibrary: () => unexpected("openUploadedLibrary"),
   },
   package: {
@@ -93,6 +98,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
+    searchCapabilities: () => unexpected("searchCapabilities"),
     searchTypes: () => unexpected("searchTypes"),
     activateWorkspacePackageOccurrence: () =>
       unexpected("activateWorkspacePackageOccurrence"),
@@ -125,6 +131,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   metadata: {
     cancelLibraryApiDiff: () =>
       unexpected("cancelLibraryApiDiff"),
+    findTypes: () => unexpected("findTypes"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
@@ -152,6 +159,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPackageImplementationProfiles"),
     queryPlatformImplementationProfiles: () =>
       unexpected("queryPlatformImplementationProfiles"),
+    queryPackageTypeImplementationHeat: () =>
+      unexpected("queryPackageTypeImplementationHeat"),
+    queryPlatformTypeImplementationHeat: () =>
+      unexpected("queryPlatformTypeImplementationHeat"),
     queryPackageIntegrations: () =>
       unexpected("queryPackageIntegrations"),
     queryPlatformIntegrations: () =>
@@ -204,6 +215,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("activateRetainedWorkspaceDefinition"),
     activateRetainedWorkspaceDefinitionWithCredentials: () =>
       unexpected("activateRetainedWorkspaceDefinitionWithCredentials"),
+    activateSpotlightDestination: () =>
+      unexpected("activateSpotlightDestination"),
     cancelRetainedWorkspaceActivation: () =>
       unexpected("cancelRetainedWorkspaceActivation"),
     captureCompleteWorkspaceShareState: () =>
@@ -643,11 +656,54 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     platform: null,
     message: "Retained Platform detail exceeds the Worker JSON bound.",
   } satisfies BrowserRetainedWorkspacePlatformAdmissionResult;
+  const typeFind = {
+    status: "Completed",
+    operation: {
+      find: {
+        content: {
+          kind: "evaluated",
+          answers: [],
+        },
+        share: {
+          kind: "available",
+          fullUrl: "https://example.test",
+          packet: "packet",
+        },
+        diagnostics: [],
+      },
+      activations: [],
+    },
+    reason: null,
+  } satisfies BrowserTypeFindResult;
+  const spotlightActivation = {
+    status: "navigation",
+    navigation: posting.navigation,
+    surface: null,
+    selectedType: null,
+    selection: {
+      definitionId: "System.Text.Json.JsonSerializer",
+      assemblyName: "System.Text.Json",
+    },
+    activationStatus: null,
+    reason: null,
+  } satisfies BrowserSpotlightActionResult;
   const packageArguments: (readonly unknown[])[] = [];
   const platformArguments: (readonly unknown[])[] = [];
+  const typeFindArguments: (readonly unknown[])[] = [];
+  const spotlightActivationArguments: (readonly unknown[])[] = [];
   const state = fixture({
+    metadata: {
+      findTypes: async (...args) => {
+        typeFindArguments.push(args);
+        return typeFind;
+      },
+    },
     catalog: {
       activateRetainedWorkspaceDefinition: async () => activation,
+      activateSpotlightDestination: async (...args) => {
+        spotlightActivationArguments.push(args);
+        return spotlightActivation;
+      },
       admitRetainedWorkspacePackage: async (...args) => {
         packageArguments.push(args);
         return args[1] === "old-realization"
@@ -674,6 +730,19 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     );
   await state.environment.flushAsync();
   assert.deepEqual(await activationResult, activation);
+
+  const findResult = state.client.metadata.findTypes(
+    "definition-exact",
+    "realization-exact",
+    11,
+    "JsonSerializer",
+  );
+  const spotlightResult = state.client.catalog.activateSpotlightDestination(
+    "action-exact",
+  );
+  await state.environment.flushAsync();
+  assert.deepEqual(await findResult, typeFind);
+  assert.deepEqual(await spotlightResult, spotlightActivation);
 
   const packageResult =
     state.client.catalog.admitRetainedWorkspacePackage(
@@ -759,6 +828,13 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     "oversized-navigation",
     0,
   ]]);
+  assert.deepEqual(typeFindArguments, [[
+    "definition-exact",
+    "realization-exact",
+    11,
+    "JsonSerializer",
+  ]]);
+  assert.deepEqual(spotlightActivationArguments, [["action-exact"]]);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
@@ -1887,6 +1963,7 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
 test("the page client and Worker catalog expose only the closed allow-list", () => {
   const expected = {
     library: [
+      "inspectLibrary",
       "openUploadedLibrary",
     ],
     package: [
@@ -1912,10 +1989,12 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
+      "searchCapabilities",
       "searchTypes",
     ],
     metadata: [
       "cancelLibraryApiDiff",
+      "findTypes",
       "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
@@ -1936,11 +2015,13 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageLibraryMetrics",
       "queryPackageOpportunities",
       "queryPackagePerformance",
+      "queryPackageTypeImplementationHeat",
       "queryPlatformImplementationProfiles",
       "queryPlatformIntegrations",
       "queryPlatformLibraryMetrics",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
+      "queryPlatformTypeImplementationHeat",
     ],
     source: [
       "cancelMemberSourceComparison",
@@ -1964,6 +2045,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
       "activateRetainedWorkspaceDefinitionWithCredentials",
+      "activateSpotlightDestination",
       "cancelRetainedWorkspaceActivation",
       "captureCompleteWorkspaceShareState",
       "canonicalizeWorkspaceSharePacket",
@@ -1996,7 +2078,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 82);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 88);
 
   const state = fixture();
   const groups = [

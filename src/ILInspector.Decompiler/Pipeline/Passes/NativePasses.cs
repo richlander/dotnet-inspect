@@ -31,6 +31,8 @@ internal static class NativePasses
     public static ExpressionInliningPass ExpressionInlining => new();
     [Native(NativeCategory.EmitArtifact, "reused evaluation-stack slot live ranges split into distinct typed synthetic carriers")]
     public static StackSlotLiveRangePass StackSlotLiveRange => new();
+    [Native(NativeCategory.EmitArtifact, "canonical I4 zero/one stores recovered as Boolean after every producer and observer in the split carrier agrees")]
+    public static BooleanSlotIdentityPass BooleanSlotIdentity => new();
     [Native(NativeCategory.EmitArtifact, "a spilled single-use struct rvalue temp (V = a.Prop; ldloca V; call get_Member) folded back into its member receiver a.Prop.Member so the guard block it sat in becomes a pure condition structuring can nest")]
     public static StructReceiverInliningPass StructReceiverInlining => new();
     [Native(NativeCategory.EmitArtifact, "single-use address receiver temp in an array-element ToString store folded before declaration planning")]
@@ -131,11 +133,13 @@ internal static class NativePasses
     public static CoercionInsertionPass CoercionInsertion => new();
     [Native(NativeCategory.IlErasure, "missing Param-row names assigned final collision-free presentation spellings after exact nested binders are known")]
     public static ParameterNameAllocationPass ParameterNameAllocation => new();
-    [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, all stores at it) materialized as typed locals, retiring their slot nodes from the printer")]
+    [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, every store exact, coercion-renderable, or covered by issued assignment testimony) materialized as typed locals, retiring their slot nodes from the printer")]
     public static SlotMaterializationPass SlotMaterialization => new();
+    [Native(NativeCategory.EmitArtifact, "reference assignment testimony refreshed immediately before stack-slot storage consumes it")]
+    public static ReferenceSlotTargetBindingPass ReferenceSlotTargetBinding => new();
     [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
     public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
-    [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets decided before emission without replacing storage admission")]
+    [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets refreshed after final rewrites for emission")]
     public static ReferenceConditionalBindingPass ReferenceConditionalBinding => new();
     [Native(NativeCategory.EmitArtifact, "primitive join target compatibility decided before emission for conditional, switch-expression, and coalesce rendering")]
     public static PrimitiveJoinBindingPass PrimitiveJoinBinding => new();

@@ -109,7 +109,10 @@ jobs:
 
   test:
     name: Test lane
-    # Runs daily to certify a releasable main commit, and on manual dispatch.
+    # Linux is the exhaustive Deep Inspect host. It runs every slow or
+    # host-neutral suite once, while the platform matrix below concentrates on
+    # fast CLI behavior and code with real OS, filesystem, runtime-layout, or
+    # external-tool boundaries.
     if: >-
       inputs.lane == 'test' ||
       inputs.lane == 'release-candidate' ||
@@ -135,53 +138,110 @@ jobs:
         id: build
         run: dotnet build dotnet-inspect.slnx -c Release
 
-      - name: Install ilasm/ildasm
+      - name: Install ilasm/ildasm/mdv
         id: iltools
         continue-on-error: true
         shell: bash
-        run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
+        run: eng/restore-iltools.sh --rid linux-x64 --mdv --native-paths >> "$GITHUB_PATH"
 
       - name: Run CLI tests (including slow integration)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
+
+      - name: Run CSharpText tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/CSharpText.Tests -c Release
+
+      - name: Run artifact contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
+
+      - name: Run ecosystem registry tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
+      - name: Run NuGetFetch tests (offline)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+
+      - name: Run metadata tests
+        id: metadata
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          DOTNET_INSPECT_D3_REPORT: ${{ github.workspace }}/artifacts/custom-attribute-d3/result.json
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
+
+      - name: Upload custom-attribute D3 evidence
+        if: ${{ !cancelled() && (steps.metadata.outcome == 'success' || steps.metadata.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-attribute-d3-linux-x64
+          path: artifacts/custom-attribute-d3/result.json
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Run services tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
+
+      - name: Run query tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+
+      - name: Run presentation tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
+
+      - name: Run Research tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.Research.Tests -c Release -- --fail-skips on
+
       - name: Run analysis tests (including slow)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 
       - name: Run package-backed Platform tests (including real reference packs)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release
 
       - name: Restore vendored ILAssembler
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: bash eng/restore-ilassembler.sh
 
       - name: Run IL round-trip tests (including slow sweep)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 
       # Deliberately last: the suites above still report their results when
       # acquisition fails, but the lane must not go green after replacing its
       # oracle comparisons with skips.
-      - name: Check ilasm/ildasm result
+      - name: Check ilasm/ildasm/mdv result
         if: steps.iltools.outcome != 'success'
         run: |
-          echo "::error::Restoring ilasm/ildasm failed, so every test that uses them skipped." >&2
-          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
+          echo "::error::Restoring ilasm/ildasm/mdv failed, so every test that uses them skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
           exit 1
 
   platform-test:
     name: Platform test (${{ matrix.rid }})
-    # The reduced platform suite runs daily rather than on every PR. Windows is
-    # materially slower than Linux, and platform-specific failures should be
-    # discovered by scheduled platform agents instead of holding the primary
-    # development fleet. macOS and Ubuntu 26.04 run the same suite for
-    # symmetric coverage across all three operating systems.
+    # Windows and macOS run the fast CLI population plus suites with real OS,
+    # filesystem, runtime-layout, or external-tool boundaries. Linux owns the
+    # exhaustive and host-neutral work above; repeating its full CLI and
+    # decompiler populations here spent hours without adding another host.
     #
-    # The selected suites preserve the Windows-only failures recorded in
-    # #3445, #3496, #3509, #3519, #3526, and #3542 plus path-sensitive
-    # PluginDiscoveryTests. Slow decompiler gates, the corpus sensor, IL
-    # round-trip, and packaging remain with their owning daily or release jobs.
+    # The retained suites preserve Windows-only CLI and Query failures,
+    # path-sensitive Artifact/NuGet/Metadata/Services behavior, Research's
+    # filesystem capability checks, and a cheap decompiler boundary canary.
+    # Slow CLI and decompiler gates, CSharpText, ecosystem, presentation,
+    # corpus, analysis, IL round-trip, and packaging execute once on Linux.
     if: >-
       inputs.lane == 'test' ||
       inputs.lane == 'platform-test' ||
@@ -195,14 +255,11 @@ jobs:
             rid: win-x64
           - os: macos-latest
             rid: osx-arm64
-          - os: ubuntu-26.04
-            rid: linux-x64
     runs-on: ${{ matrix.os }}
-    # The complete CLI phase exceeded 113 minutes on every platform in
-    # run 36254577017, exhausting the prior 120-minute whole-job budget before
-    # the remaining reduced suite could run. Retain two hours for those suites
-    # and runner variance without removing cross-platform coverage.
-    timeout-minutes: 240
+    # Exact-head run 36287209816 measured the reduced jobs at 46 minutes on
+    # Windows and 61 minutes on macOS. Two hours preserves substantial runner
+    # variance while preventing accidental reintroduction of multi-hour work.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
@@ -243,25 +300,17 @@ jobs:
       # Run every suite after a successful build even if an earlier suite
       # fails. Platform breaks commonly share one fixture-level cause, and
       # reporting every affected suite makes the scheduled failure actionable.
-      - name: Run CLI tests (all)
+      - name: Run CLI tests (fast platform surface)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
-
-      - name: Run CSharpText tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/CSharpText.Tests -c Release
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run artifact contract tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
-      - name: Run ecosystem registry tests
+      - name: Run Graph contract tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
-
-      - name: Run ecosystem consumer tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+        run: dotnet run --project tests/Inspector.Graph.Tests -c Release
 
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -294,10 +343,6 @@ jobs:
       - name: Run query tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
-
-      - name: Run presentation tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
 
       - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

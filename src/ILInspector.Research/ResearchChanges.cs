@@ -381,6 +381,10 @@ public sealed class RetainedFindingComparisonSet
     public int Count => Items.Length;
     public bool IsEmpty => Items.IsEmpty;
 
+    /// <summary>The retained Finding descriptor identities, in first-retained order.</summary>
+    public ImmutableArray<string> DescriptorIds =>
+        [.. Items.Select(comparison => comparison.Descriptor.Id).Distinct(StringComparer.Ordinal)];
+
     public ImmutableArray<RetainedFindingComparison<T>> Get<T>(FindingDescriptor descriptor)
         where T : notnull
     {

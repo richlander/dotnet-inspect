@@ -86,7 +86,7 @@ public sealed class EcosystemCommandTests
     {
         var head = await ExecuteCommandLineAsync(
             "ecosystem",
-            "microsoft-extensions",
+            "ai",
             "-S",
             "Core Packages",
             "-n",
@@ -94,7 +94,7 @@ public sealed class EcosystemCommandTests
             "--tsv");
         var tail = await ExecuteCommandLineAsync(
             "ecosystem",
-            "microsoft-extensions",
+            "ai",
             "-S",
             "Core Packages",
             "-n",
@@ -103,7 +103,7 @@ public sealed class EcosystemCommandTests
             "--tsv");
         var count = await ExecuteCommandLineAsync(
             "ecosystem",
-            "microsoft-extensions",
+            "ai",
             "-S",
             "Core Packages",
             "-n",
@@ -113,12 +113,12 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, head.ExitCode);
         Assert.Empty(head.Error);
         Assert.Equal(
-            "package\nMicrosoft.Extensions.DependencyInjection.Abstractions",
+            "package\nMicrosoft.Extensions.AI",
             head.Output.Trim());
         Assert.Equal(0, tail.ExitCode);
         Assert.Empty(tail.Error);
         Assert.Equal(
-            "package\nMicrosoft.Extensions.Logging.Abstractions",
+            "package\nMicrosoft.Agents.AI",
             tail.Output.Trim());
         Assert.Equal(0, count.ExitCode);
         Assert.Empty(count.Error);
@@ -130,7 +130,7 @@ public sealed class EcosystemCommandTests
     {
         var result = await ExecuteCommandLineAsync(
             "ecosystem",
-            "microsoft-extensions",
+            "ai",
             "-S",
             "Core Packages",
             "--rows",
@@ -142,7 +142,7 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(
-            "package\nMicrosoft.Extensions.Configuration.Abstractions",
+            "package\nMicrosoft.Extensions.AI.Abstractions",
             result.Output.Trim());
     }
 
@@ -151,7 +151,7 @@ public sealed class EcosystemCommandTests
     {
         var result = await ExecuteCommandLineAsync(
             "ecosystem",
-            "microsoft-extensions",
+            "ai",
             "-S",
             "Core Packages",
             "-n",
@@ -197,7 +197,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.aspnetcore", result.Output);
         Assert.Contains("ecosystem.aspire", result.Output);
         Assert.Contains("ecosystem.ai", result.Output);
-        Assert.Contains("ecosystem.azure", result.Output);
+        Assert.DoesNotContain("ecosystem.azure", result.Output);
         Assert.Contains("ecosystem.blazor", result.Output);
         Assert.Contains("ecosystem.maui", result.Output);
         Assert.Contains(
@@ -207,10 +207,7 @@ public sealed class EcosystemCommandTests
             "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 13 | 2 |",
             result.Output);
         Assert.Contains(
-            "| ecosystem.ai | AI | AI abstractions, agents, vector data, and protocol packages. | none | 0 | 0 |",
-            result.Output);
-        Assert.Contains(
-            "| ecosystem.azure | Azure | Azure client libraries, identity, and Microsoft.Extensions integration. | none | 0 | 0 |",
+            "| ecosystem.ai | AI | AI model clients, abstractions, agents, and protocol packages. | none | 0 | 0 |",
             result.Output);
         Assert.Contains(
             "| ecosystem.blazor | Blazor | Blazor browser, Hybrid, data, and authentication integrations. | none | 0 | 0 |",
@@ -237,37 +234,11 @@ public sealed class EcosystemCommandTests
             package
             Microsoft.Extensions.AI
             Microsoft.Extensions.AI.Abstractions
-            Microsoft.Extensions.VectorData.Abstractions
-            Microsoft.Agents.AI
+            OpenAI
+            Anthropic
+            Google.GenAI
             ModelContextProtocol
-            """,
-            result.Output.Trim());
-    }
-
-    [Fact]
-    public async Task AzureCorePackagesExposeRegisteredCallGraphRoots()
-    {
-        var result = await ExecuteCommandLineAsync(
-            "ecosystem",
-            "azure",
-            "-S",
-            "Core Packages",
-            "--tsv");
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
-        Assert.Equal(
-            """
-            package
-            Microsoft.Extensions.Azure
-            Azure.AI.OpenAI
-            Microsoft.Azure.SignalR
-            Aspire.Azure.AI.OpenAI
-            Aspire.Hosting.Azure.SignalR
-            Azure.Identity
-            Azure.Security.KeyVault.Secrets
-            Azure.Storage.Blobs
-            Azure.Messaging.ServiceBus
+            Microsoft.Agents.AI
             """,
             result.Output.Trim());
     }
@@ -562,7 +533,7 @@ public sealed class EcosystemCommandTests
     {
         var result = await ExecuteAsync(new EcosystemOptions
         {
-            Ecosystem = "aspnetcore",
+            Ecosystem = "ai",
             Select = ["Core Packages"],
             Rows = RowWindow.Range(2, 2),
             Format = OutputFormat.Tsv,
@@ -571,7 +542,7 @@ public sealed class EcosystemCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(
-            "package\nMicrosoft.AspNetCore.Authentication.JwtBearer",
+            "package\nMicrosoft.Extensions.AI.Abstractions",
             result.Output.Trim());
     }
 
@@ -597,7 +568,7 @@ public sealed class EcosystemCommandTests
                 row => row.GetProperty("count").GetInt32());
         Assert.Equal(0, counts["Ecosystem Info"]);
         Assert.Equal(0, counts["Namespace Hints"]);
-        Assert.Equal(1, counts["Core Packages"]);
+        Assert.Equal(2, counts["Core Packages"]);
         Assert.Equal(1, counts["Tool Packages"]);
         Assert.Equal(0, counts["Integrations"]);
         Assert.Equal(0, counts["Demos"]);
@@ -712,7 +683,7 @@ public sealed class EcosystemCommandTests
             | Namespace Hints | section |
             | Tool Packages | section |
             """,
-            catalog.Output.Trim());
+            catalog.Output.ReplaceLineEndings("\n").Trim());
 
         Assert.Equal(0, focused.ExitCode);
         Assert.Empty(focused.Error);
@@ -728,7 +699,7 @@ public sealed class EcosystemCommandTests
             | Namespace Hints | section |
             | Tool Packages | section |
             """,
-            focused.Output.Trim());
+            focused.Output.ReplaceLineEndings("\n").Trim());
 
         Assert.Equal(0, runtime.ExitCode);
         Assert.Empty(runtime.Error);
@@ -745,7 +716,7 @@ public sealed class EcosystemCommandTests
             | Pruning | section |
             | Tool Packages | section |
             """,
-            runtime.Output.Trim());
+            runtime.Output.ReplaceLineEndings("\n").Trim());
     }
 
     [Fact]
@@ -886,8 +857,10 @@ public sealed class EcosystemCommandTests
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement section =
             document.RootElement.GetProperty("core_packages");
-        JsonElement row = Assert.Single(section.EnumerateArray());
-        Assert.Equal("Aspire.Hosting", row.GetProperty("package").GetString());
+        Assert.Equal(
+            ["Aspire.Hosting", "Aspire.Hosting.Testing"],
+            section.EnumerateArray().Select(
+                row => row.GetProperty("package").GetString()));
     }
 
     [Fact]
@@ -949,7 +922,7 @@ public sealed class EcosystemCommandTests
         Assert.DoesNotContain("platform (ecosystem.platform)", result.Error);
         Assert.Contains("aspire (ecosystem.aspire)", result.Error);
         Assert.Contains("ai (ecosystem.ai)", result.Error);
-        Assert.Contains("azure (ecosystem.azure)", result.Error);
+        Assert.DoesNotContain("azure (ecosystem.azure)", result.Error);
         Assert.Contains("blazor (ecosystem.blazor)", result.Error);
         Assert.Contains("maui (ecosystem.maui)", result.Error);
     }

@@ -21,11 +21,26 @@ public class FindResultView
     [MarkoutIgnore] [MarkoutSkipNull] public string? Description => DescriptionText?.ToString();
     [MarkoutIgnore] public int Matches { get; set; }
 
+    /// <summary>
+    /// Member rows from the broadened tier. They precede Type rows because a
+    /// direct member name outranks a substring or similar Type name.
+    /// </summary>
+    [MarkoutSection(Name = "Members")]
+    [MarkoutIgnoreColumnWhen(nameof(MemberPatternIsUniform), "Pattern")]
+    [MarkoutIgnoreColumnWhen(nameof(MemberSignatureIsEmpty), "Signature")]
+    public List<FindMemberRow>? Members { get; set; }
+
     [MarkoutSection(Name = "Results")]
     [MarkoutIgnoreColumnWhen(nameof(PatternIsUniform), "Pattern")]
     [MarkoutIgnoreColumnWhen(nameof(MatchIsUniform), "Match")]
     [MarkoutIgnoreColumnWhen(nameof(SimIsUniform), "Sim")]
     public List<FindRow>? Results { get; set; }
+
+    public static bool MemberPatternIsUniform(List<FindMemberRow>? rows)
+        => FindMembersResultView.PatternIsUniform(rows);
+
+    public static bool MemberSignatureIsEmpty(List<FindMemberRow>? rows)
+        => FindMembersResultView.SignatureIsEmpty(rows);
 
     public static bool PatternIsUniform(List<FindRow>? rows)
         => rows?.Select(r => r.Pattern).Distinct().Count() <= 1;
@@ -228,13 +243,10 @@ public sealed class PackageProfileRow
 [MarkoutContext(typeof(ExtensionsResultView))]
 [MarkoutContext(typeof(ExtensionCountRow))]
 [MarkoutContext(typeof(ExtensionRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchResultView))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchBlockerRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchBlockCorrespondenceRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryView))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryBlockerRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryCandidateRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryCandidateTableView))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryView))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryBlockerRow))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryCandidateRow))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryCandidateTableView))]
 public partial class SearchViewContext : MarkoutSerializerContext
 {
 }

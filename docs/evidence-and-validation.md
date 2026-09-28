@@ -118,6 +118,82 @@ supported terminal, verified result cardinality, reported median and p95, and
 explained a bounded terminal tradeoff alongside substantial end-to-end
 improvements.
 
+## Performance oracles for QuerySpace enablement
+
+The end-to-end comparison above proves what a user sees. It does not show
+how close the new execution comes to what the query could cost, because
+startup and acquisition often mask the work. QuerySpace enablement therefore
+also reports a kernel-level **performance scorecard** with four standard
+columns:
+
+- **Old** (Before) is the path being replaced, exactly as it runs today: a
+  legacy loop, or rows built and then filtered, counted, or trimmed. It is the
+  improvement target and leaves when the path it measures is retired.
+- **LINQ** is an idiomatic streaming `System.Linq` pipeline over the same
+  population, written as an ordinary C# author would: select the elements,
+  project them, then apply the closing. It shows what the ordinary library
+  alternative costs.
+- **NLinq** is the standing oracle: an [NLinq](https://github.com/agocke/NLinq)
+  query over a struct source of the population, written as an NLinq author
+  would write it. The pinned fixture, its population sources, and any
+  operators it lacks are owned by the fixture, never written per question.
+- **Planner** (After) is the enablement being measured.
+
+Do not construct a hand-written loop as an oracle. What such a loop measures
+depends on its author's choices, and it costs one loop per question where
+NLinq costs one source per population. A hand-written loop appears only as
+the Old column of a path that already exists.
+
+Every scorecard closing has an NLinq query; when NLinq lacks an operator, the
+fixture adds it. A source-native answer, such as a count from a table size, is
+a Planner technique, not an exception: its ratio to NLinq shows what it skips.
+To show the Planner against a source-native ceiling, add a labeled column
+beside the standard ones. It is not checked by regression tracking, and its
+answers must agree with the other columns.
+
+**The fixture** lives in `tests/`, because it is test infrastructure rather
+than an inspected artifact:
+
+- `tests/NLinq.Oracle` is the pinned NLinq copy, with its provenance in
+  `PROVENANCE.md`.
+- `tests/DotnetInspector.PerformanceOracles` adds the operators NLinq lacks
+  (`Take`, `Skip`, `TryTakeExactly` for a strict window, and `TakeLast`), the
+  method-definition source, and the `Scorecard` harness that checks answers
+  and times rotated rounds. `MethodPopulation<TSelection>` supplies the LINQ
+  and NLinq columns for any method selection; an enablement registers its Old
+  and Planner columns beside them.
+- `tools/QuerySpaceScorecard` runs a scorecard over the public-methods
+  population. `queryspace-scorecard check <assembly>...` compares answers, and
+  `queryspace-scorecard time [--rounds N] [--budget-ms N] [--tsv <path>]
+  <assembly>...` prints the ratios and absolute medians. Time the NativeAOT
+  publish, not `dotnet run`.
+
+**The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
+Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real
+assets:
+
+- Report each cell as a ratio to NLinq, measured by the same binary in the
+  same run. Give the geometric mean across assets and the range, with
+  absolute medians alongside.
+- Check that every column gives the same answer for every closing and asset:
+  the Boolean, the count, or the rows' identity. Report a strict window's
+  failure as a failure, never as a success.
+- Mark each Planner cell as shipping in the candidate or measured only in an
+  experiment.
+- Run on at least two machines, and exclude a loaded run with its reason.
+
+Performance regression tracking uses only the NLinq ratio. It stays
+meaningful after Old is retired and cancels most machine differences. It
+moves when the Planner's performance changes, which is the regression it
+tracks, and also when the query, the pinned oracle, or the measurement
+conditions change, so record those alongside each tracked ratio.
+
+Use the [Producer Planning
+scorecard](https://github.com/richlander/dotnet-inspect/pull/8736) as the
+reporting precedent. It showed the Planner at 0.47–1.02× of NLinq and a
+build-every-row baseline at up to 7,000× on the same questions, while the
+end-to-end command stayed at parity because presence is a small part of it.
+
 ## Use evidence envelopes during command development
 
 `EvidenceInspectionEnvelope<TContent, TEvidence>` is the shared shape for

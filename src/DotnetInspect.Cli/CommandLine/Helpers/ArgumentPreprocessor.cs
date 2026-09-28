@@ -609,7 +609,7 @@ public static class ArgumentPreprocessor
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover", "-Q", "--query-help",
-        "--at", "--file", "--finding", "--relationship", "--repo"
+        "--at", "--file", "--finding", "--analysis", "--relationship", "--repo"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 

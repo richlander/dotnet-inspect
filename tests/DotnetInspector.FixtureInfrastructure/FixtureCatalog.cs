@@ -70,6 +70,8 @@ public static class FixtureIds
         "metadata.methodimpl.fixtures";
     public const string MetadataPublicMethodRoots =
         "metadata.public-method-roots";
+    public const string MetadataVbInterfaceImplementations =
+        "metadata.vb-interface-implementations";
     public const string MetadataTypeDependencyConsumer =
         "metadata.type-dependency.consumer";
     public const string MetadataTypeDependencyReference =
@@ -78,6 +80,8 @@ public static class FixtureIds
     public const string DiffV2 = "diff.v2";
     public const string SourceDiffV1 = "source-diff.v1";
     public const string SourceDiffV2 = "source-diff.v2";
+    public const string QueriesIntrinsicCoreLibraryCalls =
+        "queries.intrinsic-core-library-calls";
     public const string CloneSearchMembers = "clone-search.members";
     public const string LibraryApiDiffV1 = "library-api-diff.v1";
     public const string LibraryApiDiffV2 = "library-api-diff.v2";
@@ -128,6 +132,8 @@ public static class FixtureIds
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
     public const string AnalysisSpoofSystemRuntime = "analysis.spoof.system-runtime";
     public const string AnalysisStringLiterals = "analysis.string-literals";
+    public const string AnalysisAllocationLifetime =
+        "analysis.allocation-lifetime";
     public const string AnalysisStringMaterialization =
         "analysis.string-materialization";
 
@@ -237,6 +243,14 @@ public static class FixtureCatalog
             "ILInspector.Metadata.PublicMethodRootFixtures.dll",
             Boundaries(FixtureBoundary.AssemblyIdentity),
             "metadata", "public-method-roots");
+
+    public static readonly FixtureDefinition MetadataVbInterfaceImplementations =
+        Fixture(
+            FixtureIds.MetadataVbInterfaceImplementations,
+            "ILInspector.Metadata.VbInterfaceImplementations",
+            "ILInspector.Metadata.VbInterfaceImplementations.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "metadata", "vb", "interface-implementation");
 
     public static readonly FixtureDefinition MetadataTypeDependencyConsumer =
         Fixture(
@@ -534,6 +548,14 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.AssemblyIdentity),
         "diff", "assembly-identity", "target");
 
+    public static readonly FixtureDefinition QueriesIntrinsicCoreLibraryCalls =
+        Fixture(
+            FixtureIds.QueriesIntrinsicCoreLibraryCalls,
+            "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures",
+            "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "queries", "call-graph", "intrinsic-core-library");
+
     public static readonly FixtureDefinition AnalysisCallerGraphCaller = Fixture(
         FixtureIds.AnalysisCallerGraphCaller,
         "ILInspector.Analysis.CallerGraphCaller",
@@ -652,6 +674,14 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "string-literals");
+
+    public static readonly FixtureDefinition
+        AnalysisAllocationLifetime = Fixture(
+            FixtureIds.AnalysisAllocationLifetime,
+            "ILInspector.Analysis.AllocationLifetimeFixtures",
+            "ILInspector.Analysis.AllocationLifetimeFixtures.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "analysis", "allocation-lifetime");
 
     public static readonly FixtureDefinition
         AnalysisStringMaterialization = Fixture(
@@ -1088,6 +1118,7 @@ public static class FixtureCatalog
         MetadataMethodImplContracts,
         MetadataMethodImplFixtures,
         MetadataPublicMethodRoots,
+        MetadataVbInterfaceImplementations,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
         InspectWebCloneTransport,
@@ -1112,6 +1143,7 @@ public static class FixtureCatalog
         DiffAsmLibA,
         DiffAsmLibB,
         DiffAsmTarget,
+        QueriesIntrinsicCoreLibraryCalls,
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
         AnalysisCallOverloads,
@@ -1131,6 +1163,7 @@ public static class FixtureCatalog
         AnalysisOverloadFamilyLens,
         AnalysisLocalThrows,
         AnalysisStringLiterals,
+        AnalysisAllocationLifetime,
         AnalysisStringMaterialization,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
@@ -1221,6 +1254,7 @@ public static class FixtureCatalog
             AnalysisCallGenericScope,
             AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
+            AnalysisAllocationLifetime,
             AnalysisStringMaterialization,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
@@ -1518,6 +1552,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.MethodImplFixtures",
             "ILInspector.Metadata.PublicMethodRootFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures",
+            "ILInspector.Metadata.VbInterfaceImplementations" =>
+                "fixtures/metadata/ILInspector.Metadata.VbInterfaceImplementations",
             "ILInspector.Metadata.TypeDependencyConsumer" =>
                 "fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer",
             "ILInspector.Metadata.TypeDependencyReference" =>
@@ -1539,6 +1575,8 @@ public static class FixtureCatalog
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
             "DotnetInspector.SourceDiff.V1" => "fixtures/queries/DotnetInspector.SourceDiff.V1",
             "DotnetInspector.SourceDiff.V2" => "fixtures/queries/DotnetInspector.SourceDiff.V2",
+            "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures" =>
+                "fixtures/queries/DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures",
             "DotnetInspector.CloneSearchFixtures" =>
                 "fixtures/queries/DotnetInspector.CloneSearchFixtures",
             "LibraryApiDiff.V1" => "fixtures/presentation/LibraryApiDiff.V1",
@@ -1563,6 +1601,7 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.InterfaceBase" => "fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase",
             "DotnetInspector.Services.RouteLearning.Middle" => "fixtures/services/DotnetInspector.Services.RouteLearning.Middle",
             "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
+            "ILInspector.Analysis.AllocationLifetimeFixtures" => "fixtures/analysis/ILInspector.Analysis.AllocationLifetimeFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",
             "ILInspector.Analysis.AsyncSiblingRepositoryFixture" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture",

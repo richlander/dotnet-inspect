@@ -8,7 +8,7 @@ realization asks a ranged read for**. It is a slice of
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
 
-The claim has four parts:
+The claim has five parts:
 
 - **Asset demand.** A House request carries an asset demand. `Surface` asks
   for the compile surface only: the reference or compile assets the
@@ -28,6 +28,10 @@ The claim has four parts:
   blocks of about 1 MB, derived from the archive alone, instead of whole
   folders. A large implementation folder, such as a runtime pack's 172
   assemblies, then costs the blocks an inspection actually names.
+- **Selected-Library companions are exact.** A compile realization that
+  returns selected Library handoffs may request the package-local Portable
+  PDB beside each selected implementation assembly. A listed companion is
+  added as one exact entry; an absent companion does not fail realization.
 - **Documents are named directly.** A document demand names exact entries or
   folders, such as the root `README.md` or a skill folder, and a ranged
   `Acquire` may carry it. Ranged content serves the House's pull reads.
@@ -216,6 +220,28 @@ Counting assemblies instead of bytes was measured and rejected. With
 8-assembly blocks, `System.Linq` reads 2.67 MB and `System.Collections`
 1.74 MB, because a large neighbour shares the block.
 
+### Selected-Library companion demand
+
+`PackageHouseRequest` may carry an optional selected-Library companion
+demand. It belongs only to a compile `Realize` request that asks for
+`SurfaceAndImplementation` assets and `SelectedLibraries` handoffs. The first
+companion is `ImplementationPortablePdb`: for each selected implementation
+assembly, the House derives the same-directory, same-stem `.pdb` path.
+
+If the package directory lists that path, the ranged selection adds it as an
+exact entry. It does not make the PDB a block anchor and does not widen the
+implementation assembly's aligned block. If the directory does not list the
+path, realization continues without it. Complete acquisition is unchanged
+because it already retains the whole archive.
+
+The demand changes neither compile asset selection nor API-to-implementation
+correspondence. PackageHouse does not validate Portable PDB format or
+identity and does not consult symbol servers; the selected-Library consumer
+owns those later decisions. A request without companion demand preserves the
+existing ranged plan exactly. An unnamed implementation realization already
+reads the implementation folder whole, so a listed adjacent PDB is already
+retained without an additional exact entry.
+
 ### Document demand
 
 A host that needs package documents rather than assets, such as the root
@@ -317,6 +343,9 @@ All gates run in Release.
 | 16. A Metadata history over a large package with a `ref/` folder | each version cell reads only its surface folder; findings identical to the complete path | `ConfiguredPayloadAcquisitionTests.DiffHistory_MetadataCells_ReadOnlyTheSurfaceFolderByRange`, real assets `Avalonia` 11.3.14 and 12.1.2 for net8.0: every span starts in `ref/net8.0` and crosses other entries only within the 64 KiB merge gap, and the spans read every entry of that folder |
 | 17. An Analysis history | each version cell reads its surface and implementation folders only; findings identical to the complete path | `ConfiguredPayloadAcquisitionTests.DiffHistory_AnalysisCells_ReadTheSurfaceAndImplementationFoldersByRange`, the same assets, `analysis.allocation` on `Button.OnClick`: `ref/net8.0` and `lib/net8.0` |
 | 18. The same history twice from a credential-free HTTP feed | the second makes no package request | case 16's gate; in Debug hosts, `DiffHistoryEvidenceEnvelope_RangedCellsRecordTheirReads` shows each cold cell's size probe, tail, and entry spans, and each warm cell's `EntryCache` path with no request |
+| 19. A named implementation Library requests its listed adjacent Portable PDB | the implementation DLL remains a block anchor, the PDB is retained as an exact entry, and its neighboring entry is not materialized | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandRetainsExactCompanion`, using the real `System.Text.Json` implementation assembly in a boundary archive |
+| 20. The requested adjacent Portable PDB is absent | realization and the selected Library handoff still settle without a PDB entry | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandAllowsAbsentCompanion` |
+| 21. A selected reference Library has no implementation counterpart | companion demand invents neither an implementation asset nor a PDB; the reference-only handoff settles | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandDoesNotInventImplementation` |
 
 ## Adoption
 

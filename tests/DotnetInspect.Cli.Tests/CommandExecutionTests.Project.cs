@@ -153,7 +153,7 @@ public partial class CommandExecutionTests
                 "--json");
             var count = await RunProjectFixtureAsync(
                 projectPath,
-                "-S",
+                "-S", "Skills",
                 "-n", "1", "--tail",
                 "--count");
             var paths = await RunProjectFixtureAsync(

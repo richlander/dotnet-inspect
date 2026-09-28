@@ -86,20 +86,12 @@ const string Usage =
       --annotation-parity <category> <expected-annotations.json> <actual-annotations.json> [--json]
           Compare annotation rows for one category (Allocation, Unsafety, Lifetime).
 
-      --leak-triage <file> [--top N] [--tsv | --jsonl]
-          Sweep the fail-closed ArrayPool leak-triage analyzer over a corpus (one assembly path
-          per line in <file>) and report where it fires: total findings, the shape histogram, and
-          example methods per assembly, as a Markout card. Default is Markdown; --tsv and --jsonl
-          select the tabular formats (--json is an alias for --jsonl). This is the evidence engine
-          for correctness-oriented #1992 work - the analyzer is precision-first, so an empty
-          findings card means recall is the next lever. --top bounds examples per assembly.
-
       --leak-actionability <file> [--top N] [--tsv | --jsonl]
           Report Analysis-owned `analysis.resource-lifecycle` findings by actionability (#2439):
           untrusted-actionable (an exact boundary reads/decodes/parses external input),
           trusted-low-actionability (only in-memory transforms), or unknown. The harness owns
           corpus orchestration and reporting, not boundary attribution or classification. Formats
-          match --leak-triage; --top bounds examples per class.
+          use the same tabular formats; --top bounds examples per class.
 
       --memorypool-lifecycle <file> [--top N] [--tsv | --jsonl]
           MemoryPool lifecycle census (#2439 Slice 3), measurement-only: find every
@@ -109,7 +101,7 @@ const string Usage =
           normal path), normal-path-leak-candidate (never disposed, never escapes),
           ownership-transfer-suppressed (returned/stored/passed onward), or
           incomplete-or-ambiguous-suppressed. Precision-first; changes no analyzer behavior.
-          Formats match --leak-triage; --top bounds examples per class.
+          Uses the same tabular formats; --top bounds examples per class.
 
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
@@ -167,7 +159,6 @@ string? allocationParityActual = null;
 string? annotationParityCategory = null;
 string? annotationParityExpected = null;
 string? annotationParityActual = null;
-string? leakTriageList = null;
 string? leakActionabilityList = null;
 string? memoryPoolLifecycleList = null;
 bool tsv = false;
@@ -407,14 +398,6 @@ for (int i = 0; i < args.Length; i++)
                 "--annotation-parity",
                 missingValueOptions);
             break;
-        case "--leak-triage":
-            selectedModes.Add("--leak-triage");
-            leakTriageList = NextRequiredValue(
-                args,
-                ref i,
-                "--leak-triage",
-                missingValueOptions);
-            break;
         case "--leak-actionability":
             selectedModes.Add("--leak-actionability");
             leakActionabilityList = NextRequiredValue(
@@ -589,7 +572,6 @@ if (topSpecified
     && !selectedModes.Contains("--caller-loop-census")
     && !selectedModes.Contains("--deferred-callback-census")
     && !selectedModes.Contains("--recursive-traversal-census")
-    && !selectedModes.Contains("--leak-triage")
     && !selectedModes.Contains("--leak-actionability")
     && !selectedModes.Contains("--memorypool-lifecycle"))
 {
@@ -609,14 +591,13 @@ if (keep && !selectedModes.Contains("--generated-fixtures"))
     return 2;
 }
 
-// --tsv/--jsonl are tabular-format selectors for the leak cards; other modes use --json.
+// --tsv/--jsonl are tabular-format selectors for lifecycle cards; other modes use --json.
 // Reject them elsewhere rather than silently accepting-and-ignoring them.
 if ((tsv || jsonl)
-    && !selectedModes.Contains("--leak-triage")
     && !selectedModes.Contains("--leak-actionability")
     && !selectedModes.Contains("--memorypool-lifecycle"))
 {
-    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage / --leak-actionability / --memorypool-lifecycle; other modes use --json.");
+    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-actionability / --memorypool-lifecycle; other modes use --json.");
     return 2;
 }
 
@@ -687,9 +668,6 @@ if (allocationParityExpected is not null)
 
 if (annotationParityExpected is not null)
     return RunAnnotationParity(annotationParityCategory ?? "", annotationParityExpected, annotationParityActual, json);
-
-if (leakTriageList is not null)
-    return RunLeakTriage(leakTriageList, top, tsv, jsonl || json);
 
 if (leakActionabilityList is not null)
     return RunLeakActionability(leakActionabilityList, top, tsv, jsonl || json);
@@ -1046,37 +1024,6 @@ static int RunRecursiveTraversalCensus(string corpusList, int maxDepth, int top,
     if (json)
         Console.WriteLine();
     return report.Failed == 0 ? 0 : 1;
-}
-
-static int RunLeakTriage(string corpusList, int top, bool tsv, bool jsonl)
-{
-    if (!File.Exists(corpusList))
-    {
-        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
-        return 2;
-    }
-
-    if (tsv && jsonl)
-    {
-        Console.Error.WriteLine("--tsv and --jsonl are mutually exclusive.");
-        return 2;
-    }
-
-    LeakTriageFormat format = jsonl ? LeakTriageFormat.Jsonl : tsv ? LeakTriageFormat.Tsv : LeakTriageFormat.Markdown;
-
-    var paths = File.ReadAllLines(corpusList)
-        .Select(line => line.Trim())
-        .Where(line => line.Length > 0 && !line.StartsWith('#'))
-        .ToList();
-    if (paths.Count == 0)
-    {
-        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
-        return 2;
-    }
-
-    var report = LeakTriageSensor.Measure(paths, examplesPerAssembly: top);
-    Console.Write(LeakTriageSensor.Format(report, top, format));
-    return 0;
 }
 
 static int RunLeakActionability(string corpusList, int top, bool tsv, bool jsonl)

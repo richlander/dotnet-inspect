@@ -323,6 +323,11 @@ Resolution has three outcomes:
    registration, or incomplete adopted-domain coverage, prevents publication
    of the catalog.
 
+A host facade may first probe whether an operand is an exact registered path
+without computing unknown-path suggestions. A miss from that probe is not an
+`Unknown` outcome: after the facade classifies the operand as an exact path, it
+invokes full resolution to obtain the bounded suggestions.
+
 A path-shaped value that resolves to several resources is an invalid registry,
 not a runtime ambiguity to rank.
 
@@ -551,6 +556,23 @@ become a query facet named `references`; a shared label establishes nothing.
 Output capabilities appear as typed direct facts. Explanation of a format's
 global behavior requires a separately owner-issued output-format descriptor;
 Resource Explanation does not infer it from the capability enum.
+
+### Analysis resources
+
+An analysis registered through
+[analysis participation registration](inspection-capability-composition.md#analysis-participation-registration)
+is an explainable product resource of kind Analysis:
+
+- **Path.** Its canonical path is `analyses/<analysis-id>`. The analysis
+  identity already satisfies the segment grammar and is reused unchanged. The
+  collection `analyses` lists every registered analysis.
+- **Relationships.** Its typed relationships name each operation and report
+  surface it takes part in, and the Finding descriptors it issues there.
+- **Facts.** Its descriptive facts come from the owner-issued analysis
+  descriptor.
+
+Resource Explanation does not infer an analysis from a section, a Finding
+descriptor, or a CLI spelling.
 
 ### Query resources
 

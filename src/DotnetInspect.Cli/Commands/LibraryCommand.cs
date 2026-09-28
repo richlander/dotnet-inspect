@@ -961,6 +961,8 @@ public partial class LibraryCommand
             discoveryInspection && !fullEffectiveDiscovery
                 ? false
                 : options.FixedOverview);
+        bool wantsLibraryDocument =
+            LibraryMetadataService.WantsLibraryDocument(sectionPlan, options);
         bool wantsEcosystemDependencies =
             sectionPlan.Demands.Any(
                 static demand =>
@@ -1143,7 +1145,8 @@ public partial class LibraryCommand
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
-                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace,
+                    readLibraryDocument: wantsLibraryDocument);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {resolvedPath}");
@@ -1390,7 +1393,7 @@ public partial class LibraryCommand
                     extractPath, context.HttpClient, signatureResult,
                     queryPlan, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace,
-                    subjectSelections);
+                    subjectSelections, wantsLibraryDocument);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
                 int descriptorSelectionExitCode =
@@ -1661,7 +1664,8 @@ public partial class LibraryCommand
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
-                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace,
+                    readLibraryDocument: wantsLibraryDocument);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {assemblyPath}");
@@ -4372,7 +4376,8 @@ public partial class LibraryCommand
         AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null,
         IReadOnlyList<LibraryInspectionSubjectSelection>?
-            subjectSelections = null)
+            subjectSelections = null,
+        bool readLibraryDocument = true)
     {
         List<LibraryInspection> inspections = [];
         List<LibraryInspectionSubject> subjects = [];
@@ -4434,7 +4439,8 @@ public partial class LibraryCommand
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(targetPath),
                     discoveryOnly: discoveryOnly,
-                    trace: trace);
+                    trace: trace,
+                    readLibraryDocument: readLibraryDocument);
             }
             catch (
                 LibraryMetadataService
@@ -4685,7 +4691,7 @@ public partial class LibraryCommand
         return new(payload, null);
     }
 
-    private static string? GetToolPayloadPackageId(string extractPath, string? packageName)
+    internal static string? GetToolPayloadPackageId(string extractPath, string? packageName)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
         if (Directory.Exists(toolsDir))
