@@ -553,6 +553,19 @@ export interface BrowserPackageChangesDocument {
   readonly summary: BrowserPackageChangesSummary;
 }
 
+export interface BrowserPackageChangesEcosystemCatalog {
+  readonly version: number;
+  readonly ecosystems: ReadonlyArray<BrowserPackageChangesEcosystemDescriptor>;
+}
+
+export interface BrowserPackageChangesEcosystemDescriptor {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly order: number;
+  readonly prefixes: ReadonlyArray<string>;
+}
+
 export interface BrowserPackageChangesFailure {
   readonly provider: string;
   readonly catalogFailure: BrowserPackageChangesPackageSourceFailure | null;
@@ -574,20 +587,7 @@ export interface BrowserPackageChangesPackageReceipt {
 export interface BrowserPackageChangesPackageScope {
   readonly kind: string;
   readonly selectionId: string | null;
-  readonly prefix: string | null;
-  readonly packageIds: ReadonlyArray<string>;
-}
-
-export interface BrowserPackageChangesPackageSetCatalog {
-  readonly version: number;
-  readonly packageSets: ReadonlyArray<BrowserPackageChangesPackageSetDescriptor>;
-}
-
-export interface BrowserPackageChangesPackageSetDescriptor {
-  readonly id: string;
-  readonly title: string;
-  readonly summary: string;
-  readonly order: number;
+  readonly prefixes: ReadonlyArray<string>;
 }
 
 export interface BrowserPackageChangesPackageSourceFailure {
@@ -614,7 +614,7 @@ export interface BrowserPackageChangesReceiptFailure {
 }
 
 export interface BrowserPackageChangesRequest {
-  readonly packageSetId: string;
+  readonly ecosystemId: string;
   readonly fromExclusive: string | null;
   readonly throughInclusive: string | null;
   readonly securityOnly: boolean;
@@ -1418,7 +1418,7 @@ type $ManagedExports = {
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
-            readonly "ListPackageActivityPackageSets.1310674786": () => string;
+            readonly "ListPackageActivityEcosystems.1310674786": () => string;
             readonly "ListPackageQueryCatalog.1310674786": () => string;
             readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "LoadRuntimePackAssembly.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string) => Promise<string>;
@@ -1593,9 +1593,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "ListPackageActivityPackageSets.1310674786");
+    value = $ownDataProperty(value, "ListPackageActivityEcosystems.1310674786");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageActivityPackageSets.1310674786\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListPackageActivityEcosystems.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -1959,10 +1959,10 @@ export async function getPlatformVersions(targetFramework: string): Promise<Read
   return $parsed as ReadonlyArray<string>;
 }
 
-export function listPackageActivityPackageSets(): BrowserPackageChangesPackageSetCatalog {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageActivityPackageSets.1310674786"]();
+export function listPackageActivityEcosystems(): BrowserPackageChangesEcosystemCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListPackageActivityEcosystems.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserPackageChangesPackageSetCatalog;
+  return $parsed as BrowserPackageChangesEcosystemCatalog;
 }
 
 export function listPackageQueryCatalog(): BrowserPackageQueryCatalog {
