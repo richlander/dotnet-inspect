@@ -294,8 +294,9 @@ Breaking under CLI change classification:
   core packages since retirement slice 3);
 - `--ecosystem` changes from inert registration to a selector: it now
   suppresses the default and adds the Ecosystem's named populations, so
-  `find Foo --ecosystem ecosystem.aspire` searches `Aspire.Hosting` instead of
-  the three frameworks. It also accepts short names;
+  `find Foo --ecosystem ecosystem.aspire` searches Aspire's core packages
+  (`Aspire.Hosting`, `Aspire.Hosting.Testing`) instead of the three
+  frameworks. It also accepts short names;
 - bare `--platform` means the platform Workspace instead of three frameworks;
 - `--platform runtime[@<version>]` and `--platform aspnetcore[@<version>]`
   select Ecosystems instead of a Library of that name, and

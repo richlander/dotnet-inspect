@@ -11,8 +11,8 @@
 #                       new user (fresh HOME), which acquires .NET Standard
 #   platform-remote     default scope, empty DOTNET_ROOT (Browser/Wasm-like):
 #                       ref packs are acquired from nuget.org
-#   core-packages       the platform Workspace plan's current core packages,
-#                       by name, with no platform
+#   core-packages       the platform Workspace plan's former core packages
+#                       (before #8818), by name, with no platform
 #   package-sets        --platform --extensions --aspnetcore: the platform
 #                       frameworks plus both shipped package sets
 #   package-named       --package Avalonia@12.1.3 --tfm net10.0
