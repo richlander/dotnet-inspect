@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -368,6 +369,78 @@ public sealed class MetadataLibrarySignatureUseTests
             static type => type.Name.Segments is ["Owner"]);
     }
 
+    [Theory]
+    [InlineData(TableIndex.Event)]
+    [InlineData(TableIndex.GenericParamConstraint)]
+    public void MalformedRelationshipRowRetainsHealthyEvidence(
+        TableIndex table)
+    {
+        byte[] image = BuildMalformedRelationshipRowImage(table);
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(
+            new(
+                considered: 2,
+                examined: 1,
+                unavailable: 1,
+                limited: 0),
+            result.Coverage);
+        MetadataLibrarySignatureUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(
+            MetadataLibrarySignatureUseSiteKind.FieldType,
+            occurrence.SiteKind);
+        Assert.Equal(
+            MetadataLibrarySignatureUseDiagnosticKind.MalformedMetadata,
+            Assert.Single(result.Diagnostics).Kind);
+    }
+
+    [Fact]
+    public void ForeignCoreLookalikesDoNotProducePositiveClassification()
+    {
+        byte[] image = BuildForeignCoreLookalikeImage();
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Complete,
+            result.Disposition);
+        MetadataLibrarySignatureType foreignEnum =
+            Type(result, "ForeignEnum");
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Enum,
+            foreignEnum.DefinitionKind);
+        Assert.Equal(
+            MetadataLibraryTypeClassification.None,
+            foreignEnum.Classification);
+        MetadataLibrarySignatureType foreignDelegate =
+            Type(result, "ForeignDelegate");
+        Assert.Equal(
+            AssemblyTypeDefinitionKind.Delegate,
+            foreignDelegate.DefinitionKind);
+        Assert.Equal(
+            MetadataLibraryTypeClassification.None,
+            foreignDelegate.Classification);
+    }
+
     [Fact]
     public void DuplicateExactTypeNameRejectsPopulation()
     {
@@ -453,8 +526,8 @@ public sealed class MetadataLibrarySignatureUseTests
         string path = Path.Combine(
             AppContext.BaseDirectory,
             "PinnedArtifacts",
-            "runtime",
-            "System.Text.Json.dll");
+            "packages",
+            "System.Text.Json.10.0.0.dll");
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(path);
 
@@ -467,6 +540,16 @@ public sealed class MetadataLibrarySignatureUseTests
         Assert.Equal(
             MetadataLibrarySignatureUseDisposition.Complete,
             result.Disposition);
+        Assert.Equal(
+            "System.Text.Json",
+            result.Receipt.Assembly.Name);
+        Assert.Equal(
+            new Version(10, 0, 0, 0),
+            result.Receipt.Assembly.Version);
+        Assert.Equal(
+            "cc7b13ffcd2ddd51",
+            result.Receipt.Assembly.PublicKeyToken,
+            ignoreCase: true);
         Assert.True(result.Types.Length > 100);
         Assert.True(result.Occurrences.Length > 1_000);
         Assert.Contains(
@@ -630,6 +713,116 @@ public sealed class MetadataLibrarySignatureUseTests
             metadata,
             "ForeignSameDisplay",
             sameDisplayExternal);
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildMalformedRelationshipRowImage(
+        TableIndex table)
+    {
+        var metadata = CreateMetadata("MalformedRelationship");
+        AddModuleType(metadata);
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        AddTypeField(metadata, "Healthy", target);
+        if (table == TableIndex.Event)
+        {
+            EventDefinitionHandle @event =
+                metadata.AddEvent(
+                    EventAttributes.None,
+                    metadata.GetOrAddString("Broken"),
+                    target);
+            metadata.AddEventMap(owner, @event);
+        }
+        else
+        {
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    owner,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    index: 0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                target);
+        }
+
+        byte[] image = Serialize(metadata);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        int rowSize = reader.GetTableRowSize(table);
+        int codedIndexSize =
+            new[]
+            {
+                reader.GetTableRowCount(TableIndex.TypeDef),
+                reader.GetTableRowCount(TableIndex.TypeRef),
+                reader.GetTableRowCount(TableIndex.TypeSpec),
+            }.Max() < (1 << 14)
+                ? sizeof(ushort)
+                : sizeof(uint);
+        Assert.Equal(sizeof(ushort), codedIndexSize);
+        int codedIndexOffset =
+            pe.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(table)
+            + rowSize
+            - codedIndexSize;
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(codedIndexOffset, codedIndexSize),
+            0x0007);
+        return image;
+    }
+
+    private static byte[] BuildForeignCoreLookalikeImage()
+    {
+        var metadata = CreateMetadata("ForeignCoreLookalikes");
+        AddModuleType(metadata);
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("OrdinaryDependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle foreignEnum =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Enum"));
+        TypeReferenceHandle foreignDelegate =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("MulticastDelegate"));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString(
+                "ILInspector.Metadata.SignatureUseFixtures"),
+            metadata.GetOrAddString("ForeignEnum"),
+            foreignEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString(
+                "ILInspector.Metadata.SignatureUseFixtures"),
+            metadata.GetOrAddString("ForeignDelegate"),
+            foreignDelegate,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
         return Serialize(metadata);
     }
 

@@ -303,8 +303,8 @@ internal static class MetadataLibrarySignatureUseInspection
                     declaration.Name,
                     definitionKind,
                     InitialClassification(
+                        handle,
                         declaration.Name,
-                        definitionKind,
                         isCoreLibrary));
                 if (!_typesByName.TryAdd(entry.Name, entry))
                 {
@@ -675,13 +675,19 @@ internal static class MetadataLibrarySignatureUseInspection
                 foreach (EventDefinitionHandle eventHandle
                     in definition.GetEvents())
                 {
-                    EventDefinition @event =
-                        _reader.GetEventDefinition(eventHandle);
-                    ScanEntitySite(
+                    ScanSite(
                         source,
-                        @event.Type,
-                        MetadataLibrarySignatureUseSiteKind.EventType,
-                        MetadataTokens.GetToken(eventHandle));
+                        MetadataTokens.GetToken(eventHandle),
+                        (pending, provider) =>
+                        {
+                            EventDefinition @event =
+                                _reader.GetEventDefinition(eventHandle);
+                            Collect(
+                                DecodeEntity(@event.Type, provider),
+                                MetadataLibrarySignatureUseSiteKind
+                                    .EventType,
+                                pending);
+                        });
                 }
 
                 foreach (MethodDefinitionHandle methodHandle
@@ -744,14 +750,21 @@ internal static class MetadataLibrarySignatureUseInspection
                 {
                     if (_limited)
                         return;
-                    GenericParameterConstraint constraint =
-                        _reader.GetGenericParameterConstraint(
-                            constraintHandle);
-                    ScanEntitySite(
+                    ScanSite(
                         source,
-                        constraint.Type,
-                        kind,
-                        MetadataTokens.GetToken(constraintHandle));
+                        MetadataTokens.GetToken(constraintHandle),
+                        (pending, provider) =>
+                        {
+                            GenericParameterConstraint constraint =
+                                _reader.GetGenericParameterConstraint(
+                                    constraintHandle);
+                            Collect(
+                                DecodeEntity(
+                                    constraint.Type,
+                                    provider),
+                                kind,
+                                pending);
+                        });
                 }
             }
         }
@@ -1029,21 +1042,26 @@ internal static class MetadataLibrarySignatureUseInspection
             provider.ObserveGuard(measurements);
         }
 
-        private static MetadataLibraryTypeClassification
+        private MetadataLibraryTypeClassification
             InitialClassification(
+                TypeDefinitionHandle handle,
                 MetadataTypeDefinitionName name,
-                AssemblyTypeDefinitionKind kind,
                 bool isCoreLibrary)
         {
             MetadataLibraryTypeClassification classification =
-                kind switch
-                {
-                    AssemblyTypeDefinitionKind.Enum =>
-                        MetadataLibraryTypeClassification.Enum,
-                    AssemblyTypeDefinitionKind.Delegate =>
-                        MetadataLibraryTypeClassification.Delegate,
-                    _ => MetadataLibraryTypeClassification.None,
-                };
+                AuthenticatesCoreBase(
+                    handle,
+                    isCoreLibrary,
+                    "Enum")
+                        ? MetadataLibraryTypeClassification.Enum
+                        : AuthenticatesCoreBase(
+                            handle,
+                            isCoreLibrary,
+                            "Delegate",
+                            "MulticastDelegate")
+                                ? MetadataLibraryTypeClassification
+                                    .Delegate
+                                : MetadataLibraryTypeClassification.None;
             if (isCoreLibrary
                 && IsTopLevelSystemType(
                     name,
@@ -1059,6 +1077,37 @@ internal static class MetadataLibrarySignatureUseInspection
             if (isCoreLibrary)
                 classification |= CoreBaseClassification(name);
             return classification;
+        }
+
+        private bool AuthenticatesCoreBase(
+            TypeDefinitionHandle handle,
+            bool isCoreLibrary,
+            params string[] names)
+        {
+            EntityHandle baseType =
+                _reader.GetTypeDefinition(handle).BaseType;
+            if (baseType.IsNil)
+                return false;
+            if (baseType.Kind == HandleKind.TypeDefinition)
+            {
+                return isCoreLibrary
+                    && IsTopLevelSystemType(
+                        ReadName((TypeDefinitionHandle)baseType),
+                        names);
+            }
+            if (baseType.Kind != HandleKind.TypeReference)
+                return false;
+
+            TypeReferenceHandle referenceHandle =
+                (TypeReferenceHandle)baseType;
+            TypeReference reference =
+                _reader.GetTypeReference(referenceHandle);
+            return ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                    _reader,
+                    reference.ResolutionScope)
+                && IsTopLevelSystemType(
+                    ReadName(referenceHandle),
+                    names);
         }
 
         private static MetadataLibraryTypeClassification

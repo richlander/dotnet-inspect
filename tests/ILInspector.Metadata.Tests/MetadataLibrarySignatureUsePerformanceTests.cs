@@ -19,8 +19,8 @@ public sealed class MetadataLibrarySignatureUsePerformanceTests(
                 "System.Text.Json",
                 Path.Combine(
                     artifacts,
-                    "runtime",
-                    "System.Text.Json.dll")),
+                    "packages",
+                    "System.Text.Json.10.0.0.dll")),
             Measure(
                 "System.Private.CoreLib",
                 Path.Combine(
@@ -72,6 +72,19 @@ public sealed class MetadataLibrarySignatureUsePerformanceTests(
         Assert.Equal(
             MetadataLibrarySignatureUseDisposition.Complete,
             after.Disposition);
+        if (asset == "System.Text.Json")
+        {
+            Assert.Equal(
+                "System.Text.Json",
+                after.Receipt.Assembly.Name);
+            Assert.Equal(
+                new Version(10, 0, 0, 0),
+                after.Receipt.Assembly.Version);
+            Assert.Equal(
+                "cc7b13ffcd2ddd51",
+                after.Receipt.Assembly.PublicKeyToken,
+                ignoreCase: true);
+        }
 
         for (int index = 0; index < 2; index++)
         {
@@ -189,11 +202,17 @@ public sealed class MetadataLibrarySignatureUsePerformanceTests(
             session.LibrarySignatureUses(
                 new(MetadataOperationPolicy.Unbounded),
                 cancellationToken);
-        return outcome
-            is MetadataLibrarySignatureUseOutcome.Available available
-                ? available.Result
-                : throw new InvalidOperationException(
-                    "The product route rejected a reference asset.");
+        return outcome switch
+        {
+            MetadataLibrarySignatureUseOutcome.Available available =>
+                available.Result,
+            MetadataLibrarySignatureUseOutcome.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"The product route rejected a reference asset: "
+                    + $"{rejected.Kind}: {rejected.Detail}"),
+            _ => throw new InvalidOperationException(
+                "The product route returned an unknown outcome."),
+        };
     }
 
     private static double Median(double[] values)
