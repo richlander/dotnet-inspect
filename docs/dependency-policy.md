@@ -116,6 +116,10 @@ The checked-in rules provide full gate coverage for these dependency claims:
    Instructions, Analysis, ILDiff, Decompiler, SourceLink, Research,
    JavaScript-export, and TypeScript-generation components stay within their
    explicit allowed sets.
+5. The Inspect Web executable depends directly only on the .NET platform,
+   `TsJsExport.Contracts`, Web Core, and the declared capability facade
+   assemblies. Core and facade implementation boundaries remain separate
+   staged claims.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing
