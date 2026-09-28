@@ -95,7 +95,7 @@ and remain bounded by their own candidate limits and source page limits
 | [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; prefix-shaped and curated Ecosystems; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes removed |
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends`; `--ecosystem` is the replacement selector |
-| [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's recorded prefixes only; its evidence basis reads "package prefix" |
+| [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
 | [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | `package activity --ecosystem` and the Browser picker scope by the Ecosystem's prefixes through the existing `PackagePrefix` selection |
 | [Workspace definitions](workspace-definitions.md) | No contract change. Packet format 3 carries each Ecosystem declaration inline; the Ecosystem slice verifies that a packet naming `ecosystem.azure` still restores or fails visibly |
 
@@ -108,9 +108,11 @@ amends its owner's document with its code.
 2. **Ecosystem data.** Remove Azure; replace the AI core and remove its
    prefixes; add the core bound to pack validation with a boundary test at
    twelve and thirteen entries.
-3. **`depends-ecosystem=`.** Prefix-only matching; results are unchanged
+3. **`depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
+   its recorded prefixes. For prefix-shaped Ecosystems results are unchanged,
    because every set member already matches its pack's prefix, and only the
-   evidence basis changes.
+   evidence basis for former set members changes. A curated Ecosystem such as
+   AI matches its core, which its removed prefixes previously covered.
 4. **Package activity.** CLI and Browser adopt prefix scope; the Browser
    picker lists Ecosystems instead of package sets.
 5. **Search flags.** Remove `--extensions` and `--aspnetcore`; suggest the
