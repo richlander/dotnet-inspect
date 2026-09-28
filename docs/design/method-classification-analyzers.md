@@ -179,11 +179,12 @@ the queries only.
    LibraryInfo counts. Each migrated consumer drops its read of the combined
    `ClassifiedMethodsQuery` result, and `ApplyClassifiedMethodsResult` loses
    its filtering, sorting, and projection.
-2. **Browser/Wasm.** The browser has no consumer today, and
-   `MethodClassificationScanner` is on its deny list. When a browser consumer
-   is designed, it binds the same queries, the same way the CLI does. That is
-   binding, not porting: the browser needs no analyzer, gate, merge, or order
-   logic of its own.
+2. **Browser/Wasm.** The browser has no consumer of these sections today.
+   Under the layering, the browser reaches inspection only through
+   host-neutral product queries that return `InspectionEnvelope<T>`. A future
+   browser consumer binds the analyzer queries above, the same way the CLI
+   does. That is binding, not porting: the browser needs no analyzer, gate,
+   merge, or order logic of its own.
 3. **Retirement.** When no consumer reads the combined result,
    `ClassifiedMethodsQuery`, `AssemblyInspectionSession.ClassifiedMethods`, and
    `MethodClassificationScanner.Scan` are removed. `ClassifyAsyncMethod` stays,
@@ -247,6 +248,8 @@ work, tracked in #8733, and not part of this change.
 
   The first keeps the operator's "Count is budget-free" property.
 - **Browser scope.** The design adopts on the CLI only, because the browser
-  has no consumer. Later browser adoption is binding the same host-neutral
-  queries, so deferring it carries no porting cost. Narrowing shared substrate
+  has no consumer of these sections. The browser reaches inspection only
+  through host-neutral product queries returning `InspectionEnvelope<T>`, so
+  later browser adoption binds the same analyzer queries, and deferring it
+  carries no porting cost. Narrowing shared substrate
   to the CLI still needs explicit approval.
