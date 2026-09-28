@@ -84,10 +84,14 @@ public static class ResourceExplanationCommand
                     .. PackageFileInventoryCapabilityResourcePaths.Create(
                         packageFilesCapabilityCatalog),
                 ]);
+        ResourceExplanationCatalog analysisExplanation =
+            ResourceExplanationCatalog.CreateAnalyses(
+                DiffAnalysisCommandCapability.Catalog);
         ResourceExplanationCatalog catalog =
             ResourceExplanationCatalog.Combine(
                 structuralCatalog,
-                capabilityExplanation);
+                capabilityExplanation,
+                analysisExplanation);
         string normalizedOperand = operand.Trim();
         ResourcePath.TryCreate(
             normalizedOperand,
