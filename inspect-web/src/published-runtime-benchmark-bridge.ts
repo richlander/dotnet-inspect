@@ -1,7 +1,10 @@
 import type { EngineClient } from "./engine-client.ts";
 
 type BenchmarkHost = Pick<EngineClient["host"], "buildIdentity">;
-type BenchmarkPackage = Pick<EngineClient["package"], "queryPackage">;
+type BenchmarkPackage = Pick<
+  EngineClient["package"],
+  "queryPackage" | "loadRuntimePack"
+>;
 type BenchmarkAnalysis = Pick<
   EngineClient["analysis"],
   "queryMemberFacts" | "queryPackagePerformance"
@@ -37,6 +40,7 @@ export function createPublishedRuntimeBenchmarkBridge(
     },
     package: {
       queryPackage: client.package.queryPackage,
+      loadRuntimePack: client.package.loadRuntimePack,
     },
     analysis: {
       queryMemberFacts: client.analysis.queryMemberFacts,

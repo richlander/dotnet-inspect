@@ -341,12 +341,10 @@ internal static class BrowserSurfaceProjection
             member.Name,
             member.Kind,
             member.Signature ?? member.Name,
-            member.Kind switch
-            {
-                "explicit-interface-implementation" => "private",
-                "finalizer" => "protected",
-                _ => member.Accessibility ?? "public",
-            },
+            // The Metadata owner's effective accessibility: an explicit
+            // implementation takes its interface's bucket and a finalizer is
+            // protected (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+            member.Accessibility ?? "public",
             member.IsStatic,
             member.IsUnsafe,
             member.IsVirtual,

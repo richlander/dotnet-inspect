@@ -97,14 +97,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryAndPackage_MultiSectionCount_RejectTreePresentation()
+    public async Task LibraryAndPackage_MultiSectionCount_RejectInvalidTreeRequests()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
                 "library", "System.Text.Json",
-                "-S", "References,Signals",
+                "-S", "References,Library Info",
                 "--count", "--tree", "--tips", "q");
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
@@ -113,10 +113,14 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
-            Assert.Contains("exactly", libraryError);
+            Assert.Contains(
+                $"Section '{SectionNames.LibraryInfo}' is scalar",
+                libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
-            Assert.Contains("exactly", packageError);
+            Assert.Contains(
+                "--tree requires exactly '-S \"Dependency Hierarchy\"'",
+                packageError);
         }
         finally
         {
@@ -1054,7 +1058,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Assembly_CountWithDefaultScalarSection_Errors()
+    public async Task Assembly_DefaultScalarSection_RejectsCount()
     {
         var options = new LibraryOptions
         {

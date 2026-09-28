@@ -95,8 +95,10 @@ The intent does not name or construct a candidate population. In the current
 four CLI search commands, an empty declaration continues to contribute only
 the platform frameworks below. New Find and Relations consumers tracked by
 [#6761](https://github.com/richlander/dotnet-inspect/issues/6761) will map
-`Broad` to their all-known ecosystem Workspace plan in their separately owned
-host-adoption slices. Existing commands do not change behavior merely because
+`Broad` to an Ecosystem Workspace plan in their separately owned
+host-adoption slices. [Find Workspace scope](find-workspace-scope.md) is
+Find's slice; it chooses the platform Workspace plan rather than the
+all-known plan. Existing commands do not change behavior merely because
 the normalized result now exposes this intent.
 
 With an empty source declaration, the normalizer returns no package sources

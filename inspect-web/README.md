@@ -57,7 +57,13 @@ project layering cannot express: raw platform PE/metadata decoding and runtime
 assembly loading or activation. `Directory.Build.targets` escalates `RS0030`
 to an error.
 
-Web Core and the capability facades still use the broader
+The `inspect-web-call-graph-facade-stays-at-capability-boundary` rule similarly
+limits `DotnetInspect.Web.Interop.CallGraph` to the .NET platform, Web Core,
+Queries, and Sections in both graphs. Its project references declare that same
+set rather than relying on transitive access or retaining unused low-level
+projects, and it shares the narrow platform-hazard analyzer input.
+
+Web Core and the remaining capability facades still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
 boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both evaluated
 analyzer inputs and resolves every complete banned documentation ID, including
@@ -1265,7 +1271,7 @@ the main thread.
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
 results for build identity, vocabulary, home demos, Package Query facets, and
-the product-issued Package Activity package-set catalog.
+the product-issued Package Activity Ecosystem catalog.
 Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
@@ -1473,9 +1479,10 @@ outside this gesture.
 
 The routed `/activity` surface is the Browser's Package Activity entry beside
 `/query`; neither route renders the retired Packages/Activity peer selector.
-Package Activity discovers product-owned package sets from the managed startup
-catalog, submits the default 42-day interval or one validated paired UTC
-interval, and streams the existing `package-changes` Worker operation. That
+Package Activity discovers product Ecosystems and their recorded package
+prefixes from the managed startup catalog, submits the selected Ecosystem with
+the default 42-day interval or one validated paired UTC interval, and streams
+the existing `package-changes` Worker operation. That
 operation name, the same-origin bridge path, and the
 `BrowserPackageChanges*` wire records remain stable internal identifiers. Its
 bounded row window renders typed current-advisory, fixed-version, receipt,

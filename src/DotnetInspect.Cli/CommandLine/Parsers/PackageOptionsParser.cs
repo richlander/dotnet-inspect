@@ -325,6 +325,14 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsSemanticRowPopulation =
+            selectsVersionPopulation
+            || selectsSourceLinkFiles
+            || selectsPackageFiles
+            || selectsPackageLayout
+            || selectsPackageTfms
+            || selectsEcosystemDependencies
+            || selectsCloneCandidateRows;
         RowSelectionIntent<string>? versionRowSelection = null;
         if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -409,17 +417,9 @@ public static class PackageOptionsParser
                 cloneCandidateRowSelectionError!);
         }
 
-        bool selectsGenericPackageSection =
-            !selectsVersionPopulation
-            && !selectsSourceLinkFiles
-            && !selectsPackageFiles
-            && !selectsPackageLayout
-            && !selectsPackageTfms
-            && !selectsCloneCandidateRows
-            && !selectsEcosystemDependencies;
         RowSelectionIntent<string>? packageSectionRowSelection = null;
         int? legacyHierarchyWindowStageIndex = null;
-        if (selectsGenericPackageSection || selectsDependencyQuery)
+        if (!selectsSemanticRowPopulation || selectsDependencyQuery)
         {
             if (!CliRowSelectionCommandRegistry
                     .TryGetPreparedSemanticIntent(
@@ -574,13 +574,7 @@ public static class PackageOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             EnvelopeOutput = parseResult.GetValue(opts.Envelope),
-            Rows = selectsVersionPopulation
-                || selectsSourceLinkFiles
-                || selectsPackageFiles
-                || selectsPackageLayout
-                || selectsPackageTfms
-                || selectsEcosystemDependencies
-                || selectsCloneCandidateRows
+            Rows = selectsSemanticRowPopulation
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)

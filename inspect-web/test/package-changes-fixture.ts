@@ -93,7 +93,7 @@ export function inspection(
 ): BrowserPackageChangesInspection {
   return {
     content: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       request: {
         referenceTime: dateTimeOffsetString(
           "2026-04-01T00:00:00+00:00"),
@@ -103,10 +103,9 @@ export function inspection(
           "2026-04-01T00:00:00+00:00"),
         usedDefaultInterval: true,
         packageScope: {
-          kind: "PackageSet",
-          selectionId: "package-set.example",
-          prefix: null,
-          packageIds: ["Example.Package"],
+          kind: "PackagePrefix",
+          selectionId: "ecosystem.example",
+          prefixes: ["Example."],
         },
         securitySelection: "AllActivity",
         maximumRows: 100,
