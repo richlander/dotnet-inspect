@@ -106,6 +106,37 @@ public class SignatureBlobGuardTests
         Assert.True(GuardMethodSig(sig));
     }
 
+    [Theory]
+    [InlineData(0x00, SignatureBlobGuard.Kind.Method)]
+    [InlineData(0x08, SignatureBlobGuard.Kind.Property)]
+    public void BulkNodeReservationReportsActualAttemptedCharge(
+        byte header,
+        SignatureBlobGuard.Kind kind)
+    {
+        const int parameterCount = 70_000;
+        var signature = new BlobBuilder();
+        signature.WriteByte(header);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        signature.WriteBytes(I4, parameterCount);
+        var (reader, handle) = BuildStandaloneSig(signature);
+
+        SignatureBlobGuard.CompleteValidationResult result =
+            SignatureBlobGuard.ValidateCompleteDetailed(
+                reader,
+                reader.GetStandaloneSignature(handle).Signature,
+                kind,
+                out _);
+
+        Assert.Equal(
+            SignatureBlobGuard.CompleteValidationKind.NodeBudgetExceeded,
+            result.Kind);
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxSignatureTypeNodes,
+            result.BudgetLimit);
+        Assert.Equal(parameterCount + 1, result.AttemptedCharge);
+    }
+
     [Fact]
     public void CompleteMethodSignature_RejectsTruncationAndTrailingBytes()
     {
