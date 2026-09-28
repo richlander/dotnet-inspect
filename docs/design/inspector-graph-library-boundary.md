@@ -191,10 +191,10 @@ A separately compiled fixture:
    preservation.
 
 `Inspector.Graph` processes only the supplied structure. The application owns
-how every value was discovered or calculated. The fixture proves that the
-carrier needs neither a dotnet-inspect identity nor a marker interface on
-consumer values; it does not establish the later provider or execution
-contract.
+how every value was discovered or calculated. The independently compiled
+fixture proves that the carrier and closed-document reference execution need
+neither a dotnet-inspect identity nor a marker interface on consumer values;
+it does not establish the later provider-backed execution contract.
 
 ## Structural document
 

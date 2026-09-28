@@ -43,6 +43,7 @@
   --heat-c1: 0.055;
   --heat-h: 68;
   --hub-strip: oklch(0.80 0.13 72);
+  --overload-family: #c6a6ff;
   --heat-cue-progress: #8ebb76;
   --heat-cue-problem: #e06c6c;
   --graph-target-fill: #311a7f;
@@ -121,6 +122,7 @@
   --heat-c1: 0.055;
   --heat-h: 72;
   --hub-strip: oklch(0.62 0.14 62);
+  --overload-family: #6a3fc8;
   --heat-cue-progress: #3f7d2c;
   --heat-cue-problem: #b3261e;
   --bg: #ffffff;
@@ -1152,6 +1154,10 @@ kbd {
   width: 3px;
   background: var(--hub-strip);
 }
+/* An overload family's name and count: its own hue, apart from heat's tint
+   and the heat-status cue tokens. The count keeps it from relying on color. */
+.member-row .family-name,
+.member-row .family-count { color: var(--overload-family); }
 .member-row .family-heat-cue { color: var(--dim); }
 .member-row .family-heat-cue.progress { color: var(--heat-cue-progress); }
 .member-row .family-heat-cue.problem { color: var(--heat-cue-problem); }

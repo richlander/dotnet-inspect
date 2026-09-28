@@ -157,6 +157,7 @@ public static partial class ApiSurfaceExtractor
             null)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+        var interfaceImplementations = GetInterfaceImplementations(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
         bool isEnum = IsEnum(reader, typeDef);
 
@@ -166,8 +167,10 @@ public static partial class ApiSurfaceExtractor
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
             bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
             if (!AdmitsMethodAccess(
-                    methodAccess,
-                    isExplicitImplementation,
+                    MethodEffectiveAccess(
+                        methodAccess,
+                        methodHandle,
+                        interfaceImplementations),
                     includeAll: false))
             {
                 continue;
