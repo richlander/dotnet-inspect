@@ -31,9 +31,9 @@ from its roots. This map does not add or change traversal.
   prefix, so the set duplicates what prefix query can discover.
 - **Outside the cost envelope.** Sets hold 44, 53, and 82 packages. The
   [Find Workspace scope evidence](https://github.com/richlander/dotnet-inspect/pull/8750)
-  measured 22.3 s and 157 MB cold for the Extensions and ASP.NET Core sets
-  together, against about 1.1 s and 7 MB cold for the five core packages
-  those two Ecosystems registered before this change.
+  measured 14.4 s and 157 MB cold (cache written) for the Extensions and
+  ASP.NET Core sets together, against about 1.2 s and 7 MB cold for the five
+  core packages those two Ecosystems registered before this change.
 
 ## The Ecosystem model after retirement
 
@@ -202,8 +202,10 @@ amends its owner's document with its code.
    population term (`package=` or `prefix=`), so a multi-source population
    (several exact roots and several prefixes sharing one candidate limit)
    changes the [package query](package-query-cli.md) population contract. It
-   lands as its own focused design and implementation for CLI and Browser,
-   using the same membership as 2a.
+   landed as its own focused design and CLI implementation in
+   [#8804](https://github.com/richlander/dotnet-inspect/pull/8804), using the
+   same membership as 2a; the Browser Ecosystem selection is a follow-up that
+   reuses the same planner, execution, and evidence.
 
 3. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions and
    ASP.NET Core cores; set the Aspire core; replace the AI core, reduce its

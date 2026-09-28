@@ -270,16 +270,23 @@ entries are exact associations.
 | Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions` |
 | ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore` |
 | Aspire | `Aspire` | `Aspire` |
-| AI | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, `ModelContextProtocol` | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, `ModelContextProtocol` |
-| Azure | `Azure`, `Microsoft.Azure`, `Microsoft.Extensions.Azure`, `Aspire.Azure`, `Aspire.Hosting.Azure` | `Azure`, `Microsoft.Azure`, `Microsoft.Extensions.Azure`, `Aspire.Azure`, `Aspire.Hosting.Azure` |
+| AI | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` |
 | Blazor | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` |
 | .NET MAUI | `Microsoft.Maui`, `CommunityToolkit.Maui`, `Microsoft.AspNetCore.Components.WebView.Maui` | `Microsoft.Maui`, `CommunityToolkit.Maui`, `Microsoft.AspNetCore.Components.WebView.Maui` |
 
 The repeated values across columns are two authored associations, not one
 cross-domain rule. Overlap across rows is intentional. For example,
-`Aspire.Hosting.Azure.SignalR` recognizes Aspire and Azure, while
+`Microsoft.Extensions.AI.OpenAI` recognizes Microsoft.Extensions and AI, while
 `Microsoft.AspNetCore.Components.WebView.Maui` recognizes ASP.NET Core, Blazor,
 and .NET MAUI.
+
+AI follows its [core packages](ecosystem-packs.md#ai-contribution-evidence):
+one family for `Microsoft.Extensions.AI` and exact associations for the other
+roots, whose assembly names equal their package IDs. Exact matching keeps
+community-published namesakes such as `Anthropic.SDK` and `Mistral.SDK`
+unrecognized, and leaves child families such as `ModelContextProtocol.*` and
+`Microsoft.Agents.AI.*` unrecognized as AI. No Azure associations are
+authored.
 
 ## Subject and input context
 
@@ -785,9 +792,9 @@ The motivating assets are:
   `Microsoft.Extensions.AI.Abstractions` legitimately recognizes both AI and
   Microsoft.Extensions rather than requiring a preferred winner.
 - [`Aspire.Hosting.Azure.SignalR@13.5.4`](https://www.nuget.org/packages/Aspire.Hosting.Azure.SignalR/13.5.4)
-  directly declares Aspire, Azure, Microsoft.Extensions, AI
-  (`ModelContextProtocol`), Runtime (`System.*`), and unrecognized third-party
-  neighbors such as `Google.Protobuf` and `YamlDotNet`. It exercises several
+  directly declares Aspire, Microsoft.Extensions, AI (exact
+  `ModelContextProtocol`), Runtime (`System.*`), and unrecognized neighbors
+  such as `Azure.*`, `Google.Protobuf`, and `YamlDotNet`. It exercises several
   recognized ecosystems beside retained non-matches in one selected
   target-framework group.
 
@@ -909,7 +916,7 @@ The implementation must name Release gates for:
 - dependency inspection filtering pair rows through typed
   `EcosystemPackId` identity without classifying traversal-only nodes;
 - dependency recognition remaining distinct from Package Query's
-  `depends-ecosystem` package-set/package-prefix predicate;
+  `depends-ecosystem` core-package/package-prefix predicate;
 - the `Microsoft.Extensions.AI.Abstractions` overlap case;
 - the `Microsoft.Extensions.AIBogus` family-boundary near miss;
 - unrecognized neighbors beside recognized observations; and
