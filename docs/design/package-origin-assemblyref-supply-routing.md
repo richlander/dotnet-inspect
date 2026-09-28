@@ -154,6 +154,19 @@ and `c` namesake candidates that require Metadata validation, the bounded work
 is O(r) exact PackageRef lookups + O(a) filename indexing + O(c) candidate
 decodes, not O(r x a) payload scans or O(a) Metadata decodes per request.
 
+For a range-backed realization, this index consumes the archive inventory that
+the [package cache policy](package-cache-policy.md#the-entry-cache) already
+owns. ZipFetch reads the binary ZIP directory into `ZipDirectory` without
+depending on a cache. The Packages layer may persist the directory's raw
+`Region` plus `ArchiveLength`; a later PackageHouse operation reconstructs
+`ZipDirectory` with `ZipArchiveReader.ReadDirectoryFromRegion` and projects
+the selected-role filename index locally. It does not serialize a second JSON
+index or redownload Library payloads to discover filenames. When every
+demanded entry is cached, no remote directory read occurs. When an entry is
+missing, package cache policy owns the fresh remote-directory comparison
+before cached and newly ranged entries are combined. This design consumes
+those facts and does not redefine their persistence or validation.
+
 ### Selected package-content correlation
 
 For the exact candidate and then each filename-inventory candidate:
@@ -485,7 +498,7 @@ reference-pack catalogs for the scenario TFM. The Deep Inspect census lane
 runs:
 
 ```text
-dotnet run eng/census-assemblyref-supplier-routing.cs -- \
+dotnet run -c Release eng/census-assemblyref-supplier-routing.cs -- \
   artifacts/deep-inspect/assemblyref-supplier-routing.json 1 100 \
   Microsoft.Azure.SignalR@1.33.1/net8.0
 ```

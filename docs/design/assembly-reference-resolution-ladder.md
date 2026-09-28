@@ -684,7 +684,11 @@ The complete filename inventory is indexed once per exact PackageHouse target
 and generation, then reused across AssemblyRefs. The ladder validates that
 receipt identity before reuse and charges its construction once to the shared
 operation ledger. It does not rescan the retained closure or reacquire package
-payloads for each request.
+payloads for each request. For a range-backed realization, PackageHouse
+projects the index from the cache owner's `ZipDirectory` inventory, including
+a directory reconstructed locally from its persisted binary region. ZipFetch
+remains cache-independent; this ladder neither persists the directory nor
+defines another serialized filename index.
 
 Package filename is member-correlation evidence, not package identity or final
 assembly-name ownership. `PackageCompileAsset.AssemblyName` is currently
