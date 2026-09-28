@@ -24,9 +24,10 @@ the planner runs that classifier once, and each analyzer is guarded by the
 classes it accepts. The scope and the P/Invoke test run once per method, not
 three times.
 
-A hostile image that exhausts the pointer analyzer's work budget fails the
-pointer analyzer. P/Invoke Methods and Async Methods still answer. Legacy
-failed all three together.
+A hostile image that exhausts the pointer analyzer's work budget aborts the
+execution. No analyzer publishes a result, and every consumer that asked for
+one sees the same typed critical failure, just as legacy failed all three
+questions together.
 
 ## Owner and exact claim
 
@@ -38,9 +39,10 @@ failed all three together.
 > declaring type, namespace, signature text, classification, module name,
 > anchor, and return type. Rows from two or more analyzers, merged by metadata
 > order and then by the legacy order P/Invoke, async, pointer, equal the
-> legacy list. The only exception is budget containment: each analyzer carries
-> its own work budget and identity-decode-failure budget, so a budget failure
-> fails only the analyzer that exhausted it.
+> legacy list. Each analyzer charges its own work budget and identity-decode
+> failure budget, sized as legacy's per-scan budgets. Exhausting any of them
+> aborts the whole execution with a critical failure, so hostile inputs fail
+> every requested question together, as legacy does.
 
 This owner defines:
 
@@ -48,7 +50,7 @@ This owner defines:
   with `<`, as legacy defines it;
 - each analyzer's classification test and row projection;
 - the shared scope classifier and the classes each analyzer accepts;
-- per-analyzer budget containment; and
+- each analyzer's budgets and where it charges them; and
 - the merge order that reproduces the legacy list.
 
 This owner does not define:
@@ -92,17 +94,27 @@ and `MethodClassificationScanner.Scan` calls the same API until it retires.
 
 Legacy shares one `MaxClassificationScanWorkChars` work budget and one
 `MaxClassificationIdentityDecodeFailures` failure budget across all three
-questions. Here each analyzer owns one of each. Each analyzer charges its
-budgets where it decodes: the pointer probe for the pointer analyzer, and
-identity and signature projection for every analyzer. Exhausting a budget
-fails that analyzer with the legacy exception, as a contained producer
-failure. It does not fail its siblings.
+questions. Here each analyzer owns one of each, sized the same as legacy's
+per-scan budgets. Each analyzer charges its budgets where it decodes: the
+pointer probe for the pointer analyzer, and identity and signature
+projection for every analyzer.
 
-On ordinary inputs no budget is exhausted, and output equals legacy. On a
-hostile input that exhausts a budget, one analyzer can fail while another
-answers. That is the only difference from legacy that anyone can observe, and
-it is intended: a consumer that asked only for async methods is no longer
-denied them because of a pointer-signature attack.
+Exhausting any analyzer's budget is a critical failure under
+[Budget exhaustion aborts the execution](producer-planning.md#budget-exhaustion-aborts-the-execution).
+The execution stops, and no analyzer publishes a result. Every requested
+analyzer's outcome is aborted, and its `CriticalFailure` names the analyzer,
+the budget, and the method being visited. Hostile-input behaviour therefore
+matches legacy: every question asked fails together, with one typed error.
+
+An analyzer asked alone charges only its own budgets, so it can succeed on
+an input where legacy's shared scan would have exhausted a budget on work the
+consumer did not ask for. That is demand, not containment: the work that
+would have exhausted the budget is never started. Once any requested
+analyzer exhausts its budget, nothing is published.
+
+Recoverable per-method failures are unchanged. Legacy skips a method whose
+signature cannot be decoded, and counts it against the decode-failure budget.
+The analyzers do the same.
 
 ## Demand
 
@@ -118,9 +130,9 @@ Each consumer asks only for what it shows:
 
 The CLI splits the combined `ClassifiedMethodsQuery` result into one result
 per analyzer. The Finding merges the three analyzers' rows in the legacy
-order, so its observations are unchanged. When one analyzer fails, the Finding
-reports that failure. Sections that asked only for another analyzer still
-render.
+order, so its observations are unchanged. On a critical failure, the Finding
+reports the one typed critical failure, as every other requesting consumer
+does.
 
 ## Layering
 
@@ -162,10 +174,12 @@ Analysis, and no Metadata type moves.
   - runtime and state-machine async.
 - **Asked alone equals guarded.** Each analyzer's rows are the same with its
   own scope check as with the shared classifier.
-- **Budget containment.** The existing hostile classification fixtures run
-  against each analyzer and keep their allocation bounds. One test shows the
-  pointer analyzer failing on budget exhaustion while the async and P/Invoke
-  analyzers answer.
+- **Budget exhaustion aborts.** The existing hostile classification fixtures
+  run against each analyzer, keep their allocation bounds, and end in
+  `Aborted` with a `CriticalFailure` naming that analyzer and budget. When two
+  analyzers run together and one exhausts its budget, neither publishes a
+  result, both are `Aborted` with the same `CriticalFailure`, and no method
+  after the exhausting one is read.
 - **End to end.** A NativeAOT base/head comparison of the migrated sections,
   per the [evidence contract](../evidence-and-validation.md#nativeaot-beforeafter-for-modernization),
   on every supported terminal: rows, `--count`, `-n`, and `--rows`.
@@ -176,3 +190,24 @@ Analysis, and no Metadata type moves.
   The recorded 1.19–1.69× of hand-fused came from an experiment that treated
   async and pointer as exclusive and skipped projection and budgets, so it is
   not a prediction for this design and is re-measured.
+
+## Existing budgeted producer
+
+Unsafe-evidence presence already charges a budget: `UnsafePresenceWorkBudget`
+bounds IL bytes and same-image correspondence. Exhausting it throws
+`BadImageFormatException`, which the executor treats as a recoverable failure
+at that method. For example, "same-image correspondence exceeds the assembly
+budget" on Microsoft.CodeAnalysis.CSharp 4.14.0. Presence is the only
+producer in its plan, so consumers already see the whole request fail. But
+the failure is reported as `Failed` at one method, indistinguishable from an
+unreadable body, and it would be contained if presence ever ran beside
+another producer. Migrating it to the typed critical signal and the `Aborted`
+outcome is follow-up work for Producer Planning, tracked in #8733, and it is
+not part of this change.
+
+## Open question for the operator
+
+- **Browser scope.** The browser has no consumer of these sections, and the
+  scanner is on its deny list, so this design adopts on the CLI only. The
+  browser adopts the analyzers when a browser consumer is designed. Narrowing
+  shared substrate to the CLI needs explicit approval.

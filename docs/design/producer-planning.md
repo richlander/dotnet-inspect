@@ -422,14 +422,53 @@ facts are serializable by contract, which allows separate-process drivers.
 
 **Rule.** Each producer's result carries its own outcome: not requested,
 complete, incomplete with an owner-issued limitation, stopped because the
-request it served was satisfied, or failed. A failure is
-contained to that producer. Each dependent receives a typed prerequisite
+request it served was satisfied, failed, or aborted by a critical failure
+(see [Budget exhaustion aborts the execution](#budget-exhaustion-aborts-the-execution)).
+A failure is contained to that producer. Each dependent receives a typed prerequisite
 failure rather than a missing value, and independent producers are
 unaffected.
 
 *Lesson:* Roslyn contains a crashing analyzer as a diagnostic instead of
 failing the compilation. Retrofitting an outcome shape onto result types that
 never had one touches every consumer.
+
+### Budget exhaustion aborts the execution
+
+**Rule.** A producer may charge containment budgets: work, decode-failure
+counts, or any other bound that stops an untrusted input from consuming
+unbounded effort. Each budget belongs to one producer and is sized for that
+producer. Exhausting any budget is a **critical failure**, not a producer
+failure. The execution stops before the next untrusted read, and it
+publishes no producer's result. Every requested producer's outcome is
+**aborted**, and each carries the same critical failure: the producer whose
+budget was exhausted, the budget's identity, and the unit being visited. The
+receipt records the same. A critical failure is never contained to one
+producer. It is never reported as `Failed` for one producer while others
+complete, and never presented as a partial or successful answer.
+
+Recoverable failures are unchanged. An unreadable body or an undecodable
+signature fails its producer as a contained failure, as
+[Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed)
+describes. Budget exhaustion is the one failure that is not contained,
+because once a bound meant for hostile input is reached, nothing established
+about that input can be trusted.
+
+A producer reports budget exhaustion with a typed signal that the execution
+recognizes, never a general exception that the recoverable-failure path
+could catch.
+
+Suggested shape:
+
+```text
+ProducerOutcome.Aborted
+CriticalFailure(Producer identity, Budget identity, Unit, Message)
+```
+
+*Lesson:* a stack overflow looks recoverable at the frame that sees it, but
+the process is already in unknown territory, and .NET does not let it be
+caught. The same holds for an input that has exhausted a hostile-input bound.
+Legacy classification failed all three of its questions together for the
+same reason.
 
 ### Participation is observed, not declared
 
@@ -602,6 +641,10 @@ property above is **unverified**.
 - **Failure containment:** an injected producer failure leaves independent
   producers' results unchanged and gives dependents a typed prerequisite
   failure.
+- **Critical failure aborts:** a producer that exhausts a budget, in a plan
+  with an independent producer, leaves every requested producer `Aborted` with
+  the same `CriticalFailure`, publishes no result, and reads no unit after the
+  one that exhausted the budget.
 
 Equivalence between executors and pushdown equivalence are level 2 gates,
 tracked in #8577 and #8574.
