@@ -122,6 +122,26 @@ public class MemberTargetResolverTests
     }
 
     [Fact]
+    public void Resolve_KindQualifiedExplicitAccessorProjectsPhysicalMethod()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(
+            type,
+            MemberTargetSelector.Parse(
+                "explicit:Sample.IValue.get_Value"));
+
+        Assert.True(result.Found);
+        Assert.Equal(
+            "Sample.IValue.get_Value",
+            result.Target!.ApiMember.Member.Name);
+        Assert.Equal(
+            MemberTargetKind.ExplicitInterfaceImplementation,
+            result.Target.Kind);
+        Assert.Equal(0x06000106, result.Target.Body!.MetadataToken);
+    }
+
+    [Fact]
     public void Resolve_GenericArityFiltersGenericMethod()
     {
         var type = CreateSurface().Types[0];
@@ -315,6 +335,26 @@ public class MemberTargetResolverTests
                     Signature = "System.EventHandler Changed",
                     AdderToken = 0x06000104,
                     RemoverToken = 0x06000105
+                },
+                new ApiMember
+                {
+                    Name = "Sample.IValue.Value",
+                    Kind = "property",
+                    Signature = "int Sample.IValue.Value { get; }",
+                    GetterToken = 0x06000106,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "int",
+                        Accessors =
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "get",
+                                Name = "Sample.IValue.get_Value",
+                                IsExplicitInterfaceImplementation = true,
+                            },
+                        ],
+                    },
                 }
             ]
         };

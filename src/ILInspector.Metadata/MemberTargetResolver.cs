@@ -185,6 +185,8 @@ public static class MemberTargetResolver
         IReadOnlyCollection<string>? kindFilter = null)
     {
         var declaringMembers = type.Members
+            .SelectMany(member =>
+                ApiMemberAccessors.Create(member, type).Prepend(member))
             .Where(member => TypeMatcher.MatchesMemberName(member.Name, selector.Name));
 
         if (selector.Kind is { Length: > 0 })
