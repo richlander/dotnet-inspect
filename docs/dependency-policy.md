@@ -120,6 +120,8 @@ The checked-in rules provide full gate coverage for these dependency claims:
    `TsJsExport.Contracts`, Web Core, and the declared capability facade
    assemblies. Core and facade implementation boundaries remain separate
    staged claims.
+6. The Inspect Web CallGraph facade depends directly only on the .NET
+   platform, Web Core, Queries, and Sections.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing
