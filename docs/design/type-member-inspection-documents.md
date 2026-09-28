@@ -738,6 +738,20 @@ Receiver classification is exhaustive:
 
 Extension takes precedence because extension methods are Metadata-static.
 
+One exact-overload row intent filters accessibility and receiver before either
+terminal runs. Accessibility uses the product buckets `public`, `protected`,
+`internal`, `private`, or `all`; composite protected forms belong to the
+`protected` bucket. Receiver uses `this`, `static`, `extension`, or `all`.
+Hidden admission is independent of accessibility: the default excludes hidden
+declarations, explicit hidden admission includes them, and accessibility
+`all` alone does not include them. The default intent is `public`
+accessibility with all receiver forms and without hidden declarations.
+Count and Rows over one request share that intent, and continuation binding
+includes accessibility, receiver, and hidden admission so a later segment
+cannot silently change membership.
+The binding also carries the exact declaring assembly identity and MVID so a
+later segment cannot continue against a different assembly or generation.
+
 Exact overload Rows are the join currency for optional documentation
 attachments and overload-scoped metrics. Those producers may not add, remove,
 reorder, or replace rows.

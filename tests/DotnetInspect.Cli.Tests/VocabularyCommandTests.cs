@@ -124,7 +124,7 @@ public sealed class VocabularyCommandTests
             | C# Style Tiers | section |
             | Vocabulary Sections | section |
             """,
-            result.Output.Trim());
+            result.Output.ReplaceLineEndings("\n").Trim());
     }
 
     [Theory]
@@ -175,7 +175,7 @@ public sealed class VocabularyCommandTests
                 "C# Style Choices",
                 "C# Style Tiers",
             ],
-            result.Output.Split('\n')
+            result.Output.ReplaceLineEndings("\n").Split('\n')
                 .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
                 .Select(line => line[3..]));
         Assert.DoesNotContain("## Accessibility", result.Output);

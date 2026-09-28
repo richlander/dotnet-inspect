@@ -12,9 +12,10 @@ source-local position, and line-limit failure contracts. The existing Source
 view projection is the first adopter: it now uses this substrate for its
 complete line inventory instead of maintaining a second line parser.
 
-SourceHouse continuation, QueryOverflow composition, host-visible receipts,
-CLI draining, Browser delivery, and package README adoption remain unverified
-until their focused successor slices land.
+Demand-aware Source execution, host-visible receipts, CLI draining, Browser
+delivery, and package README adoption remain unverified until a measured
+full-stack execution model is selected under
+[#8766](https://github.com/richlander/dotnet-inspect/issues/8766).
 
 ## Owner and exact claim
 
@@ -40,7 +41,7 @@ The owner does not define:
 - byte acquisition, decoding, checksum verification, media type, provenance,
   or source authority;
 - Source, package, PDB, decompiler, language, or Markdown semantics;
-- QuerySpace selection, QueryOverflow checkpoints, or terminal meaning;
+- QuerySpace selection, cross-batch checkpoints, or terminal meaning;
 - asynchronous I/O, cancellation, resource leases, or operation lifetime;
 - host-visible continuation receipts, delivery credit, serialization
   envelopes, rendering, or Browser virtualization; or
@@ -122,11 +123,11 @@ The position is not:
 - a portable token;
 - a host continuation receipt;
 - a credential or source authority;
-- a QueryOverflow checkpoint; or
+- a cross-batch query checkpoint; or
 - proof of source completion or exact Count.
 
 An adopting operation retains the document, source position, resolved query,
-and QueryOverflow checkpoint under its own lifetime and compatibility rules.
+and any execution state under its own lifetime and compatibility rules.
 
 ## Exact line model
 
@@ -176,15 +177,16 @@ use the explicit completion state.
 When the next complete line cannot fit either content maximum by itself, the
 pull fails with `DecodedTextLineLimitException`. The failure identifies the
 line and both measured and allowed sizes. It does not return a partial row,
-advance the source position, or let QueryOverflow observe the rejected line.
-An owner may retry the same position under a different compatible policy;
-Source's fixed production policy instead reports the operation failure.
+advance the source position, or let an outer operation observe the rejected
+line. An owner may retry the same position under a different compatible
+policy; Source's fixed production policy instead reports the operation
+failure.
 
-The candidate-row maximum is designed to accept
-`QueryOverflowInputRequest.MaximumCandidateRows`. The decoded-text owner
-retains its independent UTF-16 and serialized-text ceilings. QueryOverflow
-does not learn physical text bounds, and the decoded-text source does not
-interpret Head, Count, delivery credit, or query completion.
+The candidate-row maximum accepts an outer operation's maximum candidate
+demand. The decoded-text owner retains its independent UTF-16 and
+serialized-text ceilings. The outer operation does not learn physical text
+bounds, and the decoded-text source does not interpret Head, Count, delivery
+credit, or query completion.
 
 ## Completion and Count
 
@@ -193,9 +195,9 @@ coordinate line. Only that completed batch exposes exact line Count, equal to
 the final line number.
 
 A candidate-row limit, content limit, short batch, line-limit failure, or
-continuation does not establish Count. QueryOverflow decides whether the
-resolved terminal is semantically complete; the decoded-text source supplies
-only document exhaustion.
+continuation does not establish Count. The adopting operation decides whether
+the resolved terminal is semantically complete; the decoded-text source
+supplies only document exhaustion.
 
 ## Ownership and failure
 
@@ -215,16 +217,11 @@ complete `SourceView.Lines` value. This preserves the current public Source
 shape while removing its duplicate line grammar. It does not yet claim
 progressive Source execution.
 
-The counted production path is:
-
-1. SourceHouse joins one Source view binding and decoded-text position with one
-   QueryOverflow execution.
-2. The CLI drains that operation for ordinary complete Source output.
-3. Inspect Web requests bounded Source segments.
-4. Inspect Web package README adopts the same decoded-text source behind its
-   package-owned evidence and operation.
-
-The tracker in #8319 owns the sequence and current step count. Exact-byte CLI
+The next production step is the full-stack performance investigation in
+[#8766](https://github.com/richlander/dotnet-inspect/issues/8766). It must
+select an execution model that carries bounded demand through Source
+projection and Browser transport without penalizing complete output. The
+tracker in #8319 owns later Source and package adoption. Exact-byte CLI
 destination streaming remains separate under #8303.
 
 ## Real asset and pathological case

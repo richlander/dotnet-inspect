@@ -331,12 +331,22 @@ interrupted, parallelized, or fused.
 
 **Rule.** A producer that applies to only some units says so in its
 declaration: a type scope for whole types, and a scope guard for units a
-classifier has classified. A scope guard is a same-unit dependency that names
-the unit classes it accepts, possibly all of them; naming them is what makes
-the edge a guard, and a guard always applies its classifier's type scope. A
-type the guard excludes is outside the dependent's scope before the
-dependent's own type scope is asked. Work that several producers need, such as a
-classification, is its own producer that the others depend on; it is never
+classifier has classified. A scope guard names the unit classes it accepts,
+possibly all of them; naming them is what makes it a guard, and a guard always
+applies its classifier's type scope. The classifier is one of two kinds:
+
+- **The source gate.** The guard names classes from the source's
+  [method-row gate](#the-source-gate-owns-safety). It is declared on the
+  producer and adds no dependency, because the gate is part of the source.
+- **A classifying producer.** The guard is a same-unit, same-pass dependency
+  on a producer that classifies units, for a classification specific to a
+  domain.
+
+Both kinds have the same meaning. A type the guard excludes is outside the
+dependent's scope before the dependent's own type scope is asked. A unit the
+guard excludes is not attempted and is not failed, and the receipt counts
+only attempted units. Work that several producers need, such as a
+classification, is done once, by the gate or by its own producer; it is never
 repeated inside each visit. A scope guard is not a failure guard: a unit
 outside scope is not attempted, and nothing about it is reported as failed.
 The accepted classes are part of the producer's meaning. A wrong set silently
@@ -356,6 +366,82 @@ the duplicated work, so that pass costs nearly as much as separate ones. Scope
 guards and type scopes are the query model's scope predicates at method and
 type grain. When method bodies become a QuerySpace source, tracked by #8577,
 they move to level 2 as its vocabulary.
+
+### The source gate owns safety
+
+**Rule.** Every method-definition source includes a **method-row gate**. The
+gate is part of the source, not a producer in the dependency graph. It applies
+the source's scope, classifies each row, and is the only path by which a
+producer reads a row's fields. A producer contains no safety code except a
+bound specific to its own domain. Unsafe presence's same-image correspondence
+budget is one such bound.
+
+The gate offers two tiers of access:
+
+- **Tier 1, bounded accessors:**
+  - flags;
+  - a name comparison done in place, with no string materialized;
+  - an attribute type match;
+  - a yes/no signature-shape walk;
+  - a result from a
+    [Metadata semantic substrate](metadata-semantic-substrates.md), such as
+    `StateMachineRelationshipIndex`, whose own budgets bound its total work.
+    The substrate's global budget exhaustion aborts the execution.
+    Its per-row rejection is a recoverable failure.
+
+  They charge no execution budget. Their total work across an execution is
+  linear in the image's metadata size. An accessor that walks a structure,
+  such as a signature or a type's parent chain, memoizes its answer per
+  metadata handle and per blob for the execution. That way each structure is
+  walked at most once, however many rows or nested arguments share it. A
+  fixed per-row cap backstops the walk, and exceeding the cap aborts the
+  execution with the typed critical failure. An accessor that walks nothing
+  costs a constant per row.
+- **Tier 2, identity text:** anchors and signature text. These go through the
+  gate's budgeted identity decoder and are returned as `InertString`, so they
+  are bounded in cost and inert in content.
+
+A row the gate cannot read is a recoverable failure, handled as in
+[Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed).
+
+**Field demand is declared before work.** A producer declares the fields it
+reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
+`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`,
+`StateMachineRelationship`, and `IdentityText`, beside `Body` and
+`ModuleLookup`. Reading an undeclared field
+throws `ProducerContractException`, exactly as reading an undeclared layer
+does. That runtime contract is the enforcement gate. From the declarations,
+the planner:
+
+- arms the gate's identity budget only when some requested producer declares
+  `IdentityText`, so a plan of Count, Exists, and classification spends no
+  identity budget as a property of the plan. Critical-abort handling is always
+  armed. A Tier 1 per-row cap, or a bound specific to a domain, can abort any
+  plan, including one that declares no `IdentityText`. The consequence is
+  that a plan with no `IdentityText` cannot notice hostility that lives in
+  identity text. It may answer, possibly misleadingly, where a plan that
+  decodes identities over the same image aborts. That follows from making
+  Count and Exists fast; it is not a promise that hostile images get an
+  answer;
+- reads each field shared by several producers once per row;
+- chooses the kernel; and
+- explains what a plan reads.
+
+The gate's classification is a unit class that source-gate scope guards
+accept, as
+[Scope is declared on the edge](#scope-is-declared-on-the-edge-not-tested-inside-the-visit)
+describes. A source-gate guard is not a dependency, so a producer asked alone
+still has no dependencies and still qualifies for a closed-query kernel. That kernel is
+one loop, specialized to the gate, the predicate, and the closing.
+
+*Lets the lower levels:* share scope, classification, and decoding among every
+producer without a classifier producer, and prove from the plan alone that a
+count reads no identity text.
+
+*Lesson:* `InertString` made untrusted text safe at construction, rather than
+at each use. The gate does the same for untrusted rows: bounded cost and inert
+content are properties of the only access path, so no producer needs to
+repeat them.
 
 ### Access is borrowed for the visit
 
@@ -400,14 +486,55 @@ facts are serializable by contract, which allows separate-process drivers.
 
 **Rule.** Each producer's result carries its own outcome: not requested,
 complete, incomplete with an owner-issued limitation, stopped because the
-request it served was satisfied, or failed. A failure is
-contained to that producer. Each dependent receives a typed prerequisite
+request it served was satisfied, failed, or aborted by a critical failure
+(see [Budget exhaustion aborts the execution](#budget-exhaustion-aborts-the-execution)).
+A failure is contained to that producer. Each dependent receives a typed prerequisite
 failure rather than a missing value, and independent producers are
 unaffected.
 
 *Lesson:* Roslyn contains a crashing analyzer as a diagnostic instead of
 failing the compilation. Retrofitting an outcome shape onto result types that
 never had one touches every consumer.
+
+### Budget exhaustion aborts the execution
+
+**Rule.** A containment budget bounds the effort an untrusted input can
+consume. Its unit might be work or a count of decode failures. The source
+gate owns one fixed budget for each execution; see
+[The source gate owns safety](#the-source-gate-owns-safety). A producer owns a
+budget only for a bound specific to its domain. Exhausting any budget is a
+**critical failure**, not a producer failure. The execution stops before the next untrusted read, and it
+publishes no producer's result. Every requested producer's outcome is
+**aborted**, and each carries the same critical failure: the owner of the
+exhausted budget (the gate or a producer), the budget's identity, and the unit
+being visited. The
+receipt records the same. A critical failure is never contained to one
+producer. It is never reported as `Failed` for one producer while others
+complete, and never presented as a partial or successful answer.
+
+Recoverable failures are unchanged. An unreadable body or an undecodable
+signature fails its producer as a contained failure, as
+[Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed)
+describes. Budget exhaustion is the one failure that is not contained,
+because once a bound meant for hostile input is reached, nothing established
+about that input can be trusted.
+
+A producer reports budget exhaustion with a typed signal that the execution
+recognizes, never a general exception that the recoverable-failure path
+could catch.
+
+Suggested shape:
+
+```text
+ProducerOutcome.Aborted
+CriticalFailure(Owner identity, Budget identity, Unit, Message)
+```
+
+*Lesson:* a stack overflow looks recoverable at the frame that sees it, but
+the process is already in unknown territory, and .NET does not let it be
+caught. The same holds for an input that has exhausted a hostile-input bound.
+Legacy classification failed all three of its questions together for the
+same reason.
 
 ### Participation is observed, not declared
 
@@ -580,6 +707,17 @@ property above is **unverified**.
 - **Failure containment:** an injected producer failure leaves independent
   producers' results unchanged and gives dependents a typed prerequisite
   failure.
+- **Critical failure aborts:** when a budget is exhausted in a plan with
+  several producers, every requested producer is `Aborted` with the same
+  `CriticalFailure`, no result is published, and no unit is read after the one
+  that exhausted the budget. The same holds when a Tier 1 per-row cap is
+  exceeded in a plan that declares no `IdentityText`.
+- **Source-gate guards:** a producer guarded by the source gate has no
+  dependency and qualifies for a closed-query kernel. Units the gate excludes
+  are neither attempted nor failed, as with a producer-classifier guard.
+- **Field demand:** reading an undeclared gate field throws
+  `ProducerContractException`. A plan with no `IdentityText` declaration never
+  charges the identity budget.
 
 Equivalence between executors and pushdown equivalence are level 2 gates,
 tracked in #8577 and #8574.
