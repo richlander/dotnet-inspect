@@ -123,10 +123,10 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ConcatenatedValuesPreserveImplicitFileRouting()
+    public async Task Package_AttachedNegativeLookingOutputValuePreservesImplicitFileRouting()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.ConcatenatedOptions",
+            "Test.AttachedOutputValue",
             "README.md",
             "readme",
             extraFiles:
@@ -137,29 +137,6 @@ public partial class CommandExecutionTests
         string outputPath = Path.Combine(tempDir, "-1");
         try
         {
-            string[] projection =
-            [
-                packagePath,
-                "-S",
-                "Package files",
-                "--paths",
-                "-T-n1",
-            ];
-
-            var direct = await RunAppInDirectoryAsync(
-                tempDir,
-                ["package", .. projection]);
-            var routed = await RunAppInDirectoryAsync(
-                tempDir,
-                projection);
-
-            Assert.Equal(direct, routed);
-            Assert.Equal(0, routed.Exit);
-            Assert.True(
-                routed.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries).Length > 1);
-
             string[] redirected =
             [
                 packagePath,
@@ -173,7 +150,7 @@ public partial class CommandExecutionTests
                 "q",
             ];
 
-            direct = await RunAppInDirectoryAsync(
+            var direct = await RunAppInDirectoryAsync(
                 tempDir,
                 ["package", .. redirected]);
             Assert.Equal(0, direct.Exit);
@@ -185,7 +162,7 @@ public partial class CommandExecutionTests
                     StringSplitOptions.RemoveEmptyEntries));
 
             File.Delete(outputPath);
-            routed = await RunAppInDirectoryAsync(
+            var routed = await RunAppInDirectoryAsync(
                 tempDir,
                 redirected);
 

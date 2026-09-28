@@ -27,6 +27,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.dll";
     const string SpellingType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
+    const string ExtensionType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReceiverExtensions";
     const string ReadonlyPropertyType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlyPropertyFixture";
     const string ReadonlySetterPropertyType =
@@ -158,6 +160,66 @@ public sealed class BrowserMemberDeclarationTests
         JsonElement spellingType = Type(surfaceDocument.RootElement, SpellingType);
         JsonElement pointerFree = Member(spellingType, "PointerFreeUnsafeMethod");
         JsonElement pointerNone = Member(spellingType, "PointerNoneMethod");
+        BrowserMemberGroupDocumentInspection singletonGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryMemberGroupDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "PointerFreeUnsafeMethod"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            singletonGroup.Outcome);
+        BrowserMemberGroupDocument singletonDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                singletonGroup.Document);
+        Assert.Equal(SpellingType, singletonDocument.TypeIdentity);
+        Assert.Equal("PointerFreeUnsafeMethod", singletonDocument.MemberName);
+        Assert.Equal(1, singletonDocument.Count);
+        BrowserMemberGroupDocumentRow singletonRow =
+            Assert.Single(singletonDocument.Rows);
+        Assert.Equal(1, singletonRow.BaselineOrdinal);
+        Assert.Contains(
+            "PointerFreeUnsafeMethod",
+            singletonRow.DisplaySignature,
+            StringComparison.Ordinal);
+
+        BrowserMemberGroupDocumentInspection uploadedGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryUploadedLibraryMemberGroupDocument(
+                    AssemblyFileName,
+                    image,
+                    ExtensionType,
+                    "Examine"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            uploadedGroup.Outcome);
+        BrowserMemberGroupDocument uploadedDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                uploadedGroup.Document);
+        Assert.Equal(ExtensionType, uploadedDocument.TypeIdentity);
+        Assert.Equal("Examine", uploadedDocument.MemberName);
+        Assert.Equal(5, uploadedDocument.Count);
+        Assert.All(
+            uploadedDocument.Rows,
+            static row => Assert.Equal("Extension", row.Receiver));
+
+        BrowserMemberGroupDocumentInspection missingGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryMemberGroupDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "MissingMethod"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Rejected,
+            missingGroup.Outcome);
+        Assert.Null(missingGroup.Document);
+        Assert.NotNull(missingGroup.Detail);
 
         BrowserMemberDeclaration pointerFreeDeclaration =
             await Declaration(spellingType, pointerFree);
@@ -401,6 +463,36 @@ public sealed class BrowserMemberDeclarationTests
                 StringComparison.Ordinal);
             Assert.Null(declaration.Unavailable);
             Assert.False(declaration.Compatibility);
+
+            BrowserMemberGroupDocumentInspection group =
+                MemberGroupDocument(
+                    await MetadataExports.QueryPlatformMemberGroupDocument(
+                        framework,
+                        version,
+                        AssemblyFileName,
+                        "netcore.app",
+                        ExtensionType,
+                        "Examine"));
+            Assert.Equal(
+                BrowserMemberGroupDocumentOutcome.Available,
+                group.Outcome);
+            BrowserMemberGroupDocument document =
+                Assert.IsType<BrowserMemberGroupDocument>(group.Document);
+            Assert.Equal(ExtensionType, document.TypeIdentity);
+            Assert.Equal("Examine", document.MemberName);
+            Assert.Equal(5, document.Count);
+            Assert.Equal(5, document.Rows.Length);
+            Assert.Equal(
+                [1, 2, 3, 4, 5],
+                document.Rows.Select(static row => row.BaselineOrdinal));
+            Assert.Equal(
+                5,
+                document.Rows.Select(static row => row.MetadataToken)
+                    .Distinct()
+                    .Count());
+            Assert.All(
+                document.Rows,
+                static row => Assert.Equal("Extension", row.Receiver));
             Assert.Equal(requests, handler.Requests);
         }
         finally
@@ -450,6 +542,15 @@ public sealed class BrowserMemberDeclarationTests
             ?? throw new InvalidOperationException(
                 "The browser declaration export returned null.");
     }
+
+    static BrowserMemberGroupDocumentInspection MemberGroupDocument(
+        string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserMemberGroupDocumentInspection)
+        ?? throw new InvalidOperationException(
+            "The browser member-group export returned null.");
 
     static byte[] PackagePair(byte[] image)
     {
