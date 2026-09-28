@@ -4,8 +4,8 @@ using System.Text;
 
 namespace DotnetInspector.PerformanceOracles;
 
-/// <summary>The six closings every postcard scores.</summary>
-public enum PostcardClosing
+/// <summary>The six closings every scorecard scores.</summary>
+public enum ScorecardClosing
 {
     Exists,
     Count,
@@ -16,24 +16,24 @@ public enum PostcardClosing
 }
 
 /// <summary>
-/// The sizes a postcard asks for: Head(N), Tail(N), and the strict window
+/// The sizes a scorecard asks for: Head(N), Tail(N), and the strict window
 /// Rows(WindowFirst..WindowLast), positions counted from 1.
 /// </summary>
-public sealed record PostcardShape(int N = 6, int WindowFirst = 100, int WindowLast = 110)
+public sealed record ScorecardShape(int N = 6, int WindowFirst = 100, int WindowLast = 110)
 {
     public int WindowSkip => WindowFirst - 1;
 
     public int WindowTake => WindowLast - WindowFirst + 1;
 
     /// <summary>The closing's name with its parameters, such as <c>Head(6)</c> or <c>Rows(100..110)</c>.</summary>
-    public string Label(PostcardClosing closing) => closing switch
+    public string Label(ScorecardClosing closing) => closing switch
     {
-        PostcardClosing.Exists => "Exists",
-        PostcardClosing.Count => "Count",
-        PostcardClosing.Head => string.Create(CultureInfo.InvariantCulture, $"Head({N})"),
-        PostcardClosing.Tail => string.Create(CultureInfo.InvariantCulture, $"Tail({N})"),
-        PostcardClosing.Rows => "Rows",
-        PostcardClosing.Window => string.Create(CultureInfo.InvariantCulture, $"Rows({WindowFirst}..{WindowLast})"),
+        ScorecardClosing.Exists => "Exists",
+        ScorecardClosing.Count => "Count",
+        ScorecardClosing.Head => string.Create(CultureInfo.InvariantCulture, $"Head({N})"),
+        ScorecardClosing.Tail => string.Create(CultureInfo.InvariantCulture, $"Tail({N})"),
+        ScorecardClosing.Rows => "Rows",
+        ScorecardClosing.Window => string.Create(CultureInfo.InvariantCulture, $"Rows({WindowFirst}..{WindowLast})"),
         _ => throw new ArgumentOutOfRangeException(nameof(closing)),
     };
 }
@@ -42,34 +42,34 @@ public sealed record PostcardShape(int N = 6, int WindowFirst = 100, int WindowL
 /// One column's answer to one closing: a Boolean, a count, rows, or a strict
 /// window failure.
 /// </summary>
-public readonly record struct PostcardAnswer<TRow>(bool? Exists, int? Count, IReadOnlyList<TRow>? Rows, bool WindowFailed)
+public readonly record struct ScorecardAnswer<TRow>(bool? Exists, int? Count, IReadOnlyList<TRow>? Rows, bool WindowFailed)
 {
-    public static PostcardAnswer<TRow> OfExists(bool exists) => new(exists, null, null, false);
+    public static ScorecardAnswer<TRow> OfExists(bool exists) => new(exists, null, null, false);
 
-    public static PostcardAnswer<TRow> OfCount(int count) => new(null, count, null, false);
+    public static ScorecardAnswer<TRow> OfCount(int count) => new(null, count, null, false);
 
-    public static PostcardAnswer<TRow> OfRows(IReadOnlyList<TRow> rows) => new(null, null, rows, false);
+    public static ScorecardAnswer<TRow> OfRows(IReadOnlyList<TRow> rows) => new(null, null, rows, false);
 
-    public static PostcardAnswer<TRow> OfWindowFailure() => new(null, null, null, true);
+    public static ScorecardAnswer<TRow> OfWindowFailure() => new(null, null, null, true);
 }
 
 /// <summary>
 /// A column: a name and how it answers each closing over an asset. The oracle
 /// column is an NLinq query; others are Before, After, or labeled extras.
 /// </summary>
-public sealed record PostcardColumn<TAsset, TRow>(
+public sealed record ScorecardColumn<TAsset, TRow>(
     string Name,
-    Func<PostcardClosing, TAsset, PostcardAnswer<TRow>> Answer);
+    Func<ScorecardClosing, TAsset, ScorecardAnswer<TRow>> Answer);
 
 /// <summary>
-/// A pinned real asset the postcard runs over. <see cref="Name"/> is for
+/// A pinned real asset the scorecard runs over. <see cref="Name"/> is for
 /// display; an asset's identity is its position in the asset list, so two
 /// assets may share a name without their cells colliding.
 /// </summary>
-public sealed record PostcardAsset<TAsset>(string Name, TAsset Asset);
+public sealed record ScorecardAsset<TAsset>(string Name, TAsset Asset);
 
 /// <summary>Display names for assets loaded from paths.</summary>
-public static class PostcardAssetNames
+public static class ScorecardAssetNames
 {
     /// <summary>
     /// Each path's file name without its extension, qualified with as many
@@ -113,23 +113,23 @@ public static class PostcardAssetNames
 }
 
 /// <summary>A column whose answer differs from the oracle's. The answer texts are for display.</summary>
-public sealed record PostcardMismatch(string Asset, PostcardClosing Closing, string Column, string Answer, string OracleAnswer);
+public sealed record ScorecardMismatch(string Asset, ScorecardClosing Closing, string Column, string Answer, string OracleAnswer);
 
 /// <summary>
 /// The answer check: every mismatch, and every asset whose strict window
 /// failed in every column. A failed window is an outcome, not a result: its
 /// timing is never scored.
 /// </summary>
-public sealed record PostcardCheck(
-    IReadOnlyList<PostcardMismatch> Mismatches,
+public sealed record ScorecardCheck(
+    IReadOnlyList<ScorecardMismatch> Mismatches,
     IReadOnlyList<string> WindowFailures,
     int Compared)
 {
     public bool Agrees => Mismatches.Count == 0;
 }
 
-/// <summary>How a postcard times each cell.</summary>
-public sealed record PostcardTiming(
+/// <summary>How a scorecard times each cell.</summary>
+public sealed record ScorecardTiming(
     int Rounds = 6,
     int Warmup = 5,
     int BudgetMilliseconds = 2000,
@@ -140,16 +140,16 @@ public sealed record PostcardTiming(
 /// One cell: the median of each round's median, in microseconds, or a failed
 /// strict window, which carries no timing.
 /// </summary>
-public sealed record PostcardCell(int AssetIndex, string Asset, PostcardClosing Closing, string Column, IReadOnlyList<double> RoundMedians, bool WindowFailed = false)
+public sealed record ScorecardCell(int AssetIndex, string Asset, ScorecardClosing Closing, string Column, IReadOnlyList<double> RoundMedians, bool WindowFailed = false)
 {
     public double Median => WindowFailed
         ? throw new InvalidOperationException($"{Asset} {Closing} {Column} is a failed strict window and has no timing.")
-        : Postcard.MedianOf(RoundMedians);
+        : Scorecard.MedianOf(RoundMedians);
 }
 
 /// <summary>One closing's summary for one column across the assets whose cells were timed.</summary>
-public sealed record PostcardSummary(
-    PostcardClosing Closing,
+public sealed record ScorecardSummary(
+    ScorecardClosing Closing,
     string Column,
     double GeometricMean,
     double Min,
@@ -158,20 +158,20 @@ public sealed record PostcardSummary(
     int FailedExcluded);
 
 /// <summary>
-/// The postcard harness: checks that every column answers every closing the
+/// The scorecard harness: checks that every column answers every closing the
 /// way the oracle does, and times them with rotated rounds so drift affects
 /// every column equally.
 /// </summary>
-public static class Postcard
+public static class Scorecard
 {
-    public static IReadOnlyList<PostcardClosing> Closings { get; } =
-        [PostcardClosing.Exists, PostcardClosing.Count, PostcardClosing.Head, PostcardClosing.Tail, PostcardClosing.Rows, PostcardClosing.Window];
+    public static IReadOnlyList<ScorecardClosing> Closings { get; } =
+        [ScorecardClosing.Exists, ScorecardClosing.Count, ScorecardClosing.Head, ScorecardClosing.Tail, ScorecardClosing.Rows, ScorecardClosing.Window];
 
     /// <summary>
     /// Whether two answers are the same: the same kind, and the same Boolean,
     /// count, or row sequence, element for element in order.
     /// </summary>
-    public static bool SameAnswer<TRow>(PostcardAnswer<TRow> left, PostcardAnswer<TRow> right, IEqualityComparer<TRow>? rows = null)
+    public static bool SameAnswer<TRow>(ScorecardAnswer<TRow> left, ScorecardAnswer<TRow> right, IEqualityComparer<TRow>? rows = null)
     {
         if (left.WindowFailed || right.WindowFailed)
             return left.WindowFailed && right.WindowFailed;
@@ -180,7 +180,7 @@ public static class Postcard
         if (left.Count is not null || right.Count is not null)
             return left.Count == right.Count;
         if (left.Rows is not { } leftRows || right.Rows is not { } rightRows)
-            throw new InvalidOperationException("A postcard answer must carry a Boolean, a count, rows, or a window failure.");
+            throw new InvalidOperationException("A scorecard answer must carry a Boolean, a count, rows, or a window failure.");
         if (leftRows.Count != rightRows.Count)
             return false;
         rows ??= EqualityComparer<TRow>.Default;
@@ -198,7 +198,7 @@ public static class Postcard
     /// with an FNV-1a hash of the row text, or <c>fail</c>. Comparison uses
     /// <see cref="SameAnswer{TRow}"/>, never this text.
     /// </summary>
-    public static string Describe<TRow>(PostcardAnswer<TRow> answer, Func<TRow, string> rowText)
+    public static string Describe<TRow>(ScorecardAnswer<TRow> answer, Func<TRow, string> rowText)
     {
         if (answer.WindowFailed)
             return "fail";
@@ -207,7 +207,7 @@ public static class Postcard
         if (answer.Count is int count)
             return string.Create(CultureInfo.InvariantCulture, $"c={count}");
         if (answer.Rows is not { } rows)
-            throw new InvalidOperationException("A postcard answer must carry a Boolean, a count, rows, or a window failure.");
+            throw new InvalidOperationException("A scorecard answer must carry a Boolean, a count, rows, or a window failure.");
 
         uint hash = 2166136261;
         foreach (TRow row in rows)
@@ -225,28 +225,28 @@ public static class Postcard
     /// whose strict window failed in the oracle. A column that succeeds where
     /// the oracle failed, or fails where it succeeded, is a mismatch.
     /// </summary>
-    public static PostcardCheck Check<TAsset, TRow>(
-        IReadOnlyList<PostcardAsset<TAsset>> assets,
-        PostcardColumn<TAsset, TRow> oracle,
-        IReadOnlyList<PostcardColumn<TAsset, TRow>> columns,
+    public static ScorecardCheck Check<TAsset, TRow>(
+        IReadOnlyList<ScorecardAsset<TAsset>> assets,
+        ScorecardColumn<TAsset, TRow> oracle,
+        IReadOnlyList<ScorecardColumn<TAsset, TRow>> columns,
         Func<TRow, string> rowText,
         IEqualityComparer<TRow>? rowComparer = null)
     {
-        var mismatches = new List<PostcardMismatch>();
+        var mismatches = new List<ScorecardMismatch>();
         var windowFailures = new List<string>();
         int compared = 0;
-        foreach (PostcardAsset<TAsset> asset in assets)
+        foreach (ScorecardAsset<TAsset> asset in assets)
         {
-            foreach (PostcardClosing closing in Closings)
+            foreach (ScorecardClosing closing in Closings)
             {
-                PostcardAnswer<TRow> expected = oracle.Answer(closing, asset.Asset);
-                if (closing == PostcardClosing.Window && expected.WindowFailed)
+                ScorecardAnswer<TRow> expected = oracle.Answer(closing, asset.Asset);
+                if (closing == ScorecardClosing.Window && expected.WindowFailed)
                     windowFailures.Add(asset.Name);
-                foreach (PostcardColumn<TAsset, TRow> column in columns)
+                foreach (ScorecardColumn<TAsset, TRow> column in columns)
                 {
                     if (ReferenceEquals(column, oracle))
                         continue;
-                    PostcardAnswer<TRow> actual = column.Answer(closing, asset.Asset);
+                    ScorecardAnswer<TRow> actual = column.Answer(closing, asset.Asset);
                     compared++;
                     if (!SameAnswer(actual, expected, rowComparer))
                         mismatches.Add(new(asset.Name, closing, column.Name, Describe(actual, rowText), Describe(expected, rowText)));
@@ -263,28 +263,28 @@ public static class Postcard
     /// A strict window that fails for an asset is recorded as a failed cell
     /// with no timing.
     /// </summary>
-    public static IReadOnlyList<PostcardCell> Measure<TAsset, TRow>(
-        IReadOnlyList<PostcardAsset<TAsset>> assets,
-        IReadOnlyList<PostcardColumn<TAsset, TRow>> columns,
-        PostcardTiming timing,
+    public static IReadOnlyList<ScorecardCell> Measure<TAsset, TRow>(
+        IReadOnlyList<ScorecardAsset<TAsset>> assets,
+        IReadOnlyList<ScorecardColumn<TAsset, TRow>> columns,
+        ScorecardTiming timing,
         Action<string>? progress = null)
     {
-        var rounds = new Dictionary<(int, PostcardClosing, string), List<double>>();
-        var failed = new HashSet<(int, PostcardClosing, string)>();
+        var rounds = new Dictionary<(int, ScorecardClosing, string), List<double>>();
+        var failed = new HashSet<(int, ScorecardClosing, string)>();
         for (int round = 0; round < timing.Rounds; round++)
         {
             for (int a = 0; a < assets.Count; a++)
             {
-                PostcardAsset<TAsset> asset = assets[a];
-                foreach (PostcardClosing closing in Closings)
+                ScorecardAsset<TAsset> asset = assets[a];
+                foreach (ScorecardClosing closing in Closings)
                 {
                     for (int i = 0; i < columns.Count; i++)
                     {
-                        PostcardColumn<TAsset, TRow> column = columns[(i + round) % columns.Count];
+                        ScorecardColumn<TAsset, TRow> column = columns[(i + round) % columns.Count];
                         var key = (a, closing, column.Name);
                         if (failed.Contains(key))
                             continue;
-                        if (closing == PostcardClosing.Window && column.Answer(closing, asset.Asset).WindowFailed)
+                        if (closing == ScorecardClosing.Window && column.Answer(closing, asset.Asset).WindowFailed)
                         {
                             failed.Add(key);
                             continue;
@@ -301,13 +301,13 @@ public static class Postcard
             }
         }
 
-        var cells = new List<PostcardCell>();
+        var cells = new List<ScorecardCell>();
         for (int a = 0; a < assets.Count; a++)
         {
-            PostcardAsset<TAsset> asset = assets[a];
-            foreach (PostcardClosing closing in Closings)
+            ScorecardAsset<TAsset> asset = assets[a];
+            foreach (ScorecardClosing closing in Closings)
             {
-                foreach (PostcardColumn<TAsset, TRow> column in columns)
+                foreach (ScorecardColumn<TAsset, TRow> column in columns)
                 {
                     var key = (a, closing, column.Name);
                     cells.Add(failed.Contains(key)
@@ -326,13 +326,13 @@ public static class Postcard
     /// when both its cell and the oracle's were timed; failed strict windows
     /// are excluded and counted.
     /// </summary>
-    public static IReadOnlyList<PostcardSummary> Summarize(IReadOnlyList<PostcardCell> cells, string oracle)
+    public static IReadOnlyList<ScorecardSummary> Summarize(IReadOnlyList<ScorecardCell> cells, string oracle)
     {
-        var summary = new List<PostcardSummary>();
+        var summary = new List<ScorecardSummary>();
         var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
         int[] assets = [.. cells.Select(c => c.AssetIndex).Distinct()];
-        foreach (PostcardClosing closing in Closings)
+        foreach (ScorecardClosing closing in Closings)
         {
             foreach (string column in columns)
             {
@@ -340,8 +340,8 @@ public static class Postcard
                 int excluded = 0;
                 foreach (int asset in assets)
                 {
-                    PostcardCell cell = byKey[(asset, closing, column)];
-                    PostcardCell baseline = byKey[(asset, closing, oracle)];
+                    ScorecardCell cell = byKey[(asset, closing, column)];
+                    ScorecardCell baseline = byKey[(asset, closing, oracle)];
                     if (cell.WindowFailed || baseline.WindowFailed)
                     {
                         excluded++;
@@ -365,9 +365,9 @@ public static class Postcard
     /// number of assets scored and any failed strict windows excluded, then
     /// every asset's absolute medians.
     /// </summary>
-    public static string Report(IReadOnlyList<PostcardCell> cells, string oracle, PostcardShape shape)
+    public static string Report(IReadOnlyList<ScorecardCell> cells, string oracle, ScorecardShape shape)
     {
-        IReadOnlyList<PostcardSummary> summary = Summarize(cells, oracle);
+        IReadOnlyList<ScorecardSummary> summary = Summarize(cells, oracle);
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
         (int Index, string Name)[] assets = [.. cells.Select(c => (c.AssetIndex, c.Asset)).Distinct()];
         var text = new StringBuilder();
@@ -380,16 +380,16 @@ public static class Postcard
         foreach (string _ in columns)
             text.Append(" ---: |");
         text.AppendLine();
-        foreach (PostcardClosing closing in Closings)
+        foreach (ScorecardClosing closing in Closings)
         {
-            PostcardSummary scored = summary.First(s => s.Closing == closing && s.Column == oracle);
+            ScorecardSummary scored = summary.First(s => s.Closing == closing && s.Column == oracle);
             text.Append("| ").Append(shape.Label(closing)).Append(" | ")
                 .Append(string.Create(CultureInfo.InvariantCulture, $"{scored.Assets}"))
                 .Append(scored.FailedExcluded == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $" ({scored.FailedExcluded} failed, excluded)"))
                 .Append(" |");
             foreach (string column in columns)
             {
-                PostcardSummary entry = summary.First(s => s.Closing == closing && s.Column == column);
+                ScorecardSummary entry = summary.First(s => s.Closing == closing && s.Column == column);
                 text.Append(entry.Assets == 0 ? " — |"
                     : column == oracle ? " 1.00× |"
                     : string.Create(CultureInfo.InvariantCulture, $" {entry.GeometricMean:0.00}× ({entry.Min:0.00}–{entry.Max:0.00}) |"));
@@ -409,12 +409,12 @@ public static class Postcard
         var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
         foreach ((int index, string name) in assets)
         {
-            foreach (PostcardClosing closing in Closings)
+            foreach (ScorecardClosing closing in Closings)
             {
                 text.Append("| ").Append(name).Append(" | ").Append(shape.Label(closing)).Append(" |");
                 foreach (string column in columns)
                 {
-                    PostcardCell cell = byKey[(index, closing, column)];
+                    ScorecardCell cell = byKey[(index, closing, column)];
                     text.Append(cell.WindowFailed ? " fail |" : string.Create(CultureInfo.InvariantCulture, $" {cell.Median:0.0} |"));
                 }
 
@@ -426,10 +426,10 @@ public static class Postcard
     }
 
     /// <summary>Every cell with its round medians, as tab-separated values; a failed strict window reads <c>fail</c>.</summary>
-    public static void WriteTsv(IReadOnlyList<PostcardCell> cells, TextWriter writer)
+    public static void WriteTsv(IReadOnlyList<ScorecardCell> cells, TextWriter writer)
     {
         writer.WriteLine("asset\tclosing\tcolumn\tmedian_us\tround_medians_us");
-        foreach (PostcardCell cell in cells)
+        foreach (ScorecardCell cell in cells)
         {
             writer.WriteLine(cell.WindowFailed
                 ? $"{cell.Asset}\t{cell.Closing}\t{cell.Column}\tfail\t"
@@ -448,10 +448,10 @@ public static class Postcard
     }
 
     static double MedianMicroseconds<TAsset, TRow>(
-        PostcardColumn<TAsset, TRow> column,
-        PostcardClosing closing,
+        ScorecardColumn<TAsset, TRow> column,
+        ScorecardClosing closing,
         TAsset asset,
-        PostcardTiming timing)
+        ScorecardTiming timing)
     {
         for (int i = 0; i < timing.Warmup; i++)
             Keep(column.Answer(closing, asset));
@@ -473,7 +473,7 @@ public static class Postcard
     static long s_sink;
 
     // Consumes every answer without allocating, so no column's work is dead.
-    static void Keep<TRow>(PostcardAnswer<TRow> answer) =>
+    static void Keep<TRow>(ScorecardAnswer<TRow> answer) =>
         Volatile.Write(
             ref s_sink,
             s_sink + (answer.Count ?? 0) + (answer.Exists == true ? 1 : 0) + (answer.Rows?.Count ?? 0));

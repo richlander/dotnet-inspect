@@ -2,26 +2,26 @@ using System.Globalization;
 
 namespace DotnetInspector.PerformanceOracles;
 
-/// <summary>The postcard runner's mode.</summary>
-public enum PostcardCommand
+/// <summary>The scorecard runner's mode.</summary>
+public enum ScorecardCommand
 {
     Check,
     Time,
 }
 
-/// <summary>A parsed postcard command line.</summary>
-public sealed record PostcardOptions(PostcardCommand Command, PostcardTiming Timing, string? TsvPath, IReadOnlyList<string> Assets);
+/// <summary>A parsed scorecard command line.</summary>
+public sealed record ScorecardOptions(ScorecardCommand Command, ScorecardTiming Timing, string? TsvPath, IReadOnlyList<string> Assets);
 
 /// <summary>
 /// Parses <c>check|time [--rounds N] [--budget-ms N] [--tsv &lt;path&gt;] &lt;assembly&gt;...</c>.
 /// A command with no assemblies is rejected: an answer check over nothing
 /// compares nothing and must not read as agreement.
 /// </summary>
-public static class PostcardCommandLine
+public static class ScorecardCommandLine
 {
     public const string Usage = "usage: check|time [--rounds N] [--budget-ms N] [--tsv <path>] <assembly>...";
 
-    public static bool TryParse(IReadOnlyList<string> args, out PostcardOptions? options, out string? error)
+    public static bool TryParse(IReadOnlyList<string> args, out ScorecardOptions? options, out string? error)
     {
         options = null;
         if (args.Count == 0 || args[0] is not ("check" or "time"))
@@ -30,7 +30,7 @@ public static class PostcardCommandLine
             return false;
         }
 
-        var timing = new PostcardTiming();
+        var timing = new ScorecardTiming();
         string? tsvPath = null;
         var assets = new List<string>();
         for (int i = 1; i < args.Count; i++)
@@ -66,11 +66,11 @@ public static class PostcardCommandLine
 
         if (assets.Count == 0)
         {
-            error = $"no assemblies: a postcard over nothing compares nothing. {Usage}";
+            error = $"no assemblies: a scorecard over nothing compares nothing. {Usage}";
             return false;
         }
 
-        options = new(args[0] == "check" ? PostcardCommand.Check : PostcardCommand.Time, timing, tsvPath, assets);
+        options = new(args[0] == "check" ? ScorecardCommand.Check : ScorecardCommand.Time, timing, tsvPath, assets);
         error = null;
         return true;
     }

@@ -1,0 +1,142 @@
+=== async
+ 4:55  up 2 days,  6:39, 1 user, load averages: 2.00 1.91 1.85
+# answers: 144 compared, 0 mismatches, 8 strict-window failures
+window-failed	CommandLine	Rows(100..110)	every column fails: the window does not exist
+window-failed	Humanizer	Rows(100..110)	every column fails: the window does not exist
+window-failed	Mono.Cecil	Rows(100..110)	every column fails: the window does not exist
+window-failed	Newtonsoft.Json	Rows(100..110)	every column fails: the window does not exist
+window-failed	System.Text.Json	Rows(100..110)	every column fails: the window does not exist
+window-failed	NuGet.Packaging	Rows(100..110)	every column fails: the window does not exist
+window-failed	Microsoft.CodeAnalysis.CSharp	Rows(100..110)	every column fails: the window does not exist
+window-failed	System.Private.CoreLib	Rows(100..110)	every column fails: the window does not exist
+Ratios to NLinq: geometric mean across assets (min–max); lower is faster.
+
+| Closing | Assets | Old | LINQ | NLinq | Planner |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Exists | 8 | 9.30× (2.35–133.93) | 1.45× (1.17–2.12) | 1.00× | 0.88× (0.70–0.98) |
+| Count | 8 | 2.97× (2.27–4.33) | 1.53× (1.22–1.91) | 1.00× | 0.93× (0.89–0.98) |
+| Head(6) | 8 | 4.03× (2.34–11.50) | 1.39× (1.18–1.69) | 1.00× | 0.91× (0.83–0.96) |
+| Tail(6) | 8 | 2.82× (2.17–4.23) | 1.45× (1.18–1.77) | 1.00× | 0.87× (0.79–0.94) |
+| Rows | 8 | 2.80× (2.16–4.17) | 1.44× (1.16–1.70) | 1.00× | 1.02× (0.96–1.07) |
+| Rows(100..110) | 0 (8 failed, excluded) | — | — | — | — |
+
+Absolute medians, µs; `fail` is a strict window that does not exist for the asset.
+
+| Asset | Closing | Old | LINQ | NLinq | Planner |
+| --- | --- | ---: | ---: | ---: | ---: |
+| CommandLine | Exists | 193.4 | 47.8 | 36.5 | 34.3 |
+| CommandLine | Count | 192.9 | 110.0 | 68.5 | 63.2 |
+| CommandLine | Head(6) | 193.5 | 110.0 | 74.1 | 64.8 |
+| CommandLine | Tail(6) | 193.3 | 110.1 | 73.8 | 63.9 |
+| CommandLine | Rows | 193.3 | 110.0 | 73.4 | 70.8 |
+| CommandLine | Rows(100..110) | fail | fail | fail | fail |
+| Humanizer | Exists | 211.9 | 125.3 | 90.3 | 83.2 |
+| Humanizer | Count | 211.4 | 124.7 | 86.3 | 83.1 |
+| Humanizer | Head(6) | 210.2 | 124.9 | 89.9 | 83.2 |
+| Humanizer | Tail(6) | 211.3 | 124.9 | 90.1 | 80.9 |
+| Humanizer | Rows | 210.3 | 124.7 | 89.2 | 92.5 |
+| Humanizer | Rows(100..110) | fail | fail | fail | fail |
+| Mono.Cecil | Exists | 267.0 | 146.3 | 86.9 | 71.1 |
+| Mono.Cecil | Count | 266.4 | 146.2 | 79.5 | 71.2 |
+| Mono.Cecil | Head(6) | 266.6 | 146.1 | 86.4 | 71.9 |
+| Mono.Cecil | Tail(6) | 266.9 | 145.7 | 86.4 | 68.1 |
+| Mono.Cecil | Rows | 266.9 | 146.3 | 86.3 | 92.3 |
+| Mono.Cecil | Rows(100..110) | fail | fail | fail | fail |
+| Newtonsoft.Json | Exists | 547.6 | 39.3 | 33.5 | 32.8 |
+| Newtonsoft.Json | Count | 547.3 | 346.1 | 241.5 | 228.3 |
+| Newtonsoft.Json | Head(6) | 547.4 | 222.0 | 169.9 | 158.4 |
+| Newtonsoft.Json | Tail(6) | 548.3 | 346.9 | 252.3 | 227.0 |
+| Newtonsoft.Json | Rows | 547.9 | 347.2 | 253.8 | 258.3 |
+| Newtonsoft.Json | Rows(100..110) | fail | fail | fail | fail |
+| System.Text.Json | Exists | 495.6 | 7.9 | 3.7 | 2.6 |
+| System.Text.Json | Count | 496.7 | 305.9 | 217.4 | 204.3 |
+| System.Text.Json | Head(6) | 496.9 | 193.7 | 154.4 | 144.8 |
+| System.Text.Json | Tail(6) | 496.8 | 306.2 | 227.6 | 203.4 |
+| System.Text.Json | Rows | 496.9 | 306.6 | 228.3 | 236.7 |
+| System.Text.Json | Rows(100..110) | fail | fail | fail | fail |
+| NuGet.Packaging | Exists | 484.2 | 34.1 | 23.0 | 21.0 |
+| NuGet.Packaging | Count | 482.8 | 225.8 | 118.4 | 105.4 |
+| NuGet.Packaging | Head(6) | 483.2 | 60.5 | 42.0 | 38.0 |
+| NuGet.Packaging | Tail(6) | 484.0 | 227.1 | 128.4 | 104.5 |
+| NuGet.Packaging | Rows | 485.1 | 226.3 | 135.1 | 138.0 |
+| NuGet.Packaging | Rows(100..110) | fail | fail | fail | fail |
+| Microsoft.CodeAnalysis.CSharp | Exists | 4196.6 | 2214.2 | 1518.0 | 1338.1 |
+| Microsoft.CodeAnalysis.CSharp | Count | 4169.7 | 2215.8 | 1436.9 | 1335.9 |
+| Microsoft.CodeAnalysis.CSharp | Head(6) | 4159.6 | 2214.5 | 1517.9 | 1345.8 |
+| Microsoft.CodeAnalysis.CSharp | Tail(6) | 4164.2 | 2219.0 | 1515.8 | 1292.0 |
+| Microsoft.CodeAnalysis.CSharp | Rows | 4158.8 | 2219.8 | 1501.9 | 1567.5 |
+| Microsoft.CodeAnalysis.CSharp | Rows(100..110) | fail | fail | fail | fail |
+| System.Private.CoreLib | Exists | 14756.2 | 1517.8 | 1284.2 | 1228.8 |
+| System.Private.CoreLib | Count | 14537.8 | 4085.7 | 3361.1 | 3296.2 |
+| System.Private.CoreLib | Head(6) | 14509.0 | 1529.4 | 1297.3 | 1243.1 |
+| System.Private.CoreLib | Tail(6) | 14504.1 | 4054.6 | 3427.9 | 3210.2 |
+| System.Private.CoreLib | Rows | 14520.9 | 4059.8 | 3485.5 | 3526.1 |
+| System.Private.CoreLib | Rows(100..110) | fail | fail | fail | fail |
+ 5:14  up 2 days,  6:58, 1 user, load averages: 2.63 2.37 2.14
+=== public
+ 5:14  up 2 days,  6:58, 1 user, load averages: 2.63 2.37 2.14
+# answers: 96 compared, 0 mismatches, 0 strict-window failures
+Ratios to NLinq: geometric mean across assets (min–max); lower is faster.
+
+| Closing | Assets | LINQ | NLinq | Planner |
+| --- | --- | ---: | ---: | ---: |
+| Exists | 8 | 1.69× (1.33–2.50) | 1.00× | 0.90× (0.55–1.11) |
+| Count | 8 | 9.00× (6.79–12.99) | 1.00× | 0.75× (0.64–0.82) |
+| Head(6) | 8 | 1.62× (1.28–2.43) | 1.00× | 0.85× (0.71–1.00) |
+| Tail(6) | 8 | 7.40× (5.73–10.73) | 1.00× | 0.57× (0.51–0.62) |
+| Rows | 8 | 1.21× (1.05–1.32) | 1.00× | 1.01× (0.94–1.05) |
+| Rows(100..110) | 8 | 4.68× (3.75–6.49) | 1.00× | 0.79× (0.61–0.89) |
+
+Absolute medians, µs; `fail` is a strict window that does not exist for the asset.
+
+| Asset | Closing | LINQ | NLinq | Planner |
+| --- | --- | ---: | ---: | ---: |
+| CommandLine | Exists | 5.0 | 2.0 | 1.1 |
+| CommandLine | Count | 206.7 | 18.5 | 11.8 |
+| CommandLine | Head(6) | 6.9 | 3.5 | 2.5 |
+| CommandLine | Tail(6) | 212.7 | 24.5 | 12.4 |
+| CommandLine | Rows | 213.1 | 170.7 | 167.9 |
+| CommandLine | Rows(100..110) | 53.2 | 8.2 | 6.6 |
+| Humanizer | Exists | 1.2 | 0.9 | 1.0 |
+| Humanizer | Count | 192.5 | 24.2 | 19.6 |
+| Humanizer | Head(6) | 2.6 | 2.0 | 1.9 |
+| Humanizer | Tail(6) | 201.5 | 30.9 | 19.1 |
+| Humanizer | Rows | 201.2 | 160.2 | 162.4 |
+| Humanizer | Rows(100..110) | 27.5 | 5.5 | 4.9 |
+| Mono.Cecil | Exists | 1.2 | 0.9 | 1.0 |
+| Mono.Cecil | Count | 318.6 | 46.9 | 37.2 |
+| Mono.Cecil | Head(6) | 2.5 | 2.0 | 1.9 |
+| Mono.Cecil | Tail(6) | 332.9 | 58.1 | 36.0 |
+| Mono.Cecil | Rows | 333.9 | 262.1 | 268.1 |
+| Mono.Cecil | Rows(100..110) | 30.8 | 6.7 | 5.8 |
+| Newtonsoft.Json | Exists | 1.2 | 0.9 | 1.0 |
+| Newtonsoft.Json | Count | 479.2 | 59.4 | 44.6 |
+| Newtonsoft.Json | Head(6) | 2.5 | 1.9 | 1.9 |
+| Newtonsoft.Json | Tail(6) | 500.3 | 74.4 | 43.2 |
+| Newtonsoft.Json | Rows | 500.4 | 400.7 | 406.1 |
+| Newtonsoft.Json | Rows(100..110) | 31.0 | 7.7 | 6.6 |
+| System.Text.Json | Exists | 1.3 | 0.9 | 1.0 |
+| System.Text.Json | Count | 446.0 | 51.3 | 37.8 |
+| System.Text.Json | Head(6) | 6.7 | 3.5 | 2.6 |
+| System.Text.Json | Tail(6) | 463.9 | 65.1 | 36.6 |
+| System.Text.Json | Rows | 465.2 | 377.2 | 384.9 |
+| System.Text.Json | Rows(100..110) | 32.9 | 7.2 | 5.6 |
+| NuGet.Packaging | Exists | 3.5 | 1.6 | 1.0 |
+| NuGet.Packaging | Count | 383.4 | 48.5 | 34.5 |
+| NuGet.Packaging | Head(6) | 5.2 | 3.1 | 2.5 |
+| NuGet.Packaging | Tail(6) | 398.9 | 61.3 | 32.4 |
+| NuGet.Packaging | Rows | 399.0 | 301.2 | 303.1 |
+| NuGet.Packaging | Rows(100..110) | 34.7 | 7.3 | 5.7 |
+| Microsoft.CodeAnalysis.CSharp | Exists | 1.6 | 1.0 | 1.0 |
+| Microsoft.CodeAnalysis.CSharp | Count | 5220.0 | 526.5 | 391.7 |
+| Microsoft.CodeAnalysis.CSharp | Head(6) | 2.7 | 1.9 | 1.8 |
+| Microsoft.CodeAnalysis.CSharp | Tail(6) | 5413.6 | 651.8 | 362.5 |
+| Microsoft.CodeAnalysis.CSharp | Rows | 10534.2 | 9819.9 | 10340.5 |
+| Microsoft.CodeAnalysis.CSharp | Rows(100..110) | 67.5 | 18.0 | 10.9 |
+| System.Private.CoreLib | Exists | 3.5 | 1.6 | 1.3 |
+| System.Private.CoreLib | Count | 7788.7 | 599.8 | 492.9 |
+| System.Private.CoreLib | Head(6) | 9.7 | 4.0 | 2.9 |
+| System.Private.CoreLib | Tail(6) | 8102.9 | 754.9 | 466.5 |
+| System.Private.CoreLib | Rows | 17638.1 | 16740.2 | 15677.7 |
+| System.Private.CoreLib | Rows(100..110) | 38.2 | 8.1 | 6.1 |
+ 5:23  up 2 days,  7:07, 1 user, load averages: 1.99 2.23 2.17
