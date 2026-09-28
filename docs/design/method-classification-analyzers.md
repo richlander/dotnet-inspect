@@ -117,8 +117,15 @@ Each Tier 1 test must equal the legacy test on every input:
   This departs from legacy only for malformed or untrusted state-machine
   attributes, which legacy counted as async. On the repository's pinned
   packages and the eight postcard assemblies, both classifications agree
-  method for method. On the state-machine fixtures they agree except for
-  `MalformedAsyncSourceFixture::AnalyzeAsync`, which the index rejects.
+  method for method. Across the repository's built fixtures they agree
+  except for three methods with malformed or untrusted attributes:
+
+  | Fixture | Method | Outcome |
+  | --- | --- | --- |
+  | `analysis.async-sibling.friend` | `MalformedAsyncSourceFixture::AnalyzeAsync` | fails the async analyzer (rejected) |
+  | `analysis.lookalike` | the lookalike method with `[AsyncStateMachine(null)]` | fails the async analyzer (rejected) |
+  | `analysis.spoof.system-runtime` | `AsyncAttributeSpoofer::Analyze` | not async |
+
   The gate's attribute type match remains available for other producers. It
   compares namespace and name handles in place, walking a nested type's
   declaring or resolution-scope chain segment by segment. Its answer is
@@ -339,10 +346,13 @@ work, tracked in #8733, and not part of this change.
 - **In-place attribute match**, for any producer that uses it. It equals the
   materialized comparison on attribute types that are defined, referenced,
   nested, and reached through a generic `TypeSpec` parent.
-- **Async from the index.** On the pinned packages and the eight postcard
-  assemblies, async rows equal legacy. On the state-machine fixtures,
-  `MalformedAsyncSourceFixture::AnalyzeAsync` fails the async analyzer
-  instead of counting as async, and runtime-async fixtures are unchanged.
+- **Async from the index.** On the pinned packages, the eight postcard
+  assemblies, and every built repository fixture, async rows equal legacy
+  except for the three departures above, which the gates enumerate
+  exactly. `MalformedAsyncSourceFixture::AnalyzeAsync` and the lookalike
+  method fail the async analyzer instead of counting as async;
+  `AsyncAttributeSpoofer::Analyze` is not async. Runtime-async fixtures are
+  unchanged.
 - **Count reads no identity text.** On the existing hostile classification
   fixtures, Count, Exists, and classification charge zero identity budget and
   complete. Rows on the same fixtures abort with `CriticalFailure`.
