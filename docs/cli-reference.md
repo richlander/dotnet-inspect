@@ -130,6 +130,24 @@ The literal dot is significant: `System.Text.Json.Nodes.*` excludes
 `System.Text.Json.NodesExtra`, while `System.Text.Json.Nodes*` remains the
 broader lexical Type glob with `Glob` classification.
 
+When neither a direct Type nor an exact namespace matches, `find` broadens in
+ranked tiers without wildcard syntax:
+
+```bash
+dotnet-inspect find JsonSer       # Prefix: JsonSerializer first
+dotnet-inspect find Serializer    # Substring: XmlSerializer, JsonSerializer, ...
+dotnet-inspect find AppendFormat  # Members: StringBuilder.AppendFormat overloads
+```
+
+A name prefix settles the answer with `Prefix` rows, shortest name first. An
+undotted identifier with no Prefix Type also searches member names; Markdown
+shows those rows in a `Members` section before any `Substring` Type rows.
+Similarity suggestions (`Partial`) remain the last resort and are ordered by
+score. The `Match` value names each broadened tier. Plain `--json` and table
+formats keep Type rows only and note omitted member matches; `--count` rejects
+an answer that includes them. Use `find .AppendFormat` for member rows in
+every format.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact
