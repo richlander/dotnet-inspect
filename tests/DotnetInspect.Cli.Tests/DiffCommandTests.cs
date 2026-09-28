@@ -764,7 +764,7 @@ public class DiffCommandTests
             DiffType("Sample", "widget", DiffMember("Run")),
             DiffType("Sample", "Widget"));
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<DiffAnalysisTargetException>(() =>
             DiffCommand.BuildAnalysisTransitions(
                 surface,
                 surface,
@@ -797,7 +797,7 @@ public class DiffCommandTests
                 OwningTypeDefinition = owner,
             });
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<DiffAnalysisTargetException>(() =>
             DiffCommand.BuildAnalysisTransitions(
                 oldSurface,
                 new ApiSurface(),
@@ -961,7 +961,7 @@ public class DiffCommandTests
     {
         var surface = DiffSurface(DiffType("Sample", "Widget"));
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<DiffAnalysisTargetException>(() =>
             DiffCommand.BuildAnalysisTransitions(
                 surface,
                 surface,
@@ -3420,6 +3420,27 @@ public class DiffCommandTests
             "Analysis 'call-site' was not compared: no body at this endpoint",
             error,
             StringComparison.Ordinal);
+
+        // Changes beside another view: Changes is omitted, the other view
+        // still renders every outcome, and the request still fails.
+        var (multiExit, multiOutput, multiError) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiffCommand.WriteAnalysisSet(
+                "Sample",
+                new ApiSurface(),
+                new ApiSurface(),
+                "1.0.0",
+                "2.0.0",
+                new DiffOptions(),
+                new DiffCommand.DiffAnalysisPlan(
+                    accepted,
+                    [DiffSections.Summary.Name, DiffSections.Changes.Name]),
+                run)));
+
+        Assert.Equal(1, multiExit);
+        Assert.DoesNotContain("No API changes detected", multiOutput, StringComparison.Ordinal);
+        Assert.Contains("Summary", multiOutput, StringComparison.Ordinal);
+        Assert.Contains("call-site", multiOutput, StringComparison.Ordinal);
+        Assert.Contains("The Changes view requires a compared 'api' analysis", multiError, StringComparison.Ordinal);
     }
 
 }

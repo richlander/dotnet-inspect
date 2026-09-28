@@ -206,7 +206,7 @@ public class DiffAnalysisDiscoveryView
 }
 
 [MarkoutSerializable]
-public record DiffAnalysisDiscoveryRow(string Analysis, string Surfaces, string Findings);
+public record DiffAnalysisDiscoveryRow(string Analysis, string Default, string Surfaces, string Findings);
 
 [MarkoutSerializable]
 public record DiffAnalysisSummaryRow(

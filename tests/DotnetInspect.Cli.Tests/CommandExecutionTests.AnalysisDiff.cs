@@ -1439,6 +1439,35 @@ public partial class CommandExecutionTests
         Assert.Contains(newEvidence, output);
     }
 
+    [Theory]
+    [InlineData("call-site", "DiffFixtureSample.DiffSample", "NoSuchMember")]
+    [InlineData("call-site,allocation", "DiffFixtureSample.NoSuchType", "Foo")]
+    [InlineData("csharp", "DiffFixtureSample.DiffSample", "NoSuchMember")]
+    public async Task Diff_Analysis_BodyOnlySetTargetFailureIsRequestFailure(
+        string analyses,
+        string type,
+        string member)
+    {
+        // A member target that does not resolve fails the request before any
+        // analysis runs, whether or not the set includes api: never a
+        // Failed outcome row.
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", type,
+            "-m", member,
+            "--analysis", analyses,
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(member, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Failed", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Summary", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Transitions", output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Diff_Analysis_SeveralAnalysesDefaultToSummaryInSelectionOrder()
     {

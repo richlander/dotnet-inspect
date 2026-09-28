@@ -208,6 +208,8 @@ public partial class DiffCommand
                     .Where(entry => entry.Participation is not null)
                     .Select(entry => new DiffAnalysisDiscoveryRow(
                         entry.Analysis.Id.Value,
+                        DiffAnalysisCatalog.Operation.DefaultSet.Contains(
+                            entry.Analysis.Id.Value) ? "yes" : "no",
                         string.Join(", ", entry.Participation!.Surfaces.Select(
                             surface => surface.Surface)),
                         string.Join(", ", entry.Participation.Surfaces
@@ -412,30 +414,39 @@ public partial class DiffCommand
         AnalysisSetValidationResult.Accepted selection)
     {
         AnalysisReportSurfaceKind surface = selection.Surface;
-        bool selectsApi = selection.Analyses.Any(IsApi);
-        string[] retainedResearch =
+        string[] bodyTargeted =
         [
             .. selection.Analyses
                 .Where(analysis => analysis.ParticipationFor(
                         AnalysisOperationKind.Compare)
-                    ?.For(surface)?.ProducerRoute
-                    == DiffAnalysisCatalog.RetainedResearchRoute)
+                    ?.For(surface)?.ProducerRoute is { } route
+                    && (route == DiffAnalysisCatalog.RetainedResearchRoute
+                        || route == DiffAnalysisCatalog.BodySignalRoute))
                 .Select(analysis => analysis.Id.Value),
         ];
 
+        // Member targets resolve once, before any producer runs, whatever the
+        // set: a target failure is a request failure, never an outcome.
         ResolvedDiffMemberTargets? targets = null;
-        if (surface == AnalysisReportSurfaceKind.Member
-            && (selectsApi || retainedResearch.Length > 0))
+        if (surface == AnalysisReportSurfaceKind.Member)
         {
-            targets = ResolveMemberTargetIdentities(
-                fromSurface,
-                toSurface,
-                options.MemberFilter,
-                options.TypeFilter,
-                requireBodyTargets: retainedResearch.Length > 0,
-                bodySectionName: retainedResearch.Length > 0
-                    ? $"--analysis {retainedResearch[0]}"
-                    : "--analysis");
+            try
+            {
+                targets = ResolveMemberTargetIdentities(
+                    fromSurface,
+                    toSurface,
+                    options.MemberFilter,
+                    options.TypeFilter,
+                    requireBodyTargets: bodyTargeted.Length > 0,
+                    bodySectionName: bodyTargeted.Length > 0
+                        ? $"--analysis {bodyTargeted[0]}"
+                        : "--analysis");
+            }
+            catch (InvalidOperationException ex)
+                when (ex is not DiffAnalysisTargetException)
+            {
+                throw new DiffAnalysisTargetException(ex.Message);
+            }
         }
         IReadOnlyList<string> typeNames = surface switch
         {
@@ -576,14 +587,16 @@ public partial class DiffCommand
 
         // Every analysis that did not compare stays visible, whichever views
         // are selected. The Changes view never stands in for an api
-        // analysis that did not compare.
+        // analysis that did not compare; other selected views still render.
         WriteNonComparedOutcomes(result);
         if (plan.Views.Contains(DiffSections.Changes.Name) && changes is null)
         {
             CommandError.Write(
                 "The Changes view requires a compared 'api' analysis, "
                 + "and 'api' did not compare; see the diagnostic above.");
-            return 1;
+            if (plan.Views is [_])
+                return 1;
+            failed = true;
         }
 
         if (plan.Views is [var onlyView])
