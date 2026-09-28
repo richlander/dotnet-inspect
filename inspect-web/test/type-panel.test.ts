@@ -239,7 +239,7 @@ function unavailableExactTypeInspection(
   };
 }
 
-function typeDisplayName(item: TypeSummary) {
+function typeDisplayName(item: { name: string; displayName?: string }) {
   return item?.displayName || item?.name || "";
 }
 

@@ -841,7 +841,7 @@ test("restored selections reveal their accessibility bucket", () => {
     /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
-    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
+    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypeRows\(\)\.findIndex/);
 });
 
 test("runtime lookup refuses ambiguous or unresolved exact targets", () => {

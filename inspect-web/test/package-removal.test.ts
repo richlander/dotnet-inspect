@@ -453,6 +453,7 @@ function graphRemovalHarness() {
     {
       registerHost: (api: typeof host) => { host = api; },
       state, callGraphInspection: coordinator,
+      selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
       assemblyDescriptorForType, selectedConcreteOverload, memberScopeIsActive,
       memberRequestIsCurrent: () => true,

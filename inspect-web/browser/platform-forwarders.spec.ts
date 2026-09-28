@@ -1,0 +1,83 @@
+import { expect, test } from "@playwright/test";
+import {
+  chooseSubject,
+  installFacades,
+  openInstalledPlatform,
+  releaseFacade,
+  surface,
+} from "./library-hierarchy.support.ts";
+
+test.use({ viewport: { width: 1440, height: 900 } });
+
+async function openXml(
+  page: Parameters<typeof installFacades>[0],
+  options: { forwarderFailure?: boolean; forwarderPending?: boolean } = {},
+) {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true, ...options,
+  });
+  await openInstalledPlatform(page);
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  }).click();
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await expect(page.locator(".overview-identity-detail").filter({ hasText: "Facade assembly" }))
+    .toBeVisible();
+  const row = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
+  await expect(row).toContainText("Forwarded");
+  await row.click();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+  await expect(page.locator('[data-inspector-tab][data-lens="overview"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-lens="metadata"]')).toHaveCount(0);
+  await expect(page.locator('[data-lens="api"]')).toHaveCount(0);
+}
+
+// PR-fast: production UI over deterministic responses for the real XML route.
+test("XML forwarders open each immediate Library and restore fresh history actions", async ({ page }) => {
+  await openXml(page);
+  const firstAction = await page.locator("html").getAttribute("data-forwarder-view");
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
+  await expect(page.locator("#forwarded-type-title")).toBeFocused();
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator('[data-inspector-tab][data-lens="api"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
+  await expect(page.locator('[data-type="System.Private.Xml:System.Xml.XmlReader"]')).toBeVisible();
+  await page.locator("#nav-back").click();
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
+  await page.locator("#nav-back").click();
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
+  expect(await page.locator("html").getAttribute("data-forwarder-view")).not.toBe(firstAction);
+  await page.reload();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
+});
+
+test("unavailable forwarding preserves subject, location and actionable focus", async ({ page }) => {
+  await openXml(page, { forwarderFailure: true });
+  const source = page.url();
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator(".forwarded-type-overview [role=alert]"))
+    .toContainText("unavailable");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+  await expect(page.locator("[data-platform-forwarder]")).toBeFocused();
+  await expect(page).toHaveURL(source);
+});
+
+test("leaving a pending forwarder cannot replace the newer Library subject", async ({ page }) => {
+  await openXml(page, { forwarderPending: true });
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator(".forwarded-type-overview [role=status]")).toBeVisible();
+  await chooseSubject(page, "library", "Library");
+  const retired = await page.locator("html").getAttribute("data-forwarder-view");
+  await releaseFacade(page, "finish-forwarder");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
+  await expect.poll(() => page.locator("html").getAttribute("data-forwarder-view"))
+    .not.toBe(retired);
+  await page.locator('[data-type="System.Xml:System.Xml.XmlReader"]').click();
+  await expect(page.locator("[data-platform-forwarder]")).toBeEnabled();
+  await page.locator("[data-platform-forwarder]").click();
+  await releaseFacade(page, "finish-forwarder");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
+});

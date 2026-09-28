@@ -28,6 +28,10 @@ import type {
   BrowserPackageIntegrations as PackageIntegrations,
 } from "../src/facades/inspect-web-analysis.js";
 import type {
+  BrowserWorkspaceShareEncodeResult,
+  BrowserWorkspaceShareState,
+} from "../src/facades/inspect-web-catalog.js";
+import type {
   BrowserLibraryApiDiffResult,
   InertString,
   InspectionShare,
@@ -518,6 +522,7 @@ declare global {
   interface Window {
     __spotlightPressedResult?: Element;
     __adoption?: {
+      encodeWorkspaceShareState(state: BrowserWorkspaceShareState): Promise<BrowserWorkspaceShareEncodeResult>;
       queryPackage(
         packageId: string,
         version: string,
@@ -616,6 +621,7 @@ async function boot(page: Page): Promise<void> {
     await production.ready;
     const client = production.client;
     window.__adoption = {
+      encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
       queryPackage: (packageId, pkgVersion, framework) =>
         client.package.queryPackage(packageId, pkgVersion, framework),
       queryVersions: (packageId, currentVersion) =>
@@ -3173,6 +3179,51 @@ test.describe("deterministic two-host Workspace demo", () => {
 
 test.describe("bounded network-backed Worker smoke", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  // PR-fast published-browser gate: immutable runtime XML assets, actual UI.
+  test("renders the real XML facade and navigates two immediate Type destinations", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await boot(page);
+    const encoded = await page.evaluate(() => window.__adoption!.encodeWorkspaceShareState({
+      tabs: [{
+        id: "p", kind: "group", source: ":Platform",
+        framework: "net11.0", version: "11.0.0-rc.1.26425.128",
+        runtimeIdentifier: null,
+      }],
+      contexts: [{ id: "g", tabIds: ["p"] }],
+      activeTabId: "p", selectedContextId: "g",
+      view: {
+        lens: "library:overview", type: null,
+        memberAnchor: null, memberSignature: null, section: null,
+        libraries: ['["netcore.app","System.Xml.dll"]'],
+      },
+    }));
+    expect(encoded.succeeded, encoded.failure?.message).toBe(true);
+    if (!encoded.packet) throw new Error("Missing canonical Platform packet.");
+    await page.evaluate(() => window.__adoption!.dispose());
+    await page.goto(`/?w=${encodeURIComponent(encoded.packet)}`);
+    await expect(page.locator("#library-overview-title"))
+      .toHaveText("System.Xml", { timeout: 180_000 });
+    await expect(page.locator(".overview-identity-detail").filter({ hasText: "Facade assembly" }))
+      .toBeVisible();
+    const forwardedRows = page.locator("#type-list [data-type] small").filter({ hasText: "Forwarded" });
+    expect(await forwardedRows.count()).toBeGreaterThan(100);
+    await page.locator('[data-type="System.Xml:System.Xml.XmlReader"]').click();
+    await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+    await expect(page.locator('[data-inspector-tab]')).toHaveCount(1);
+    await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
+    await page.locator("[data-platform-forwarder]").click();
+    await expect(page.locator("[data-platform-forwarder]"))
+      .toHaveText("System.Private.Xml", { timeout: 120_000 });
+    await expect(page.locator("#forwarded-type-title")).toBeFocused();
+    await page.locator("[data-platform-forwarder]").click();
+    await expect(page.locator('[data-type="System.Private.Xml:System.Xml.XmlReader"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 120_000 });
+    await expect(page.locator('[data-inspector-tab][data-lens="api"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel")).toContainText("Read");
+    await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
+  });
 
   test("opens each real XML forwarding occurrence through the production Worker", async ({
     page,

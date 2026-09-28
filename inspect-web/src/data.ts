@@ -23,13 +23,13 @@ const lenses = [
   ["source", "Source"]
 ] as const;
 
-export type TypeLens = (typeof lenses)[number][0];
+export type TypeLens = (typeof lenses)[number][0] | "overview";
 
 export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && lenses.some(([id]) => id === value);
+    && (value === "overview" || lenses.some(([id]) => id === value));
 }
 
 export const packageLenses = [
@@ -1684,7 +1684,9 @@ export function memberSectionIdsFor(
 
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
+  forwarded = false,
 ): readonly (readonly [TypeLens, string])[] {
+  if (forwarded) return [["overview", "Overview"]];
   if (pkg?.isRuntimePack) return lenses.filter(([id]) => id === "api");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
