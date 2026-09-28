@@ -1373,6 +1373,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "Clone()",
     0x06000001,
     "[]",
+    "platform-context",
   );
   await state.environment.flushAsync();
 

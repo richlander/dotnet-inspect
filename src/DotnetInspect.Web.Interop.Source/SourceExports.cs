@@ -78,7 +78,8 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson)
+        string styleOptionsJson,
+        string? contextId = null)
     {
         BrowserMemberSource source =
             await QueryPlatformMemberSourceCore(
@@ -90,7 +91,8 @@ public static partial class SourceExports
                 memberName,
                 selectorKey,
                 metadataToken,
-                styleOptionsJson);
+                styleOptionsJson,
+                contextId);
         return JsonSerializer.Serialize(
             source,
             BrowserSourceJsonContext.Default.BrowserMemberSource);
@@ -105,7 +107,8 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson)
+        string styleOptionsJson,
+        string? contextId)
     {
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
@@ -119,6 +122,7 @@ public static partial class SourceExports
                 memberName,
                 selectorKey,
                 metadataToken,
+                contextId,
                 operation.CancellationToken);
         AssemblyMemberSourceRequest request = MemberSourceRequest(
             resolved.Member,

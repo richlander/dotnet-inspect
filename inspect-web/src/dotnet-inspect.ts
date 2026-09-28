@@ -3288,7 +3288,8 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.member,
         request.selectorKey,
         request.metadataToken,
-        request.taste),
+        request.taste,
+        request.contextId),
   queryTypeSource: (operationId, request) => inspectTypeSource(
     operationId,
     request.packageId,
@@ -5269,8 +5270,10 @@ function clearWorkspacePackages() {
   state.platformSlot = -1;
   state.rootKind = "package";
   state.integrationMode = "integrations";
-  for (const packageModel of discarded)
+  for (const packageModel of discarded) {
+    packageModel.platformContextId = null;
     releasePackageModelCaches(packageModel);
+  }
 }
 
 function resetLocationFilters() {
@@ -6339,6 +6342,11 @@ function typeHeatWorkspaceGeneration(pkg: AppPackage) {
   const generation = crypto.randomUUID();
   typeHeatWorkspaceGenerations.set(pkg, generation);
   return generation;
+}
+
+function platformDemoContextIdFor(pkg: AppPackage | null) {
+  if (!pkg?.isRuntimePack) return null;
+  return pkg.platformContextId ?? state.platformDemoContextId;
 }
 
 // Member-list heat: after a Type's member list paints, one request covers every
@@ -17639,6 +17647,7 @@ async function loadSelectedMemberSource() {
       version: pkg.version,
       assembly: platformAssemblyRequest(row),
       pack: row.pack,
+      contextId: platformDemoContextIdFor(pkg),
     });
   }
   return sourceInspection.loadMemberSource({
@@ -17696,7 +17705,7 @@ function memberRequestSignature(
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
-    pkg?.isRuntimePack ? state.platformDemoContextId : null,
+    platformDemoContextIdFor(pkg ?? null),
     type?.assembly,
     type?.queryId ?? type?.id,
     type?.definitionId ?? type?.id,
@@ -18217,7 +18226,7 @@ async function loadSelectedMemberCallGraph() {
       type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
     platformPack:
       platformPackForAssembly(type.assembly, type.platformPack) ?? "",
-    platformContextId: state.platformDemoContextId,
+    platformContextId: platformDemoContextIdFor(pkg),
     platformAssemblyVersion: platformAssembly?.version ?? null,
     platformAssemblyCulture: platformAssembly?.culture ?? null,
     platformAssemblyPublicKeyToken:
@@ -19289,9 +19298,7 @@ async function drillPlatformNode(
     runtimePack,
     framework);
   return callGraphInspection.drill({
-    contextId: state.package?.isRuntimePack
-      ? state.platformDemoContextId
-      : null,
+    contextId: platformDemoContextIdFor(state.package),
     framework,
     platformVersion,
     assembly: node.assembly,
@@ -20771,6 +20778,7 @@ async function installPlatformHomeDemoSource(
     throw new Error(
       "The native Platform Library path did not retain the engine-run demo surface.");
   }
+  source.package.platformContextId = source.contextId;
   state.platformDemoContextId = source.contextId;
   return true;
 }

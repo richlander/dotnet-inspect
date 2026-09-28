@@ -1647,7 +1647,8 @@ async function installFacades(
         member,
         selector,
         token,
-        taste
+        taste,
+        contextId
       ) {
         document.documentElement.dataset.platformMemberSourceRequest =
           JSON.stringify([
@@ -1660,6 +1661,7 @@ async function installFacades(
             selector,
             token,
             taste,
+            contextId,
           ]);
         return {
           source: {

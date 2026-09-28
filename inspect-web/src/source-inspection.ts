@@ -46,6 +46,7 @@ export type MemberSourceQuery =
       version: string;
       assembly: string;
       pack: string;
+      contextId: string | null;
     } & MemberSourceSelection);
 
 export interface TypeSourceQuery extends PackageSourceCoordinates {

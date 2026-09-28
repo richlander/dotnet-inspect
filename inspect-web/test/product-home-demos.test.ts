@@ -244,7 +244,8 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   assert.deepEqual(parsed.errors, []);
   const names = new Set([
     "installPlatformHomeDemoSource", "clearWorkspacePackages",
-    "memberRequestSignature", "loadSelectedMemberCallGraph", "drillPlatformNode",
+    "memberRequestSignature", "platformDemoContextIdFor",
+    "loadSelectedMemberCallGraph", "drillPlatformNode",
   ]);
   const declarations = parsed.program.body.filter(node =>
     node.type === "FunctionDeclaration" && names.has(node.id?.name ?? ""));

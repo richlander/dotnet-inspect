@@ -243,15 +243,24 @@ internal static class BrowserMemberResolution
             string memberName,
             string selectorKey,
             int metadataToken,
+            string? contextId = null,
             CancellationToken cancellationToken = default)
     {
         BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                targetFramework,
-                platformVersion,
-                assemblyName,
-                pack,
-                cancellationToken);
+            contextId is null
+                ? await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    cancellationToken)
+                : await BrowserPlatformWorkspace.OpenRetainedContextAssemblyAsync(
+                    contextId,
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    cancellationToken);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();

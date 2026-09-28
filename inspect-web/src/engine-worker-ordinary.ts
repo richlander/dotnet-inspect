@@ -1337,7 +1337,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberSource: valueOperation(
       "ordinary-source-query-platform-member",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<SourceFacade["queryPlatformMemberSource"]>

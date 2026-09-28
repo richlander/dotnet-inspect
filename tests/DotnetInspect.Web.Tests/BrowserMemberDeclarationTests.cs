@@ -4,6 +4,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspect.Web.Interop.Metadata;
 using DotnetInspect.Web.Interop.Source;
 using ILInspector.Metadata;
@@ -433,12 +434,30 @@ public sealed class BrowserMemberDeclarationTests
             version,
             archiveBytes.ToArray());
         using var client = new HttpClient(handler);
+        string assemblyName =
+            Path.GetFileNameWithoutExtension(AssemblyFileName);
+        var plan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assemblyName,
+                            version,
+                            framework),
+                    ],
+                },
+            ]);
         BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                framework,
-                version,
-                AssemblyFileName,
-                "netcore.app",
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                plan,
+                plan.Contexts[0],
+                "runtime",
+                assemblyName,
                 client,
                 new UniformPackageSourceAuthorization(
                     [PackageSource.NuGetOrg]),
@@ -468,7 +487,8 @@ public sealed class BrowserMemberDeclarationTests
                     Analysis.CallGraphMemberResolver
                         .CreateSelector(type, member).Key,
                     member.MetadataToken ?? 0,
-                    "[]");
+                    "[]",
+                    Assert.IsType<string>(resolution.ContextId));
             BrowserMemberSource source =
                 JsonSerializer.Deserialize(
                     json,

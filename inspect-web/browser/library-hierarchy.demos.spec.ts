@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   subjectTab,
   inspectorTab,
+  chooseInspector,
   chooseSubject,
   library,
   run,
@@ -413,6 +414,14 @@ test("Platform Call Graph demo publishes the exact Library and member", async ({
   await expect(inspectorTab(page, "data-member-section", "call-graph"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
+  await chooseInspector(page, "data-member-section", "source", "Source");
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /platform-demo-context/,
+  );
   await expect(page.locator("html"))
     .not.toHaveAttribute("data-platform-library-request", /.+/);
   expect(share).toMatchObject({
