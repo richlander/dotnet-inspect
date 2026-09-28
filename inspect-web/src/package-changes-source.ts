@@ -30,7 +30,7 @@ export interface BrowserPackageChangesDataSourceOptions {
   ) => void;
 }
 
-export const packageChangesMaximumEcosystemPrefixes = 16;
+const packageChangesMaximumEcosystemPrefixes = 16;
 
 export function packageChangesEcosystems(
   catalog: BrowserPackageChangesEcosystemCatalog,
