@@ -56,6 +56,15 @@ cardinalities without Rows, executes residual shaping only for sufficient row
 handoffs, and returns every source outcome without entering a residual cohort
 when any set is insufficient. Exact zero remains a first-class result.
 
+`ForwardRowQueryPlanner` now derives one bound forward plan when a resolved row
+query contains predicates, no baseline reorder, and only optional Head stages.
+The plan evaluates the already-resolved predicate bindings one row at a time
+and exposes the collapsed Head result bound without adding continuation,
+delivery, or source semantics. Tail, Window, Top, and baseline reorder remain
+on complete-population execution. The Source adopter under #8766 is the first
+planned production consumer; this stack prerequisite is not independently
+merge-eligible before that consumer is reviewed.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
@@ -843,6 +852,7 @@ slices:
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
+| `ForwardRowQueryPlanMatchesReference` | Predicate-only and Head-only forward execution returns the same ordered rows as complete-list reference execution, collapses repeated Head stages to their minimum, stops only after the required applicable rows, and declines baseline reorder, Tail, Window, Top, or mixed plans. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
 | `ContinuationDoesNotImplyCompletion` | A continuation may accompany semantic completion, while its presence alone never establishes exhaustion or exact Count. |
