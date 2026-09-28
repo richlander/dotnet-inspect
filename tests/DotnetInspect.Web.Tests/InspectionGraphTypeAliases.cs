@@ -1,0 +1,9 @@
+global using InspectionGraphCharacteristic = Inspector.Graph.GraphCharacteristic<DotnetInspector.Queries.InspectionGraphCharacteristicPayload>;
+global using InspectionGraphCharacteristicDerivation = Inspector.Graph.GraphCharacteristicDerivation;
+global using InspectionGraphCharacteristicDerivationKind = Inspector.Graph.GraphCharacteristicDerivationKind;
+global using InspectionGraphEdge = Inspector.Graph.GraphEdge<DotnetInspector.Queries.InspectionGraphRelationshipDescriptor>;
+global using InspectionGraphLimit = Inspector.Graph.GraphLimit<DotnetInspector.Queries.InspectionGraphLimitPayload>;
+global using InspectionGraphNode = Inspector.Graph.GraphNode<DotnetInspector.Queries.InspectionGraphSubject>;
+global using InspectionGraphNodeRole = Inspector.Graph.GraphNodeRole;
+global using InspectionGraphOccurrence = Inspector.Graph.GraphOccurrence<DotnetInspector.Queries.InspectionGraphSubject, DotnetInspector.Queries.InspectionGraphRelationshipDescriptor, DotnetInspector.Queries.IInspectionGraphOccurrenceEvidence>;
+global using InspectionGraphTarget = Inspector.Graph.GraphTarget;

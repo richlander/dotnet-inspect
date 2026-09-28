@@ -53,11 +53,11 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                     document.Characteristics,
                     characteristic =>
                         ReferenceEquals(
-                            characteristic.Descriptor,
+                            characteristic.Payload.Descriptor,
                             InspectionGraphFocusCatalog.Role)
                         && characteristic.Target
                             == InspectionGraphTarget.Edge(edge.Id))
-                    .Value)
+                    .Payload.Value)
                 .Values);
 
     [Fact]
@@ -382,7 +382,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 InspectionGraphFocusCatalog
                     .ScopeClassificationIncomplete));
         Assert.Equal(
