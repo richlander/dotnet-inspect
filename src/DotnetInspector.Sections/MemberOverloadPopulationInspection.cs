@@ -99,7 +99,8 @@ public sealed record MemberOverloadPopulationBinding
         MemberOverloadAccessibilityFilter accessibility =
             MemberOverloadAccessibilityFilter.Public,
         MemberOverloadReceiverFilter receiver =
-            MemberOverloadReceiverFilter.All)
+            MemberOverloadReceiverFilter.All,
+        bool includeHidden = false)
     {
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
@@ -158,6 +159,7 @@ public sealed record MemberOverloadPopulationBinding
         Ordering = ordering;
         Accessibility = accessibility;
         Receiver = receiver;
+        IncludeHidden = includeHidden;
     }
 
     public LibraryAssemblyIdentity Assembly { get; }
@@ -170,6 +172,7 @@ public sealed record MemberOverloadPopulationBinding
     public MemberOverloadOrdering Ordering { get; }
     public MemberOverloadAccessibilityFilter Accessibility { get; }
     public MemberOverloadReceiverFilter Receiver { get; }
+    public bool IncludeHidden { get; }
 }
 
 public sealed record MemberOverloadContinuation
@@ -223,7 +226,8 @@ public sealed record MemberOverloadPopulationRequest
         MemberOverloadAccessibilityFilter accessibility =
             MemberOverloadAccessibilityFilter.Public,
         MemberOverloadReceiverFilter receiver =
-            MemberOverloadReceiverFilter.All)
+            MemberOverloadReceiverFilter.All,
+        bool includeHidden = false)
     {
         if (count is null && rows is null)
         {
@@ -249,12 +253,14 @@ public sealed record MemberOverloadPopulationRequest
         Rows = rows;
         Accessibility = accessibility;
         Receiver = receiver;
+        IncludeHidden = includeHidden;
     }
 
     public MemberOverloadCountRequest? Count { get; }
     public MemberOverloadRowsRequest? Rows { get; }
     public MemberOverloadAccessibilityFilter Accessibility { get; }
     public MemberOverloadReceiverFilter Receiver { get; }
+    public bool IncludeHidden { get; }
 }
 
 public sealed record MemberOverloadPopulationInspectionPlan

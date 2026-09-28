@@ -59,6 +59,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         bool materializeRows,
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
+        bool includeHidden,
         int maximumMembers,
         int maximumRetainedTextCharacters)
     {
@@ -77,6 +78,7 @@ public sealed class MetadataDeclarationSession : IDisposable
             materializeRows,
             accessibility,
             receiver,
+            includeHidden,
             maximumMembers,
             maximumRetainedTextCharacters);
     }

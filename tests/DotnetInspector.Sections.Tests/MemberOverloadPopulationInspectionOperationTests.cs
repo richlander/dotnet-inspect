@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
@@ -438,6 +439,117 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
 
     [Fact]
     public async Task
+        HiddenAdmissionAppliesToCountRowsAndContinuationBinding()
+    {
+        byte[] content =
+            await File.ReadAllBytesAsync(
+                FixtureCatalog.MetadataPublicMethodRoots.AssemblyPath(),
+                TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName declaringType =
+            Name(
+                "ILInspector.Metadata.PublicMethodRootFixtures",
+                "PublicTopLevel");
+
+        MemberOverloadPopulationContent visible =
+            Available(
+                Execute(
+                    library,
+                    "VisibilityOverload",
+                    count: true,
+                    new(maximumRows: 10),
+                    declaringType: declaringType));
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    visible.Overloads.Count)
+                .Value);
+        Assert.Single(
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    visible.Overloads.Rows)
+                .Items);
+        Assert.False(visible.Overloads.Binding.IncludeHidden);
+
+        MemberOverloadPopulationContent allAccessibility =
+            Available(
+                Execute(
+                    library,
+                    "VisibilityOverload",
+                    count: true,
+                    new(maximumRows: 10),
+                    declaringType: declaringType,
+                    accessibility:
+                        MemberOverloadAccessibilityFilter.All));
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    allAccessibility.Overloads.Count)
+                .Value);
+        Assert.Single(
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    allAccessibility.Overloads.Rows)
+                .Items);
+        Assert.False(
+            allAccessibility.Overloads.Binding.IncludeHidden);
+
+        MemberOverloadPopulationContent complete =
+            Available(
+                Execute(
+                    library,
+                    "VisibilityOverload",
+                    count: true,
+                    new(maximumRows: 10),
+                    declaringType: declaringType,
+                    includeHidden: true));
+        Assert.Equal(
+            2,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    complete.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            2,
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    complete.Overloads.Rows)
+                .Items.Length);
+        Assert.True(complete.Overloads.Binding.IncludeHidden);
+
+        MemberOverloadContinuation continuation =
+            Assert.IsType<MemberOverloadContinuation>(
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                        Available(
+                                Execute(
+                                    library,
+                                    "VisibilityOverload",
+                                    count: false,
+                                    new(maximumRows: 1),
+                                    declaringType: declaringType,
+                                    includeHidden: true))
+                            .Overloads.Rows)
+                    .Continuation);
+        MemberOverloadPopulationContent changedAdmission =
+            Available(
+                Execute(
+                    library,
+                    "VisibilityOverload",
+                    count: false,
+                    new(
+                        maximumRows: 1,
+                        continuation: continuation),
+                    declaringType: declaringType));
+        Assert.Equal(
+            MemberOverloadRowsRejection.IncompatibleContinuation,
+            Assert.IsType<MemberOverloadRowsOutcome.Rejected>(
+                    changedAdmission.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         CountDoesNotRequireExactMemberRowMaterialization()
     {
         byte[] content =
@@ -699,7 +811,8 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                     "M",
                     count: true,
                     new(maximumRows: 1),
-                    declaringType: Name("N", "C")));
+                    declaringType: Name("N", "C"),
+                    includeHidden: true));
 
         Assert.Equal(
             1,
@@ -877,7 +990,8 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             MemberOverloadAccessibilityFilter accessibility =
                 MemberOverloadAccessibilityFilter.Public,
             MemberOverloadReceiverFilter receiver =
-                MemberOverloadReceiverFilter.All) =>
+                MemberOverloadReceiverFilter.All,
+            bool includeHidden = false) =>
         MemberOverloadPopulationInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -894,7 +1008,8 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                             : null,
                         rows,
                         accessibility,
-                        receiver),
+                        receiver,
+                        includeHidden),
                     bounds ?? s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);

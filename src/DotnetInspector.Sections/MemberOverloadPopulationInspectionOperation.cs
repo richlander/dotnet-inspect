@@ -41,7 +41,8 @@ public static class MemberOverloadPopulationInspectionOperation
                     request.Plan.Subject,
                     rows.Ordering,
                     request.Plan.Overloads.Accessibility,
-                    request.Plan.Overloads.Receiver);
+                    request.Plan.Overloads.Receiver,
+                    request.Plan.Overloads.IncludeHidden);
             int startOrdinal =
                 compatibleContinuation
                     ? rows?.Continuation?.NextOrdinal ?? 0
@@ -62,6 +63,7 @@ public static class MemberOverloadPopulationInspectionOperation
                         Receiver(
                             request.Plan.Overloads.Receiver),
                         request.Plan.Bounds,
+                        request.Plan.Overloads.IncludeHidden,
                         expectedModuleVersionId:
                             compatibleContinuation
                                 ? rows?.Continuation?.Binding
@@ -218,7 +220,8 @@ public static class MemberOverloadPopulationInspectionOperation
             subject.Role,
             ordering,
             request.Plan.Overloads.Accessibility,
-            request.Plan.Overloads.Receiver);
+            request.Plan.Overloads.Receiver,
+            request.Plan.Overloads.IncludeHidden);
         MemberOverloadCountOutcome? count =
             request.Plan.Overloads.Count is null
                 ? null
@@ -316,7 +319,8 @@ public static class MemberOverloadPopulationInspectionOperation
         MemberGroupSubject subject,
         MemberOverloadOrdering ordering,
         MemberOverloadAccessibilityFilter accessibility,
-        MemberOverloadReceiverFilter receiver) =>
+        MemberOverloadReceiverFilter receiver,
+        bool includeHidden) =>
         assembly.IsEquivalentTo(
             new(
                 binding.Assembly.Name.ToString(),
@@ -332,7 +336,8 @@ public static class MemberOverloadPopulationInspectionOperation
         && binding.Role == subject.Role
         && binding.Ordering == ordering
         && binding.Accessibility == accessibility
-        && binding.Receiver == receiver;
+        && binding.Receiver == receiver
+        && binding.IncludeHidden == includeHidden;
 
     private static MetadataMethodAccessibilityFilter Accessibility(
         MemberOverloadAccessibilityFilter accessibility) =>

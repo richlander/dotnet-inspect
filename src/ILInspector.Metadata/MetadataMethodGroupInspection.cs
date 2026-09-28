@@ -93,6 +93,7 @@ internal static class MetadataMethodGroupInspection
         bool materializeRows,
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
+        bool includeHidden,
         int maximumMembers,
         int maximumRetainedTextCharacters)
     {
@@ -178,7 +179,12 @@ internal static class MetadataMethodGroupInspection
                         type,
                         method,
                         receiver,
-                        ref extensionContainerForFilter))
+                        ref extensionContainerForFilter)
+                    || (!includeHidden
+                        && AttributeReader
+                            .HasEditorBrowsableNeverAttribute(
+                                reader,
+                                method.GetCustomAttributes())))
                 {
                     continue;
                 }

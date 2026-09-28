@@ -15,6 +15,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
         ApiSurfaceExtractionBounds bounds,
+        bool includeHidden = false,
         Guid? expectedModuleVersionId = null)
     {
         Library = library
@@ -53,6 +54,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         MaterializeRows = materializeRows;
         Accessibility = accessibility;
         Receiver = receiver;
+        IncludeHidden = includeHidden;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
@@ -64,6 +66,7 @@ public sealed record LibraryMethodGroupInspectionRequest
     public bool MaterializeRows { get; }
     public MetadataMethodAccessibilityFilter Accessibility { get; }
     public MetadataMethodReceiverFilter Receiver { get; }
+    public bool IncludeHidden { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public Guid? ExpectedModuleVersionId { get; }
 }
@@ -241,6 +244,7 @@ public static class LibraryMethodGroupInspection
                         && !staleContinuation,
                     request.Accessibility,
                     request.Receiver,
+                    request.IncludeHidden,
                     request.Bounds.MaxMembers,
                     request.Bounds.MaxRetainedTextCharacters);
             cancellationToken.ThrowIfCancellationRequested();
