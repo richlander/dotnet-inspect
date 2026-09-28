@@ -345,6 +345,111 @@ public class PackageQueryCliTests
         Assert.Equal("ecosystem.aspire", term.Value);
     }
 
+    [Fact]
+    public void EcosystemPopulation_OptionAndWhereTermPlanIdentically()
+    {
+        PackageQueryPlan Plan(string? ecosystem, params string[] expressions)
+        {
+            Assert.True(
+                PackageQueryOptions.TryCreate(
+                    input: null,
+                    ecosystem,
+                    expressions,
+                    nuspecOnly: false,
+                    take: null,
+                    rowSelection: null,
+                    includePrerelease: false,
+                    targetFramework: null,
+                    out PackageQueryOptions? options,
+                    out OptionError error),
+                error.ToString());
+            return options!.Plan;
+        }
+
+        PackageQueryPlan option = Plan("aspire");
+        Assert.Equal("ecosystem.aspire", option.Ecosystem?.Value);
+        Assert.Null(option.PackageInput);
+        string expected = PortableQueryPayloadCodec.Encode(
+            option.Intent,
+            TestContext.Current.CancellationToken);
+        foreach (PackageQueryPlan plan in new[]
+        {
+            Plan(null, "ecosystem=aspire"),
+            Plan(null, "Ecosystem=ECOSYSTEM.Aspire"),
+            Plan("ecosystem.aspire", "ecosystem=aspire"),
+        })
+        {
+            Assert.Equal(
+                expected,
+                PortableQueryPayloadCodec.Encode(
+                    plan.Intent,
+                    TestContext.Current.CancellationToken));
+        }
+    }
+
+    [Fact]
+    public void EcosystemPopulation_RejectsPositionalAndOtherWherePopulations()
+    {
+        static string Rejected(
+            string? input,
+            string? ecosystem,
+            params string[] expressions)
+        {
+            Assert.False(
+                PackageQueryOptions.TryCreate(
+                    input,
+                    ecosystem,
+                    expressions,
+                    nuspecOnly: false,
+                    take: null,
+                    rowSelection: null,
+                    includePrerelease: false,
+                    targetFramework: null,
+                    out _,
+                    out OptionError error));
+            return error.ToString();
+        }
+
+        Assert.Contains(
+            "cannot be combined with a package ID or prefix",
+            Rejected("Aspire.*", "aspire"));
+        Assert.Contains(
+            "cannot be combined with a package ID or prefix",
+            Rejected("Aspire.Hosting", null, "ecosystem=aspire"));
+        Assert.Contains("positional", Rejected(null, null, "prefix=Aspire."));
+        Assert.Contains("positional", Rejected(null, "aspire", "package=Aspire.Hosting"));
+        Assert.Contains("--ecosystem", Rejected(null, null));
+        Assert.Contains(
+            "cannot be combined",
+            Rejected(null, "aspire", "ecosystem=ai"));
+        Assert.Contains(
+            "Unknown ecosystem 'ecosystem.unknown'",
+            Rejected(null, "unknown"));
+        Assert.Contains(
+            "registered ecosystem name",
+            Rejected(null, "not an ecosystem"));
+        Assert.Contains(
+            "only '=' predicates",
+            Rejected(null, null, "ecosystem!=aspire"));
+    }
+
+    [Fact]
+    public async Task EcosystemPopulation_CommandRejectsPositionalBeforeSourceWork()
+    {
+        var combined = await Run(
+            "package", "query", "Aspire.*", "--ecosystem", "aspire");
+        Assert.Equal(1, combined.ExitCode);
+        Assert.Empty(combined.Output);
+        Assert.Contains(
+            "cannot be combined with a package ID or prefix argument",
+            combined.Error);
+
+        var missing = await Run("package", "query", "--where", "license=MIT");
+        Assert.Equal(1, missing.ExitCode);
+        Assert.Empty(missing.Output);
+        Assert.Contains("--ecosystem <id>", missing.Error);
+    }
+
     [Theory]
     [InlineData("all", PackageQueryDependencyTargetKind.All, null)]
     [InlineData(
