@@ -155,9 +155,11 @@ Tail(N), Rows, and Rows(n..m), over one open query on pinned real assets:
   experiment.
 - Run on at least two machines, and exclude a loaded run with its reason.
 
-Performance regression tracking uses only the NLinq ratio. It is relative to
-the machine, stays meaningful after Before is retired, and changes only when
-the query or the oracle does.
+Performance regression tracking uses only the NLinq ratio. It stays
+meaningful after Before is retired and cancels most machine differences. It
+moves when After's performance changes, which is the regression it tracks,
+and also when the query, the pinned oracle, or the measurement conditions
+change, so record those alongside each tracked ratio.
 
 Use the [Producer Planning
 postcard](https://github.com/richlander/dotnet-inspect/pull/8736) as the
