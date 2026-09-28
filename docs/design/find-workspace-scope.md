@@ -24,7 +24,7 @@ Supporting owners, not additional claims:
 
 | Owner | Contract consumed |
 | --- | --- |
-| [Static Ecosystem Packs](ecosystem-packs.md) | The platform Workspace plan (`EcosystemPackCatalog.CreatePlatformWorkspacePlan`), each Ecosystem's populations, and canonical and short Ecosystem IDs |
+| [Static Ecosystem Packs](ecosystem-packs.md) | The platform Workspace plan (`EcosystemPackCatalog.CreatePlatformWorkspacePlan`), and each Ecosystem's populations and canonical IDs |
 | [Package set retirement](package-set-retirement.md) | Package sets are not Workspace populations and are being retired; slice 6 removes `--extensions` and `--aspnetcore` from `find` once this design lands |
 | [Workspace definitions](workspace-definitions.md#packet-completeness) | Complete packets, including Ecosystem registrations |
 | [Find type-search service](find-search-service.md#classification) | Classification over the realized population |
@@ -59,10 +59,11 @@ are not part of either plan: Workspace registrations never project them
 [Package set retirement](package-set-retirement.md) removes them.
 
 The effective default includes .NET Standard, which no Ecosystem declares and
-the SDK does not install. A new user's first `find JsonSerializer` spends
-most of its time downloading `NETStandard.Library.Ref` (43 MB, of which
-16.8 MB is XML documentation), and results carry duplicate `netstandard`
-rows such as ``Dictionary`2``.
+the SDK does not install. A new user's first `find JsonSerializer` takes
+0.95 s against 0.14 s warm, and the difference is acquiring
+`NETStandard.Library.Ref`: a 3 MB transfer that writes 43 MB to the cache
+(two extracted copies, each with a 16.8 MB XML documentation file). Results
+also carry duplicate `netstandard` rows such as ``Dictionary`2``.
 
 Find uses the platform plan rather than the all-known plan named by #6761:
 the platform plan is the Browser's default, so both hosts search the same
@@ -93,7 +94,9 @@ Rules:
 2. Bare `--platform` adds the platform Workspace to an explicit composition.
 3. `--ecosystem <id>` is a selector. It accepts a canonical ID
    (`ecosystem.aspire`) or a short name (`aspire`), ASCII case-insensitive,
-   canonicalized before binding, as `package query --ecosystem` does. It can
+   and resolved to the canonical ID by the CLI before binding, as
+   `ecosystem <name>` and `package activity --ecosystem` already do; adoption
+   step 3 shares that lookup rather than copying it. It can
    repeat. It adds the Ecosystem's named populations: its platform family, if
    it has one, and its core packages at their latest stable versions.
 4. `--platform runtime[@<version>]` and `--platform aspnetcore[@<version>]`
@@ -163,7 +166,7 @@ CLI, macOS arm64, 2026-09-28, `perf-bounded.tsv`: median of 3 cold samples
 | Scope | State | Direct | Miss | Members | Cache |
 | --- | --- | --- | --- | --- | --- |
 | Installed platform, today's default | warm | 0.14 s | 0.28 s | 0.96 s (442 rows) | 43 MB |
-| Installed platform, today's default, new user | cold | 0.95 s | 1.00 s | 1.74 s | 43 MB, all `NETStandard.Library.Ref` |
+| Installed platform, today's default, new user | cold | 0.95 s | 1.00 s | 1.74 s | 43 MB written, all `NETStandard.Library.Ref` (3 MB transferred) |
 | Downloaded platform, today's default (Wasm-like) | cold | 1.36 s | 1.47 s | 2.17 s (399 rows) | 240 MB |
 | Downloaded platform, today's default | warm | 0.14 s | 0.27 s | 0.97 s | |
 | Current core packages (5, by name) | cold | 1.22 s | 1.22 s | 1.29 s | 7 MB |
@@ -177,15 +180,17 @@ Queries are a direct hit, a misspelling that forces the census and
 similarity path, and a member search (`JsonSerializer`, `JsonSerialiser`,
 `.Parse` for platform scopes; `ServiceCollection`, `ServiceColection`,
 `.AddSingleton` for core packages; `Button`, `Buton`, `.Measure` for
-Avalonia). The downloaded platform's member search returns 399 rows against
+Avalonia). The Cache column is the size of the fresh `HOME` after the run
+(`du`), not bytes transferred. The downloaded platform's member search returns 399 rows against
 the installed platform's 442 because it resolves a different ref-pack
 version, so the two rows compare cost, not identical answers.
 
 The default this design adopts (Runtime and ASP.NET Core families without
 .NET Standard, plus the core packages) has no gesture in 0.26.0, so it is not
-measured end to end. Its upper bound is the warm installed-platform row, which
+measured end to end. An estimate is the warm installed-platform row, which
 still includes .NET Standard, plus the core-packages row: about 1.4 s cold and
-0.2 s warm for a direct hit.
+0.2 s warm for a direct hit. Adoption step 1's merge gate measures the real
+figure.
 
 `perf-prefix.tsv`, 2026-09-27, an earlier harness whose timings include one
 Python interpreter start (about 0.03 s, negligible at this scale): 1 cold and
@@ -201,17 +206,20 @@ Python interpreter start (about 0.03 s, negligible at this scale): 1 cold and
 Sample: 34 Packages, 4 named and 30 drawn from the `System.`,
 `Microsoft.Extensions.`, and `Microsoft.AspNetCore.` prefixes
 (`unit-sample.tsv`). Each figure is the median or nearest-rank p90 over
-Packages of each Package's median sample.
+Packages. The CLI takes each Package's median of 3 warm samples; Wasm has one
+cold and one warm sample per Package.
 
-| Per Package | CLI cold census | CLI warm census | Wasm cold projection | Wasm warm projection |
-| --- | --- | --- | --- | --- |
-| Packages measured | 34 | 34 | 27 | 27 |
-| Median | 0.19 s | 0.040 s | 0.68 s | 0.14 s |
-| p90 | 0.29 s | 0.060 s | 1.37 s | 0.60 s |
-| `Avalonia@12.1.3` (12,146 members) | 0.88 s | 0.16 s | 8.7 s | 6.9 s |
+| Per Package | CLI cold census | CLI warm census | CLI warm member search | Wasm cold projection | Wasm warm projection |
+| --- | --- | --- | --- | --- | --- |
+| Packages measured | 34 | 34 | 34 | 27 | 27 |
+| Median | 0.19 s | 0.040 s | 0.038 s | 0.68 s | 0.14 s |
+| p90 | 0.29 s | 0.060 s | 0.051 s | 1.37 s | 0.60 s |
+| `Avalonia@12.1.3` (12,146 members) | 0.88 s | 0.16 s | 0.10 s | 8.7 s | 6.9 s |
 
 - **CLI** (`unit-cli.tsv`): `merritt` (Linux x64, 24 cores), 2026-09-28.
-  Process startup is 0.029 s. The warm member scan adds a median 0.037 s.
+  Process startup is 0.029 s. Each CLI column is a separate whole process
+  (`find ZzqNoSuchType` or `find .ZzqNoSuchMember`), including startup and
+  opening the Package.
 - **Wasm** (`unit-wasm.tsv`): `merritt`, headless Firefox, 2026-09-27,
   through the opt-in published runtime benchmark bridge. `queryPackage`
   projects every Type and member signature, so it is an upper bound for a
@@ -221,8 +229,8 @@ Packages of each Package's median sample.
   implementation assets have different assembly identities. Both are Browser
   defects outside this design.
 - Over the 27 Packages both hosts measured, warm Wasm projection is a median
-  3.5 times the CLI's warm Type census, and 1.8 times its census
-  plus member scan (up to 26 for member-heavy Packages).
+  3.5 times the CLI's warm Type census (up to 42 times) and 3.7 times its warm
+  member search (up to 67 times, for Avalonia).
 - The Wasm `net10.0` platform surface took 15.3 s cold and 13.0 s warm with a
   40 MB transfer before failing the ordinary Worker JSON size limit.
 
@@ -234,7 +242,8 @@ Packages of each Package's median sample.
   total for a direct hit). Retirement slice 3 removes
   those core packages from the default altogether.
 - Dropping .NET Standard removes the new user's largest cold cost: the cold
-  installed-platform row is the 43 MB `NETStandard.Library.Ref` download.
+  installed-platform row is the `NETStandard.Library.Ref` acquisition (3 MB
+  transferred, 43 MB written).
 - Explicit named scopes, including one uncached Package, fit the CLI envelope
   cold and warm.
 - Package sets never fit a cold blocking answer (14 s in the package-sets
