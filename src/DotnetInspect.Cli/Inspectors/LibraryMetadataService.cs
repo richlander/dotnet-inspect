@@ -2881,7 +2881,7 @@ internal static class LibraryMetadataService
                     case MethodClassificationAnalyzer.PInvoke:
                         inspection.PInvokeMethodCount = count.Value;
                         break;
-                    case MethodClassificationAnalyzer.Async:
+                    case MethodClassificationDemand.AsyncAnalyzer:
                         inspection.AsyncMethodCount = count.Value;
                         break;
                     default:
@@ -2909,10 +2909,10 @@ internal static class LibraryMetadataService
                             }),
                         ];
                         break;
-                    case (MethodClassificationAnalyzer.Async, ClassifiedRowOrder.Display):
+                    case (MethodClassificationDemand.AsyncAnalyzer, ClassifiedRowOrder.Display):
                         inspection.AsyncMethodDisplayRows = rows.Methods;
                         break;
-                    case (MethodClassificationAnalyzer.Async, _):
+                    case (MethodClassificationDemand.AsyncAnalyzer, _):
                         inspection.AsyncMethods =
                         [
                             .. rows.Methods.Select(static row => new AsyncMethodSummary

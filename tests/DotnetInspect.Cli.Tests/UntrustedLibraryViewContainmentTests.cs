@@ -173,10 +173,7 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
         var asyncMethod = asyncType.DefineMethod(
             $"DoWork{Hazard}INJECTEDASYNC", MethodAttributes.Public, typeof(void), Type.EmptyTypes);
         asyncMethod.GetILGenerator().Emit(OpCodes.Ret);
-        // Runtime async (the 0x2000 impl flag). An AsyncStateMachineAttribute
-        // naming a type that is not the method's state machine fails the async
-        // analyzer instead of classifying the method (#8773).
-        asyncMethod.SetImplementationFlags((MethodImplAttributes)0x2000);
+        asyncMethod.SetCustomAttribute(new CustomAttributeBuilder(asyncCtor, [typeof(object)]));
         asyncType.CreateType();
 
         // Extension method: hostile method name and extension class.

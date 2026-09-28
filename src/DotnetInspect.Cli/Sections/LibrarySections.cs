@@ -1172,7 +1172,7 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
-            => model.MethodClassificationFailureOf(MethodClassificationAnalyzer.Async) is null
+            => model.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null
                && (model.HasAsyncMethods
                    || model.HasRuntimeAsync || model.HasStateMachineAsync);
     }

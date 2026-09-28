@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.PortableExecutable;
@@ -203,10 +204,19 @@ public class MethodClassificationScannerTests
             Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(pointer)).Methods,
             method => method.MethodName.ToString() == nameof(SampleUnsafeClass.UnsafePointerMethod));
 
+        // Legacy's outcome: the attributed method counts as async. Under the
+        // #8793 index path it is a pinned departure that fails the analyzer;
+        // slice 2b's fast path restores legacy, and this slice lands after it.
+        ImmutableArray<ClassifiedMethodRow> asyncRows =
+            Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(async)).Methods;
         Assert.Contains(
-            Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(async)).Methods,
+            asyncRows,
             method => method.MethodName.ToString() == nameof(SampleAsyncClass.RealAsyncMethod)
                 && method.DeclaringType.ToString() == "DotnetInspect.Cli.Tests.SampleAsyncClass");
+        Assert.Contains(
+            asyncRows,
+            method => method.MethodName.ToString() == nameof(SampleStateMachineAsyncClass.AttributedStateMachineAsync)
+                && method.Classification == MethodClassification.StateMachineAsync);
     }
 
     [Fact]
@@ -335,4 +345,15 @@ public class SampleAsyncClass
     }
 
     public Task<int> NotAsyncTaskMethod() => Task.FromResult(1);
+}
+
+/// <summary>
+/// Sample class exercising the classic state-machine async detection path. The
+/// attribute is applied directly so detection is deterministic even when the
+/// build emits runtime async for real <c>async</c> methods.
+/// </summary>
+public class SampleStateMachineAsyncClass
+{
+    [AsyncStateMachine(typeof(SampleStateMachineAsyncClass))]
+    public Task<int> AttributedStateMachineAsync() => Task.FromResult(1);
 }

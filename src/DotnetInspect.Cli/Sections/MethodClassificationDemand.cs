@@ -30,6 +30,13 @@ public abstract record MethodClassificationBindingResult
 /// </summary>
 public static class MethodClassificationDemand
 {
+    /// <summary>
+    /// The one question every async consumer asks: Library Info, the Async
+    /// Methods section, the model counts, and the model's async gating all
+    /// read it, so the async question changes here only.
+    /// </summary>
+    public const MethodClassificationAnalyzer AsyncAnalyzer = MethodClassificationAnalyzer.Async;
+
     /// <summary>Library Info shows the async method count.</summary>
     public static InspectionQuery<MethodClassificationBindingResult> LibraryInfo { get; } =
         new("Method classification (Library Info counts)", InspectionCost.NetworkFree);
@@ -93,11 +100,11 @@ public static class MethodClassificationDemand
         bool countOnly)
     {
         if (demand == LibraryInfo)
-            return [Count(MethodClassificationAnalyzer.Async)];
+            return [Count(AsyncAnalyzer)];
         if (demand == Signals)
             return [Count(MethodClassificationAnalyzer.PointerSignature), Count(MethodClassificationAnalyzer.PInvoke)];
         if (demand == AsyncMethods)
-            return countOnly ? [Count(MethodClassificationAnalyzer.Async)] : Rows(MethodClassificationAnalyzer.Async);
+            return countOnly ? [Count(AsyncAnalyzer)] : Rows(AsyncAnalyzer);
         if (demand == PInvokeMethods)
             return countOnly ? [Count(MethodClassificationAnalyzer.PInvoke)] : Rows(MethodClassificationAnalyzer.PInvoke);
         if (demand == ModelCounts)
@@ -105,7 +112,7 @@ public static class MethodClassificationDemand
             return
             [
                 Count(MethodClassificationAnalyzer.PInvoke),
-                Count(MethodClassificationAnalyzer.Async),
+                Count(AsyncAnalyzer),
                 Count(MethodClassificationAnalyzer.PointerSignature),
             ];
         }

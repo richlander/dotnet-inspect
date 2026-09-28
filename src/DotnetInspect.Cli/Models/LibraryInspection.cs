@@ -744,7 +744,7 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AsyncMethodSummary>? AsyncMethods
     {
-        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Async) is null ? _asyncMethods : null;
+        get => MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null ? _asyncMethods : null;
         set => _asyncMethods = value;
     }
 
@@ -764,7 +764,7 @@ public class LibraryInspection
     [JsonIgnore]
     public ImmutableArray<ClassifiedRow> AsyncMethodDisplayRows
     {
-        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Async) is null ? _asyncMethodDisplayRows : default;
+        get => MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null ? _asyncMethodDisplayRows : default;
         set => _asyncMethodDisplayRows = value;
     }
 
@@ -797,7 +797,7 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? AsyncMethodCount
     {
-        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Async) is null ? _asyncMethodCount : null;
+        get => MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null ? _asyncMethodCount : null;
         set => _asyncMethodCount = value;
     }
 
