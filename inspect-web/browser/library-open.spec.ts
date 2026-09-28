@@ -310,6 +310,7 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
     uploadedSurface,
   );
   await page.goto(root);
+  await waitForWorkspaceReady(page);
 
   await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
   await expect(page.getByText("Browser upload", { exact: true }))
