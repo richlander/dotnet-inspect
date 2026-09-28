@@ -1125,7 +1125,10 @@ test("duplicate runtime Type discovery preserves one pending Space activation", 
   await page.keyboard.down("Space");
 
   releaseSearch();
-  await expect(page.locator(".spotlight-hint")).toHaveCount(0);
+  await expect(page.getByText(
+    "Searching nuget.org…",
+    { exact: true },
+  )).toHaveCount(0);
 
   expect(await resultHandle.evaluate((element, selector) =>
     document.querySelector(selector) === element, resultSelector)).toBe(true);
@@ -1153,6 +1156,12 @@ test("framework Library metadata refresh preserves native pointer activation", a
 
   await page.keyboard.press("Control+p");
   await page.locator("#spotlight-input").fill("System.Text.Json");
+  const packageSearchHint = page.getByText(
+    "Searching nuget.org…",
+    { exact: true },
+  );
+  await expect(packageSearchHint).toBeVisible();
+  await expect(packageSearchHint).toHaveCount(0);
   const result = page.locator(
     '[data-sl-framework-lib="System.Text.Json"]',
   );

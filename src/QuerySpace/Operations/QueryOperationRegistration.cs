@@ -111,7 +111,8 @@ public sealed class QueryOperationTermDescription
         string label,
         string valueKind,
         IReadOnlyList<string> values,
-        string summary)
+        string summary,
+        IReadOnlyList<string>? examples = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(label);
         ArgumentException.ThrowIfNullOrWhiteSpace(valueKind);
@@ -124,6 +125,9 @@ public sealed class QueryOperationTermDescription
             values,
             nameof(values));
         Summary = summary;
+        Examples = QueryOperationContract.CopyValues(
+            examples ?? [],
+            nameof(examples));
     }
 
     public string Label { get; }
@@ -133,6 +137,8 @@ public sealed class QueryOperationTermDescription
     public IReadOnlyList<string> Values { get; }
 
     public string Summary { get; }
+
+    public IReadOnlyList<string> Examples { get; }
 }
 
 public sealed class QueryOperationOrderDescription

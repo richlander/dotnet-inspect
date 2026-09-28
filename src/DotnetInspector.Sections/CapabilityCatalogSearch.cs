@@ -47,6 +47,7 @@ public enum CapabilityCatalogSearchMatchSource
 {
     CanonicalKey,
     OwnerIdentity,
+    ExampleValue,
     ResourcePath,
     ResourceName,
     Summary,
@@ -434,6 +435,13 @@ public static class CapabilityCatalogSearch
                         terms,
                         details.Key,
                         CapabilityCatalogSearchMatchSource.CanonicalKey);
+                    foreach (string example in details.Examples)
+                    {
+                        AddTerms(
+                            terms,
+                            example,
+                            CapabilityCatalogSearchMatchSource.ExampleValue);
+                    }
                     break;
                 case ResourceExplanationDetail.ConsumerBindingDetails
                     details:
@@ -568,11 +576,12 @@ public static class CapabilityCatalogSearch
         {
             CapabilityCatalogSearchMatchSource.CanonicalKey
                 or CapabilityCatalogSearchMatchSource.OwnerIdentity => 0,
-            CapabilityCatalogSearchMatchSource.ResourcePath => 1,
-            CapabilityCatalogSearchMatchSource.ResourceName => 2,
-            CapabilityCatalogSearchMatchSource.Summary => 3,
+            CapabilityCatalogSearchMatchSource.ExampleValue => 1,
+            CapabilityCatalogSearchMatchSource.ResourcePath => 2,
+            CapabilityCatalogSearchMatchSource.ResourceName => 3,
+            CapabilityCatalogSearchMatchSource.Summary => 4,
             CapabilityCatalogSearchMatchSource.RelatedRoute
-                or CapabilityCatalogSearchMatchSource.ProductionBinding => 4,
+                or CapabilityCatalogSearchMatchSource.ProductionBinding => 5,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(source),
                 source,
