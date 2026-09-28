@@ -136,6 +136,78 @@ public sealed class JsonWireMemberRulesTests
                 typesByScopedIdentity));
     }
 
+    [Theory]
+    [InlineData(false, true, JsonWireMemberPresence.Present)]
+    [InlineData(false, false, JsonWireMemberPresence.Conditional)]
+    [InlineData(false, null, JsonWireMemberPresence.Unsupported)]
+    [InlineData(true, true, JsonWireMemberPresence.Present)]
+    [InlineData(true, false, JsonWireMemberPresence.Conditional)]
+    [InlineData(true, null, JsonWireMemberPresence.Unsupported)]
+    public void ContextDefaultUsesRetainedSignatureKind(
+        bool generic,
+        bool? isValueType,
+        JsonWireMemberPresence expected)
+    {
+        var declaringType = new ApiType { Name = "Payload" };
+        var reference = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity("External", null, null, null),
+            generic ? "External.Collection`1" : "External.Value");
+        ApiMember member = Property();
+        member.ReturnType = generic
+            ? "External.Collection<int>"
+            : "External.Value";
+        member.SignatureModel = new ApiSignature
+        {
+            ReturnTypeShape = generic
+                ? ApiTypeShape.GenericInstance(
+                    reference,
+                    [ApiTypeShape.PrimitiveType(ApiPrimitiveType.Int32)],
+                    isValueType)
+                : ApiTypeShape.Named(reference, isValueType),
+        };
+        var surface = new JsExportSurface
+        {
+            ContextDefaultIgnoreConditions =
+                new Dictionary<
+                    ApiType,
+                    JsonWireContextDefaultIgnoreCondition>
+                {
+                    [declaringType] =
+                        JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+                },
+        };
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+
+        Assert.Equal(
+            expected,
+            JsonWireMemberRules.GetPresence(
+                surface,
+                declaringType,
+                member,
+                JsonWireDirection.Serialize,
+                assemblyIdentity: null,
+                typesByScopedIdentity));
+        Assert.Equal(
+            JsonWireMemberPresence.Present,
+            JsonWireMemberRules.GetPresence(
+                surface,
+                declaringType,
+                member,
+                JsonWireDirection.Deserialize,
+                assemblyIdentity: null,
+                typesByScopedIdentity));
+
+        member.JsonIgnoreConditions = [JsonWireIgnoreCondition.WhenWritingNull];
+        Assert.Equal(
+            isValueType == false
+                ? JsonWireMemberPresence.Conditional
+                : JsonWireMemberPresence.Unsupported,
+            JsonWireMemberRules.GetPresence(
+                member,
+                JsonWireDirection.Serialize));
+    }
+
     [Fact]
     public void ExplicitMemberConditionOverridesSupportedContextDefault()
     {
