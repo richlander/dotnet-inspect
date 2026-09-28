@@ -65,7 +65,7 @@ public sealed class MethodRowGateTests
     // ---- Identity budget ----
 
     [Theory]
-    [InlineData(ProducerTerminal.All)]
+    [InlineData(ProducerTerminal.Complete)]
     [InlineData(ProducerTerminal.Exists)]
     public void IdentityBudget_CountAndExistsChargeNothing(ProducerTerminal terminal)
     {
@@ -703,7 +703,7 @@ public sealed class MethodRowGateTests
     {
         ImmutableArray<byte> image = Ordinary().Build();
         var classifier = new ScopeClassifier();
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.All, ProducerTerminal.Exists })
+        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists })
         {
             var kernel = new GateProducer<PointerPredicate>(
                 "Kernel", MethodDefinitionLayers.SignatureShape, new SourceGateGuard(classifier, 0b11), kernel: true);
