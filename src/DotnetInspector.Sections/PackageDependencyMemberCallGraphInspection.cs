@@ -181,6 +181,7 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     PackageDependencyTraversalSummary TraversalSummary,
     ImmutableArray<PackageDependencyMemberCallGraphInspectionRoute> Routes,
     PackageSupplyChainBaselineEvidence Baseline,
+    MemberCallGraphFocalScopeReceipt FocalScope,
     ImmutableArray<
         PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
         IntrinsicCoreLibraryContextNonParticipation,
@@ -490,6 +491,7 @@ public static class PackageDependencyMemberCallGraphInspection
                                 .. completed.Routes.Select(Project),
                             ],
                             completed.Baseline,
+                            completed.FocalScope,
                             completed
                                 .IntrinsicCoreLibraryContextNonParticipation,
                             [
