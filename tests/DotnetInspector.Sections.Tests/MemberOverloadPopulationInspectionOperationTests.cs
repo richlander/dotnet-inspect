@@ -154,6 +154,41 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
 
     [Fact]
     public async Task
+        RealSerialize_MemberGroupDocumentOwnsCountAndExactRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        InspectionEnvelope<MemberGroupDocumentInspectionOutcome> envelope =
+            ExecuteDocument(library, "Serialize");
+        MemberGroupDocument document =
+            Assert.IsType<MemberGroupDocumentInspectionOutcome.Available>(
+                    envelope.Content)
+                .Document;
+
+        Assert.Equal("Serialize", document.Subject.Name);
+        var count =
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                document.Overloads.Count);
+        var rows =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                document.Overloads.Rows);
+        Assert.Equal(15, count.Value);
+        Assert.Equal(count.Value, rows.Items.Length);
+        Assert.Null(rows.Continuation);
+        Assert.Equal(
+            Enumerable.Range(1, count.Value),
+            rows.Items.Select(static row => row.BaselineOrdinal));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         ContinuationRejectsDifferentAssemblyWithSameModuleVersionId()
     {
         Guid moduleVersionId =
@@ -1061,6 +1096,29 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                         receiver,
                         includeHidden),
                     bounds ?? s_bounds)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
+    private static InspectionEnvelope<
+        MemberGroupDocumentInspectionOutcome> ExecuteDocument(
+            LibraryInspectionTestLibrary library,
+            string methodName) =>
+        MemberGroupDocumentInspectionOperation.Execute(
+            new(
+                library.Reference,
+                new(
+                    new(
+                        Name(
+                            "System.Text.Json",
+                            "JsonSerializer"),
+                        methodName),
+                    new(
+                        new MemberOverloadCountRequest(),
+                        new(maximumRows: s_bounds.MaxMembers),
+                        MemberOverloadAccessibilityFilter.Public,
+                        MemberOverloadReceiverFilter.All,
+                        includeHidden: false),
+                    s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
 

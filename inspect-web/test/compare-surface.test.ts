@@ -146,7 +146,9 @@ test("the app retains Compare mode per Package and reconciles both modes from re
   assert.match(activateType, /enterTypeSubject\(target\);[\s\S]*state\.lens = "compare";\s*state\.compareCloneSelectedRank = null;\s*render\(\);/);
   assert.equal(activateType.match(/render\(\)/g)?.length, 1);
   const activateMember = appSource.match(/function activateCompareMember\([\s\S]*?\n\}/)?.[0] ?? "";
-  assert.match(activateMember, /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,[\s\S]*"compare"\);/);
+  assert.match(
+    activateMember,
+    /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,\s*match\.overloadIndex,\s*null,\s*"compare"\);/);
   assert.match(activateMember, /overload\.anchorDigest !== memberFingerprint/);
   assert.doesNotMatch(activateMember, /textContent|innerText|display/);
   // Change target returns to Package Overview's Comparison targets work area.
