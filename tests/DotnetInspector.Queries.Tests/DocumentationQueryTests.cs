@@ -1293,9 +1293,17 @@ public sealed class DocumentationQueryTests
             .. Directory.EnumerateFiles(
                 runtimeDirectory,
                 "*.dll",
-                SearchOption.TopDirectoryOnly),
+                SearchOption.TopDirectoryOnly)
+                .Where(IsManagedAssembly),
             typeof(CSharpSourceText).Assembly.Location,
         ];
+    }
+
+    private static bool IsManagedAssembly(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        return pe.PEHeaders.CorHeader is not null;
     }
 
     private static byte[] DocumentationQueryAssemblyBytes() =>
