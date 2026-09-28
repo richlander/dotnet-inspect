@@ -315,9 +315,23 @@ dotnet run --project tests/DotnetInspect.Web.Tests -c Release -- \
 
 `PlatformForwarders_SourceFailurePreservesContribution` is PR-fast.
 `engine-worker-ordinary.test.ts` owns opaque-action and non-success transport.
-Facade regeneration is currently blocked by #8681, reproduced at unchanged
-parent head `b8813f909`; generated-facade integration and TypeScript checking
-are not yet validated.
+`eng/generate-inspect-web-engine-facade.sh` generates the canonical Package
+facade from the managed exports, compares recipe and direct generation, and
+type-checks the authored consumers. No hand-maintained declaration replaces
+that contract.
+
+The published Browser/Wasm gate in `package-adoption.spec.ts`,
+`opens each real XML forwarding occurrence through the production Worker`,
+invokes all three operations through the generated facade and ordinary Worker.
+It uses the immutable runtime package over the network, asserts both immediate
+destinations and the terminal definition's members, and covers stale actions,
+old-view close, and returning-view renewal. It belongs to the existing bounded
+network-backed PR gate; presentation and focus remain the next slice's gates.
+
+```sh
+eng/test-inspect-web-package-adoption-gate.sh \
+  --grep 'opens each real XML forwarding occurrence'
+```
 
 The adopter retires the current success-shaped empty Type inventory for
 supported forwarding Platform Libraries. It does not replace facade Library

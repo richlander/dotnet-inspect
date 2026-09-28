@@ -228,12 +228,13 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
                 _networkClient, _authorization, _timeout, cancellationToken);
         LibraryDocument document = await BrowserPlatformSurfaceProjection.ReadForwardersAsync(
             resolution.Scope, resolution.Participant, cancellationToken);
-        if (document.Types.Rows is not LibraryTypePopulationRowsOutcome.Read { IsComplete: true })
+        LibraryTypePopulationRowsOutcome? rows = document.Types?.Rows;
+        if (rows is not LibraryTypePopulationRowsOutcome.Read { IsComplete: true } forwarders)
         {
             throw new BrowserPlatformForwarderOperationException(
-                document.Types.Rows is LibraryTypePopulationRowsOutcome.Incomplete
+                rows is LibraryTypePopulationRowsOutcome.Incomplete
                     or LibraryTypePopulationRowsOutcome.Read ? "incomplete" : "failed",
-                $"Forwarded Type inventory could not be completed ({document.Types.Rows}).");
+                $"Forwarded Type inventory could not be completed ({rows}).");
         }
         BrowserPlatformProjectionInfo projection = BrowserPlatformSurfaceProjection.Project(
             resolution.Scope, resolution.Participant, resolution.Coordinate);
@@ -241,7 +242,8 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
             projection.Surface,
             document,
             resolution.Coordinate,
-            resolution.Participant.Participant.Assembly.Identity);
+            resolution.Participant.Participant.Assembly.Identity,
+            forwarders);
     }
 
     Publication Begin()
@@ -278,7 +280,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
         {
             throw new InvalidOperationException("The current forwarder view could not be admitted.");
         }
-        var rows = (LibraryTypePopulationRowsOutcome.Read)library.Document.Types.Rows!;
+        LibraryTypePopulationRowsOutcome.Read rows = library.Forwarders;
         var forwarders = ImmutableArray.CreateBuilder<BrowserPlatformForwarderRowInfo>(rows.Items.Length);
         foreach (LibraryTypeShape row in rows.Items)
         {
@@ -305,8 +307,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
     {
         if (destination is BrowserPlatformForwarderDestination.Forwarder forwarder)
         {
-            var rows = (LibraryTypePopulationRowsOutcome.Read)library.Document.Types.Rows!;
-            LibraryTypeShape? row = rows.Items.SingleOrDefault(item => item.Identity == forwarder.Type);
+            LibraryTypeShape? row = library.Forwarders.Items.SingleOrDefault(item => item.Identity == forwarder.Type);
             if (row?.Forwarding is not { } forwarding
                 || !forwarding.Declarations.SequenceEqual(forwarder.Declarations)
                 || !new AssemblyReferenceIdentity(
@@ -377,7 +378,8 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
         BrowserPackageSurfaceInfo Surface,
         LibraryDocument Document,
         RealizedMemberCoordinate.Platform Coordinate,
-        AssemblyReferenceIdentity Identity);
+        AssemblyReferenceIdentity Identity,
+        LibraryTypePopulationRowsOutcome.Read Forwarders);
 
     sealed record Publication(string Id, long Generation, BrowserPlatformForwarderActivation Owner)
     {
