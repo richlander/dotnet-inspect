@@ -39,12 +39,12 @@ order; each slice amends its owning design together with its code.
 | Platform populations | Platform families, where the Ecosystem has one | Unchanged |
 | Namespace roots, tools, demos, scanner | Unchanged | Unchanged |
 
-Ecosystems come in two shapes. A **prefix-shaped** Ecosystem, such as Aspire
-or Microsoft.Extensions, has a natural package-ID family: its core names the
-starting points and its prefix reaches the rest. A **curated** Ecosystem, such
-as AI, is a deliberate selection across publishers with no natural prefix, in
-the way a playlist is a selection rather than a genre. A curated Ecosystem
-records no prefix, and its core is its complete contribution.
+Core entries are roots, not an inventory. They are the entry points from
+which a bounded operation's call-graph and package-dependency traversal
+discovers related packages, so the core does not list what traversal can
+reach. A prefix covers a package-ID family the Ecosystem owns and reaches the
+members traversal from the roots would not, such as sibling provider and
+evaluation packages.
 
 The Ecosystem set changes:
 
@@ -52,10 +52,13 @@ The Ecosystem set changes:
   all-known Workspace plan, with its `Azure.`, `Microsoft.Azure.`,
   `Microsoft.Extensions.Azure`, `Aspire.Azure.`, and `Aspire.Hosting.Azure.`
   prefixes.
-- **AI becomes curated.** It records no prefixes; its
-  `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`,
-  `Microsoft.Agents.AI`, and `ModelContextProtocol` prefixes are removed. Its
-  core becomes, in preference order, seven packages observed on 2026-09-27:
+- **AI keeps one prefix and seven roots.** Its prefix population becomes
+  `Microsoft.Extensions.AI` alone, which reaches the Microsoft.Extensions.AI
+  family (provider bridges such as `Microsoft.Extensions.AI.OpenAI` and the
+  `Microsoft.Extensions.AI.Evaluation` packages); the
+  `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, and
+  `ModelContextProtocol` prefixes are removed. Its core becomes, in
+  preference order, seven roots observed on 2026-09-27:
 
   | Package | Version | Publisher repository |
   | --- | --- | --- |
@@ -67,8 +70,9 @@ The Ecosystem set changes:
   | `ModelContextProtocol` | 2.2.0 | `modelcontextprotocol/csharp-sdk` |
   | `Microsoft.Agents.AI` | 1.22.0 | `microsoft/agent-framework` |
 
-  `Microsoft.Extensions.VectorData.Abstractions` leaves the core, and with its
-  prefix removed it is no longer reached by any Ecosystem. Community-published
+  `Microsoft.Extensions.VectorData.Abstractions` leaves the core and its
+  prefix is removed; it is reached only through traversal from a root that
+  depends on it. Community-published
   `Anthropic.SDK` and `Mistral.SDK` are not lab-published SDKs and are not
   included.
 
@@ -92,7 +96,7 @@ and remain bounded by their own candidate limits and source page limits
 
 | Owner | Change |
 | --- | --- |
-| [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; prefix-shaped and curated Ecosystems; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes removed |
+| [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; core entries as traversal roots; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes reduced to `Microsoft.Extensions.AI` |
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends`; `--ecosystem` is the replacement selector |
 | [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
@@ -105,14 +109,16 @@ Each slice lands independently from `main`, keeps every gate green, and
 amends its owner's document with its code.
 
 1. **This composition map.**
-2. **Ecosystem data.** Remove Azure; replace the AI core and remove its
-   prefixes; add the core bound to pack validation with a boundary test at
+2. **Ecosystem data.** Remove Azure; replace the AI core and reduce its
+   prefixes to `Microsoft.Extensions.AI`; add the core bound to pack validation with a boundary test at
    twelve and thirteen entries.
 3. **`depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
-   its recorded prefixes. For prefix-shaped Ecosystems results are unchanged,
+   its recorded prefixes. For Aspire, Microsoft.Extensions, and ASP.NET Core results are unchanged,
    because every set member already matches its pack's prefix, and only the
-   evidence basis for former set members changes. A curated Ecosystem such as
-   AI matches its core, which its removed prefixes previously covered.
+   evidence basis for former set members changes. AI matches its seven roots
+   and the `Microsoft.Extensions.AI` prefix; packages only its removed
+   prefixes matched, such as `Microsoft.Extensions.VectorData.*`, stop
+   matching `depends-ecosystem=ai`.
 4. **Package activity.** CLI and Browser adopt prefix scope; the Browser
    picker lists Ecosystems instead of package sets.
 5. **Search flags.** Remove `--extensions` and `--aspnetcore`; suggest the
