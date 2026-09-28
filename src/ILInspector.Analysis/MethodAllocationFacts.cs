@@ -814,7 +814,15 @@ internal sealed class MethodAllocationFacts
 
         public EscapeClassification WithUses(
             ImmutableArray<AllocationLifetimeUse> uses) =>
-            this with { Uses = [.. uses, .. Uses] };
+            this with { Uses = MergeDistinct(uses, Uses) };
+    }
+
+    sealed class DefinitionEscapeTraversal
+    {
+        public Dictionary<int, EscapeClassification> Completed
+            { get; } = [];
+
+        public HashSet<int> Visiting { get; } = [];
     }
 
     EscapeClassification ClassifyProducedValueEscape(
@@ -823,7 +831,13 @@ internal sealed class MethodAllocationFacts
         int positionAfterValue,
         AllocationKind kind,
         TypeRef? allocatedType)
-        => ClassifyStackValueUse(reachingDefinitionsProvider, resolver, positionAfterValue, kind, allocatedType, []);
+        => ClassifyStackValueUse(
+            reachingDefinitionsProvider,
+            resolver,
+            positionAfterValue,
+            kind,
+            allocatedType,
+            new());
 
     EscapeClassification ClassifyDefinitionEscape(
         ReachingDefinitionsResult reachingDefinitions,
@@ -832,7 +846,7 @@ internal sealed class MethodAllocationFacts
         LocalDefinition definition,
         AllocationKind kind,
         TypeRef? allocatedType,
-        HashSet<int> visitingDefinitions)
+        DefinitionEscapeTraversal traversal)
     {
         if (!reachingDefinitions.IsComplete)
         {
@@ -840,7 +854,13 @@ internal sealed class MethodAllocationFacts
                 AllocationLifetimeLimitationKind.ReachingDefinitionsIncomplete,
                 definition.Offset);
         }
-        if (!visitingDefinitions.Add(definition.Id))
+        if (traversal.Completed.TryGetValue(
+                definition.Id,
+                out EscapeClassification completed))
+        {
+            return completed;
+        }
+        if (!traversal.Visiting.Add(definition.Id))
         {
             return EscapeClassification.Unknown(
                 AllocationLifetimeLimitationKind.AliasCycle,
@@ -859,7 +879,7 @@ internal sealed class MethodAllocationFacts
                     use.Offset,
                     kind,
                     allocatedType,
-                    visitingDefinitions);
+                    traversal);
             }
             else if (TryPositionAfterLoadSlot(use.Offset, use.Slot, use.IsArgument, out int positionAfterLoad))
             {
@@ -869,7 +889,7 @@ internal sealed class MethodAllocationFacts
                     positionAfterLoad,
                     kind,
                     allocatedType,
-                    visitingDefinitions);
+                    traversal);
             }
             else
             {
@@ -881,7 +901,8 @@ internal sealed class MethodAllocationFacts
             verdict = JoinEscape(verdict, useEscape);
         }
 
-        visitingDefinitions.Remove(definition.Id);
+        traversal.Visiting.Remove(definition.Id);
+        traversal.Completed.Add(definition.Id, verdict);
         return verdict;
     }
 
@@ -891,7 +912,7 @@ internal sealed class MethodAllocationFacts
         int addressOffset,
         AllocationKind kind,
         TypeRef? allocatedType,
-        HashSet<int> visitingDefinitions)
+        DefinitionEscapeTraversal traversal)
     {
         if (_context.InstructionAt(addressOffset) is not { } addressLoad)
         {
@@ -915,14 +936,22 @@ internal sealed class MethodAllocationFacts
         DecodedInstruction consumer = instructions[index];
         return consumer.OpCode switch
         {
-            ILOpCode.Ldind_ref or ILOpCode.Ldobj =>
+            ILOpCode.Ldind_ref =>
                 ClassifyStackValueUse(
                     reachingDefinitionsProvider,
                     resolver,
                     consumer.NextOffset,
                     kind,
                     allocatedType,
-                    visitingDefinitions),
+                    traversal),
+            ILOpCode.Ldobj =>
+                ClassifyObjectReferenceRead(
+                    reachingDefinitionsProvider,
+                    resolver,
+                    consumer,
+                    kind,
+                    allocatedType,
+                    traversal),
             ILOpCode.Call or ILOpCode.Callvirt =>
                 ClassifyByReferenceCall(resolver, consumer),
             _ => EscapeClassification.Unknown(
@@ -931,6 +960,58 @@ internal sealed class MethodAllocationFacts
                 consumer.Offset,
                 consumer.OpCode),
         };
+    }
+
+    EscapeClassification ClassifyObjectReferenceRead(
+        Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
+        IMethodAllocationResolver resolver,
+        DecodedInstruction instruction,
+        AllocationKind kind,
+        TypeRef? allocatedType,
+        DefinitionEscapeTraversal traversal)
+    {
+        TypeRef loadedType;
+        try
+        {
+            loadedType = resolver.ResolveType(
+                MethodInstructionFacts.OperandInt32(instruction));
+        }
+        catch (Exception ex) when (ex is
+            BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or IndexOutOfRangeException)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+
+        if (loadedType.Kind == TypeRefKind.Unsupported)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+        if (allocatedType is null || !loadedType.Equals(allocatedType))
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+
+        return ClassifyStackValueUse(
+            reachingDefinitionsProvider,
+            resolver,
+            instruction.NextOffset,
+            kind,
+            allocatedType,
+            traversal);
     }
 
     static EscapeClassification ClassifyByReferenceCall(
@@ -974,7 +1055,7 @@ internal sealed class MethodAllocationFacts
         int position,
         AllocationKind kind,
         TypeRef? allocatedType,
-        HashSet<int> visitingDefinitions)
+        DefinitionEscapeTraversal traversal)
     {
         int? failureOffset = null;
         ILOpCode? failureOperation = null;
@@ -1021,7 +1102,7 @@ internal sealed class MethodAllocationFacts
                         definition,
                         kind,
                         allocatedType,
-                        visitingDefinitions);
+                        traversal);
             }
 
             if (kind == AllocationKind.Array)
@@ -1555,8 +1636,34 @@ internal sealed class MethodAllocationFacts
         return new(
             escape,
             kind,
-            [.. left.Uses, .. right.Uses],
-            [.. left.Limitations, .. right.Limitations]);
+            MergeDistinct(left.Uses, right.Uses),
+            MergeDistinct(left.Limitations, right.Limitations));
+    }
+
+    static ImmutableArray<T> MergeDistinct<T>(
+        ImmutableArray<T> left,
+        ImmutableArray<T> right)
+        where T : notnull
+    {
+        if (left.IsDefaultOrEmpty)
+            return right.IsDefault ? [] : right;
+        if (right.IsDefaultOrEmpty)
+            return left;
+
+        var seen = new HashSet<T>();
+        var builder = ImmutableArray.CreateBuilder<T>(
+            left.Length + right.Length);
+        foreach (T value in left)
+        {
+            if (seen.Add(value))
+                builder.Add(value);
+        }
+        foreach (T value in right)
+        {
+            if (seen.Add(value))
+                builder.Add(value);
+        }
+        return builder.ToImmutable();
     }
 
     static bool TryReadStoreSlotDefinition(DecodedInstruction instruction, out LocalSlotAccess access)
