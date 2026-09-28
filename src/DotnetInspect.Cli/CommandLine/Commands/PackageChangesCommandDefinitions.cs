@@ -23,7 +23,7 @@ public static class PackageChangesCommandDefinitions
         var ecosystemOption = new Option<string?>("--ecosystem")
         {
             Description =
-                "Ecosystem short name or canonical ID whose exact package set defines the population",
+                "Ecosystem short name or canonical ID whose recorded package prefixes define the population",
             Arity = ArgumentArity.ExactlyOne,
         };
         var fromOption = new Option<string?>("--from")

@@ -175,7 +175,8 @@ public sealed record WorkspaceContextLoadOptions
 /// </remarks>
 public static class WorkspaceContextLoader
 {
-    const string RepresentativeRuntimeIdentifier = "linux-x64";
+    /// <summary>The representative runtime used for Platform workspace acquisitions.</summary>
+    public const string RepresentativeRuntimeIdentifier = "linux-x64";
     const string RuntimePackPackageId =
         "microsoft.netcore.app.runtime.linux-x64";
     const string AspNetCorePackPackageId =

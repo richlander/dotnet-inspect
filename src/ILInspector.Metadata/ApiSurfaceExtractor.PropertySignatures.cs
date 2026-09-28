@@ -78,8 +78,21 @@ public static partial class ApiSurfaceExtractor
             setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
         }
 
-        bool hasPublicGetter = hasGetter && getterAccess == MethodAttributes.Public;
-        bool hasPublicSetter = hasSetter && setterAccess == MethodAttributes.Public;
+        // A private explicit-implementation accessor is reachable through its
+        // interface. The public population admits its property only when that
+        // interface is public, so the accessor is part of the public view.
+        bool hasPublicGetter = hasGetter
+            && (getterAccess == MethodAttributes.Public
+                || IsExplicitAccessorBody(
+                    accessors.Getter,
+                    getterAccess,
+                    explicitImplementationBodies));
+        bool hasPublicSetter = hasSetter
+            && (setterAccess == MethodAttributes.Public
+                || IsExplicitAccessorBody(
+                    accessors.Setter,
+                    setterAccess,
+                    explicitImplementationBodies));
 
         // Build accessor string
         string accessorStr;
@@ -562,6 +575,13 @@ public static partial class ApiSurfaceExtractor
             }
         }
     }
+
+    static bool IsExplicitAccessorBody(
+        MethodDefinitionHandle accessor,
+        MethodAttributes access,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies)
+        => access == MethodAttributes.Private
+            && explicitImplementationBodies.Contains(accessor);
 
     static bool AccessorDeclarationModifiersMatchProperty(
         IReadOnlyList<ApiAccessor> accessors,

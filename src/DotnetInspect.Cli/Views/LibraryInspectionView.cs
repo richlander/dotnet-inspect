@@ -608,6 +608,8 @@ public class LibraryInspectionView
                 context.Frequency,
                 context.Escape,
                 context.EscapeKind,
+                context.LifetimeUses,
+                context.LifetimeLimitations,
                 context.EstimatedSizeBytes,
                 context.SizeTier,
                 context.InLoop,
@@ -1816,6 +1818,8 @@ public record ILOffsetAllocationContextRow(
     string? Frequency,
     string? Escape,
     string? EscapeKind,
+    string? LifetimeUses,
+    string? LifetimeLimitations,
     int? EstSize,
     string? SizeTier,
     string? InLoop,
@@ -1852,6 +1856,16 @@ public record ILOffsetAllocationContextRow(
     [MarkoutPropertyName("Escape Kind")]
     [MarkoutSkipNull]
     public string? EscapeKind { get; init; } = LibraryViewText.Contain(EscapeKind);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Lifetime Uses")]
+    [MarkoutSkipNull]
+    public string? LifetimeUses { get; init; } = LibraryViewText.Contain(LifetimeUses);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Lifetime Limitations")]
+    [MarkoutSkipNull]
+    public string? LifetimeLimitations { get; init; } = LibraryViewText.Contain(LifetimeLimitations);
 
     [MarkoutPropertyName("Est Size")]
     public int? EstSize { get; init; } = EstSize;

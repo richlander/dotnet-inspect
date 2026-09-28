@@ -268,11 +268,10 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.PdbSource, "## PDB Source")]
-    [InlineData(SectionNames.SourceDiff, "## Source Diff")]
+    [InlineData(SectionNames.PdbSource)]
+    [InlineData(SectionNames.SourceDiff)]
     public async Task Member_InvalidSourceCoordinatesReportVisibleSectionFailure(
-        string section,
-        string heading)
+        string section)
     {
         using var stream = File.OpenRead(TestAssemblyPath);
         using var peReader = new PEReader(stream);
@@ -309,7 +308,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(heading, output);
+        Assert.DoesNotContain($"## {section}", output);
         Assert.Contains("sequence-point coordinates", output);
     }
 

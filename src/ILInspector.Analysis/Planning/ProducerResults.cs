@@ -126,8 +126,9 @@ public sealed record WorkReceipt(
 }
 
 /// <summary>
-/// Thrown when a producer reads a layer, fact, or result it did not declare.
-/// It is a producer contract violation, never a recoverable unit failure.
+/// Thrown when a producer reads a layer, fact, or result it did not declare,
+/// or when one plan requests a producer with more than one closing. It is a
+/// contract violation, never a recoverable unit failure.
 /// </summary>
 public sealed class ProducerContractException(string message)
     : Exception(message);

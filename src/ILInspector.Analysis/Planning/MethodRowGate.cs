@@ -24,7 +24,8 @@ public abstract class MethodRowClassifier
     const MethodDefinitionLayers Tier1 =
         MethodDefinitionLayers.Flags
         | MethodDefinitionLayers.NameComparison
-        | MethodDefinitionLayers.SignatureShape;
+        | MethodDefinitionLayers.SignatureShape
+        | MethodDefinitionLayers.StateMachineRelationship;
 
     private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
     {
@@ -150,6 +151,7 @@ internal sealed class MethodRowGate
     internal const string TypeSpecificationGuard = "TypeSpecificationGuard";
     internal const string IdentityWork = "IdentityWork";
     internal const string IdentityDecodeFailures = "IdentityDecodeFailures";
+    internal const string StateMachineRelationships = "StateMachineRelationships";
 
     readonly SignatureShapeWalker _signatures;
     readonly Dictionary<MethodRowClassifier, ClassifierCache> _classifiers = [];
@@ -311,6 +313,31 @@ internal sealed class MethodRowGate
         Reader.StringComparer.StartsWith(_typeDefinition.Name, prefix);
 
     internal bool SignatureHasPointer() => _signatures.MethodHasPointer(_methodDefinition);
+
+    StateMachineRelationshipIndex? _stateMachines;
+
+    /// <summary>
+    /// The row's kickoff relationship. The index is built once per execution;
+    /// its global budget exhaustion aborts, and any other result, including a
+    /// per-row rejection, is returned for the reader to interpret.
+    /// </summary>
+    internal StateMachineRelationshipResult StateMachineByKickoff()
+    {
+        if (_stateMachines is null)
+        {
+            _stateMachines = StateMachineRelationshipIndex.Create(Reader);
+        }
+
+        if (_stateMachines.Relationships is StateMachineRelationshipsResult.Rejected
+            {
+                Failure.Kind: StateMachineRelationshipFailureKind.BudgetExceeded,
+            })
+        {
+            Abort(StateMachineRelationships, "The state-machine relationship budget is exhausted.");
+        }
+
+        return _stateMachines.GetByKickoff(_methodHandle);
+    }
 
     // ---- Tier 2 ----
 

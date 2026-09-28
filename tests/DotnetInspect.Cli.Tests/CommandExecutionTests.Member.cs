@@ -1746,7 +1746,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("IL_0000:", output);
     }
 
@@ -2471,7 +2471,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_FindingCensusMarkdown_RendersEnvelope()
+    public async Task Member_SelectedOverload_FindingCensusUnindexedSelection_RendersEnvelope()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!,
@@ -2481,11 +2481,23 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Finding Census", output);
-        Assert.Contains("```json", output);
-        Assert.Contains("\"fact_census_receipt\":", output);
-        Assert.Contains("\"annotated_source_document\":", output);
-        Assert.Contains("\"source_fact_instances\":", output);
+        Assert.DoesNotContain("## Finding Census", output);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.NotEqual(
+            Guid.Empty,
+            envelope.RootElement
+                .GetProperty("fact_census_receipt")
+                .GetGuid());
+        Assert.NotEqual(
+            JsonValueKind.Null,
+            envelope.RootElement
+                .GetProperty("annotated_source_document")
+                .ValueKind);
+        Assert.Equal(
+            JsonValueKind.Array,
+            envelope.RootElement
+                .GetProperty("source_fact_instances")
+                .ValueKind);
     }
 
     [Fact]
@@ -2645,7 +2657,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, concreteExit);
             Assert.Empty(concreteError);
-            Assert.Contains("## Decompiled Source", concreteOutput);
+            Assert.DoesNotContain("## Decompiled Source", concreteOutput);
             Assert.Contains($"public void {concreteAccessor}(", concreteOutput);
             Assert.DoesNotContain("virtual ", concreteOutput);
             Assert.DoesNotContain("abstract ", concreteOutput);
@@ -3372,7 +3384,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Cost Overlay", output);
+        Assert.DoesNotContain("## Cost Overlay", output);
         Assert.Contains("cost.callee", output);
         Assert.Contains("alloc-loop", output);
         Assert.DoesNotContain("cost.method(root-reach 1", output);
@@ -3389,19 +3401,6 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.DoesNotContain("## Cost Overlay", output);
         Assert.DoesNotContain("cost.callee", output);
-    }
-
-    [Fact]
-    public async Task Member_SelectedOverload_CostOverlay_DefaultRendersPayload()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.DoesNotContain("## Cost Overlay", output);
-        Assert.Contains("cost.callee", output);
     }
 
     [Fact]
@@ -3426,7 +3425,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Semantics Overlay", output);
+        Assert.DoesNotContain("## Semantics Overlay", output);
         Assert.Contains("semantics.callee", output);
         Assert.Contains("may-throw FormatException", output);
         Assert.DoesNotContain("cost.callee", output);
@@ -3965,7 +3964,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("System.Convert::ToBoolean", output);
 
         (exit, output, error) = await RunAppAsync(
@@ -3992,7 +3991,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("IL_0000:", output);
 
         (exit, output, error) = await RunAppAsync(

@@ -127,6 +127,69 @@ public sealed class ApiMemberBucketTests
             VbType(summarySurface).Members.Any(candidate => candidate.Name == name));
     }
 
+    // The design's C#-spelling oracle: JsonElement.ArrayEnumerator's explicit
+    // IEnumerator.Current is one public property whose private get_Current
+    // accessor composes into it; the two explicit GetEnumerator
+    // implementations are public (docs/design/type-member-inspection-documents.md#composition-count).
+    [Fact]
+    public void RealArrayEnumerator_ComposesExplicitCurrentIntoOnePublicProperty()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "runtime",
+            "System.Text.Json.dll");
+        ApiType enumerator = Extract(path, includeAll: true).Types.Single(
+            type => type.FullName == "System.Text.Json.JsonElement+ArrayEnumerator"
+                || type.FullName == "System.Text.Json.JsonElement.ArrayEnumerator");
+
+        ApiMember current = Assert.Single(
+            enumerator.Members,
+            member => member.Name == "System.Collections.IEnumerator.Current");
+        Assert.Equal("property", current.Kind);
+        Assert.Null(current.Accessibility);
+        Assert.DoesNotContain(
+            enumerator.Members,
+            member => member.Name.EndsWith(".get_Current", StringComparison.Ordinal));
+
+        Dictionary<string, int> buckets = enumerator.Members
+            .GroupBy(member => member.Accessibility switch
+            {
+                null => "public",
+                string access when access.Contains("protected", StringComparison.Ordinal) => "protected",
+                string access when access.Contains("internal", StringComparison.Ordinal) => "internal",
+                _ => "private",
+            })
+            .ToDictionary(group => group.Key, group => group.Count());
+        Assert.Equal(8, buckets.GetValueOrDefault("public"));
+        Assert.Equal(0, buckets.GetValueOrDefault("protected"));
+        Assert.Equal(1, buckets.GetValueOrDefault("internal"));
+        Assert.Equal(3, buckets.GetValueOrDefault("private"));
+    }
+
+    // VB spells an explicit property as a private, ordinarily named property
+    // whose private getter Implements the interface's getter. The property
+    // composes its accessor and takes its public interface's bucket.
+    [Fact]
+    public void RealVisualBasicExplicitProperty_ComposesItsAccessorAndIsPublic()
+    {
+        string path = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+            "Microsoft.VisualBasic.Core.dll");
+        ApiType collection = Extract(path, includeAll: false).Types.Single(
+            type => type.Namespace == "Microsoft.VisualBasic"
+                && type.Name == "Collection");
+
+        ApiMember count = Assert.Single(
+            collection.Members,
+            member => member.Name == "ICollectionCount");
+        Assert.Equal("property", count.Kind);
+        Assert.Null(count.Accessibility);
+        Assert.DoesNotContain(
+            collection.Members,
+            member => member.Name == "get_ICollectionCount");
+    }
+
     static ApiType VbType(ApiSurface surface)
         => surface.Types.Single(type => type.Name == "VbImplementations");
 
