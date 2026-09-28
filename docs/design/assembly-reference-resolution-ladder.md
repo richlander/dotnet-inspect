@@ -92,6 +92,10 @@ the binding result algebra and the only legal policy-tier continuation:
 | `Undifferentiated` | Stop; legacy absence cannot authorize fallthrough |
 | `NoNameOwner` | Advance to the next eligible rung |
 
+This table applies only to the closed result exported by a complete rung. An
+ordered tier inside one rung may retain an owner-attested miss while that same
+rung evaluates its next eligible tier.
+
 The ladder neither weakens identity matching nor promotes an inactive or
 identity-ineligible candidate. It validates every delegated snapshot against
 the exact request and captured policy version. A foreign or changed snapshot
@@ -634,7 +638,10 @@ is request-eligible. Evaluation then composes existing owners:
    inventory without decoding unrelated assets.
 8. A package-rung binding policy evaluates the original `AssemblyRef` against
    the active tier's decoded namesake members and preserves
-   surface-to-implementation correspondence.
+   surface-to-implementation correspondence. A name-owned identity miss is
+   retained as tier-local evidence while a lower Package tier remains
+   eligible; only the completed Package rung exports a delegated binding
+   selection to the ladder.
 
 Package ID and filename correlation reduce ordinary acquisition and decoding
 work. They do not replace the final Metadata identity comparison.
@@ -662,23 +669,29 @@ realization and Metadata decoding are then bounded by ordered correlation:
 2. If the exact PackageRef or namesake file is absent, or its Metadata identity
    does not bind, the complete selected-role filename inventory across retained
    packages becomes required.
-3. Every inventory entry named `<AssemblyRefName>.dll` is a fallback
-   candidate. Boundary-prefix affinity forms the next tier; all remaining
-   namesake files form the final tier.
+3. Every not-yet-evaluated inventory entry named `<AssemblyRefName>.dll` is a
+   fallback candidate. Boundary-prefix affinity forms the next tier; all
+   remaining namesake files form the final tier. The already-decoded exact
+   occurrence retains its ownership evidence but is neither decoded nor
+   counted a second time.
 4. One binding member in the active tier produces `Selected`; several produce
-   `Ambiguous`; name-owning files with no identity-eligible member produce
-   `NameOwnedNoMatch`.
-5. If every tier completes without a name owner, the package rung produces
-   `NoNameOwner`.
+   `Ambiguous`. A complete non-final tier with no identity-eligible member
+   records whether Metadata attested simple-name ownership, then advances
+   without exporting `NameOwnedNoMatch`.
+5. After the final tier, any retained owner-attested name miss makes the
+   complete Package rung produce terminal `NameOwnedNoMatch`. If every tier
+   completes without a Metadata name owner, the Package rung produces
+   `NoNameOwner`; a namesake filename alone cannot change that result.
 6. Incomplete reachability, exact-candidate evaluation, filename inventory,
    active-tier acquisition, or Metadata decoding produces `Incomplete`,
    `Unavailable`, or `Rejected` according to the owning failure.
 
 Lower tiers cannot compete with a successful higher tier. Acquisition
-completion order never chooses among peers in one tier. Repeated declarations
-and paths that resolve to one corresponding package candidate may share
-acquisition and realization work while retaining distinct edge and
-reachability occurrences.
+completion order never chooses among peers in one tier. They may bind after a
+higher tier's completed identity miss because the higher tier selected no
+supplier. Repeated declarations and paths that resolve to one corresponding
+package candidate may share acquisition and realization work while retaining
+distinct edge and reachability occurrences.
 
 The complete filename inventory is indexed once per exact PackageHouse target
 and generation, then reused across AssemblyRefs. The ladder validates that
@@ -1127,6 +1140,9 @@ Required future Release gates:
 | Runtime Library `AssemblyRef` without a same-named package edge | Exact Platform membership may issue the route; pruning does not synthesize an edge |
 | Exact namesake PackageRef and selected filename | One selected member is decoded; successful Metadata binding completes Package routing without unrelated payload realization |
 | Exact candidate miss and complete selected filename inventory | Every namesake file is considered; unrelated selected assets are not decoded |
+| Exact candidate has an owner-attested identity miss and a lower Package tier binds | The lower tier is selected; the exact-tier miss is retained locally and never exported as a terminal rung result |
+| Every Package tier has an owner-attested name miss | The completed Package rung returns terminal `NameOwnedNoMatch`; Platform specialization does not replace it |
+| Namesake filenames decode without a Metadata owner for the requested simple name | The completed Package rung returns `NoNameOwner`; filename spelling alone does not block an eligible Platform specialization |
 | Boundary-aligned PackageRef prefix and selected filename | The candidate is evaluated in the prefix tier without treating the prefix as ownership |
 | `xunit.core` from `xunit.extensibility.core` | The no-affinity namesake file is found by the final filename tier |
 | Incomplete package reachability, pruning, exact-candidate evaluation, or required filename inventory | Route formation is `Incomplete`; Platform acquisition does not start |

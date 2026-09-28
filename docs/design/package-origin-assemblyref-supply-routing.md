@@ -191,9 +191,12 @@ design neither builds nor requires that index. This is a deliberate bounded
 contract, monitored by the retained corpus census rather than hidden behind a
 closure-wide Metadata scan.
 
-Likewise, a same-named file with an incompatible version, culture, public key,
-or content remains `NameOwnedNoMatch`, rejected, or another owner-issued
-non-success. It is not a successful binding.
+Likewise, a decoded same-name member with an incompatible version, culture,
+public key, or content is an owner-attested identity miss, not a successful
+binding. That miss is tier-local while lower Package tiers remain eligible.
+If no later tier binds, the complete Package association exports terminal
+`NameOwnedNoMatch`; a namesake filename whose decoded Metadata does not own the
+simple name contributes no such ownership.
 
 ### `System.Text.Json@10.0.0`
 
@@ -454,7 +457,18 @@ candidates in the same tier are ambiguous.
 A namesake PackageRef is a candidate, but its selected role contains no
 matching filename or its namesake file does not bind. It does not own the
 AssemblyRef. The complete selected-role filename inventory decides whether a
-fallback Package candidate exists before Platform routing may proceed.
+fallback Package candidate exists. Platform routing may proceed only when the
+complete Package rung returns `NoNameOwner`; owner-attested
+`NameOwnedNoMatch` remains terminal.
+
+### Exact Package identity miss with a lower-tier supplier
+
+An exact namesake PackageRef can contain a decoded same-name member whose
+identity does not bind while a prefix-ranked or no-affinity package contains a
+binding namesake member. The exact tier records its owner-attested miss
+locally; the lower successful tier supplies the request. Only after every
+Package tier settles without a selection can an owner-attested miss become the
+Package rung's terminal `NameOwnedNoMatch`.
 
 ### Prefix PackageRef with unrelated content
 
