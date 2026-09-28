@@ -712,7 +712,7 @@ public sealed class EcosystemCommandTests
             | Namespace Hints | section |
             | Tool Packages | section |
             """,
-            catalog.Output.Trim());
+            catalog.Output.ReplaceLineEndings("\n").Trim());
 
         Assert.Equal(0, focused.ExitCode);
         Assert.Empty(focused.Error);
@@ -728,7 +728,7 @@ public sealed class EcosystemCommandTests
             | Namespace Hints | section |
             | Tool Packages | section |
             """,
-            focused.Output.Trim());
+            focused.Output.ReplaceLineEndings("\n").Trim());
 
         Assert.Equal(0, runtime.ExitCode);
         Assert.Empty(runtime.Error);
@@ -745,7 +745,7 @@ public sealed class EcosystemCommandTests
             | Pruning | section |
             | Tool Packages | section |
             """,
-            runtime.Output.Trim());
+            runtime.Output.ReplaceLineEndings("\n").Trim());
     }
 
     [Fact]
