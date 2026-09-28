@@ -82,7 +82,7 @@ test("retained Workspace clone projects function-bearing AppState fields", () =>
   }
 });
 
-test("constructor-only and opaque copied-through values remain unsafe", () => {
+test("constructor, opaque, and shadowed-container values remain unsafe", () => {
   const fixtureRoot = mkdtempSync(
     join(tmpdir(), "retained-workspace-cloneability-"),
   );
@@ -92,11 +92,22 @@ test("constructor-only and opaque copied-through values remain unsafe", () => {
         strict: true,
         target: "ES2022",
         noEmit: true,
+        module: "ESNext",
+        moduleResolution: "Bundler",
       },
-      files: ["state.ts"],
+      files: ["builtins.ts", "state.ts"],
     }));
+    writeFileSync(join(fixtureRoot, "builtins.ts"), `
+export type SafeStandardMap = Map<string, string>;
+export type CallbackStandardMap = Map<string, () => boolean>;
+`);
     writeFileSync(join(fixtureRoot, "state.ts"), `
+import type {
+  CallbackStandardMap,
+  SafeStandardMap,
+} from "./builtins";
 class ConstructorOnly {}
+type Map<T> = { callback: () => boolean; payload: T };
 type SyntheticState = {
   direct: typeof ConstructorOnly;
   nested: { constructorValue: typeof ConstructorOnly };
@@ -105,6 +116,9 @@ type SyntheticState = {
   opaqueAny: any;
   opaqueObject: object;
   emptyObject: {};
+  shadowedMap: Map<string>;
+  safeStandardMap: SafeStandardMap;
+  callbackStandardMap: CallbackStandardMap;
   plain: { value: string };
 };
 function cloneSyntheticState(state: SyntheticState) {
@@ -117,6 +131,9 @@ function cloneSyntheticState(state: SyntheticState) {
     opaqueAny: state.opaqueAny,
     opaqueObject: state.opaqueObject,
     emptyObject: state.emptyObject,
+    shadowedMap: state.shadowedMap,
+    safeStandardMap: state.safeStandardMap,
+    callbackStandardMap: state.callbackStandardMap,
   });
 }
 `);
@@ -141,12 +158,14 @@ function cloneSyntheticState(state: SyntheticState) {
         propertiesRequiringCloneProjection(session, state),
         [
           "callback",
+          "callbackStandardMap",
           "direct",
           "emptyObject",
           "nested",
           "opaqueAny",
           "opaqueObject",
           "opaqueUnknown",
+          "shadowedMap",
         ],
       );
       const projection = structuredCloneProjectionTypes(
@@ -168,11 +187,13 @@ function cloneSyntheticState(state: SyntheticState) {
           .sort(),
         [
           "callback",
+          "callbackStandardMap",
           "direct",
           "emptyObject",
           "opaqueAny",
           "opaqueObject",
           "opaqueUnknown",
+          "shadowedMap",
         ],
       );
     } finally {
@@ -242,15 +263,13 @@ function projectionRequiredTypes(
         .map(index => resolved(session.getType(index.valueType))),
     ];
 
-    if (!isBuiltInContainer(type.display)) {
-      for (const property of applicable(session.getProperties(type.handle))) {
-        // Default-library methods are prototype APIs, not stored state values.
-        if (!hasInspectableDeclaration(session, property.declarations)) {
-          continue;
-        }
-        const propertyType = symbolType(session, property);
-        if (propertyType !== null) children.push(propertyType);
+    for (const property of applicable(session.getProperties(type.handle))) {
+      // Default-library methods are prototype APIs, not stored state values.
+      if (!hasInspectableDeclaration(session, property.declarations)) {
+        continue;
       }
+      const propertyType = symbolType(session, property);
+      if (propertyType !== null) children.push(propertyType);
     }
 
     for (const child of children) {
@@ -304,20 +323,6 @@ function hasInspectableDeclaration(
   return declarations.some(declaration =>
     resolved(session.getDeclaration(declaration)).sourceFileClassification
       !== SourceFileClassification.DefaultLibrary);
-}
-
-function isBuiltInContainer(display: string): boolean {
-  return display.endsWith("[]")
-    || display.startsWith("Array<")
-    || display.startsWith("ReadonlyArray<")
-    || display.startsWith("Map<")
-    || display.startsWith("ReadonlyMap<")
-    || display.startsWith("Set<")
-    || display.startsWith("ReadonlySet<")
-    || display === "Date"
-    || display === "RegExp"
-    || display === "ArrayBuffer"
-    || display === "Uint8Array";
 }
 
 function declaredTypeAlias(
