@@ -422,11 +422,14 @@ The composition validates:
 7. prefix ranking applies only within that filename candidate set;
 8. a filename candidate remains unsettled until decoded Metadata identity
    accepts or rejects it;
-9. Platform-family eligibility comes from owner-issued framework or Workspace
+9. Platform specialization is evaluated only after the completed Package rung
+   returns `NoNameOwner`; terminal Package `NameOwnedNoMatch` does not fall
+   through;
+10. Platform-family eligibility comes from owner-issued framework or Workspace
    evidence;
-10. Platform membership and source evidence correspond to the selected family
+11. Platform membership and source evidence correspond to the selected family
    and target; and
-11. every final supplier evaluation carries the unchanged Metadata request.
+12. every final supplier evaluation carries the unchanged Metadata request.
 
 ## Closed association outcomes
 
@@ -434,8 +437,11 @@ Supplier association produces:
 
 - **PackageOwned** — the first successful ordered Package tier owns the
   requested assembly;
-- **PlatformApplicable** — no retained Package route owns the request and one
-  eligible Platform membership can supply it;
+- **NameOwnedNoMatch** — the complete Package rung has one or more
+  Metadata-attested name owners but no identity-eligible supplier; this is
+  terminal and Platform specialization is not evaluated;
+- **PlatformApplicable** — the complete Package rung returned `NoNameOwner`
+  and one eligible Platform membership can supply the request;
 - **NoSupplier** — complete Package and Platform evidence establishes no name
   owner;
 - **Unavailable** — required Package or Platform evidence is unavailable;
