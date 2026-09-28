@@ -99,10 +99,10 @@ public sealed class ProducerPlanningTests
         MethodDefinitionExecution execution = Run(
             image,
             UnsafeEvidencePresence.Description);
-        ProducerResult<bool> result = execution.ResultOf(
+        ProducerResult<int> result = execution.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Stopped, result.Outcome);
-        Assert.True(result.Value);
+        Assert.Equal(1, result.Value);
         ProducerParticipation participation = execution.Receipt.For(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(2, participation.UnitsAttempted);
@@ -119,10 +119,10 @@ public sealed class ProducerPlanningTests
             Plan(new ProducerRequest(
                 UnsafeEvidencePresenceProducer.Instance,
                 ProducerTerminal.All)));
-        ProducerResult<bool> allResult = all.ResultOf(
+        ProducerResult<int> allResult = all.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Complete, allResult.Outcome);
-        Assert.True(allResult.Value);
+        Assert.Equal(1, allResult.Value);
         Assert.Equal(
             3,
             all.Receipt.For(UnsafeEvidencePresenceProducer.Instance)
@@ -162,7 +162,7 @@ public sealed class ProducerPlanningTests
                     "Fixture.dll",
                     failsFirst));
         Assert.Contains("N.Sample::Broken", exception.Message, StringComparison.Ordinal);
-        ProducerResult<bool> result = Run(
+        ProducerResult<int> result = Run(
                 failsFirst,
                 UnsafeEvidencePresence.Description)
             .ResultOf(UnsafeEvidencePresenceProducer.Instance);
@@ -305,6 +305,132 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
+    public void ScopeGuard_VisitsOnlyUnitsInTheAcceptedClasses()
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"),
+            Method.Safe("C"),
+            Method.Safe("D"));
+        var parity = new RowParityProducer("Parity");
+        var even = new GuardedRowsProducer("EvenRows", parity, acceptedClasses: 1UL << 0);
+        var odd = new GuardedRowsProducer("OddRows", parity, acceptedClasses: 1UL << 1);
+
+        MethodDefinitionExecution execution =
+            Run(image, Plan(new ProducerRequest(even), new ProducerRequest(odd)));
+
+        Assert.Equal("2,4", execution.ResultOf(even).Value);
+        Assert.Equal("1,3", execution.ResultOf(odd).Value);
+        // A unit outside the guard is out of scope, not attempted or failed.
+        ProducerParticipation evenParticipation = execution.Receipt.For(even);
+        Assert.Equal(ProducerOutcome.Complete, evenParticipation.Outcome);
+        Assert.Equal(2, evenParticipation.UnitsAttempted);
+        Assert.Equal(0, evenParticipation.UnitsFailed);
+        Assert.Equal(4, execution.Receipt.For(parity).UnitsAttempted);
+    }
+
+    [Theory]
+    [InlineData("Sample", "1,2,3", 0b11UL)]
+    [InlineData("Other", "", 0b11UL)]
+    [InlineData("Sample", "1,2,3", ProducerDependency.AllUnitClasses)]
+    [InlineData("Other", "", ProducerDependency.AllUnitClasses)]
+    public void TypeScope_ExcludesWholeTypesForTheProducerAndEveryProducerItGuards(
+        string scopedType,
+        string expectedRows,
+        ulong acceptedClasses)
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"),
+            Method.Safe("C"));
+        var classifier = new TypeScopedParityProducer("Parity", scopedType);
+        var guarded = new GuardedRowsProducer("Rows", classifier, acceptedClasses);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(expectedRows, execution.ResultOf(guarded).Value);
+        int inScope = expectedRows.Length == 0 ? 0 : 3;
+        Assert.Equal(inScope, execution.Receipt.For(classifier).UnitsAttempted);
+        Assert.Equal(inScope, execution.Receipt.For(guarded).UnitsAttempted);
+        Assert.Equal(ProducerOutcome.Complete, execution.Receipt.For(guarded).Outcome);
+    }
+
+    [Fact]
+    public void TypeScope_AGuardExcludedTypeIsNotTestedByTheDependent()
+    {
+        // The dependent's own type predicate fails on every type, but its
+        // guard excludes the only type with methods first, so the predicate
+        // is never asked and the dependent completes with nothing in scope.
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new TypeScopedParityProducer("Parity", "Other");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: 0b11,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(guarded).Outcome);
+        Assert.Equal("", execution.ResultOf(guarded).Value);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsAttempted);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsFailed);
+    }
+
+    [Fact]
+    public void TypeScope_AFailedTypePredicateIsContainedAsTheProducersFailure()
+    {
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new TypeScopedParityProducer("Parity", "Sample");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: 0b11,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        ProducerResult<string> result = execution.ResultOf(guarded);
+        Assert.Equal(ProducerOutcome.Failed, result.Outcome);
+        Assert.Equal("(type scope)", result.Failure!.Unit);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsAttempted);
+    }
+
+    [Fact]
+    public void TypeScope_AFailedTypePredicateFailsSamePassDependentsAsAPrerequisite()
+    {
+        // Both type predicates fail on the same type, and the dependency is
+        // an ordinary same-pass visit dependency, not a guard. The dependency
+        // is decided first, so the dependent reports its failed prerequisite
+        // rather than a failure of its own.
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new FailingTypeScopeParityProducer("Parity");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: null,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(ProducerOutcome.Failed, execution.Receipt.For(classifier).Outcome);
+        ProducerResult<string> result = execution.ResultOf(guarded);
+        Assert.Equal(ProducerOutcome.PrerequisiteFailed, result.Outcome);
+        Assert.Equal("Parity", result.FailedPrerequisite);
+    }
+
+    [Fact]
+    public void ScopeGuard_OnAProducerThatDoesNotClassifyIsAContractViolation()
+    {
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"));
+        var rows = new RowProducer("Rows");
+        var guarded = new GuardedRowsProducer("Guarded", rows, acceptedClasses: 1UL);
+
+        Assert.Throws<ProducerContractException>(() =>
+            Run(image, Plan(new ProducerRequest(guarded))));
+    }
+
+    [Fact]
     public void FailureContainment_CompletionFailureIsContained()
     {
         ImmutableArray<byte> image = BuildImage(
@@ -332,6 +458,102 @@ public sealed class ProducerPlanningTests
         Assert.Equal(ProducerOutcome.PrerequisiteFailed, blocked.Outcome);
         Assert.Equal("FailsInCompletion", blocked.FailedPrerequisite);
         Assert.Equal(3, execution.Receipt.Producers.Length);
+    }
+
+    [Theory]
+    [InlineData(ProducerTerminal.All)]
+    [InlineData(ProducerTerminal.Exists)]
+    public void ClosedQueryKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal)
+    {
+        ImmutableArray<byte>[] images =
+        [
+            BuildImage(Method.Safe("A"), Method.Safe("B"), Method.Safe("C")),
+            BuildImage(Method.Safe("A"), Method.Safe("B", readableBody: false), Method.Safe("C")),
+            BuildImage(Method.Unsafe("A"), Method.Safe("B")),
+            BuildImage(),
+        ];
+
+        foreach (ImmutableArray<byte> image in images)
+        {
+            foreach (string scopedType in (string[])["Sample", "Other"])
+            {
+                var kernel = new BodySizeProducer("Kernel", scopedType, allowsKernel: true);
+                var interpreted = new BodySizeProducer("Interpreted", scopedType, allowsKernel: false);
+
+                MethodDefinitionExecution k = Run(image, Plan(new ProducerRequest(kernel, terminal)));
+                MethodDefinitionExecution i = Run(image, Plan(new ProducerRequest(interpreted, terminal)));
+
+                ProducerResult<int> kr = k.ResultOf(kernel);
+                ProducerResult<int> ir = i.ResultOf(interpreted);
+                Assert.Equal(ir.Outcome, kr.Outcome);
+                Assert.Equal(ir.Value, kr.Value);
+                Assert.Equal(ir.Failure?.Unit, kr.Failure?.Unit);
+                Assert.Equal(i.Receipt.UnitsVisited, k.Receipt.UnitsVisited);
+                ProducerParticipation kp = k.Receipt.For(kernel);
+                ProducerParticipation ip = i.Receipt.For(interpreted);
+                Assert.Equal(
+                    (ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
+                    (kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+                Assert.Equal(
+                    ip.Layers.Select(layer => (layer.Layer, layer.Acquired)),
+                    kp.Layers.Select(layer => (layer.Layer, layer.Acquired)));
+            }
+        }
+    }
+
+    [Fact]
+    public void ClosedQueryKernel_DefersToTheInterpretedExecutorWhenALaterPassReadsItsFacts()
+    {
+        // A predicate alone in its pass would run as a kernel, but a reader in
+        // a later pass needs its per-unit facts, which a kernel does not keep.
+        ImmutableArray<byte> image = BuildImage(Method.Unsafe("A"), Method.Safe("B"), Method.Safe("C"));
+        var kernel = new BodySizeProducer("Kernel", "Sample", allowsKernel: true);
+        var interpreted = new BodySizeProducer("Interpreted", "Sample", allowsKernel: false);
+        var kernelReader = new PredicateFactReader("KernelReader", kernel);
+        var interpretedReader = new PredicateFactReader("InterpretedReader", interpreted);
+
+        MethodDefinitionExecution k = Run(
+            image,
+            Plan(new ProducerRequest(kernel), new ProducerRequest(kernelReader)));
+        MethodDefinitionExecution i = Run(
+            image,
+            Plan(new ProducerRequest(interpreted), new ProducerRequest(interpretedReader)));
+
+        Assert.Equal(ProducerOutcome.Complete, k.ResultOf(kernel).Outcome);
+        Assert.Equal(i.ResultOf(interpreted).Value, k.ResultOf(kernel).Value);
+        ProducerResult<string> kr = k.ResultOf(kernelReader);
+        ProducerResult<string> ir = i.ResultOf(interpretedReader);
+        Assert.Equal(ProducerOutcome.Complete, kr.Outcome);
+        Assert.Equal(ir.Value, kr.Value);
+        Assert.Equal(i.Receipt.UnitsVisited, k.Receipt.UnitsVisited);
+    }
+
+    [Fact]
+    public void Planner_RetainsUnitFactsOnlyAsLongAsTheirReadersNeedThem()
+    {
+        var rows = new RowProducer("Rows");
+        var guard = new CountingProducer("Guard");
+        var samePass = new GuardedRowsProducer("SamePass", new RowParityProducer("Parity"), acceptedClasses: 0b11);
+        var laterPass = new RowAfterGuardProducer("LaterPass", rows, guard);
+
+        WorkDescription description = Plan(
+            new ProducerRequest(samePass),
+            new ProducerRequest(laterPass));
+
+        // Read only by a reader in a later pass: every unit's fact is kept.
+        Assert.Equal(UnitFactRetention.AllUnits, RetentionOf(description, rows));
+        // Read only by a reader in its own pass: the current unit's fact.
+        Assert.Equal(
+            UnitFactRetention.CurrentUnit,
+            RetentionOf(description, samePass.Dependencies[0].Producer));
+        // Read by no one: nothing is kept.
+        Assert.Equal(UnitFactRetention.None, RetentionOf(description, guard));
+        Assert.Equal(UnitFactRetention.None, RetentionOf(description, laterPass));
+
+        static UnitFactRetention RetentionOf(WorkDescription description, ProducerDeclaration producer) =>
+            description.TryGetIndex(producer, out int index)
+                ? description.FactRetention[index]
+                : throw new InvalidOperationException($"{producer} is not planned.");
     }
 
     [Fact]
@@ -604,6 +826,184 @@ public sealed class ProducerPlanningTests
     {
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.FactOf(rows);
+
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
+        internal override string Complete(
+            List<int> accumulator,
+            MethodDefinitionCompletionView completion) =>
+            string.Join(",", accumulator);
+    }
+
+    /// <summary>Classifies each unit by MethodDef row parity: class 0 even, class 1 odd.</summary>
+    sealed class RowParityProducer(string identity)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+    }
+
+    /// <summary>Classifies by row parity, with a type scope naming the one type in scope.</summary>
+    sealed class TypeScopedParityProducer(string identity, string scopedType)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            reader.StringComparer.Equals(type.Name, scopedType);
+    }
+
+    /// <summary>A body-reading predicate: the unit's IL body is non-empty.</summary>
+    struct BodyReadPredicate : IMethodDefinitionPredicate
+    {
+        public bool Test(scoped MethodDefinitionView view) => view.GetBody().Size > 0;
+    }
+
+    /// <summary>An open query over <see cref="BodyReadPredicate"/>, with a type scope and a kernel toggle.</summary>
+    sealed class BodySizeProducer(string identity, string scopedType, bool allowsKernel)
+        : MethodDefinitionPredicateProducer<BodyReadPredicate>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Body)
+    {
+        internal override bool AllowsKernel => allowsKernel;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            reader.StringComparer.Equals(type.Name, scopedType)
+            || reader.StringComparer.Equals(type.Name, "<Module>");
+    }
+
+    /// <summary>
+    /// Reads a predicate's per-unit facts in a pass after the predicate completes.
+    /// </summary>
+    sealed class PredicateFactReader(string identity, BodySizeProducer predicate)
+        : MethodDefinitionProducer<bool, List<bool>, string>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            () =>
+            [
+                new ProducerDependency(predicate, ProducerDependencyKind.VisitNeedsVisit),
+                new ProducerDependency(predicate, ProducerDependencyKind.VisitNeedsResult),
+            ])
+    {
+        internal override bool Visit(scoped MethodDefinitionView view) =>
+            view.FactOf(predicate);
+
+        internal override List<bool> Seed() => [];
+
+        internal override List<bool> Accumulate(List<bool> accumulator, bool fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
+        internal override string Complete(
+            List<bool> accumulator,
+            MethodDefinitionCompletionView completion) =>
+            string.Join(",", accumulator);
+    }
+
+    /// <summary>Classifies units by parity, but its type predicate always fails.</summary>
+    sealed class FailingTypeScopeParityProducer(string identity)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            throw new BadImageFormatException("Guard type scope fixture failure.");
+    }
+
+    /// <summary>Publishes the rows of the units its scope guard accepts.</summary>
+    sealed class GuardedRowsProducer(
+        string identity,
+        ProducerDeclaration guard,
+        ulong? acceptedClasses,
+        bool failingTypeScope = false)
+        : MethodDefinitionProducer<int, List<int>, string>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            () => [new ProducerDependency(guard, ProducerDependencyKind.VisitNeedsVisit, acceptedClasses)])
+    {
+        internal override bool HasTypeScope => failingTypeScope;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            throw new BadImageFormatException("Type scope fixture failure.");
+
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
 
         internal override List<int> Seed() => [];
 

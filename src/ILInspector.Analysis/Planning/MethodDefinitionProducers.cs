@@ -68,31 +68,113 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>Whether a unit fact settles an Exists terminal for this producer.</summary>
     internal virtual bool Settles(TFact fact) => false;
 
-    IMethodDefinitionProducerRun IMethodDefinitionProducer.CreateRun(
-        UnitFactRetention retention) =>
-        new Run(this, retention);
-
-    internal sealed class Run(
-        MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
-        UnitFactRetention retention)
-        : IMethodDefinitionProducerRun
+    /// <summary>
+    /// Runs this producer's whole pass as a closed-query kernel when it is
+    /// the only producer visiting. Returns false when it has none.
+    /// </summary>
+    internal virtual bool RunKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        out int unitsVisited)
     {
-        TAccumulator _accumulator = producer.Seed();
+        unitsVisited = 0;
+        return false;
+    }
+
+    /// <summary>Whether this producer declares a type-scope predicate.</summary>
+    internal virtual bool HasTypeScope => false;
+
+    /// <summary>
+    /// The type-scope predicate: units in a type outside it are out of this
+    /// producer's scope and of every producer guarded by it.
+    /// </summary>
+    internal virtual bool TypeInScope(MetadataReader reader, TypeDefinition type) => true;
+
+    /// <summary>Whether this producer classifies units for dependents' scope guards.</summary>
+    internal virtual bool ClassifiesUnits => false;
+
+    /// <summary>The unit's class, 0 to 63, derived from its fact; used only when <see cref="ClassifiesUnits"/>.</summary>
+    internal virtual int UnitClass(TFact fact) => 0;
+
+    MethodDefinitionExecution.ProducerState IMethodDefinitionProducer.CreateState(
+        MethodDefinitionExecution execution,
+        ProducerTerminal terminal,
+        ImmutableArray<int> dependencies,
+        UnitFactRetention retention) =>
+        new State(this, execution, terminal, dependencies, retention);
+
+    /// <summary>
+    /// A producer's per-execution state, typed by its fact, accumulator, and
+    /// result. The executor reaches it through a virtual call, and a kernel
+    /// folds in its own loop and sets the accumulator once.
+    /// </summary>
+    internal sealed class State : MethodDefinitionExecution.ProducerState<TResult>
+    {
+        readonly MethodDefinitionProducer<TFact, TAccumulator, TResult> _producer;
+        TAccumulator _accumulator;
 
         // The plan decides retention: the current unit's fact in one slot
         // when every reader visits in the same pass, every unit's otherwise.
-        readonly bool _keepCurrent = retention == UnitFactRetention.CurrentUnit;
-        readonly Dictionary<int, TFact>? _factsByUnit =
-            retention == UnitFactRetention.AllUnits ? [] : null;
+        readonly bool _keepCurrent;
+        readonly Dictionary<int, TFact>? _factsByUnit;
         int _currentToken;
         TFact _currentFact = default!;
 
-        public ProducerDeclaration Producer => producer;
+        readonly bool _classifies;
+        int _classToken;
+        int _unitClass;
 
-        public bool Visit(scoped MethodDefinitionView view)
+        public State(
+            MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
+            MethodDefinitionExecution execution,
+            ProducerTerminal terminal,
+            ImmutableArray<int> dependencies,
+            UnitFactRetention retention)
+            : base(execution, producer, producer.Layers, terminal, dependencies)
         {
-            TFact fact = producer.Visit(view);
-            _accumulator = producer.Accumulate(_accumulator, fact);
+            _producer = producer;
+            _accumulator = producer.Seed();
+            _keepCurrent = retention == UnitFactRetention.CurrentUnit;
+            _factsByUnit = retention == UnitFactRetention.AllUnits ? [] : null;
+            _classifies = producer.ClassifiesUnits;
+            HasTypeScope = producer.HasTypeScope;
+        }
+
+        /// <summary>Sets the folded accumulator; a kernel folds in its own loop.</summary>
+        internal void SetAccumulator(TAccumulator accumulator) => _accumulator = accumulator;
+
+        public override bool ClassifiesUnits => _classifies;
+
+        public override bool RetainsFacts => _keepCurrent || _factsByUnit is not null;
+
+        public override bool HasTypeScope { get; }
+
+        public override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            _producer.TypeInScope(reader, type);
+
+        public override bool UnitClassIn(int unitToken, ulong acceptedClasses) =>
+            _classToken == unitToken
+            && ((acceptedClasses >> _unitClass) & 1) != 0;
+
+        public override bool TryRunKernel(
+            MetadataReader reader,
+            PEReader peReader,
+            LibraryMethodAnalysisRunner? lookup,
+            out int unitsVisited) =>
+            _producer.RunKernel(this, reader, peReader, lookup, out unitsVisited);
+
+        public override bool Visit(scoped MethodDefinitionView view)
+        {
+            TFact fact = _producer.Visit(view);
+            _accumulator = _producer.Accumulate(_accumulator, fact);
+            if (_classifies)
+            {
+                _classToken = view.Token;
+                _unitClass = _producer.UnitClass(fact);
+            }
+
             if (_keepCurrent)
             {
                 _currentToken = view.Token;
@@ -103,7 +185,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
                 _factsByUnit[view.Token] = fact;
             }
 
-            return producer.Settles(fact);
+            return _producer.Settles(fact);
         }
 
         public bool TryGetFact(int unitToken, out TFact fact)
@@ -125,8 +207,8 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             return false;
         }
 
-        public object? Complete(MethodDefinitionCompletionView completion) =>
-            producer.Complete(_accumulator, completion);
+        public override void Complete(MethodDefinitionCompletionView completion) =>
+            SetResult(_producer.Complete(_accumulator, completion));
     }
 }
 
@@ -134,16 +216,11 @@ internal interface IMethodDefinitionProducer
 {
     MethodDefinitionLayers Layers { get; }
 
-    IMethodDefinitionProducerRun CreateRun(UnitFactRetention retention);
-}
-
-internal interface IMethodDefinitionProducerRun
-{
-    ProducerDeclaration Producer { get; }
-
-    bool Visit(scoped MethodDefinitionView view);
-
-    object? Complete(MethodDefinitionCompletionView completion);
+    MethodDefinitionExecution.ProducerState CreateState(
+        MethodDefinitionExecution execution,
+        ProducerTerminal terminal,
+        ImmutableArray<int> dependencies,
+        UnitFactRetention retention);
 }
 
 /// <summary>
@@ -186,7 +263,7 @@ public readonly ref struct MethodDefinitionView
             if (!_producer.HasLookupLayer)
             {
                 throw new ProducerContractException(
-                    $"Producer '{_producer.Run.Producer.Identity}' did not "
+                    $"Producer '{_producer.Producer.Identity}' did not "
                     + "declare the module lookup.");
             }
 
@@ -210,7 +287,7 @@ public readonly ref struct MethodDefinitionView
         if (!_producer.HasBodyLayer)
         {
             throw new ProducerContractException(
-                $"Producer '{_producer.Run.Producer.Identity}' did not "
+                $"Producer '{_producer.Producer.Identity}' did not "
                 + "declare the body layer.");
         }
 
