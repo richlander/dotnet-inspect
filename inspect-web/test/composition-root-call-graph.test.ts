@@ -980,6 +980,16 @@ test("restored ordinary families load the shared document", () => {
     /ordinaryMethodGroup\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*openOverload\(0\)/);
   assert.doesNotMatch(drillIn, /member\.overloads\.length > 1/);
 
+  const stepHorizontal =
+    appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
+    ?? "";
+  assert.match(
+    stepHorizontal,
+    /const overloadOpen = member\s*&& !\(ordinaryMethodGroup\(member\)\s*&& state\.selectedOverloadIndex == null\)/);
+  assert.doesNotMatch(
+    stepHorizontal,
+    /member\.overloads\.length > 1/);
+
   const normalizeSnapshot =
     appSource.match(/function normalizeWorkspaceAsyncSnapshotState\([\s\S]*?\n}\n\nfunction settleInterruptedPlatformStatus/)?.[0]
     ?? "";
