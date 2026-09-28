@@ -86,6 +86,7 @@ const spotlight = createSpotlight({
   executeCommand: () => undefined, reportCommandError: error => { throw error; },
   commandContext: () => null, schedulePackageFetch: () => {},
   resetPackageSearch: () => {}, packageSearchLoading: () => false,
+  scheduleCapabilitySearch: () => {}, resetCapabilitySearch: () => {},
   packageCount: () => state.packages.length,
   render,
 });

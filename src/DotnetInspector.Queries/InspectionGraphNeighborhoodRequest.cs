@@ -84,7 +84,8 @@ public sealed class InspectionGraphNeighborhoodRequest
     public ImmutableArray<InspectionGraphSubject> Seeds =>
         ModeRequest.Seeds;
     public ImmutableArray<InspectionGraphRelationshipDescriptor>
-        Relationships { get; }
+        Relationships
+    { get; }
     public InspectionGraphTraversalDirection Direction { get; }
     public int MaxDepth { get; }
 
@@ -127,7 +128,7 @@ public sealed class InspectionGraphNeighborhoodRequest
 public static class InspectionGraphNeighborhoodCatalog
 {
     public static InspectionGraphEvidenceDescriptor DepthBoundEvidence
-        { get; } =
+    { get; } =
         new("queries.neighborhood-depth-bound", InspectionGraphOwner.Queries);
 
     public static InspectionGraphLimitDescriptor DepthBound { get; } =
@@ -415,10 +416,11 @@ internal static class InspectionGraphNeighborhoodProjection
                 .Select(static limit => limit!),
             .. seeds.Select(seed =>
                 new InspectionGraphLimit(
-                    InspectionGraphNeighborhoodCatalog.DepthBound,
-                    seed.Target,
-                    new InspectionGraphNeighborhoodDepthBoundEvidence(
-                        request.MaxDepth))),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphNeighborhoodCatalog.DepthBound,
+                        new InspectionGraphNeighborhoodDepthBoundEvidence(
+                            request.MaxDepth)),
+                    seed.Target)),
         ];
         InspectionGraphFailure[] failures =
         [

@@ -41,9 +41,9 @@ internal static partial class OptimizationOpportunityAnalysis
         var context = allocationFacts.Context;
         var caller = context.Method;
         var opportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-        // Discovered allocation occurrences for this method, scanned once by the caller
-        // and shared here to avoid a redundant second allocation scan. Escape state is not read.
-        var allocationByOffset = allocationFacts.DiscoveredOccurrences
+        // Reuse the allocation owner's classified lifetime evidence. Optimization
+        // policy must not run a second escape analysis over the same allocation.
+        var allocationByOffset = allocationFacts.ClassifiedOccurrences
             .ToDictionary(occurrence => occurrence.ILOffset);
         ReachingDefinitionsResult? reachingDefinitions = null;
         ReachingDefinitionsResult GetReachingDefinitions()
@@ -129,17 +129,29 @@ internal static partial class OptimizationOpportunityAnalysis
                         // array provably stays local AND its element type is stackalloc-
                         // eligible (an unmanaged primitive); otherwise keep the
                         // non-committal shape.
-                        bool local = ArrayProvablyStaysLocal(
-                                instruction.NextOffset)
-                            && IsStackallocEligibleElement(resolver.ResolveType(elementToken));
-                        opportunities.Add(local
+                        bool local = arrayAllocation.Escape
+                            == AllocationEscape.LocalOnly;
+                        bool eligibleElement =
+                            IsStackallocEligibleElement(
+                                resolver.ResolveType(elementToken));
+                        bool inLoop = context.IsInLoopRegion(offset);
+                        bool stackallocCandidate =
+                            local
+                            && eligibleElement
+                            && !inLoop;
+                        string caveat = !local
+                            ? "Lifetime is not proven local; confirm the array does not escape before replacing."
+                            : !eligibleElement
+                                ? "The element type is not supported by the current stackalloc policy."
+                                : "The allocation is inside a loop; hoist or reuse storage rather than adding stackalloc to the loop body.";
+                        opportunities.Add(stackallocCandidate
                             ? new OptimizationOpportunity(
                                 caller,
                                 "stackalloc-candidate",
                                 $"newarr with small constant length ({length}) that does not escape",
                                 "The array stays local, so a stackalloc span avoids the heap allocation.",
                                 "high",
-                                context.IsInLoopRegion(offset),
+                                inLoop,
                                 offset,
                                 null)
                             : new OptimizationOpportunity(
@@ -148,9 +160,9 @@ internal static partial class OptimizationOpportunityAnalysis
                                 $"newarr with small constant length ({length})",
                                 "If the array does not escape, a span or stackalloc may avoid the allocation.",
                                 "medium",
-                                context.IsInLoopRegion(offset),
+                                inLoop,
                                 offset,
-                                "Escape not analyzed; confirm the array stays local before replacing."));
+                                caveat));
                     }
                     ClearPendingConstant();
                     break;
@@ -581,25 +593,6 @@ internal static partial class OptimizationOpportunityAnalysis
 
         return [.. opportunities.Select(AnnotateOpportunityMetadata)];
 
-        bool ArrayProvablyStaysLocal(
-            int afterAllocationOffset)
-        {
-            try
-            {
-                return ArrayEscapeAnalysis
-                    .ArrayProvablyStaysLocal(
-                        context,
-                        GetReachingDefinitions(),
-                        afterAllocationOffset);
-            }
-            catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(ex))
-            {
-                return false;
-            }
-        }
-
         void SetPendingConstant(int value, int instructionOffset)
         {
             pendingConstant = value;
@@ -697,11 +690,14 @@ internal static partial class OptimizationOpportunityAnalysis
     // type's layout/base, so they are conservatively excluded (kept as small-array).
     static bool IsStackallocEligibleElement(TypeRef element)
         => element.Kind == TypeRefKind.Definition
-           && element.Namespace == "System"
            && element.Name is "Boolean" or "Byte" or "SByte" or "Char"
                or "Int16" or "UInt16" or "Int32" or "UInt32"
                or "Int64" or "UInt64" or "Single" or "Double"
-               or "IntPtr" or "UIntPtr";
+               or "IntPtr" or "UIntPtr"
+           && FrameworkIdentity.IsCoreLibraryType(
+               element,
+               "System",
+               element.Name);
 
     static bool IsBitConverterGetBytes(MemberRef member)
         => member.Kind != MemberKind.Unsupported

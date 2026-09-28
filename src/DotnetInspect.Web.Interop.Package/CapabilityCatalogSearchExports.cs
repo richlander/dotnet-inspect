@@ -94,6 +94,8 @@ public static partial class PackageExports
                     BrowserCapabilityCatalogSearchMatchSource.CanonicalKey,
                 CapabilityCatalogSearchMatchSource.OwnerIdentity =>
                     BrowserCapabilityCatalogSearchMatchSource.OwnerIdentity,
+                CapabilityCatalogSearchMatchSource.ExampleValue =>
+                    BrowserCapabilityCatalogSearchMatchSource.ExampleValue,
                 CapabilityCatalogSearchMatchSource.ResourcePath =>
                     BrowserCapabilityCatalogSearchMatchSource.ResourcePath,
                 CapabilityCatalogSearchMatchSource.ResourceName =>

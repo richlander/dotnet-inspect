@@ -26,6 +26,7 @@ public sealed partial class PackageHouseExecutionTests
             typeof(IntrinsicCoreLibraryRouteDecision),
             typeof(IntrinsicCoreLibraryPlatformApplicabilityPlanResult),
             typeof(IntrinsicCoreLibraryPlatformIncompleteEvidence),
+            typeof(IntrinsicCoreLibraryWorkspaceContinuationOutcome),
         ];
         Assert.All(
             closedFamilies,
@@ -47,6 +48,10 @@ public sealed partial class PackageHouseExecutionTests
             typeof(IntrinsicCoreLibraryPlatformFamilyComposition),
             typeof(IntrinsicCoreLibraryPlatformApplicabilityPlan),
             typeof(IntrinsicCoreLibraryRouteApplicabilityReceipt),
+            typeof(IntrinsicCoreLibraryWorkspaceSuccessorEvidence),
+            typeof(
+                IntrinsicCoreLibraryWorkspaceOccurrenceCorrespondence),
+            typeof(IntrinsicCoreLibraryWorkspaceContinuationReceipt),
             .. closedFamilies,
             .. closedFamilies.SelectMany(
                 family => family.GetNestedTypes(BindingFlags.Public)),
@@ -572,6 +577,23 @@ public sealed partial class PackageHouseExecutionTests
             PlatformFamily? platformFamily,
             CancellationToken cancellationToken)
     {
+        WorkspacePlan plan =
+            IntrinsicCoreLibraryWorkspacePlan(platformFamily);
+        await using var workspace = new InspectionWorkspace(plan);
+        return await IntrinsicCoreLibraryGraphAsync(
+            workspace,
+            platformFamily,
+            cancellationToken);
+    }
+
+    private static async Task<
+        PackageDependencyMemberCallGraphOutcome.Completed>
+        IntrinsicCoreLibraryGraphAsync(
+            InspectionWorkspace workspace,
+            PlatformFamily? platformFamily,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
         string systemTextJson = SystemTextJsonNetStandardPath;
         await using HouseEnvironment environment =
             HouseEnvironment.CreateForAnyPackage(
@@ -590,24 +612,6 @@ public sealed partial class PackageHouseExecutionTests
                     PackageDependencyTraversalExpansionAuthority
                         .RecursiveSources));
 
-        WorkspacePlan plan = platformFamily is { } family
-            ? new WorkspacePlan(
-                [
-                    new WorkspaceRegistration.Ecosystem(
-                        new WorkspaceEcosystemRegistrationDeclaration(
-                            WorkspaceEcosystemRegistrationId.Create(
-                                "ecosystem.runtime"),
-                            [],
-                            [],
-                            [
-                                new WorkspaceEcosystemPopulationDeclaration
-                                    .Platform(
-                                        new PlatformLibraryPopulationDeclaration(
-                                            family)),
-                            ])),
-                ])
-            : WorkspacePlan.Empty;
-        await using var workspace = new InspectionWorkspace(plan);
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
             Assert.IsType<WorkspaceScopeOperationResult.Committed>(
@@ -666,6 +670,26 @@ public sealed partial class PackageHouseExecutionTests
             completed.FocalScope.PlatformPopulations.Length);
         return completed;
     }
+
+    private static WorkspacePlan IntrinsicCoreLibraryWorkspacePlan(
+        PlatformFamily? platformFamily) =>
+        platformFamily is { } family
+            ? new WorkspacePlan(
+                [
+                    new WorkspaceRegistration.Ecosystem(
+                        new WorkspaceEcosystemRegistrationDeclaration(
+                            WorkspaceEcosystemRegistrationId.Create(
+                                "ecosystem.runtime"),
+                            [],
+                            [],
+                            [
+                                new WorkspaceEcosystemPopulationDeclaration
+                                    .Platform(
+                                        new PlatformLibraryPopulationDeclaration(
+                                            family)),
+                            ])),
+                ])
+            : WorkspacePlan.Empty;
 
     private static async ValueTask<
         PlatformPopulationArtifactMaterializationOutcome.Completed>

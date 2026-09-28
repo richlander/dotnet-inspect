@@ -3157,6 +3157,7 @@ kbd {
 .kind-icon.sl-member { color: var(--text); }
 .kind-icon.sl-lib { color: var(--accent); }
 .kind-icon.sl-command { color: var(--accent); font-size: 16px; }
+.kind-icon.sl-capability { color: var(--accent); font-size: 15px; }
 .spotlight-empty { padding: 26px 14px; color: var(--dim); font: 12px var(--mono); text-align: center; }
 .spotlight-foot {
   display: flex;

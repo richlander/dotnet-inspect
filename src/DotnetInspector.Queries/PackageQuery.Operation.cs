@@ -162,7 +162,8 @@ public static partial class PackageQuery
                                 .. term.Options.Select(option =>
                                     option.Value),
                             ],
-                            term.Summary),
+                            term.Summary,
+                            [term.ExampleValue]),
                         Effects(term))),
             ];
 
