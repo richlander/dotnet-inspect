@@ -4,7 +4,11 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using QuerySpace;
+using QuerySpace.Composition;
+using QuerySpace.Operations;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -18,6 +22,172 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             maxTypeForwarders: 10_000,
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters: 20_000_000);
+
+    [Fact]
+    public void QuerySpace_RegistersExactPopulationOnce()
+    {
+        IQueryOperationRoute route =
+            MemberOverloadPopulationQuery.OperationRoute;
+        QuerySpaceDescriptor descriptor =
+            MemberOverloadPopulationQuery.QuerySpace.Descriptor;
+
+        Assert.Equal(
+            MemberOverloadPopulationQuery.OperationIdentity,
+            route.OperationIdentity);
+        Assert.Equal(
+            MemberOverloadPopulationQuery.OperationRouteIdentity,
+            route.Identity);
+        Assert.Equal(
+            MemberOverloadPopulationQuery.SubjectRole,
+            route.SubjectRole);
+        Assert.Equal(
+            MemberOverloadPopulationQuery.ResultGrain,
+            route.ResultGrain);
+        Assert.Equal(
+            [MemberOverloadPopulationQuery.RowSet],
+            route.RowSets);
+        Assert.Equal(
+            [
+                MemberOverloadPopulationQuery.AccessibilityTermKey,
+                MemberOverloadPopulationQuery.ReceiverTermKey,
+                MemberOverloadPopulationQuery.IncludeHiddenTermKey,
+            ],
+            route.Capabilities.Terms.Select(term =>
+                term.Binding.Key));
+        Assert.Empty(route.Capabilities.Orders);
+        Assert.Empty(route.Capabilities.Dimensions);
+        Assert.Empty(route.Capabilities.Stages);
+
+        Assert.Same(
+            MemberOverloadPopulationQuery.OperationRoute,
+            MemberOverloadPopulationQuery.QuerySpace.Operation);
+        Assert.Equal(
+            [
+                QuerySpaceTerminalRequirement.Rows,
+                QuerySpaceTerminalRequirement.Count,
+            ],
+            descriptor.Terminals);
+        Assert.True(descriptor.AcceptsContinuation);
+        Assert.Equal(
+            [
+                MemberOverloadPopulationQuery.RowsResultContract,
+                MemberOverloadPopulationQuery.CountResultContract,
+            ],
+            descriptor.ResultContracts.Select(contract =>
+                contract.Identity));
+        Assert.Equal(
+            MemberOverloadPopulationQuery.RowScopeIdentity,
+            Assert.Single(descriptor.RowScopes).Identity);
+    }
+
+    [Theory]
+    [InlineData(
+        MemberOverloadAccessibilityFilter.Public,
+        MemberOverloadReceiverFilter.All,
+        false,
+        QuerySpaceTerminalRequirement.Count)]
+    [InlineData(
+        MemberOverloadAccessibilityFilter.Private,
+        MemberOverloadReceiverFilter.This,
+        true,
+        QuerySpaceTerminalRequirement.Rows)]
+    [InlineData(
+        MemberOverloadAccessibilityFilter.All,
+        MemberOverloadReceiverFilter.Extension,
+        false,
+        QuerySpaceTerminalRequirement.Rows)]
+    public void QuerySpaceRequest_ResolvesAcquisitionAndTerminal(
+        MemberOverloadAccessibilityFilter accessibility,
+        MemberOverloadReceiverFilter receiver,
+        bool includeHidden,
+        QuerySpaceTerminalRequirement terminal)
+    {
+        QuerySpaceRequest request =
+            MemberOverloadPopulationQuery.CreateRequest(
+                accessibility,
+                receiver,
+                includeHidden,
+                MemberOverloadOrdering.Metadata,
+                terminal);
+
+        MemberOverloadPopulationQueryPlan plan =
+            Assert.IsType<
+                    MemberOverloadPopulationQueryRequestResult.Accepted>(
+                    MemberOverloadPopulationQuery.ResolveRequest(
+                        request,
+                        TestContext.Current.CancellationToken))
+                .Plan;
+
+        Assert.Equal(accessibility, plan.Accessibility);
+        Assert.Equal(receiver, plan.Receiver);
+        Assert.Equal(includeHidden, plan.IncludeHidden);
+        Assert.Equal(MemberOverloadOrdering.Metadata, plan.Ordering);
+        Assert.Equal(terminal, plan.Terminal);
+        Assert.Equal(3, plan.Intent.Terms.Count);
+        Assert.Empty(plan.Intent.Bounds);
+        Assert.Empty(plan.Intent.Stages);
+        Assert.Empty(plan.Intent.Order);
+        Assert.Equal(
+            MemberOverloadPopulationQuery.QuerySpaceIdentity,
+            request.QuerySpace);
+        Assert.Equal(
+            [MemberOverloadPopulationQuery.RowSet],
+            request.ParticipatingRowSets);
+    }
+
+    [Fact]
+    public void QuerySpaceRequest_RejectsUnknownAcquisitionValue()
+    {
+        QuerySpaceRequest request =
+            QuerySpaceRequest.Create(
+                MemberOverloadPopulationQuery.QuerySpace.Descriptor,
+                PortableQueryIntent.Create(
+                    [
+                        new(
+                            MemberOverloadPopulationQuery
+                                .AccessibilityTermKey,
+                            PortableQueryOperator.Equal,
+                            "family"),
+                    ],
+                    [],
+                    [],
+                    []),
+                [MemberOverloadPopulationQuery.RowSet],
+                [],
+                QuerySpaceTerminalRequirement.Count);
+
+        MemberOverloadPopulationQueryRequestResult.IntentRejected rejected =
+            Assert.IsType<
+                MemberOverloadPopulationQueryRequestResult.IntentRejected>(
+                MemberOverloadPopulationQuery.ResolveRequest(
+                    request,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PortableQueryFailureReason.ValueRejected,
+            rejected.Failure.Reason);
+    }
+
+    [Fact]
+    public void QuerySpaceRequest_RejectsForeignQuerySpace()
+    {
+        QuerySpaceRequest foreign =
+            PackageFileInventoryQuery.CreateRequest(
+                RowSelectionIntent<string>.Empty,
+                QuerySpaceTerminalRequirement.Count);
+
+        MemberOverloadPopulationQueryRequestResult.Rejected rejected =
+            Assert.IsType<
+                MemberOverloadPopulationQueryRequestResult.Rejected>(
+                MemberOverloadPopulationQuery.ResolveRequest(
+                    foreign,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MemberOverloadPopulationQueryRequestRejectionKind
+                .QuerySpaceMismatch,
+            rejected.Kind);
+    }
 
     [Fact]
     public async Task
