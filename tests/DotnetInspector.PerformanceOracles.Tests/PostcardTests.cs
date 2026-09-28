@@ -68,6 +68,64 @@ public sealed class PostcardTests
     }
 
     [Fact]
+    public void AssetsSharingAFileName_KeepDistinctIdentitiesThroughCheckAndTime()
+    {
+        // The same assembly copied into two directories: equal file names,
+        // distinct assets. Neither check nor time may merge or collide them.
+        string root = Path.Combine(Path.GetTempPath(), "postcard-" + Guid.NewGuid().ToString("N"));
+        string source = typeof(PostcardTests).Assembly.Location;
+        string first = Path.Combine(root, "first", "Methods.dll");
+        string second = Path.Combine(root, "second", "Methods.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(first)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(second)!);
+        File.Copy(source, first);
+        File.Copy(source, second);
+        IReadOnlyList<PostcardAsset<PEReader>> assets = PublicMethods.LoadAssets([first, second]);
+        try
+        {
+            Assert.Equal(["first/Methods", "second/Methods"], assets.Select(a => a.Name));
+
+            var shape = new PostcardShape();
+            PostcardColumn<PEReader, MethodTextRow> oracle = PublicMethods.NLinqColumn(shape);
+            PostcardColumn<PEReader, MethodTextRow>[] columns = [PublicMethods.LinqColumn(shape), oracle];
+
+            PostcardCheck check = Postcard.Check(assets, oracle, columns, PublicMethods.RowText);
+            Assert.True(check.Agrees);
+            Assert.Equal(assets.Count * Postcard.Closings.Count, check.Compared);
+            Assert.Equal(["first/Methods", "second/Methods"], check.WindowFailures);
+
+            IReadOnlyList<PostcardCell> cells = Postcard.Measure(
+                assets,
+                columns,
+                new PostcardTiming(Rounds: 1, Warmup: 0, BudgetMilliseconds: 1, MinSamples: 1, MaxSamples: 1));
+            Assert.Equal(2 * Postcard.Closings.Count * columns.Length, cells.Count);
+            Assert.Equal([0, 1], cells.Select(c => c.AssetIndex).Distinct());
+
+            PostcardSummary count = Postcard.Summarize(cells, oracle.Name).Single(s => s.Closing == PostcardClosing.Count && s.Column == "LINQ");
+            Assert.Equal(2, count.Assets);
+            string report = Postcard.Report(cells, oracle.Name, shape);
+            Assert.Contains("| first/Methods | Count |", report);
+            Assert.Contains("| second/Methods | Count |", report);
+        }
+        finally
+        {
+            foreach (PostcardAsset<PEReader> asset in assets)
+                asset.Asset.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(new[] { "/x/a.dll", "/y/b.dll" }, new[] { "a", "b" })]
+    [InlineData(new[] { "/x/lib/a.dll", "/y/lib/a.dll" }, new[] { "x/lib/a", "y/lib/a" })]
+    [InlineData(new[] { "/x/a.dll", "/x/a.exe" }, new[] { "a #1", "a #2" })]
+    [InlineData(new[] { "/x/a.dll", "/x/a.dll" }, new[] { "a #1", "a #2" })]
+    public void AssetNames_AreDistinctAndAsShortAsPossible(string[] paths, string[] expected)
+    {
+        Assert.Equal(expected, PostcardAssetNames.FromPaths(paths));
+    }
+
+    [Fact]
     public void Check_ReportsOnlyColumnsThatDisagreeWithTheOracle()
     {
         PostcardAsset<int[]>[] assets = [new("small", [1, 2, 3]), new("empty", [])];
@@ -165,8 +223,8 @@ public sealed class PostcardTests
         [
             .. Postcard.Closings.SelectMany(closing => (PostcardCell[])
             [
-                new("a", closing, "NLinq", [10]),
-                new("a", closing, "After", [5]),
+                new(0, "a", closing, "NLinq", [10]),
+                new(0, "a", closing, "After", [5]),
             ]),
         ];
 
@@ -197,10 +255,10 @@ public sealed class PostcardTests
         [
             .. Postcard.Closings.SelectMany(closing => (PostcardCell[])
             [
-                new("a", closing, "NLinq", [10]),
-                new("a", closing, "After", [5]),
-                new("b", closing, "NLinq", [10]),
-                new("b", closing, "After", [20]),
+                new(0, "a", closing, "NLinq", [10]),
+                new(0, "a", closing, "After", [5]),
+                new(1, "b", closing, "NLinq", [10]),
+                new(1, "b", closing, "After", [20]),
             ]),
         ];
 

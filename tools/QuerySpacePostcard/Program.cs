@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-using System.Globalization;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.PerformanceOracles;
 
@@ -17,15 +15,8 @@ var shape = new PostcardShape();
 PostcardColumn<PEReader, MethodTextRow> oracle = PublicMethods.NLinqColumn(shape);
 PostcardColumn<PEReader, MethodTextRow>[] columns = [PublicMethods.LinqColumn(shape), oracle];
 
-// Images are read into memory once, so timing excludes file I/O.
-var readers = new List<PEReader>();
-var assets = new List<PostcardAsset<PEReader>>();
-foreach (string path in options!.Assets)
-{
-    var reader = new PEReader(ImmutableArray.Create(File.ReadAllBytes(path)));
-    readers.Add(reader);
-    assets.Add(new(Path.GetFileNameWithoutExtension(path), reader));
-}
+// Each asset's identity is its position; display names are made distinct.
+IReadOnlyList<PostcardAsset<PEReader>> assets = PublicMethods.LoadAssets(options!.Assets);
 
 try
 {
@@ -55,6 +46,6 @@ try
 }
 finally
 {
-    foreach (PEReader reader in readers)
-        reader.Dispose();
+    foreach (PostcardAsset<PEReader> asset in assets)
+        asset.Asset.Dispose();
 }

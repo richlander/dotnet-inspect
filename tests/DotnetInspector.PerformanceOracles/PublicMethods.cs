@@ -66,6 +66,20 @@ public static class PublicMethods
 
     public static string RowText(MethodTextRow row) => row.ToString();
 
+    /// <summary>
+    /// Reads each assembly into memory, so timing excludes file I/O, and names
+    /// it for display with <see cref="PostcardAssetNames.FromPaths"/>. The
+    /// caller disposes the readers.
+    /// </summary>
+    public static IReadOnlyList<PostcardAsset<PEReader>> LoadAssets(IReadOnlyList<string> paths)
+    {
+        IReadOnlyList<string> names = PostcardAssetNames.FromPaths(paths);
+        var assets = new List<PostcardAsset<PEReader>>(paths.Count);
+        for (int i = 0; i < paths.Count; i++)
+            assets.Add(new(names[i], new PEReader(System.Collections.Immutable.ImmutableArray.Create(File.ReadAllBytes(paths[i])))));
+        return assets;
+    }
+
     /// <summary>The NLinq oracle: each closing as an NLinq pipeline, as an NLinq author writes it.</summary>
     public static PostcardColumn<PEReader, MethodTextRow> NLinqColumn(PostcardShape shape) =>
         new("NLinq", (closing, pe) => NLinqAnswer(closing, pe.GetMetadataReader(), shape));

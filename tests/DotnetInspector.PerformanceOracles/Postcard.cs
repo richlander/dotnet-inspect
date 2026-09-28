@@ -61,8 +61,56 @@ public sealed record PostcardColumn<TAsset, TRow>(
     string Name,
     Func<PostcardClosing, TAsset, PostcardAnswer<TRow>> Answer);
 
-/// <summary>A pinned real asset the postcard runs over.</summary>
+/// <summary>
+/// A pinned real asset the postcard runs over. <see cref="Name"/> is for
+/// display; an asset's identity is its position in the asset list, so two
+/// assets may share a name without their cells colliding.
+/// </summary>
 public sealed record PostcardAsset<TAsset>(string Name, TAsset Asset);
+
+/// <summary>Display names for assets loaded from paths.</summary>
+public static class PostcardAssetNames
+{
+    /// <summary>
+    /// Each path's file name without its extension, qualified with as many
+    /// parent directories as it takes to make every name distinct.
+    /// </summary>
+    public static IReadOnlyList<string> FromPaths(IReadOnlyList<string> paths)
+    {
+        string[][] parts = [.. paths.Select(p => Path.GetFullPath(p)
+            .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))];
+        string[] names = new string[paths.Count];
+        for (int i = 0; i < paths.Count; i++)
+        {
+            for (int depth = 1; ; depth++)
+            {
+                names[i] = NameAt(parts[i], depth);
+                bool unique = true;
+                for (int j = 0; j < paths.Count && unique; j++)
+                    unique = j == i || NameAt(parts[j], depth) != names[i];
+
+                // Distinct paths that still read alike, such as the same file
+                // twice, keep their position as the tiebreaker.
+                if (unique)
+                    break;
+                if (depth >= parts[i].Length)
+                {
+                    names[i] = string.Create(CultureInfo.InvariantCulture, $"{NameAt(parts[i], 1)} #{i + 1}");
+                    break;
+                }
+            }
+        }
+
+        return names;
+
+        static string NameAt(string[] path, int depth)
+        {
+            int take = Math.Min(depth, path.Length);
+            string file = Path.GetFileNameWithoutExtension(path[^1]);
+            return take == 1 ? file : string.Join('/', path[^take..^1]) + "/" + file;
+        }
+    }
+}
 
 /// <summary>A column whose answer differs from the oracle's. The answer texts are for display.</summary>
 public sealed record PostcardMismatch(string Asset, PostcardClosing Closing, string Column, string Answer, string OracleAnswer);
@@ -92,7 +140,7 @@ public sealed record PostcardTiming(
 /// One cell: the median of each round's median, in microseconds, or a failed
 /// strict window, which carries no timing.
 /// </summary>
-public sealed record PostcardCell(string Asset, PostcardClosing Closing, string Column, IReadOnlyList<double> RoundMedians, bool WindowFailed = false)
+public sealed record PostcardCell(int AssetIndex, string Asset, PostcardClosing Closing, string Column, IReadOnlyList<double> RoundMedians, bool WindowFailed = false)
 {
     public double Median => WindowFailed
         ? throw new InvalidOperationException($"{Asset} {Closing} {Column} is a failed strict window and has no timing.")
@@ -221,18 +269,19 @@ public static class Postcard
         PostcardTiming timing,
         Action<string>? progress = null)
     {
-        var rounds = new Dictionary<(string, PostcardClosing, string), List<double>>();
-        var failed = new HashSet<(string, PostcardClosing, string)>();
+        var rounds = new Dictionary<(int, PostcardClosing, string), List<double>>();
+        var failed = new HashSet<(int, PostcardClosing, string)>();
         for (int round = 0; round < timing.Rounds; round++)
         {
-            foreach (PostcardAsset<TAsset> asset in assets)
+            for (int a = 0; a < assets.Count; a++)
             {
+                PostcardAsset<TAsset> asset = assets[a];
                 foreach (PostcardClosing closing in Closings)
                 {
                     for (int i = 0; i < columns.Count; i++)
                     {
                         PostcardColumn<TAsset, TRow> column = columns[(i + round) % columns.Count];
-                        var key = (asset.Name, closing, column.Name);
+                        var key = (a, closing, column.Name);
                         if (failed.Contains(key))
                             continue;
                         if (closing == PostcardClosing.Window && column.Answer(closing, asset.Asset).WindowFailed)
@@ -253,16 +302,17 @@ public static class Postcard
         }
 
         var cells = new List<PostcardCell>();
-        foreach (PostcardAsset<TAsset> asset in assets)
+        for (int a = 0; a < assets.Count; a++)
         {
+            PostcardAsset<TAsset> asset = assets[a];
             foreach (PostcardClosing closing in Closings)
             {
                 foreach (PostcardColumn<TAsset, TRow> column in columns)
                 {
-                    var key = (asset.Name, closing, column.Name);
+                    var key = (a, closing, column.Name);
                     cells.Add(failed.Contains(key)
-                        ? new(asset.Name, closing, column.Name, [], WindowFailed: true)
-                        : new(asset.Name, closing, column.Name, rounds[key]));
+                        ? new(a, asset.Name, closing, column.Name, [], WindowFailed: true)
+                        : new(a, asset.Name, closing, column.Name, rounds[key]));
                 }
             }
         }
@@ -279,16 +329,16 @@ public static class Postcard
     public static IReadOnlyList<PostcardSummary> Summarize(IReadOnlyList<PostcardCell> cells, string oracle)
     {
         var summary = new List<PostcardSummary>();
-        var byKey = cells.ToDictionary(c => (c.Asset, c.Closing, c.Column));
+        var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
-        string[] assets = [.. cells.Select(c => c.Asset).Distinct()];
+        int[] assets = [.. cells.Select(c => c.AssetIndex).Distinct()];
         foreach (PostcardClosing closing in Closings)
         {
             foreach (string column in columns)
             {
                 var ratios = new List<double>();
                 int excluded = 0;
-                foreach (string asset in assets)
+                foreach (int asset in assets)
                 {
                     PostcardCell cell = byKey[(asset, closing, column)];
                     PostcardCell baseline = byKey[(asset, closing, oracle)];
@@ -319,7 +369,7 @@ public static class Postcard
     {
         IReadOnlyList<PostcardSummary> summary = Summarize(cells, oracle);
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
-        string[] assets = [.. cells.Select(c => c.Asset).Distinct()];
+        (int Index, string Name)[] assets = [.. cells.Select(c => (c.AssetIndex, c.Asset)).Distinct()];
         var text = new StringBuilder();
 
         text.Append("Ratios to ").Append(oracle).AppendLine(": geometric mean across assets (min–max); lower is faster.").AppendLine();
@@ -356,15 +406,15 @@ public static class Postcard
         foreach (string _ in columns)
             text.Append(" ---: |");
         text.AppendLine();
-        var byKey = cells.ToDictionary(c => (c.Asset, c.Closing, c.Column));
-        foreach (string asset in assets)
+        var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
+        foreach ((int index, string name) in assets)
         {
             foreach (PostcardClosing closing in Closings)
             {
-                text.Append("| ").Append(asset).Append(" | ").Append(shape.Label(closing)).Append(" |");
+                text.Append("| ").Append(name).Append(" | ").Append(shape.Label(closing)).Append(" |");
                 foreach (string column in columns)
                 {
-                    PostcardCell cell = byKey[(asset, closing, column)];
+                    PostcardCell cell = byKey[(index, closing, column)];
                     text.Append(cell.WindowFailed ? " fail |" : string.Create(CultureInfo.InvariantCulture, $" {cell.Median:0.0} |"));
                 }
 
