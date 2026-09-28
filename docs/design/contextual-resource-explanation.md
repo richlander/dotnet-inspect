@@ -123,8 +123,9 @@ This design also follows the existing dotnet-inspect projection split:
 - `--where`, `--order-by`, `-n`, and `--rows` select semantic rows;
 - `--urls`, `--paths`, and `--value` project reusable values from those rows;
 - `--bare` changes decoration without changing the selected shape; and
-- `-o` / `--output` names a destination under
-  [#7946](https://github.com/richlander/dotnet-inspect/pull/7946).
+- `--format` selects presentation while `-o` / `--output` names a destination
+  under [CLI Output Format and
+  Destination](cli-output-format-and-destination.md).
 
 `--references` therefore joins the semantic projection family. It is not a
 row predicate, presentation format, destination, or decoration modifier.

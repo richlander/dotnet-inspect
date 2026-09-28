@@ -8,6 +8,7 @@ export default defineConfig({
     "worker-cpu-isolation.spec.ts",
     "package-adoption.spec.ts",
     "content-security-policy.spec.ts",
+    "find-unit-cost.spec.ts",
   ],
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),

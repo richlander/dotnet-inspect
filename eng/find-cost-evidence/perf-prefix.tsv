@@ -1,0 +1,10 @@
+scenario	state	query	sample	seconds	rows	exit	cache_mb
+package-prefix	cold	Button	1	118.40	5	0	2607
+package-prefix	cold	Buton	1	84.48	4	0	2607
+package-prefix	cold	.Measure	1	53.12	11	0	2607
+package-prefix	warm	Button	1	8.58	5	0	2607
+package-prefix	warm	Buton	1	12.14	4	0	2607
+package-prefix	warm	.Measure	1	8.91	11	0	2607
+package-prefix	warm	Button	2	7.98	5	0	2607
+package-prefix	warm	Buton	2	12.03	4	0	2607
+package-prefix	warm	.Measure	2	8.89	11	0	2607

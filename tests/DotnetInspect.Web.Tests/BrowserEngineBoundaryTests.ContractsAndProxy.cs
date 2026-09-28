@@ -305,6 +305,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.False(ordinary.IsStatic);
         Assert.False(ordinary.IsObsolete);
 
+        // The projection carries the Metadata owner's effective
+        // accessibility: an explicit implementation of a public interface is
+        // public, of an internal interface internal, and a finalizer protected.
         BrowserMemberSurfaceInfo explicitImplementation = BrowserSurfaceProjection.Member(
             type,
             new ApiMember
@@ -314,7 +317,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 Signature = "void IDisposable.Dispose()",
             });
 
-        Assert.Equal("private", explicitImplementation.Accessibility);
+        Assert.Equal("public", explicitImplementation.Accessibility);
+
+        BrowserMemberSurfaceInfo internalImplementation = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "IInternalContract.Hidden",
+                Kind = "explicit-interface-implementation",
+                Signature = "void IInternalContract.Hidden()",
+                Accessibility = "internal",
+            });
+
+        Assert.Equal("internal", internalImplementation.Accessibility);
 
         BrowserMemberSurfaceInfo finalizer = BrowserSurfaceProjection.Member(
             type,
@@ -323,6 +338,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 Name = "Finalize",
                 Kind = "finalizer",
                 Signature = "~Widget()",
+                Accessibility = "protected",
             });
 
         Assert.Equal("protected", finalizer.Accessibility);
