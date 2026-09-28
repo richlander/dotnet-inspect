@@ -373,6 +373,160 @@ public sealed class MethodRowGateTests
         Assert.Equal(MethodRowGate.TypeSpecificationGuard, execution.ResultOf(count).Critical!.Budget);
     }
 
+    // ---- Round-1 review gates (#8790) ----
+
+    [Fact]
+    public void SignatureShape_TypeSpecAliasesDecodeTheirBlobOnce()
+    {
+        // 256 TypeSpec rows share one 2,048-argument blob. Memoized per handle
+        // only, each alias re-decoded the blob: 525,824 nodes on a ~4 KB heap.
+        GateFixtureImage builder = Ordinary();
+        TypeReferenceHandle t = builder.TypeRef("N", "T");
+        TypeReferenceHandle g = builder.TypeRef("N", "G");
+        var wide = new BlobBuilder();
+        wide.WriteByte(0x15);
+        wide.WriteByte(0x12);
+        wide.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(g));
+        wide.WriteCompressedInteger(2_048);
+        for (int i = 0; i < 2_048; i++)
+            wide.WriteByte(0x08);
+        var aliases = new List<TypeSpecificationHandle>();
+        for (int i = 0; i < 256; i++)
+            aliases.Add(builder.TypeSpec(Copy(wide)));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(aliases.Count);
+        signature.WriteByte(0x01);
+        foreach (TypeSpecificationHandle alias in aliases)
+        {
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(alias));
+            signature.WriteByte(0x08);
+        }
+
+        builder.Type("N", "Aliases").Method("Many", signature);
+        ImmutableArray<byte> image = builder.Build();
+        var count = new GateProducer<PointerPredicate>("PointerCount", MethodDefinitionLayers.SignatureShape);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(count)));
+
+        Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(count).Outcome);
+        using var peReader = new PEReader(image);
+        int blobHeap = peReader.GetMetadataReader().GetHeapSize(HeapIndex.Blob);
+        Assert.True(
+            execution.Receipt.SignatureShapeNodesWalked <= blobHeap,
+            $"Walked {execution.Receipt.SignatureShapeNodesWalked} nodes; the #Blob heap is {blobHeap} bytes.");
+    }
+
+    [Fact]
+    public void IdentityBudget_ModuleNamesAreChargedAndAbortRows()
+    {
+        // 512 P/Invoke methods, each importing from its own 32,768-character
+        // module name: 16.7M characters that were decoded with nothing charged.
+        GateFixtureImage builder = Ordinary();
+        GateFixtureImage.FixtureType type = builder.Type("N", "Imports");
+        for (int i = 0; i < 512; i++)
+        {
+            type.Method(
+                $"Import{i}",
+                attributes: MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl,
+                implAttributes: MethodImplAttributes.PreserveSig,
+                moduleName: new string((char)('a' + (i % 26)), 32_760) + i.ToString("D5"));
+        }
+
+        ImmutableArray<byte> image = builder.Build();
+        var rows = new GateProducer<ModulePredicate>("ModuleRows", MethodDefinitionLayers.IdentityText);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(rows)));
+
+        ProducerResult<int> result = execution.ResultOf(rows);
+        Assert.Equal(ProducerOutcome.Aborted, result.Outcome);
+        Assert.Equal(MethodRowGate.IdentityWork, result.Critical!.Budget);
+    }
+
+    [Fact]
+    public void Abort_FailureIsBuiltFromContentFreeCoordinates()
+    {
+        // A 32,768-character method name on an over-cap row: raising the abort
+        // must not decode it, and nothing is charged to the identity budget.
+        GateFixtureImage builder = Ordinary();
+        builder.Type("N", new string('T', 32_768))
+            .Method(new string('M', 32_768), WideSignature());
+        ImmutableArray<byte> image = builder.Build();
+        var count = new GateProducer<PointerPredicate>("PointerCount", MethodDefinitionLayers.SignatureShape);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(count)));
+
+        CriticalFailure critical = execution.ResultOf(count).Critical!;
+        Assert.Equal(MethodRowGate.SignatureShapeCap, critical.Budget);
+        Assert.True(critical.Unit.Length <= 32, critical.Unit);
+        Assert.True(critical.Message.Length <= 256);
+        Assert.Equal(0, execution.Receipt.IdentityWorkCharged);
+        Assert.False(execution.Receipt.IdentityBudgetArmed);
+    }
+
+    [Fact]
+    public void SignatureShape_MalformedSignatureFailsOnlyTheReader()
+    {
+        // A truncated signature (00 01 01: one parameter declared, none
+        // present) is malformed, not a bound: it fails the pointer producer,
+        // and an independent flags-only producer completes.
+        GateFixtureImage builder = Ordinary();
+        builder.Type("N", "Truncated").Method("Short", Bytes(0x00, 0x01, 0x01));
+        ImmutableArray<byte> image = builder.Build();
+        var pointer = new GateProducer<PointerPredicate>("Pointer", MethodDefinitionLayers.SignatureShape);
+        var flags = new GateProducer<AlwaysPredicate>("Flags", MethodDefinitionLayers.Flags);
+
+        MethodDefinitionExecution execution = Run(
+            image,
+            Plan(new ProducerRequest(pointer), new ProducerRequest(flags)));
+
+        Assert.Null(execution.Receipt.Critical);
+        ProducerResult<int> failed = execution.ResultOf(pointer);
+        Assert.Equal(ProducerOutcome.Failed, failed.Outcome);
+        Assert.Contains("Short", failed.Failure!.Unit);
+        Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(flags).Outcome);
+    }
+
+    [Fact]
+    public void Abort_KernelAndInterpretedReceiptsMatch()
+    {
+        // One ordinary method, then an over-cap one.
+        var builder = new GateFixtureImage();
+        builder.Type("N", "Order")
+            .Method("Ordinary")
+            .Method("OverCap", WideSignature());
+        ImmutableArray<byte> image = builder.Build();
+        var kernel = new GateProducer<PointerPredicate>("Kernel", MethodDefinitionLayers.SignatureShape, kernel: true);
+        var interpreted = new GateProducer<PointerPredicate>("Interpreted", MethodDefinitionLayers.SignatureShape, kernel: false);
+
+        WorkReceipt k = Run(image, Plan(new ProducerRequest(kernel))).Receipt;
+        WorkReceipt i = Run(image, Plan(new ProducerRequest(interpreted))).Receipt;
+
+        Assert.NotNull(k.Critical);
+        Assert.NotNull(i.Critical);
+        Assert.Equal(i.UnitsVisited, k.UnitsVisited);
+        Assert.Equal(2, k.UnitsVisited);
+        ProducerParticipation kp = k.For(kernel);
+        ProducerParticipation ip = i.For(interpreted);
+        Assert.Equal(
+            (ip.Outcome, ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
+            (kp.Outcome, kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+        Assert.Equal((2, 1, 0), (kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+    }
+
+    static BlobBuilder WideSignature()
+    {
+        var wide = new BlobBuilder();
+        wide.WriteByte(0x00);
+        int parameters = MetadataSafetyPolicy.MaxSignatureTypeNodes + 16;
+        wide.WriteCompressedInteger(parameters);
+        wide.WriteByte(0x01);
+        for (int i = 0; i < parameters; i++)
+            wide.WriteByte(0x08);
+        return wide;
+    }
+
     // ---- Source-gate guards ----
 
     [Theory]
@@ -582,6 +736,11 @@ public sealed class MethodRowGateTests
     struct PointerPredicate : IMethodDefinitionPredicate
     {
         public readonly bool Test(scoped MethodDefinitionView view) => view.SignatureHasPointer;
+    }
+
+    struct ModulePredicate : IMethodDefinitionPredicate
+    {
+        public readonly bool Test(scoped MethodDefinitionView view) => view.PInvokeModuleName is not null;
     }
 
     struct IdentityPredicate : IMethodDefinitionPredicate

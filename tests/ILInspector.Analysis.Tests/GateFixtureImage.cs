@@ -114,7 +114,9 @@ internal sealed class GateFixtureImage
                         methodHandle,
                         MethodImportAttributes.None,
                         _metadata.GetOrAddString(method.Name),
-                        _native);
+                        method.ModuleName is { } module
+                            ? _metadata.AddModuleReference(_metadata.GetOrAddString(module))
+                            : _native);
                 }
 
                 foreach (EntityHandle constructor in method.AttributeConstructors)
@@ -176,6 +178,7 @@ internal sealed class GateFixtureImage
             BlobBuilder? signature = null,
             MethodAttributes attributes = MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes implAttributes = MethodImplAttributes.IL,
+            string? moduleName = null,
             params EntityHandle[] attributeConstructors)
         {
             Methods.Add(new FixtureMethod(
@@ -183,7 +186,8 @@ internal sealed class GateFixtureImage
                 signature ?? VoidSignature(),
                 attributes,
                 implAttributes,
-                attributeConstructors));
+                attributeConstructors,
+                moduleName));
             return this;
         }
     }
@@ -193,5 +197,6 @@ internal sealed class GateFixtureImage
         BlobBuilder Signature,
         MethodAttributes Attributes,
         MethodImplAttributes ImplAttributes,
-        EntityHandle[] AttributeConstructors);
+        EntityHandle[] AttributeConstructors,
+        string? ModuleName = null);
 }

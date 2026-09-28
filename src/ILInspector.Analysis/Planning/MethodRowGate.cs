@@ -190,12 +190,17 @@ internal sealed class MethodRowGate
         MethodDefinitionLayers field) =>
         new($"Producer '{owner}' did not declare the {field} field.");
 
+    /// <summary>
+    /// Raises the critical failure. It is built from content-free coordinates
+    /// only, the row's token and the budget's identity, so raising it reads no
+    /// metadata after containment has already failed.
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.DoesNotReturn]
     internal void Abort(string budget, string message)
     {
         string unit = _methodHandle.IsNil
-            ? "(type scope)"
-            : LibraryMethodAnalysisRunner.MethodLabel(Reader, _typeHandle, _methodHandle);
+            ? $"TypeDef 0x{MetadataTokens.GetToken(_typeHandle):X8}"
+            : $"MethodDef 0x{_rowToken:X8}";
         throw new ProducerAbortException(
             new CriticalFailure(Owner, budget, _rowToken, unit, message));
     }
@@ -312,15 +317,17 @@ internal sealed class MethodRowGate
                 ref _identityDecodeFailures,
                 ref _identityWorkRemaining);
         }
-        catch (BadImageFormatException ex)
+        catch (BadImageFormatException)
         {
             // MethodRowProjection throws only when a budget is exhausted.
             _ = workBefore;
+            bool failures = _identityDecodeFailures
+                >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures;
             Abort(
-                _identityDecodeFailures >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures
-                    ? IdentityDecodeFailures
-                    : IdentityWork,
-                ex.Message);
+                failures ? IdentityDecodeFailures : IdentityWork,
+                failures
+                    ? "The identity decode-failure budget is exhausted."
+                    : "The identity work budget is exhausted.");
             return null!;
         }
 
@@ -344,11 +351,40 @@ internal sealed class MethodRowGate
         return _identity;
     }
 
-    /// <summary>The row's P/Invoke import module, or null when it has none.</summary>
-    internal InertString? PInvokeModuleName() =>
-        MethodRowProjection.GetPInvokeModuleName(Reader, _methodHandle) is { } module
-            ? new InertString(TextPolicy.Field, module)
-            : null;
+    readonly Dictionary<StringHandle, InertString> _moduleNames = [];
+
+    /// <summary>
+    /// The row's P/Invoke import module, or null when it has none. Its text is
+    /// identity text: decoding it is charged to the identity budget once per
+    /// string handle, and exhausting the budget aborts.
+    /// </summary>
+    internal InertString? PInvokeModuleName()
+    {
+        ModuleReferenceHandle module = _methodDefinition.GetImport().Module;
+        if (module.IsNil)
+            return null;
+
+        StringHandle name = Reader.GetModuleReference(module).Name;
+        if (_moduleNames.TryGetValue(name, out InertString known))
+            return known;
+
+        string text = Reader.GetString(name);
+        ChargeIdentityWork(text.Length);
+        var inert = new InertString(TextPolicy.Field, text);
+        _moduleNames[name] = inert;
+        return inert;
+    }
+
+    void ChargeIdentityWork(int amount)
+    {
+        if (amount >= _identityWorkRemaining)
+        {
+            _identityWorkRemaining = 0;
+            Abort(IdentityWork, "The identity work budget is exhausted.");
+        }
+
+        _identityWorkRemaining -= amount;
+    }
 
     /// <summary>
     /// A yes/no pointer walk of method signatures. Each signature blob and
@@ -362,7 +398,9 @@ internal sealed class MethodRowGate
     {
         readonly Dictionary<BlobHandle, bool> _methods = [];
         readonly Dictionary<TypeSpecificationHandle, SpecificationShape> _specifications = [];
+        readonly Dictionary<BlobHandle, SpecificationShape> _specificationBlobs = [];
         readonly HashSet<TypeSpecificationHandle> _inProgress = [];
+        readonly HashSet<BlobHandle> _blobsInProgress = [];
         readonly List<(int Chain, int Bytes)> _frames = [];
         int _depth;
         int _bytes;
@@ -379,14 +417,7 @@ internal sealed class MethodRowGate
                 return known;
 
             _rowNodes = 0;
-            if (!SignatureBlobGuard.IsSafeToDecode(Reader, signature, SignatureBlobGuard.Kind.Method))
-            {
-                gate.Abort(
-                    SignatureShapeCap,
-                    "The method signature exceeds the structural limit of "
-                    + $"{MetadataSafetyPolicy.MaxSignatureTypeNodes} type nodes or "
-                    + $"{SignatureBlobGuard.DefaultMaxDepth} levels.");
-            }
+            CheckShape(signature, SignatureBlobGuard.Kind.Method);
 
             BlobReader blob = Reader.GetBlobReader(signature);
             MethodSignature<bool> decoded =
@@ -396,6 +427,28 @@ internal sealed class MethodRowGate
                 hasPointer |= parameter;
             _methods[signature] = hasPointer;
             return hasPointer;
+        }
+
+        /// <summary>
+        /// Exhausting a structural bound aborts; a malformed blob is a
+        /// recoverable failure of the producer that read it.
+        /// </summary>
+        void CheckShape(BlobHandle signature, SignatureBlobGuard.Kind kind)
+        {
+            switch (SignatureBlobGuard.CheckShape(Reader, signature, kind))
+            {
+                case SignatureBlobGuard.ShapeCheck.Safe:
+                    return;
+                case SignatureBlobGuard.ShapeCheck.Malformed:
+                    throw new BadImageFormatException("The signature is malformed.");
+                default:
+                    gate.Abort(
+                        SignatureShapeCap,
+                        "A signature exceeds the structural limit of "
+                        + $"{MetadataSafetyPolicy.MaxSignatureTypeNodes} type nodes or "
+                        + $"{SignatureBlobGuard.DefaultMaxDepth} levels.");
+                    return;
+            }
         }
 
         void Node()
@@ -436,34 +489,29 @@ internal sealed class MethodRowGate
         {
             Node();
             if (_specifications.TryGetValue(handle, out SpecificationShape shape))
-            {
-                // Reuse is valid only where legacy's guard would admit the
-                // whole expansion from the current re-entry context.
-                if (_depth + shape.Chain > TypeSpecGuard.MaxDepth
-                    || (long)_bytes + shape.Bytes > TypeSpecGuard.MaxCumulativeBytes)
-                {
-                    AbortGuard();
-                }
+                return Reuse(shape);
 
-                Report(shape);
-                return shape.HasPointer;
+            // Aliases share a blob, and a blob's expansion does not depend on
+            // which handle reached it, so each blob is decoded once. The
+            // handle-specific cycle check and the contextual limits still apply.
+            BlobHandle signature = reader.GetTypeSpecification(handle).Signature;
+            if (_inProgress.Contains(handle) || _blobsInProgress.Contains(signature))
+                AbortGuard();
+            if (_specificationBlobs.TryGetValue(signature, out shape))
+            {
+                _specifications[handle] = shape;
+                return Reuse(shape);
             }
 
-            if (_inProgress.Contains(handle) || _depth >= TypeSpecGuard.MaxDepth)
+            if (_depth >= TypeSpecGuard.MaxDepth)
                 AbortGuard();
-
-            BlobHandle signature = reader.GetTypeSpecification(handle).Signature;
             int length = reader.GetBlobReader(signature).Length;
             if ((long)_bytes + length > TypeSpecGuard.MaxCumulativeBytes)
                 AbortGuard();
-            if (!SignatureBlobGuard.IsSafeToDecode(reader, signature, SignatureBlobGuard.Kind.TypeSpecification))
-            {
-                gate.Abort(
-                    SignatureShapeCap,
-                    "A TypeSpec signature exceeds the structural limit.");
-            }
+            CheckShape(signature, SignatureBlobGuard.Kind.TypeSpecification);
 
             _inProgress.Add(handle);
+            _blobsInProgress.Add(signature);
             _depth++;
             _bytes += length;
             _frames.Add((0, 0));
@@ -477,6 +525,7 @@ internal sealed class MethodRowGate
             finally
             {
                 _inProgress.Remove(handle);
+                _blobsInProgress.Remove(signature);
                 _depth--;
                 _bytes -= length;
                 children = _frames[^1];
@@ -485,8 +534,25 @@ internal sealed class MethodRowGate
 
             shape = new SpecificationShape(hasPointer, 1 + children.Chain, length + children.Bytes);
             _specifications[handle] = shape;
+            _specificationBlobs[signature] = shape;
             Report(shape);
             return hasPointer;
+        }
+
+        /// <summary>
+        /// Reuse is valid only where legacy's guard would admit the whole
+        /// expansion from the current re-entry context.
+        /// </summary>
+        bool Reuse(SpecificationShape shape)
+        {
+            if (_depth + shape.Chain > TypeSpecGuard.MaxDepth
+                || (long)_bytes + shape.Bytes > TypeSpecGuard.MaxCumulativeBytes)
+            {
+                AbortGuard();
+            }
+
+            Report(shape);
+            return shape.HasPointer;
         }
 
         void Report(SpecificationShape shape)

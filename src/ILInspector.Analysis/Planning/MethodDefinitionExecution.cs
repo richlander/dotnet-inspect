@@ -18,6 +18,12 @@ public sealed class MethodDefinitionExecution
     readonly ProducerState[] _states;
     CriticalFailure? _critical;
 
+    /// <summary>
+    /// Units visited by the pass in progress, kept current as it runs, so an
+    /// abort that unwinds the pass still records what was observed.
+    /// </summary>
+    internal int PassUnitsVisited;
+
     MethodDefinitionExecution(WorkDescription description)
     {
         _description = description;
@@ -112,6 +118,8 @@ public sealed class MethodDefinitionExecution
 
             if (anyActive)
             {
+                execution.PassUnitsVisited = 0;
+
                 // A pass that closes one open query with nothing else to
                 // coordinate runs as that query's kernel. A kernel folds
                 // without keeping facts, so a producer whose facts a reader
@@ -146,8 +154,11 @@ public sealed class MethodDefinitionExecution
         {
             // A critical failure is never contained: the execution stops
             // where it was raised, and no producer's result is published.
+            // Participation observed before the abort is kept.
             execution.Abort(abort.Failure);
-            execution.Receipt = execution.CreateReceipt(unitsVisited, gate);
+            execution.Receipt = execution.CreateReceipt(
+                Math.Max(unitsVisited, execution.PassUnitsVisited),
+                gate);
             return execution;
         }
 
@@ -344,6 +355,7 @@ public sealed class MethodDefinitionExecution
             {
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
+                PassUnitsVisited = visited;
                 int unitToken = MetadataTokens.GetToken(methodHandle);
                 bool anyActive = false;
                 foreach (ProducerState state in visiting)

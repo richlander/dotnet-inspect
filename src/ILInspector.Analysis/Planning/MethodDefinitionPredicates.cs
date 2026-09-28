@@ -72,86 +72,99 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         int completed = 0;
         int count = 0;
 
-        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        // An abort unwinds this loop; the counts observed so far still reach
+        // the receipt, but the accumulator is never published.
+        try
         {
-            TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
-            if (sourceGate is not null)
+            foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
-                bool gateInScope;
-                try
-                {
-                    gateInScope = gate.TypeInScope(sourceGate.Classifier, typeHandle, typeDefinition);
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
-                {
-                    Fail(state, MetadataTokens.GetToken(typeHandle), "(type scope)", ex);
-                    goto Done;
-                }
-
-                if (!gateInScope)
-                    continue;
-            }
-
-            if (typeScoped)
-            {
-                bool inScope;
-                try
-                {
-                    inScope = TypeInScope(reader, typeDefinition);
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
-                {
-                    Fail(state, MetadataTokens.GetToken(typeHandle), "(type scope)", ex);
-                    goto Done;
-                }
-
-                if (!inScope)
-                    continue;
-            }
-
-            foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
-            {
-                unit.MoveTo(typeHandle, typeDefinition, methodHandle);
-                visited++;
+                TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
                 if (sourceGate is not null)
                 {
-                    bool? accepted = MethodDefinitionExecution.GateAccepts(ref unit, state, sourceGate);
-                    if (accepted is null)
+                    bool gateInScope;
+                    try
+                    {
+                        gateInScope = gate.TypeInScope(sourceGate.Classifier, typeHandle, typeDefinition);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+                    {
+                        Fail(state, MetadataTokens.GetToken(typeHandle), "(type scope)", ex);
                         goto Done;
-                    if (!accepted.Value)
+                    }
+
+                    if (!gateInScope)
                         continue;
                 }
 
-                attempted++;
-                bool fact;
-                try
+                if (typeScoped)
                 {
-                    fact = predicate.Test(new MethodDefinitionView(ref unit, state));
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
-                {
-                    state.UnitsFailed++;
-                    Fail(state, MetadataTokens.GetToken(methodHandle), unit.Label, ex);
-                    goto Done;
+                    bool inScope;
+                    try
+                    {
+                        inScope = TypeInScope(reader, typeDefinition);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+                    {
+                        Fail(state, MetadataTokens.GetToken(typeHandle), "(type scope)", ex);
+                        goto Done;
+                    }
+
+                    if (!inScope)
+                        continue;
                 }
 
-                completed++;
-                if (!fact)
-                    continue;
-                count++;
-
-                // Stop before advancing either enumerator, as the reference
-                // executor does, once the Exists terminal is settled.
-                if (exists)
+                foreach (MethodDefinitionHandle methodHandle in typeDefinition.GetMethods())
                 {
-                    state.Outcome = ProducerOutcome.Stopped;
-                    state.IsActive = false;
-                    goto Done;
+                    unit.MoveTo(typeHandle, typeDefinition, methodHandle);
+                    visited++;
+                state.Execution.PassUnitsVisited = visited;
+                    if (sourceGate is not null)
+                    {
+                        bool? accepted = MethodDefinitionExecution.GateAccepts(ref unit, state, sourceGate);
+                        if (accepted is null)
+                            goto Done;
+                        if (!accepted.Value)
+                            continue;
+                    }
+
+                    attempted++;
+                    bool fact;
+                    try
+                    {
+                        fact = predicate.Test(new MethodDefinitionView(ref unit, state));
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+                    {
+                        state.UnitsFailed++;
+                        Fail(state, MetadataTokens.GetToken(methodHandle), unit.Label, ex);
+                        goto Done;
+                    }
+
+                    completed++;
+                    if (!fact)
+                        continue;
+                    count++;
+
+                    // Stop before advancing either enumerator, as the reference
+                    // executor does, once the Exists terminal is settled.
+                    if (exists)
+                    {
+                        state.Outcome = ProducerOutcome.Stopped;
+                        state.IsActive = false;
+                        goto Done;
+                    }
                 }
             }
+
+        }
+        catch (ProducerAbortException)
+        {
+            state.UnitsAttempted += attempted;
+            state.UnitsCompleted += completed;
+            throw;
         }
 
     Done:
