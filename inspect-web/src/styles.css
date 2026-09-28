@@ -4450,13 +4450,18 @@ kbd {
   padding: 8px 12px;
   cursor: pointer;
 }
-.package-changes-package-set-summary,
+.package-changes-ecosystem-summary,
+.package-changes-ecosystem-prefixes,
 .package-changes-form .query-facet-disclosure {
   grid-column: 2;
   margin: 0;
   color: var(--dim);
   font-size: 12px;
   line-height: 1.5;
+}
+.package-changes-ecosystem-prefixes {
+  font-family: var(--mono);
+  font-size: 11px;
 }
 .package-changes-interval {
   display: grid;
@@ -4653,7 +4658,8 @@ kbd {
   .query-row-meta button { flex-basis: 100%; margin-left: 0; }
   .package-changes-form { grid-template-columns: 1fr; }
   .package-changes-form > *,
-  .package-changes-package-set-summary,
+  .package-changes-ecosystem-summary,
+  .package-changes-ecosystem-prefixes,
   .package-changes-form .query-facet-disclosure,
   .package-changes-actions { grid-column: 1; }
   .package-changes-interval,

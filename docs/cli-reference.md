@@ -364,8 +364,8 @@ no source work; a later bounded operation that selects the ecosystem may resolve
 those concrete packages and follow their ordinary dependencies. Package-prefix
 matches remain discovery scope and are not substituted for those roots.
 
-Use `package activity --ecosystem` to report package activity in one named
-ecosystem's exact product-owned package set. The ecosystem option selects where
+Use `package activity --ecosystem` to report package activity under one named
+ecosystem's recorded package prefixes (for example `Aspire.` for `aspire`). The ecosystem option selects where
 to look; `ecosystem` itself remains the acquisition-free vocabulary command.
 This network-backed query defaults to the interval
 `(reference time - 42 days, reference time]`, reports the exact UTC bounds and
@@ -1238,6 +1238,13 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
+
+An exact method name selects its MemberGroup. Its default output is a native
+Tree rooted at one compact identity line and containing every public,
+non-hidden exact overload; explicit `--tree` renders the same population.
+This remains a MemberGroup when the selected version has one overload.
+Select an exact Member with an ordinal or digest when the intended subject is
+one declaration rather than its overload family.
 
 `--all` is an API visibility option. API-level commands use their ordinary
 public-facing declaration population by default; add `--all` when the

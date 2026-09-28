@@ -347,6 +347,15 @@ public sealed record BrowserMethodSignals(
     string[] EvidenceOffsets,
     string[] ExceptionTypes);
 
+public sealed record BrowserAllocationLifetimeUse(
+    int ILOffset,
+    string Kind);
+
+public sealed record BrowserAllocationLifetimeLimitation(
+    string Kind,
+    int? ILOffset,
+    string? Operation);
+
 public sealed record BrowserAllocationFact(
     string Kind,
     string? Type,
@@ -358,7 +367,9 @@ public sealed record BrowserAllocationFact(
     string Escape,
     bool InLoop,
     int? EstimatedSizeBytes,
-    string? Detail);
+    string? Detail,
+    BrowserAllocationLifetimeUse[] LifetimeUses,
+    BrowserAllocationLifetimeLimitation[] LifetimeLimitations);
 
 public sealed record BrowserCallFact(
     string Callee,

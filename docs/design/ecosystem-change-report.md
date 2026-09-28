@@ -57,13 +57,21 @@ the interval, the request is `(reference time - 42 days, reference time]`.
 Explicit bounds use the same exclusive-start/inclusive-end rule. Resolved UTC
 bounds remain visible and do not move while results are being produced.
 
-Scope is an owner-issued package selection, not an inferred namespace.
-Front ends resolve a named ecosystem through the application catalog's
-supported package-set or source-selection contribution before invoking the
-query. The query consumes the resulting selection without referencing
-`DotnetInspector.Ecosystems`. Missing executable scope is unavailable; it
-must not become an all-NuGet scan or a guessed prefix. A curated set and a
-literal prefix retain their different membership claims in report metadata.
+Scope is an owner-issued package selection, not an inferred namespace: an
+ordered set of literal package-ID prefixes (at most 16, case-insensitively
+distinct, at least one) with an optional selection identity naming the owner
+that recorded them. Front ends resolve a named Ecosystem to its recorded
+package prefixes, never its core packages
+([package set retirement](package-set-retirement.md), slice 4), before
+invoking the query. The query consumes the resulting selection without
+referencing `DotnetInspector.Ecosystems`. Missing executable scope is
+unavailable; it must not become an all-NuGet scan or a guessed prefix. An
+event matches when its package ID starts with any selected prefix; one
+Catalog scan, candidate bound, and result limit are shared across the set, and
+row order stays newest-first regardless of prefix order. Report metadata
+retains the literal prefixes and the selection identity, so a prefix's
+membership claim ("every package ID beginning with this text") is never
+presented as a curated inventory.
 
 Source and prerelease selection retain their owning policies. In particular,
 the research probe's literal `Aspire.` prefix and inclusion of prereleases
@@ -177,7 +185,10 @@ resource-free `EcosystemChangeReportDocument`. It requires exactly one terminal
 completion, rejects an event after that terminal, and preserves cancellation
 rather than manufacturing a document. The document retains the complete
 resolved request, progress observations, selected activity rows, typed failure
-events, and terminal coverage/work summary. Its schema version is explicit.
+events, and terminal coverage/work summary. Its schema version is explicit; version 2
+replaced the package-set scope arm with the ordered-prefix scope
+(`package_scope.kind` `PackagePrefix`, `selection_id`, `prefixes`), and the
+host envelope contract version follows it.
 
 `EcosystemChangeReportInspection` is the sole host-facing enumerator. It admits
 every query event unchanged to the collector before projecting `Progress`,
@@ -199,7 +210,7 @@ Source-generated structured JSON is the lossless portable format. It uses
 stable snake-case property names, string enum values, omitted null values, and
 the explicit schema version. It retains:
 
-- package-set identity and exact members, or the distinct literal prefix;
+- the selection identity, when present, and the ordered literal prefixes;
 - reference time and exclusive-start/inclusive-end interval;
 - Catalog coordinate, leaf, commit identity, activity kind, and commit time;
 - independent current-context and exact-first-patched availability and
@@ -234,9 +245,10 @@ Changes returns timestamped package-activity rows with coverage and security
 evidence. Catalog is the acquisition mechanism, not the command identity.
 `ecosystem` remains the acquisition-free product vocabulary.
 
-`--ecosystem` is a population control: the host resolves the named ecosystem's
-exact product-owned `PackageSetId`; a pack without one fails rather than falling
-back to a namespace guess or all-NuGet scan. It does not assert that every
+`--ecosystem` is a population control: the host resolves the named Ecosystem's
+recorded package prefixes, with the canonical Ecosystem ID as the selection
+identity; an Ecosystem that records no prefix fails rather than falling back to
+its core packages, a namespace guess, or an all-NuGet scan. It does not assert that every
 selected package has a semantic Integration association with that ecosystem.
 The host defaults to the query-owned 42-day interval, accepts paired
 `--from`/`--through` timestamps for the same exclusive/inclusive bounds, maps
@@ -253,7 +265,7 @@ bounded acquisition progress on stderr without contaminating stdout.
 The Browser host exposes a dedicated `package-changes` Worker operation. That
 stable internal operation identifier is intentionally not renamed with the
 Package Activity product surface. Its
-input carries a registered product-owned `PackageSetId`, an optional paired
+input carries a registered canonical Ecosystem ID, an optional paired
 interval, security selection, and the bounded row limit; it does not accept
 caller-authored package members or provider URLs. The managed callback carries
 the shared nonterminal sequence without `Completed`. The Worker publishes
@@ -310,7 +322,7 @@ introduces one query owner, retires no architecture, and depends on separate
 owner work for missing source/security capabilities.
 
 The shared-query Release gates cover the default 42-day range and explicit
-bounds, exact-set and literal-prefix scope, exact-coordinate evidence
+bounds, ordered-prefix scope and its validation, exact-coordinate evidence
 association, repeated activity, current context versus security-release
 evidence, `created` and `published` fallback receipt bases, out-of-window
 security facts, unavailable versus checked-empty data, take after predicates,
@@ -318,9 +330,10 @@ ordering barriers and candidate bounds, provider failures, and cancellation
 after rows. CLI adoption demonstrates the `package activity` placement, the
 retirement of `package changes` and `ecosystem --changes`, default and explicit
 intervals, exact
-package-set scope, security selection, structured and human output, ordinary
-source-horizon lag, unsupported option combinations, and a pack without
-executable scope. Browser transport adoption demonstrates package-set lookup,
+Ecosystem-prefix scope, security selection, structured and human output,
+ordinary source-horizon lag, unsupported option combinations, and an unknown
+Ecosystem failing before acquisition. Browser transport adoption demonstrates
+Ecosystem lookup,
 paired interval validation, strict bounded wire decoding, ordered progressive
 publication before terminal settlement, semantic partial completion inside a
 physically successful envelope, managed cancellation, and the fixed Catalog

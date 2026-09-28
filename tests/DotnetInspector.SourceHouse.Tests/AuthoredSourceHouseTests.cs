@@ -826,9 +826,13 @@ public sealed partial class AuthoredSourceHouseTests
     [InlineData("set_Filter")]
     public async Task RealPlatformExplicitAccessor_RecognizesOnePhysicalTarget(string accessor)
     {
+        // The explicit accessors compose into the IBindingListView.Filter
+        // property row; Metadata's accessor projection names each physical
+        // accessor target.
         string assemblyPath = typeof(System.Data.DataView).Assembly.Location;
-        SourceHouseTarget.MemberTarget target = MemberTarget(
+        SourceHouseTarget.MemberTarget target = AccessorTarget(
             assemblyPath, typeof(System.Data.DataView).FullName!,
+            "System.ComponentModel.IBindingListView.Filter",
             $"System.ComponentModel.IBindingListView.{accessor}");
         await using LibraryFixture library = await LibraryFixture.CreateAsync(assemblyPath);
 

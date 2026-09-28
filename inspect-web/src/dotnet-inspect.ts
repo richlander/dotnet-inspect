@@ -655,7 +655,7 @@ import {
 } from "./package-changes.ts";
 import {
   createBrowserPackageChangesDataSource,
-  packageChangesPackageSets,
+  packageChangesEcosystems,
 } from "./package-changes-source.ts";
 import {
   bindPackageChangesView,
@@ -718,7 +718,7 @@ import {
 } from "./type-explorer-view.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
-  BrowserPackageChangesPackageSetDescriptor,
+  BrowserPackageChangesEcosystemDescriptor,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
@@ -738,6 +738,7 @@ import type {
 } from "./facades/inspect-web-library.d.ts";
 import type {
   BrowserMemberDeclaration,
+  BrowserMemberGroupDocumentInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
 import type {
@@ -817,8 +818,14 @@ let inspectGraphMemberSurface:
   EngineClient["metadata"]["queryGraphMemberSurface"];
 let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
+let inspectMemberGroupDocument:
+  EngineClient["metadata"]["queryMemberGroupDocument"];
 let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
+let inspectPlatformMemberGroupDocument:
+  EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
+let inspectUploadedLibraryMemberGroupDocument:
+  EngineClient["metadata"]["queryUploadedLibraryMemberGroupDocument"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -1001,7 +1008,12 @@ async function loadEngineModule() {
       queryLibraryApiDiff: inspectLibraryApiDiff,
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
+      queryMemberGroupDocument: inspectMemberGroupDocument,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
+      queryPlatformMemberGroupDocument:
+        inspectPlatformMemberGroupDocument,
+      queryUploadedLibraryMemberGroupDocument:
+        inspectUploadedLibraryMemberGroupDocument,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -1242,7 +1254,7 @@ const initialState = {
   packageQueryInspection: null,
   packageQueryPresets: [],
   packageQueryTerms: [],
-  packageChangesPackageSets: [],
+  packageChangesEcosystems: [],
   packageChangesState: initialPackageChangesState(),
   platformIndex: null,
   rootKind: "package" as "package" | "platform" | "library",
@@ -1355,6 +1367,10 @@ const initialState = {
   memberDeclarationLoading: false,
   memberDeclarationError: "",
   memberDeclarationKey: "",
+  memberGroupDocument: null as BrowserMemberGroupDocumentInspection | null,
+  memberGroupDocumentLoading: false,
+  memberGroupDocumentError: "",
+  memberGroupDocumentKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
@@ -1505,7 +1521,7 @@ interface StateOverrides {
   diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
   packageChangesCatalogError: string;
-  packageChangesPackageSets: BrowserPackageChangesPackageSetDescriptor[];
+  packageChangesEcosystems: BrowserPackageChangesEcosystemDescriptor[];
   packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryPresets: QueryPreset[];
@@ -1740,6 +1756,8 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberFactsLoading = snapshotState.memberFactsLoading;
   const memberDocumentationLoading = snapshotState.memberDocumentationLoading;
   const memberDeclarationLoading = snapshotState.memberDeclarationLoading;
+  const memberGroupDocumentLoading =
+    snapshotState.memberGroupDocumentLoading;
 
   snapshotState.loading = false;
   snapshotState.memberAnnotatedLoading = false;
@@ -1756,6 +1774,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
   snapshotState.memberDeclarationLoading = false;
+  snapshotState.memberGroupDocumentLoading = false;
   snapshotState.runtimePackLoading = false;
   settleInterruptedPlatformStatus(snapshotState);
   if (snapshotState.graphSource.status === "loading") {
@@ -1801,6 +1820,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (memberFactsLoading) snapshotState.memberFactsKey = "";
   if (memberDocumentationLoading) snapshotState.memberDocumentationKey = "";
   if (memberDeclarationLoading) snapshotState.memberDeclarationKey = "";
+  if (memberGroupDocumentLoading) snapshotState.memberGroupDocumentKey = "";
 }
 
 function settleInterruptedPlatformStatus(targetState: AppState): void {
@@ -1944,7 +1964,7 @@ function captureRetainedHostState() {
     packageQueryInspection: state.packageQueryInspection,
     packageQueryPresets: state.packageQueryPresets,
     packageQueryTerms: state.packageQueryTerms,
-    packageChangesPackageSets: state.packageChangesPackageSets,
+    packageChangesEcosystems: state.packageChangesEcosystems,
     packageChangesState: state.packageChangesState,
     platformIndex: state.platformIndex,
     platformRecent: state.platformRecent,
@@ -3861,21 +3881,7 @@ function applyView(view: WorkspaceView) {
   }
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && !state.atLibraryRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    const section = state.memberSection;
-    if (section === "source")
-      observeAsync(loadSelectedMemberSource(), "Loading member source");
-    else if (section === "annotated")
-      observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-    else if (section === "call-graph")
-      observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-    else if (section === "facts")
-      observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
-    else if (section === "overview")
-      observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-    else if (section === "compare")
-      render();
-    else
-      assertNever(section, "member section");
+    loadMemberSectionContent(state.memberSection);
   } else {
     render();
   }
@@ -6327,7 +6333,7 @@ function activateCompareMember(memberFingerprint: string) {
     subject.pkg,
     type,
     match.group,
-    match.group.overloads.length > 1 ? match.overloadIndex : null,
+    match.overloadIndex,
     null,
     "compare");
 }
@@ -6672,6 +6678,14 @@ function clearMemberContentCache() {
 function resetMemberSectionState() {
   state.memberSection = "overview";
   clearMemberContentCache();
+  clearMemberGroupDocumentCache();
+}
+
+function clearMemberGroupDocumentCache() {
+  state.memberGroupDocument = null;
+  state.memberGroupDocumentLoading = false;
+  state.memberGroupDocumentError = "";
+  state.memberGroupDocumentKey = "";
 }
 
 function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
@@ -6679,6 +6693,23 @@ function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
     || !memberSectionsFor(member).some(([id]) => id === state.memberSection)) {
     state.memberSection = "overview";
   }
+}
+
+function ordinaryMethodGroup(
+  group: {
+    readonly kind: string;
+    readonly overloads: readonly { readonly graphOnly?: boolean }[];
+  } | null | undefined,
+) {
+  return group?.kind === "method"
+    && group.overloads.every(overload => !overload.graphOnly);
+}
+
+function loadSelectedMemberOverview() {
+  return ordinaryMethodGroup(selectedMember(selectedType()))
+      && state.selectedOverloadIndex === null
+    ? loadSelectedMemberGroupDocument()
+    : loadSelectedMemberDocumentation();
 }
 
 function loadMemberSectionContent(id: MemberSection) {
@@ -6691,7 +6722,7 @@ function loadMemberSectionContent(id: MemberSection) {
   else if (id === "facts")
     observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
   else if (id === "overview")
-    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+    observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
     render();
   else
@@ -6707,12 +6738,17 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
+  const methodGroup = ordinaryMethodGroup(group);
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
   clearMemberContentCache();
+  if (state.memberGroupDocumentKey
+      !== memberGroupDocumentRequestKey(type, group)) {
+    clearMemberGroupDocumentCache();
+  }
   state.selectedBodyTarget = graphOnlyTarget;
-  if (!preserveSection) {
+  if (methodGroup || !preserveSection) {
     state.memberSection = "overview";
   } else {
     const retainedSection = state.memberSection;
@@ -6788,12 +6824,11 @@ function openOverload(index: number) {
 }
 
 // Switch the open member's section and kick off its lazy load. Shared by the scope-bar strip
-// click and the section shortcut. Overload-specific sections select the first overload as
-// needed.
+// click and the section shortcut. Exact-member sections select the first overload as needed.
 function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
   if (member
-    && member.overloads.length > 1
+    && id !== "overview"
     && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
     state.selectedBodyTarget = graphOnlyBodyTarget(member.overloads[0]);
@@ -6842,7 +6877,10 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      if (entry.group.overloads.length === 1) {
+      if (ordinaryMethodGroup(entry.group)) {
+        state.memberSection = "overview";
+        openMemberGroup(entry.group.key);
+      } else if (entry.group.overloads.length === 1) {
         render();
       } else {
         state.selectedOverloadIndex = null;
@@ -6930,7 +6968,7 @@ function stepHorizontal(delta: number) {
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
   const overloadOpen = member
-    && !(member.overloads.length > 1
+    && !(ordinaryMethodGroup(member)
       && state.selectedOverloadIndex == null);
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
@@ -6984,7 +7022,8 @@ function drillIn() {
     }
   } else {
     const member = selectedMember(type);
-    if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+    if (ordinaryMethodGroup(member)
+      && state.selectedOverloadIndex == null) {
       showContentDetailAfterRender();
       openOverload(0);
     } else if (contentFrameUsesPush() && contentFrameMedia.matches) {
@@ -6998,13 +7037,15 @@ function drillIn() {
 function drillOut() {
   if (navMode() === "member") {
     const member = selectedMember(selectedType());
-    if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
+    if (ordinaryMethodGroup(member)
+      && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
-      resetMemberSectionState();
+      state.memberSection = "overview";
+      clearMemberContentCache();
+      loadMemberSectionContent(state.memberSection);
     } else {
       return exitMemberScope();
     }
-    render();
     return true;
   }
   if (!state.atPackageRoot && !state.atLibraryRoot) {
@@ -9496,6 +9537,12 @@ function drillToPerfMember(
   });
   if (!target) return;
   const { type: targetType, member } = target;
+  const group = memberGroups(targetType)
+    .find(candidate => candidate.overloads.includes(member));
+  if (!group) {
+    showToast("That ranked Member is no longer loaded in the selected Type.");
+    return;
+  }
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -9505,14 +9552,8 @@ function drillToPerfMember(
   state.namespaceFilter = "";
   resetMemberFilters();
   state.lens = "api";
-  const key = `${member.kind}:${member.name}`;
-  state.selectedMemberKey = key;
-  const group = memberGroups(targetType).find(candidate => candidate.key === key);
-  const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(
-      overload => overload.stableSelector === stableSelector)
-    : -1;
-  state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
+  state.selectedMemberKey = group.key;
+  state.selectedOverloadIndex = group.overloads.indexOf(member);
   resetMemberSectionState();
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
   observeAsync(
@@ -10077,22 +10118,82 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && Number.isInteger(selectedOverloadIndex)
     && selectedOverloadIndex >= 0
     && selectedOverloadIndex < member.overloads.length;
-  if (member.overloads.length > 1
+  if (member.kind === "method"
     && !hasSelectedOverload) {
+    const documentKey =
+      memberGroupDocumentRequestKey(type, member);
+    const currentDocument =
+      state.memberGroupDocumentKey === documentKey
+        ? state.memberGroupDocument
+        : null;
+    if (state.memberGroupDocumentLoading
+      && state.memberGroupDocumentKey === documentKey) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>Loading exact overloads… <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-loading">Building the shared MemberGroup document…</p>
+          </div>
+        </section>`;
+    }
+    if (state.memberGroupDocumentError
+      && state.memberGroupDocumentKey === documentKey) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>MemberGroup unavailable <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-unavailable">Overload query failed: ${escapeHtml(state.memberGroupDocumentError)}</p>
+          </div>
+        </section>`;
+    }
+    const document = currentDocument?.outcome === "Available"
+      ? currentDocument.document
+      : null;
+    if (!document) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>MemberGroup unavailable <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-unavailable">The exact overload document is unavailable.</p>
+          </div>
+        </section>`;
+    }
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-          <p>${member.overloads.length} overloads <span>· ${escapeHtml(member.kind)}</span></p>
+          <p>${document.count} ${document.count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
-            ${member.overloads.map((overload, index) => `
-              <button class="api-row overload-row" data-overload="${index}">
-                <span class="member-icon">${index + 1}</span>
-                <code>${highlight(overload.signature)}</code>
-                <small>open →</small>
-              </button>`).join("")}
+            ${document.rows.map(row => {
+              const index = member.overloads.findIndex(overload =>
+                (overload.declarationMetadataToken
+                  ?? overload.metadataToken
+                  ?? 0) === row.metadataToken);
+              const signature =
+                `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`;
+              return index >= 0
+                ? `<button class="api-row overload-row" data-overload="${index}">
+                    <span class="member-icon">${row.baselineOrdinal}</span>
+                    <code>${highlight(signature)}</code>
+                    <small>open →</small>
+                  </button>`
+                : `<div class="api-row overload-row" aria-disabled="true">
+                    <span class="member-icon">${row.baselineOrdinal}</span>
+                    <code>${highlight(signature)}</code>
+                    <small>detail unavailable</small>
+                  </div>`;
+            }).join("")}
           </div>
         </div>
         <footer class="api-surface-footer member-surface-footer">
@@ -10294,6 +10395,19 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       </header>
       <div class="member-surface-scroll">${content}</div>
     </section>`;
+}
+
+function memberReceiverPrefix(receiver: string): string {
+  switch (receiver) {
+    case "This":
+      return "";
+    case "Static":
+      return "static ";
+    case "Extension":
+      return "extension ";
+    default:
+      throw new Error(`Unknown member receiver '${receiver}'.`);
+  }
 }
 
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
@@ -13291,7 +13405,7 @@ async function pickSpotlightMember(
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
   render({ synchronizeUrl: rollbackSnapshot === null });
-  await loadSelectedMemberDocumentation();
+  await loadSelectedMemberOverview();
   focusTypeList(navigationGeneration, focusGeneration);
 }
 
@@ -14572,6 +14686,9 @@ function loadSelectionData() {
   if (!state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
   if (!member) return undefined;
+  if (state.memberSection === "overview") {
+    return loadSelectedMemberOverview();
+  }
   if (member.overloads.length > 1
     && state.selectedOverloadIndex == null) {
     return undefined;
@@ -14581,7 +14698,6 @@ function loadSelectionData() {
     case "annotated": return loadSelectedMemberAnnotatedSource();
     case "call-graph": return loadSelectedMemberCallGraph();
     case "facts": return loadSelectedMemberFactsSurface();
-    case "overview": return loadSelectedMemberDocumentation();
     case "compare": return undefined;
     default: return assertNever(state.memberSection, "member section");
   }
@@ -15854,11 +15970,11 @@ function focusPackageQueryInput() {
 
 function focusPackageActivityInput() {
   afterCurrentNavigationFrame(() => {
-    const packageSet = document.querySelector<HTMLSelectElement>(
-      "#package-changes-package-set");
-    if (packageSet && !packageSet.disabled) {
-      packageSet.focus();
-      if (document.activeElement === packageSet) return;
+    const ecosystem = document.querySelector<HTMLSelectElement>(
+      "#package-changes-ecosystem");
+    if (ecosystem && !ecosystem.disabled) {
+      ecosystem.focus();
+      if (document.activeElement === ecosystem) return;
     }
     focusLevelOneHeading();
   });
@@ -17221,22 +17337,22 @@ function runPackageQuery(text: string) {
 }
 
 function runPackageChanges(
-  packageSetId: string,
+  ecosystemId: string,
   fromExclusive: string | null,
   throughInclusive: string | null,
   securityOnly: boolean,
   maximumRows: number,
 ) {
-  if (!state.packageChangesPackageSets.some(
-    packageSet => packageSet.id === packageSetId)) {
+  if (!state.packageChangesEcosystems.some(
+    ecosystem => ecosystem.id === ecosystemId)) {
     state.packageChangesCatalogError =
-      "The selected product package set is unavailable.";
+      "The selected product Ecosystem is unavailable.";
     render();
     return;
   }
   state.packageChangesCatalogError = "";
   void packageChangesController.run(createPackageChangesRequest(
-    packageSetId,
+    ecosystemId,
     {
       fromExclusive,
       throughInclusive,
@@ -17648,7 +17764,7 @@ function renderPackageActivityPage() {
   document.title = "Package Activity · dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, renderPackageChangesView({
     state: state.packageChangesState,
-    packageSets: state.packageChangesPackageSets,
+    ecosystems: state.packageChangesEcosystems,
     catalogError: state.packageChangesCatalogError,
     escapeHtml,
     viewport,
@@ -17806,6 +17922,89 @@ async function loadSelectedMemberDocumentation() {
       isCurrent: () => memberRequestIsCurrent(signature),
     }),
   ]);
+}
+
+function memberGroupDocumentRequestKey(
+  type: AppTypeSurface | null | undefined,
+  member: AppMemberGroup | null | undefined,
+) {
+  if (!type || !member) return "";
+  const pkg = state.package;
+  return memberRequestKey([
+    pkg?.id ?? "",
+    pkg?.version ?? "",
+    pkg?.activeFramework ?? "",
+    pkg?.isRuntimePack ? state.platformDemoContextId ?? "" : "",
+    type.assemblyId,
+    type.definitionId ?? type.id,
+    member.key,
+  ]);
+}
+
+async function loadSelectedMemberGroupDocument() {
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!type || !member || member.kind !== "method") {
+    renderPreservingMemberFocus();
+    return;
+  }
+  const key = memberGroupDocumentRequestKey(type, member);
+  if (!key
+    || state.memberGroupDocumentLoading
+      && state.memberGroupDocumentKey === key
+    || state.memberGroupDocument
+      && state.memberGroupDocumentKey === key) {
+    renderPreservingMemberFocus();
+    return;
+  }
+
+  state.memberGroupDocument = null;
+  state.memberGroupDocumentLoading = true;
+  state.memberGroupDocumentError = "";
+  state.memberGroupDocumentKey = key;
+  renderPreservingMemberFocus();
+  const pkg = currentPackage();
+  try {
+    const result = state.rootKind === "library"
+      ? inspectUploadedLibraryMemberGroupDocument(
+          type.assemblyId,
+          type.definitionId ?? type.id,
+          member.name)
+      : pkg.isRuntimePack
+      ? (() => {
+          const row = platformLibraryForRequest(pkg, type.assemblyId);
+          return inspectPlatformMemberGroupDocument(
+            pkg.activeFramework,
+            pkg.version,
+            platformAssemblyRequest(row),
+            row.pack,
+            type.definitionId ?? type.id,
+            member.name);
+        })()
+      : inspectMemberGroupDocument(
+          pkg.id,
+          pkg.version,
+          pkg.activeFramework,
+          type.assembly,
+          type.definitionId ?? type.id,
+          member.name);
+    const inspection = await result;
+    if (state.memberGroupDocumentKey !== key) return;
+    state.memberGroupDocument = inspection;
+    state.memberGroupDocumentError =
+      inspection.outcome === "Available"
+        ? ""
+        : inspection.detail
+          ?? `Member-group inspection returned ${inspection.outcome}.`;
+  } catch (error) {
+    if (state.memberGroupDocumentKey !== key) return;
+    state.memberGroupDocumentError = errorMessage(error);
+  } finally {
+    if (state.memberGroupDocumentKey === key) {
+      state.memberGroupDocumentLoading = false;
+      renderPreservingMemberFocus();
+    }
+  }
 }
 
 async function loadSelectedMemberSource() {
@@ -22046,13 +22245,13 @@ async function bootstrap() {
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      state.packageChangesPackageSets = packageChangesPackageSets(
-        await engineClient.package.listPackageActivityPackageSets());
+      state.packageChangesEcosystems = packageChangesEcosystems(
+        await engineClient.package.listPackageActivityEcosystems());
       state.packageChangesCatalogError = "";
     } catch (error) {
-      state.packageChangesPackageSets = [];
+      state.packageChangesEcosystems = [];
       state.packageChangesCatalogError =
-        `Package Activity package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       const catalog =

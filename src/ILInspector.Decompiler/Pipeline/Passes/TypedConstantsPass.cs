@@ -179,7 +179,7 @@ public sealed class TypedConstantsPass : IIrPass
             Retype(arguments[i + receiverOffset], callee.ParameterTypes[i], shapes, stepper);
     }
 
-    static void Retype(IrExpression expression, TypeRef? target, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
+    internal static void Retype(IrExpression expression, TypeRef? target, IReadOnlyDictionary<TypeRef, TypeShape> shapes, Stepper stepper)
     {
         // A retype position whose target type did not resolve carries no
         // identity to recover; skip it rather than dereference a null target.
