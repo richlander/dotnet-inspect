@@ -963,6 +963,8 @@ These rendering and browser gates complement, rather than replace, the
 activation owner's Release managed and ordinary-Worker gates. Existing
 Platform navigation gates retain coverage of physical asset names, same-named
 Libraries in different families, cached navigation, and ordinary definitions.
+`browser/library-hierarchy.demos.spec.ts` also preserves demo-issued definition
+surfaces and their exact Type/member selection while forwarded declarations load.
 
 ## Non-claims
 
