@@ -55,6 +55,9 @@
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Xml.dll;$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Xml.ReaderWriter.dll;$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Private.Xml.dll;$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Private.CoreLib.dll"
       Link="RealAssets\PlatformForwarderActivation\%(Filename)%(Extension)"
       CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\microsoft.netcore.app.runtime.linux-x64.11.0.0-rc.1.26425.128.nupkg"
+      Link="RealAssets\PlatformForwarderActivation\runtime.nupkg"
+      CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json\10.0.0\system.text.json.10.0.0.nupkg"
       Link="RealAssets\FrameworkActivation\system.text.json.10.0.0.nupkg"
       CopyToOutputDirectory="PreserveNewest" />
