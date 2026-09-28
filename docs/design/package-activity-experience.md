@@ -42,7 +42,7 @@ Activity. The former `changes` peer mode and selector on `/query` are retired.
 The existing `package-changes` Worker operation kind, same-origin bridge path,
 DOM implementation identifiers, and `BrowserPackageChanges*` wire records are
 deliberately retained as stable internal contracts. The generated facade's
-host-facing operations are `ListPackageActivityPackageSets`,
+host-facing operations are `ListPackageActivityEcosystems`,
 `RunPackageActivity`, and `CancelPackageActivity`; no compatibility aliases
 retain the former generated export names.
 
@@ -86,23 +86,27 @@ distinguishes that physical cancellation from:
   `Partial` or `Failed`; and
 - the ordinary `Complete` and `ResultLimitReached` completions.
 
-## Product-issued package-set catalog
+## Product-issued Ecosystem catalog
 
-The browser discovers package sets from `PackageSetCatalog.Discover()` through
-the generated package facade. Each descriptor carries only canonical ID,
-title, summary, and product order. Membership remains managed product data and
-never crosses into TypeScript.
+Package Activity is prefix-specific: an Ecosystem's activity scope is its
+recorded package prefixes, never its core packages
+([package set retirement](package-set-retirement.md), slice 4). The browser
+discovers the Ecosystems that record at least one prefix through the generated
+package facade. Each descriptor carries canonical ID, title, summary, product
+order, and its recorded prefixes for display. The managed host resolves the
+submitted ID to those prefixes again; TypeScript never supplies them.
 
-Startup validates catalog version, non-empty descriptors, unique IDs, and
-strict product order. The selector submits only a discovered ID. Missing or
-invalid catalog data leaves Package Activity visibly unavailable; the host does
-not reconstruct known IDs or package members.
+Startup validates catalog version, non-empty descriptors, unique IDs, strict
+product order, and a non-empty prefix list for each descriptor. The selector
+submits only a discovered ID. Missing or invalid catalog data leaves Package
+Activity visibly unavailable; the host does not reconstruct known IDs or
+prefixes.
 
 ## Request controls
 
 One run submits:
 
-- one discovered package-set ID;
+- one discovered Ecosystem ID;
 - the product-owned default interval, represented by two null endpoints, or
   one explicit paired UTC interval;
 - all activity or security-relevant activity; and
@@ -169,7 +173,7 @@ height preserves native page scrolling and exposes `aria-posinset` and
 This surface has no mode selector. The retired `Packages | Changes` tablist
 went with the peer mode, and nothing here reintroduces a control that selects
 between this surface and Package Query: they are sibling routes, and ordinary
-navigation moves between them. The package-set control is an ordinary form
+navigation moves between them. The Ecosystem control is an ordinary form
 control, not a tablist. Status and failure changes use live regions. The form uses native labels, limits, and
 validity reporting. Full renders preserve focus when possible; stream patches
 leave controls in place.
@@ -177,5 +181,5 @@ leave controls in place.
 ## Non-goals
 
 Saved reports, notifications, background schedules, URL-persisted report
-state, caller-authored package sets, and historical security-change
+state, caller-authored prefixes, and historical security-change
 classification remain outside this owner.

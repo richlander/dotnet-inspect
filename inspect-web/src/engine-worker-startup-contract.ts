@@ -4,7 +4,7 @@ import type {
   BrowserVocabularyDocument,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserPackageChangesPackageSetCatalog,
+  BrowserPackageChangesEcosystemCatalog,
   BrowserPackageQueryCatalog,
   BrowserPackageQueryAcquisitionTier,
   BrowserPackageQueryExecutionClass,
@@ -198,21 +198,22 @@ export const engineStartupOperations = {
       };
     }),
   },
-  listPackageActivityPackageSets: {
-    kind: "package-list-changes-package-sets",
-    value: json<BrowserPackageChangesPackageSetCatalog>(value => {
+  listPackageActivityEcosystems: {
+    kind: "package-list-changes-ecosystems",
+    value: json<BrowserPackageChangesEcosystemCatalog>(value => {
       const data = record(value);
       return {
         ...data,
         version: number(data.version),
-        packageSets: array(data.packageSets, rawPackageSet => {
-          const packageSet = record(rawPackageSet);
+        ecosystems: array(data.ecosystems, rawEcosystem => {
+          const ecosystem = record(rawEcosystem);
           return {
-            ...packageSet,
-            id: text(packageSet.id),
-            title: text(packageSet.title),
-            summary: text(packageSet.summary),
-            order: number(packageSet.order),
+            ...ecosystem,
+            id: text(ecosystem.id),
+            title: text(ecosystem.title),
+            summary: text(ecosystem.summary),
+            order: number(ecosystem.order),
+            prefixes: array(ecosystem.prefixes, text),
           };
         }),
       };
