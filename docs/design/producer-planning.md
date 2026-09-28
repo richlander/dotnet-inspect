@@ -332,7 +332,10 @@ interrupted, parallelized, or fused.
 **Rule.** A producer that applies to only some units says so in its
 declaration: a type scope for whole types, and a scope guard for units a
 classifier has classified. A scope guard is a same-unit dependency that names
-the unit classes it accepts. Work that several producers need, such as a
+the unit classes it accepts, possibly all of them; naming them is what makes
+the edge a guard, and a guard always applies its classifier's type scope. A
+type the guard excludes is outside the dependent's scope before the
+dependent's own type scope is asked. Work that several producers need, such as a
 classification, is its own producer that the others depend on; it is never
 repeated inside each visit. A scope guard is not a failure guard: a unit
 outside scope is not attempted, and nothing about it is reported as failed.

@@ -180,7 +180,7 @@ public sealed class MethodDefinitionExecution
             }
 
             runs.Add(guard);
-            accepted.Add(dependency.AcceptedUnitClasses);
+            accepted.Add(dependency.AcceptedUnitClasses!.Value);
             guardStates.Add(_states[state.Dependencies[j]]);
         }
 
@@ -236,22 +236,30 @@ public sealed class MethodDefinitionExecution
             TypeDefinition typeDefinition =
                 reader.GetTypeDefinition(typeHandle);
 
-            // Type scope: a producer's own type predicate and its guards'
-            // type scopes, in visit order so guards are decided first. When
-            // no active producer has the type in scope, its methods are
-            // skipped as a whole.
+            // Type scope: a producer's guards' type scopes, then its own
+            // type predicate, in visit order so guards are decided first. A
+            // type a guard excludes is not tested, so it cannot fail the
+            // producer. When no active producer has the type in scope, its
+            // methods are skipped as a whole; when no producer remains
+            // active, the pass stops before the next untrusted read.
             bool anyInScope = false;
+            bool anyActiveProducer = false;
             foreach (ProducerState state in visiting)
             {
                 if (!state.IsActive)
                     continue;
-                bool inScope = TypeInScope(state, reader, typeHandle, typeDefinition);
+                bool inScope = true;
                 foreach (ProducerState guard in state.GuardStates)
                     inScope &= guard.TypeInScopeNow;
+                if (inScope)
+                    inScope = TypeInScope(state, reader, typeHandle, typeDefinition);
                 state.TypeInScopeNow = inScope;
                 anyInScope |= inScope && state.IsActive;
+                anyActiveProducer |= state.IsActive;
             }
 
+            if (!anyActiveProducer)
+                return visited;
             if (!anyInScope)
                 continue;
 

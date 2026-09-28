@@ -330,18 +330,21 @@ public sealed class ProducerPlanningTests
     }
 
     [Theory]
-    [InlineData("Sample", "1,2,3")]
-    [InlineData("Other", "")]
+    [InlineData("Sample", "1,2,3", 0b11UL)]
+    [InlineData("Other", "", 0b11UL)]
+    [InlineData("Sample", "1,2,3", ProducerDependency.AllUnitClasses)]
+    [InlineData("Other", "", ProducerDependency.AllUnitClasses)]
     public void TypeScope_ExcludesWholeTypesForTheProducerAndEveryProducerItGuards(
         string scopedType,
-        string expectedRows)
+        string expectedRows,
+        ulong acceptedClasses)
     {
         ImmutableArray<byte> image = BuildImage(
             Method.Safe("A"),
             Method.Safe("B"),
             Method.Safe("C"));
         var classifier = new TypeScopedParityProducer("Parity", scopedType);
-        var guarded = new GuardedRowsProducer("Rows", classifier, acceptedClasses: 0b11);
+        var guarded = new GuardedRowsProducer("Rows", classifier, acceptedClasses);
 
         MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
 
@@ -350,6 +353,47 @@ public sealed class ProducerPlanningTests
         Assert.Equal(inScope, execution.Receipt.For(classifier).UnitsAttempted);
         Assert.Equal(inScope, execution.Receipt.For(guarded).UnitsAttempted);
         Assert.Equal(ProducerOutcome.Complete, execution.Receipt.For(guarded).Outcome);
+    }
+
+    [Fact]
+    public void TypeScope_AGuardExcludedTypeIsNotTestedByTheDependent()
+    {
+        // The dependent's own type predicate fails on every type, but its
+        // guard excludes the only type with methods first, so the predicate
+        // is never asked and the dependent completes with nothing in scope.
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new TypeScopedParityProducer("Parity", "Other");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: 0b11,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(guarded).Outcome);
+        Assert.Equal("", execution.ResultOf(guarded).Value);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsAttempted);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsFailed);
+    }
+
+    [Fact]
+    public void TypeScope_AFailedTypePredicateIsContainedAsTheProducersFailure()
+    {
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new TypeScopedParityProducer("Parity", "Sample");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: 0b11,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        ProducerResult<string> result = execution.ResultOf(guarded);
+        Assert.Equal(ProducerOutcome.Failed, result.Outcome);
+        Assert.Equal("(type scope)", result.Failure!.Unit);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsAttempted);
     }
 
     [Fact]
@@ -767,7 +811,8 @@ public sealed class ProducerPlanningTests
     sealed class GuardedRowsProducer(
         string identity,
         ProducerDeclaration guard,
-        ulong acceptedClasses)
+        ulong acceptedClasses,
+        bool failingTypeScope = false)
         : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
@@ -775,6 +820,11 @@ public sealed class ProducerPlanningTests
             MethodDefinitionLayers.Declaration,
             () => [new ProducerDependency(guard, ProducerDependencyKind.VisitNeedsVisit, acceptedClasses)])
     {
+        internal override bool HasTypeScope => failingTypeScope;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            throw new BadImageFormatException("Type scope fixture failure.");
+
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Token & 0x00FF_FFFF;
 
