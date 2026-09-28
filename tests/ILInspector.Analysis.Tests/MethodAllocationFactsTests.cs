@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 using ILInspector.Instructions;
 
@@ -42,6 +43,12 @@ public sealed class MethodAllocationFactsTests
         Assert.Equal(AllocationMultiplicity.Once, occurrence.Multiplicity);
         Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.Return, occurrence.EscapeKind);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.Return),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
     }
 
     [Fact]
@@ -55,6 +62,12 @@ public sealed class MethodAllocationFactsTests
         Assert.Equal(AllocationEscape.LocalOnly, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
         Assert.Equal(AllocationMultiplicity.Once, occurrence.Multiplicity);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.Drop),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
     }
 
     [Fact]
@@ -206,6 +219,11 @@ public sealed class MethodAllocationFactsTests
         var occurrence = Assert.Single(result.ClassifiedOccurrences);
         Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.Capture, occurrence.EscapeKind);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.Capture),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
     }
 
     [Fact]
@@ -228,6 +246,11 @@ public sealed class MethodAllocationFactsTests
         var occurrence = Assert.Single(result.ClassifiedOccurrences);
         Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.Field, occurrence.EscapeKind);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.FieldStore),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
     }
 
     [Fact]
@@ -271,6 +294,42 @@ public sealed class MethodAllocationFactsTests
         Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
     }
 
+    [Fact]
+    public void MultipleLocalUsesJoinAllTerminalEvidence()
+    {
+        // ldc.i4.1; newarr int; stloc.0;
+        // ldloc.0; pop; ldloc.0; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x06,
+            0x26,
+            0x06,
+            0x2A,
+        ];
+
+        var result = Collect(il);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
+        Assert.Equal(AllocationEscapeKind.Return, occurrence.EscapeKind);
+        Assert.Equal(
+            [
+                new(
+                    8,
+                    AllocationLifetimeUseKind.Drop),
+                new(
+                    10,
+                    AllocationLifetimeUseKind.Return),
+            ],
+            occurrence.LifetimeEvidence.Uses);
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+    }
+
     [Theory]
     [InlineData(true, AllocationEscape.LocalOnly)]
     [InlineData(false, AllocationEscape.Unknown)]
@@ -308,12 +367,31 @@ public sealed class MethodAllocationFactsTests
             resolvedType: s_char,
             resolvedMember: constructor);
 
-        Assert.Equal(
-            expected,
-            Assert.Single(
-                    result.ClassifiedOccurrences,
-                    occurrence => occurrence.Kind == AllocationKind.Array)
-                .Escape);
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(expected, occurrence.Escape);
+        if (coreLibrary)
+        {
+            Assert.Equal(
+                new AllocationLifetimeUse(
+                    8,
+                    AllocationLifetimeUseKind
+                        .TrustedNonCapturingCall),
+                Assert.Single(occurrence.LifetimeEvidence.Uses));
+            Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+        }
+        else
+        {
+            Assert.Equal(
+                new AllocationLifetimeLimitation(
+                    AllocationLifetimeLimitationKind
+                        .UnsupportedCall,
+                    8,
+                    ILOpCode.Newobj),
+                Assert.Single(
+                    occurrence.LifetimeEvidence.Limitations));
+        }
     }
 
     [Fact]
@@ -344,12 +422,16 @@ public sealed class MethodAllocationFactsTests
             resolvedType: s_char,
             resolvedMember: constructor);
 
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
         Assert.Equal(
-            AllocationEscape.Unknown,
-            Assert.Single(
-                    result.ClassifiedOccurrences,
-                    occurrence => occurrence.Kind == AllocationKind.Array)
-                .Escape);
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind.UnsupportedStackShape,
+                7,
+                ILOpCode.Newobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
     }
 
     [Fact]
@@ -370,12 +452,47 @@ public sealed class MethodAllocationFactsTests
             il,
             incompleteReachingDefinitions: true);
 
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
         Assert.Equal(
-            AllocationEscape.Unknown,
-            Assert.Single(
-                    result.ClassifiedOccurrences,
-                    occurrence => occurrence.Kind == AllocationKind.Array)
-                .Escape);
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind
+                    .ReachingDefinitionsIncomplete,
+                6,
+                ILOpCode.Stloc_0),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
+    }
+
+    [Fact]
+    public void FailedCallResolutionPublishesTypedLimitation()
+    {
+        // ldc.i4.1; newarr char; newobj <malformed>; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x73, 0x02, 0x00, 0x00, 0x06,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            resolvedType: s_char,
+            throwOnMemberResolution: true);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Equal(
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                6,
+                ILOpCode.Newobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
     }
 
     [Fact]
@@ -420,7 +537,8 @@ public sealed class MethodAllocationFactsTests
         bool nonHeapConstruction = false,
         TypeRef? resolvedType = null,
         MemberRef? resolvedMember = null,
-        bool incompleteReachingDefinitions = false)
+        bool incompleteReachingDefinitions = false,
+        bool throwOnMemberResolution = false)
     {
         var context = Context(il, loopRegions);
         var result = MethodAllocationFacts.Create(context);
@@ -432,6 +550,8 @@ public sealed class MethodAllocationFactsTests
                 ResolvedMember = resolvedMember,
                 IncompleteReachingDefinitions =
                     incompleteReachingDefinitions,
+                ThrowOnMemberResolution =
+                    throwOnMemberResolution,
             });
         return result;
     }

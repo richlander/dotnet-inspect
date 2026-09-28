@@ -64,11 +64,36 @@ heuristic. The first array-copy boundary is the core-library
 A user-defined `String` lookalike or arbitrary method taking the same array
 remains `Unknown`.
 
-The current `AllocationEscapeKind` refines a proven escape as return, field,
-static, collection, or capture. Exact use and sink coordinates plus typed
-incompleteness reasons are follow-up evidence within this owner; until they
-are published, `Unknown` remains the visible fail-honest result and no
-consumer may infer why the proof stopped.
+`AllocationEscapeKind` refines a proven escape as return, field, static,
+collection, or capture. For each classified managed-array allocation, Analysis
+also publishes one `AllocationLifetimeEvidence` value beside the verdict. It
+contains:
+
+- every terminal use or sink accepted by the proof, identified by its exact IL
+  offset and typed use kind; and
+- every typed limitation that stopped the proof, with the exact IL offset and
+  opcode when an instruction exposed the limitation.
+
+Local transport through a local variable is not a terminal use. Its loads join
+back to the same allocation evidence, so consumers receive the element access,
+drop, trusted copy, return, throw, field, static, collection, capture, or
+by-reference boundary that actually consumed the value. Evidence is ordered by
+IL offset, then kind, and duplicate entries are removed.
+
+The verdict and evidence obey these invariants:
+
+- `LocalOnly` and `ThrowPath` have no limitations.
+- `Unknown` has at least one limitation.
+- `Escapes` has at least one escape sink.
+- Evidence from every reachable alias use participates in the joined result;
+  an escaping branch wins the verdict without discarding local uses or
+  limitations from other branches.
+
+The evidence is owner-issued data for the exact allocation occurrence.
+Allocation Facts, IL-offset Allocation Context, Research annotations, and
+browser Analysis facts may project it but must not rediscover coordinates or
+reclassify proof limitations. Other allocation kinds may continue to expose an
+empty evidence value until their lifetime classifier adopts this contract.
 
 ## Stack-allocation policy
 
@@ -103,6 +128,10 @@ The end-to-end work is staged:
 4. expose the resulting candidates through Performance Triage in both CLI and
    Browser/Wasm hosts.
 
+The first two stages are implemented. The browser Analysis contract carries
+the typed lifetime evidence now; candidate policy and candidate UX remain
+stages three and four.
+
 Array Pool Escapes remains unchanged throughout.
 
 ## Validation
@@ -111,11 +140,15 @@ Contract gates cover:
 
 - a compiled local `char[4]` consumed by the trusted string-copy constructor;
 - a neighboring returned array;
+- exact element-use, trusted-copy, return, field-store, drop, and multi-alias
+  coordinates;
 - a genuine primitive element beside a same-named user-defined reference type;
-- incomplete reaching definitions;
+- typed incomplete-reaching-definition, unsupported-call, unsupported-stack,
+  and metadata-resolution limitations;
 - reused local slots containing one local and one escaping allocation; and
 - the pinned Jurassic 3.2.9
-  `Lexer.ReadExtendedUnicodeSequence()` real asset.
+  `Lexer.ReadExtendedUnicodeSequence()` real asset, including its trusted-copy
+  sink at IL `0x0102`.
 
 The real-asset gate must retain the exact package version, method, allocation
 offset, lifetime verdict, and Performance Triage shape. Dynamic measurement is

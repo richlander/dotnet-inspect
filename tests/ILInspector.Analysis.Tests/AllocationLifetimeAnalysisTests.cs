@@ -29,6 +29,22 @@ public sealed class AllocationLifetimeAnalysisTests
             AllocationEscapeKind.Return,
             returned.EscapeKind);
         Assert.Contains(
+            local.LifetimeEvidence.Uses,
+            use => use.Kind
+                == AllocationLifetimeUseKind
+                    .TrustedNonCapturingCall);
+        Assert.Equal(
+            4,
+            local.LifetimeEvidence.Uses.Count(
+                use => use.Kind
+                    == AllocationLifetimeUseKind.ElementWrite));
+        Assert.Empty(local.LifetimeEvidence.Limitations);
+        Assert.Contains(
+            returned.LifetimeEvidence.Uses,
+            use => use.Kind
+                == AllocationLifetimeUseKind.Return);
+        Assert.Empty(returned.LifetimeEvidence.Limitations);
+        Assert.Contains(
             index.OptimizationOpportunities,
             candidate =>
                 candidate.Method.Name
@@ -130,6 +146,13 @@ public sealed class AllocationLifetimeAnalysisTests
                 && occurrence.ILOffset == 0x00cf);
 
         Assert.Equal(AllocationEscape.LocalOnly, allocation.Escape);
+        Assert.Contains(
+            new AllocationLifetimeUse(
+                0x0102,
+                AllocationLifetimeUseKind
+                    .TrustedNonCapturingCall),
+            allocation.LifetimeEvidence.Uses);
+        Assert.Empty(allocation.LifetimeEvidence.Limitations);
         OptimizationOpportunity opportunity = Assert.Single(
             index.OptimizationOpportunities,
             candidate =>

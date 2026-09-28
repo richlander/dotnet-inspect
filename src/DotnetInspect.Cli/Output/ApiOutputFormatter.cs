@@ -3272,8 +3272,43 @@ public static class ApiOutputFormatter
             fact.CountedAsHeap ? "Yes" : "No",
             fact.Frequency,
             fact.Escape,
+            FormatLifetimeUses(fact.LifetimeEvidence.Uses),
+            FormatLifetimeLimitations(
+                fact.LifetimeEvidence.Limitations),
             fact.InLoop ? "Yes" : "No",
             fact.Evidence);
+
+    static string? FormatLifetimeUses(
+        ImmutableArray<Analysis.AllocationLifetimeUse> uses) =>
+        uses.IsDefaultOrEmpty
+            ? null
+            : string.Join(
+               ", ",
+               uses.Select(use =>
+                   $"{MarkoutInline.Code($"IL_{use.ILOffset:X4}")}: "
+                   + Analysis.SemanticFactProjection
+                       .FormatLifetimeUseKind(use.Kind)));
+
+    static string? FormatLifetimeLimitations(
+        ImmutableArray<Analysis.AllocationLifetimeLimitation> limitations) =>
+        limitations.IsDefaultOrEmpty
+            ? null
+            : string.Join(
+               ", ",
+               limitations.Select(limitation =>
+               {
+                   string location = limitation.ILOffset is { } offset
+                       ? $"{MarkoutInline.Code($"IL_{offset:X4}")}: "
+                       : "";
+                   string operation = limitation.Operation is { } opcode
+                       ? $" ({opcode})"
+                       : "";
+                   return location
+                       + Analysis.SemanticFactProjection
+                           .FormatLifetimeLimitationKind(
+                               limitation.Kind)
+                       + operation;
+               }));
 
     static SafetyFactRow ToSafetyFactRow(Analysis.SafetyFact fact, bool includeMember)
         => new(

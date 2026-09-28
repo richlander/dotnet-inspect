@@ -1604,6 +1604,10 @@ public record AllocationFactRow(
     [property: MarkoutPropertyName("Counted As Heap")] string CountedAsHeap,
     string Frequency,
     string Escape,
+    [property: MarkoutPropertyName("Lifetime Uses")]
+    [property: MarkoutSkipNull] string? LifetimeUses,
+    [property: MarkoutPropertyName("Lifetime Limitations")]
+    [property: MarkoutSkipNull] string? LifetimeLimitations,
     [property: MarkoutPropertyName("In Loop")] string InLoop,
     string Evidence);
 
