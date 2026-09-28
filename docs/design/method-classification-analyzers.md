@@ -211,10 +211,13 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   identity rule above. Rows are requested only by the Finding and the row
   sections. The merged rows, in legacy order, and the Finding inspection built
   from them come only when the Finding is requested. Signals and LibraryInfo
-  counts get Count and Exists closings, matching what each shows today
-  (`AuditSignalBuilder` shows counts for pointer and P/Invoke, and the async
-  kinds present), which declare no `IdentityText`, so
-  they spend no identity budget. No host merges results by hand.
+  counts get Count closings, matching what each shows today:
+  `AuditSignalBuilder` shows counts for pointer and P/Invoke. Count closings
+  declare no `IdentityText`, so they spend no identity budget. The Async Kind
+  signal is not a consumer. It reads
+  `AssemblyDetailScanner.ScanPresenceFlags`, whose scope includes P/Invoke
+  methods, and it stays as is. Its unbudgeted attribute match is covered by
+  #8780. No host merges results by hand.
 
 Hosts only bind. A section registers the query and the closing it shows.
 `LibraryInspection` maps typed results into its model, with no splitting,
@@ -229,7 +232,7 @@ Each consumer asks only for what it shows:
 | Async Methods section | async rows, or Count for `--count` |
 | P/Invoke Methods section | P/Invoke rows |
 | Pointer-signature method list (`UnsafeMethods`) | pointer rows |
-| Signals | Count for pointer ("public pointer signatures"); Count for P/Invoke when the metadata-wide P/Invoke count is unavailable; Exists for each async kind |
+| Signals | Count for pointer ("public pointer signatures"); Count for P/Invoke when the metadata-wide P/Invoke count is unavailable |
 | LibraryInfo counts | Count for each analyzer |
 | Classified-method Finding | Rows of all three, merged |
 
@@ -280,13 +283,16 @@ work, tracked in #8733, and not part of this change.
 ## Verification
 
 - **Combined consumers.** One execution with async section Rows, LibraryInfo
-  Count, and Signals Exists runs Rows once and derives the others. A request
+  Count, and Signals Count runs Rows once and derives the others. A request
   with no Rows declares no `IdentityText`.
 - **Malformed pointer signature under Count.** It fails the pointer analyzer
   with a typed `Failed` outcome naming the method, and never publishes a
   silently reduced count.
 - **Consumer output equivalence.** A request for Signals alone gives the same
-  numeric pointer and P/Invoke counts, and the same async kind, as legacy.
+  numeric pointer and P/Invoke counts as legacy. The Async Kind signal is
+  unchanged, because it does not read the classified result. A public P/Invoke
+  method that is also async, and is the only async method, still reports its
+  async kind.
   The scanner test fixture with several pointer-signature methods covers it,
   and no host counts anything.
 - **Equivalence on real assets.** For each analyzer, and for the merged rows,
