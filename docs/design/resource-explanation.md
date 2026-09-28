@@ -557,6 +557,23 @@ Output capabilities appear as typed direct facts. Explanation of a format's
 global behavior requires a separately owner-issued output-format descriptor;
 Resource Explanation does not infer it from the capability enum.
 
+### Analysis resources
+
+An analysis registered through
+[analysis participation registration](inspection-capability-composition.md#analysis-participation-registration)
+is an explainable product resource of kind Analysis:
+
+- **Path.** Its canonical path is `analyses/<analysis-id>`. The analysis
+  identity already satisfies the segment grammar and is reused unchanged. The
+  collection `analyses` lists every registered analysis.
+- **Relationships.** Its typed relationships name each operation and report
+  surface it takes part in, and the Finding descriptors it issues there.
+- **Facts.** Its descriptive facts come from the owner-issued analysis
+  descriptor.
+
+Resource Explanation does not infer an analysis from a section, a Finding
+descriptor, or a CLI spelling.
+
 ### Query resources
 
 `QuerySpaceDescriptor` is the complete query-capability input. Explanation

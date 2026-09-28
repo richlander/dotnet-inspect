@@ -32,7 +32,10 @@ internal enum AttributeTypeIdentityDisposition
 /// </summary>
 public static partial class AttributeReader
 {
-    private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
+    private const string EditorBrowsableAttributeNamespace = "System.ComponentModel";
+    private const string EditorBrowsableAttributeSimpleName = "EditorBrowsableAttribute";
+    private const string EditorBrowsableAttributeName =
+        EditorBrowsableAttributeNamespace + "." + EditorBrowsableAttributeSimpleName;
     private const string ExtensionMarkerAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerAttribute";
     private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
@@ -270,13 +273,15 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-            if (attrTypeName == EditorBrowsableAttributeName
+            if (IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    EditorBrowsableAttributeNamespace,
+                    EditorBrowsableAttributeSimpleName)
                 && IsEditorBrowsableNever(reader, attr, beforeMaterialize))
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -2415,6 +2420,49 @@ public static partial class AttributeReader
                 chargeRelationship: null,
                 out declaringType)
             == AttributeTypeIdentityDisposition.Match;
+    }
+
+    static bool IsTopLevelAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string @namespace,
+        string name)
+    {
+        EntityHandle declaringType = constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (declaringType.Kind == HandleKind.TypeDefinition)
+        {
+            TypeDefinition type =
+                reader.GetTypeDefinition(
+                    (TypeDefinitionHandle)declaringType);
+            return type.GetDeclaringType().IsNil
+                && reader.StringComparer.Equals(
+                    type.Namespace,
+                    @namespace)
+                && reader.StringComparer.Equals(type.Name, name);
+        }
+        if (declaringType.Kind == HandleKind.TypeReference)
+        {
+            TypeReference type =
+                reader.GetTypeReference(
+                    (TypeReferenceHandle)declaringType);
+            return type.ResolutionScope.Kind
+                    is not HandleKind.TypeReference
+                && reader.StringComparer.Equals(
+                    type.Namespace,
+                    @namespace)
+                && reader.StringComparer.Equals(type.Name, name);
+        }
+        return false;
     }
 
     internal static AttributeTypeIdentityDisposition

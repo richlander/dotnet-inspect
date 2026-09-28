@@ -212,6 +212,12 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             root.GetProperty("details")
                 .GetProperty("key")
                 .GetString());
+        Assert.Equal(
+            ["https://"],
+            root.GetProperty("details")
+                .GetProperty("examples")
+                .EnumerateArray()
+                .Select(static value => value.GetString()));
         Assert.Contains(
             explanationDocument.RootElement
                 .GetProperty("resources")
@@ -385,7 +391,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task NoncanonicalSlashBearingText_SearchesInsteadOfResolving()
+    public async Task NoncanonicalSlashBearingExampleSearchesCapabilities()
     {
         var result = await RunAsync(
             "explain",
@@ -399,7 +405,17 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "https://",
             document.RootElement.GetProperty("query").GetString());
         Assert.Equal(
-            0,
+            "package-query/query/facets/library-literal",
+            document.RootElement.GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString());
+        Assert.Equal(
+            "ExampleValue",
+            document.RootElement.GetProperty("results")[0]
+                .GetProperty("match_source")
+                .GetString());
+        Assert.Equal(
+            1,
             document.RootElement.GetProperty("match_count").GetInt32());
     }
 

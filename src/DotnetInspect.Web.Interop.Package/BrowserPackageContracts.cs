@@ -707,6 +707,7 @@ public enum BrowserCapabilityCatalogSearchMatchSource
 {
     CanonicalKey,
     OwnerIdentity,
+    ExampleValue,
     ResourcePath,
     ResourceName,
     Summary,

@@ -80,11 +80,11 @@ public sealed class MemberCallGraphSessionTests
                     document.Characteristics,
                     characteristic =>
                         ReferenceEquals(
-                            characteristic.Descriptor,
+                            characteristic.Payload.Descriptor,
                             InspectionGraphFocusCatalog.Role)
                         && characteristic.Target
                             == InspectionGraphTarget.Edge(edge.Id))
-                    .Value)
+                    .Payload.Value)
                 .Values);
 
     [Fact]
@@ -185,20 +185,20 @@ public sealed class MemberCallGraphSessionTests
                 Assert.Single(
                     document.Limits,
                     limit => ReferenceEquals(
-                        limit.Descriptor,
+                        limit.Payload.Descriptor,
                         InspectionGraphNeighborhoodCatalog
                             .DepthBound))
-                    .Evidence);
+                    .Payload.Evidence);
         Assert.Equal(2, depth.MaxDepth);
         var nodes = Assert.IsType<
             CallGraphTraversalNodeBoundEvidence>(
                 Assert.Single(
                     document.Limits,
                     limit => ReferenceEquals(
-                        limit.Descriptor,
+                        limit.Payload.Descriptor,
                         CallGraphInspectionGraphCatalog
                             .TraversalNodeBound))
-                    .Evidence);
+                    .Payload.Evidence);
         Assert.Equal(10, nodes.MaxNodes);
         Assert.Equal(
             new MemberCallGraphBuildCounts(0, 1, 1),
@@ -279,7 +279,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .TraversalIncomplete));
     }
@@ -317,10 +317,10 @@ public sealed class MemberCallGraphSessionTests
                     Assert.Single(
                         document.Limits,
                         limit => ReferenceEquals(
-                            limit.Descriptor,
+                            limit.Payload.Descriptor,
                             InspectionGraphNeighborhoodCatalog
                                 .DepthBound))
-                    .Evidence)
+                    .Payload.Evidence)
                 .MaxDepth);
     }
 
@@ -356,7 +356,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .TraversalIncomplete));
     }
@@ -392,7 +392,7 @@ public sealed class MemberCallGraphSessionTests
         InspectionGraphLimit limit = Assert.Single(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 InspectionGraphFocusCatalog
                     .ScopeClassificationIncomplete));
         Assert.Equal(
@@ -427,13 +427,13 @@ public sealed class MemberCallGraphSessionTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 InspectionGraphFocusCatalog
                     .ScopeClassificationIncomplete));
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .CorrespondenceIncomplete));
     }
@@ -478,7 +478,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 InspectionGraphFocusCatalog
                     .ScopeClassificationIncomplete));
     }
@@ -534,7 +534,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.DoesNotContain(
             inspectionGraph.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .PhysicalOccurrencesUnavailable));
 

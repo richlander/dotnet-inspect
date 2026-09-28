@@ -131,11 +131,13 @@ internal static class NativePasses
     public static CoercionInsertionPass CoercionInsertion => new();
     [Native(NativeCategory.IlErasure, "missing Param-row names assigned final collision-free presentation spellings after exact nested binders are known")]
     public static ParameterNameAllocationPass ParameterNameAllocation => new();
-    [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, all stores at it) materialized as typed locals, retiring their slot nodes from the printer")]
+    [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, every store exact, coercion-renderable, or covered by issued assignment testimony) materialized as typed locals, retiring their slot nodes from the printer")]
     public static SlotMaterializationPass SlotMaterialization => new();
+    [Native(NativeCategory.EmitArtifact, "reference assignment testimony refreshed immediately before stack-slot storage consumes it")]
+    public static ReferenceSlotTargetBindingPass ReferenceSlotTargetBinding => new();
     [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
     public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
-    [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets decided before emission without replacing storage admission")]
+    [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets refreshed after final rewrites for emission")]
     public static ReferenceConditionalBindingPass ReferenceConditionalBinding => new();
     [Native(NativeCategory.EmitArtifact, "primitive join target compatibility decided before emission for conditional, switch-expression, and coalesce rendering")]
     public static PrimitiveJoinBindingPass PrimitiveJoinBinding => new();

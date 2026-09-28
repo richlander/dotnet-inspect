@@ -283,7 +283,8 @@ The Diff catalog is the first production canary and now exposes one
 `CompiledInspectionDomain<DiffQueryContext>` and one compiled section lens.
 `DiffCommand` obtains and runs its query plan through that lens. Its request-owned
 `DiffQueryContext`, multiple independently selectable producers, a queryless
-Finding Transitions selection that lowers to the empty plan, and pre-existing
+analysis-set view selection (`Summary`, `Transitions`) that lowers to the
+empty plan, and pre-existing
 allocation gates exercise the seam without introducing
 assembly or workspace lifetime. API, Type, and Member migration remains
 follow-up work.

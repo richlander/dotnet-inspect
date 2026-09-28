@@ -89,6 +89,8 @@ const spotlight = createSpotlight({
     spotlightPackageSearchIsLoading(discoveryState.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(discoveryState.spotlightPackageSearch),
+  scheduleCapabilitySearch: () => {},
+  resetCapabilitySearch: () => {},
   packageCount: () => state.packages.length,
   render,
 });

@@ -371,7 +371,8 @@ public sealed class AnalysisDescriptor
         IEnumerable<AnalysisUniverseRequirementDescriptor> universeRequirements,
         IEnumerable<AnalysisStructuralPrerequisiteDescriptor> structuralPrerequisites,
         IEnumerable<AnalysisHostRequirementDescriptor> hostRequirements,
-        IEnumerable<AnalysisProjectionSupport> projections)
+        IEnumerable<AnalysisProjectionSupport> projections,
+        IEnumerable<AnalysisOperationParticipation>? participations = null)
     {
         ArgumentNullException.ThrowIfNull(id);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(revision);
@@ -410,6 +411,10 @@ public sealed class AnalysisDescriptor
         ValidateRequirementModes();
         ValidateRequirementCapabilities();
         ValidateModeCoherence();
+        Participations = participations is null
+            ? []
+            : CopyNonNull(participations, nameof(participations));
+        ValidateParticipations();
     }
 
     public AnalysisDeclarationId Id { get; }
@@ -421,6 +426,36 @@ public sealed class AnalysisDescriptor
     public ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> StructuralPrerequisites { get; }
     public ImmutableArray<AnalysisHostRequirementDescriptor> HostRequirements { get; }
     public ImmutableArray<AnalysisProjectionSupport> Projections { get; }
+
+    /// <summary>Owner-issued operation participations, at most one per operation kind.</summary>
+    public ImmutableArray<AnalysisOperationParticipation> Participations { get; }
+
+    public AnalysisOperationParticipation? ParticipationFor(
+        AnalysisOperationKind operation)
+        => Participations.FirstOrDefault(
+            participation => participation.Operation == operation);
+
+    void ValidateParticipations()
+    {
+        if (Participations
+            .Select(participation => participation.Operation)
+            .Distinct()
+            .Count() != Participations.Length)
+        {
+            throw new ArgumentException(
+                "An analysis declares at most one participation per operation kind.",
+                nameof(Participations));
+        }
+
+        if (Participations.Any(participation => participation.Surfaces.Any(
+                surface => !ReportSurfaces.Any(
+                    declared => declared.Kind == surface.Surface))))
+        {
+            throw new ArgumentException(
+                "Every participating surface must be a declared report surface.",
+                nameof(Participations));
+        }
+    }
 
     void ValidateSurfaceDeclarations()
     {
@@ -872,6 +907,183 @@ public sealed class AnalysisCapabilityCatalog
         _configured = ImmutableHashSet.CreateRange<AnalysisDescriptor>(
             ReferenceEqualityComparer.Instance,
             Analyses);
+        ValidateParticipatingIdentities();
+    }
+
+    void ValidateParticipatingIdentities()
+    {
+        AnalysisDescriptor[] participating =
+        [
+            .. Analyses.Where(analysis => !analysis.Participations.IsEmpty),
+        ];
+        AnalysisDescriptor? invalid = participating.FirstOrDefault(
+            analysis => !AnalysisIdentity.IsValid(analysis.Id.Value));
+        if (invalid is not null)
+        {
+            throw new ArgumentException(
+                $"Participating analysis identity '{invalid.Id.Value}' must be "
+                + "lowercase ASCII words joined by '-'.",
+                "analyses");
+        }
+
+        foreach (var group in participating
+            .SelectMany(analysis => analysis.Participations.SelectMany(
+                participation => participation.Surfaces.SelectMany(
+                    surface => surface.Descriptors.Select(descriptor => (
+                        participation.Operation,
+                        surface.Surface,
+                        descriptor.Id,
+                        Analysis: analysis)))))
+            .GroupBy(entry => (entry.Operation, entry.Surface, entry.Id)))
+        {
+            if (group.Select(entry => entry.Analysis).Distinct().Count() > 1)
+            {
+                throw new ArgumentException(
+                    $"Finding descriptor '{group.Key.Id}' is issued by more than one "
+                    + $"{group.Key.Operation} analysis at the {group.Key.Surface} surface.",
+                    "analyses");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates one ordered analysis set for an operation completely before
+    /// any producer executes. Omission (<see langword="null"/>) selects the
+    /// operation's default set. Every offending entry is reported; no entry
+    /// is dropped, substituted, reordered, or narrowed.
+    /// </summary>
+    /// <param name="operation">The operation and its default set.</param>
+    /// <param name="surface">The request's report-surface kind.</param>
+    /// <param name="targetCount">
+    /// The number of targets bound at <paramref name="surface"/>, checked
+    /// against each analysis's declared privileged-anchor cardinality.
+    /// </param>
+    /// <param name="requested">The ordered requested identities, or null.</param>
+    public AnalysisSetValidationResult ValidateSet(
+        AnalysisOperationDefinition operation,
+        AnalysisReportSurfaceKind surface,
+        int targetCount,
+        IReadOnlyList<string>? requested)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (!Enum.IsDefined(surface))
+            throw new ArgumentOutOfRangeException(nameof(surface));
+        ArgumentOutOfRangeException.ThrowIfNegative(targetCount);
+
+        bool isDefault = requested is null;
+        IReadOnlyList<string> entries = requested ?? operation.DefaultSet;
+        if (entries.Count == 0)
+        {
+            return new AnalysisSetValidationResult.Rejected(
+            [
+                new AnalysisSetEntryRejection(
+                    position: null,
+                    requestedIdentity: null,
+                    AnalysisSetRejectionReason.Empty,
+                    requestReason: null,
+                    analysis: null),
+            ]);
+        }
+
+        var rejections = ImmutableArray.CreateBuilder<AnalysisSetEntryRejection>();
+        var accepted = ImmutableArray.CreateBuilder<AnalysisDescriptor>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (int position = 0; position < entries.Count; position++)
+        {
+            string entry = entries[position] ?? "";
+            if (entry.Length == 0)
+            {
+                rejections.Add(new(
+                    position,
+                    entry,
+                    AnalysisSetRejectionReason.Empty,
+                    requestReason: null,
+                    analysis: null));
+                continue;
+            }
+            if (!seen.Add(entry))
+            {
+                rejections.Add(new(
+                    position,
+                    entry,
+                    AnalysisSetRejectionReason.Duplicate,
+                    requestReason: null,
+                    analysis: null));
+                continue;
+            }
+
+            AnalysisDescriptor? analysis = Analyses.FirstOrDefault(
+                candidate => string.Equals(
+                    candidate.Id.Value,
+                    entry,
+                    StringComparison.Ordinal));
+            if (analysis is null)
+            {
+                rejections.Add(new(
+                    position,
+                    entry,
+                    AnalysisSetRejectionReason.Unknown,
+                    requestReason: null,
+                    analysis: null));
+                continue;
+            }
+
+            AnalysisOperationParticipation? participation =
+                analysis.ParticipationFor(operation.Kind);
+            if (participation is null)
+            {
+                rejections.Add(new(
+                    position,
+                    entry,
+                    AnalysisSetRejectionReason.NotParticipating,
+                    requestReason: null,
+                    analysis));
+                continue;
+            }
+
+            AnalysisReportSurfaceSupport? support = analysis.ReportSurfaces
+                .FirstOrDefault(candidate =>
+                    candidate.Kind == surface
+                    && candidate.Mode == AnalysisQuestionMode.Targeted);
+            if (participation.For(surface) is null || support is null)
+            {
+                rejections.Add(new(
+                    position,
+                    entry,
+                    setReason: null,
+                    AnalysisRequestRejectionReason.UnsupportedSurface,
+                    analysis));
+                continue;
+            }
+
+            ImmutableArray<AnalysisTargetRoleDescriptor> anchors =
+            [
+                .. support.TargetRoles.Where(role =>
+                    role.Function == AnalysisTargetFunction.PrivilegedAnchor),
+            ];
+            if (targetCount < anchors.Sum(role => role.MinimumCount)
+                || targetCount > anchors.Sum(role => (long)role.MaximumCount))
+            {
+                rejections.Add(new(
+                    position,
+                    entry,
+                    setReason: null,
+                    AnalysisRequestRejectionReason.UnsupportedTargetRole,
+                    analysis,
+                    anchors));
+                continue;
+            }
+
+            accepted.Add(analysis);
+        }
+
+        return rejections.Count > 0
+            ? new AnalysisSetValidationResult.Rejected(rejections.ToImmutable())
+            : new AnalysisSetValidationResult.Accepted(
+                operation.Kind,
+                surface,
+                accepted.ToImmutable(),
+                isDefault);
     }
 
     /// <summary>

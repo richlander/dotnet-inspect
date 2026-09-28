@@ -681,7 +681,10 @@ public class AttributeValueRetentionTests
         }
         else if (format == "--tsv")
         {
-            Assert.StartsWith($"name\tvalue{Environment.NewLine}", output, StringComparison.Ordinal);
+            Assert.StartsWith(
+                "name\tvalue\n",
+                output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
         }
         else
         {

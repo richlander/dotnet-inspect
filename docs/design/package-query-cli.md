@@ -269,9 +269,11 @@ previews. The term does not resolve ranges or traverse dependencies.
 `depends-ecosystem` accepts one canonical, case-sensitive
 `ecosystem.<name>` identity and matches a direct dependency against the
 Ecosystems owner's resource-free package-population declaration. Membership is
-the union of exact package-set members and registered package-ID prefixes,
-using NuGet package-ID comparison semantics; an exact registration takes
-evidence precedence when both rules match. Repeated ecosystem terms are
+the union of the ecosystem's core packages, matched exactly, and its
+registered package-ID prefixes, using NuGet package-ID comparison semantics;
+an exact core match takes evidence precedence when both rules match. Curated
+package sets are not consulted (see
+[package set retirement](package-set-retirement.md)). Repeated ecosystem terms are
 independent conjunctions, so each named ecosystem must match at least one
 direct dependency in the selected scope.
 

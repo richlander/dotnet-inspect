@@ -165,14 +165,14 @@ internal static class ExternalCallGraphOutputAdapter
         InspectionGraphCharacteristic[] roles =
         [
             .. characteristics.Where(characteristic =>
-                characteristic.Descriptor.Id
+                characteristic.Payload.Descriptor.Id
                     == InspectionGraphFocusCatalog.Role.Id
                 && characteristic.Target.Kind
                     == InspectionGraphTargetKind.Edge
                 && characteristic.Target.Id == edge.Id),
         ];
         if (roles.Length != 1
-            || roles[0].Value
+            || roles[0].Payload.Value
                 is not InspectionGraphValue.TokenSet
                 {
                     Values.Length: 1,
@@ -485,7 +485,7 @@ internal static class ExternalCallGraphOutputAdapter
             ],
             [
                 .. document.Failures.Select(static failure =>
-                    failure.Descriptor.Id).Distinct(StringComparer.Ordinal),
+                    failure.Payload.Descriptor.Id).Distinct(StringComparer.Ordinal),
             ]);
         Console.WriteLine(
             JsonSerializer.Serialize(
@@ -500,10 +500,10 @@ internal static class ExternalCallGraphOutputAdapter
         [
             .. document.Limits
                 .Where(static limit =>
-                    limit.Descriptor.Id
+                    limit.Payload.Descriptor.Id
                         == CallGraphInspectionGraphCatalog
                             .TraversalNodeBound.Id)
-                .Select(static limit => limit.Evidence)
+                .Select(static limit => limit.Payload.Evidence)
                 .OfType<CallGraphTraversalNodeBoundEvidence>(),
         ];
         if (evidence.Length != 1)
@@ -521,14 +521,14 @@ internal static class ExternalCallGraphOutputAdapter
             (string Id, string Evidence),
             InspectionGraphLimit> group in document.Limits
                 .Where(static limit =>
-                    limit.Descriptor.Id
+                    limit.Payload.Descriptor.Id
                         is not ("queries.neighborhood-depth-bound"
                             or "call.traversal-node-bound"))
                 .GroupBy(limit => (
                     LimitId(limit),
                     string.Join(
                         "\n",
-                        FormatDiagnosticEvidence(limit.Evidence)))))
+                        FormatDiagnosticEvidence(limit.Payload.Evidence)))))
         {
             CommandError.WriteWarning(
                 $"External call graph is incomplete: {group.Key.Id}.");
@@ -551,8 +551,8 @@ internal static class ExternalCallGraphOutputAdapter
         foreach (InspectionGraphFailure failure in document.Failures)
         {
             CommandError.Write(
-                $"External call graph failed: {failure.Descriptor.Id}.",
-                FormatDiagnosticEvidence(failure.Evidence));
+                $"External call graph failed: {failure.Payload.Descriptor.Id}.",
+                FormatDiagnosticEvidence(failure.Payload.Evidence));
         }
     }
 
@@ -572,10 +572,10 @@ internal static class ExternalCallGraphOutputAdapter
 
     static string LimitId(InspectionGraphLimit limit) =>
         ReferenceEquals(
-            limit.Descriptor,
+            limit.Payload.Descriptor,
             InspectionGraphFocusCatalog.ScopeClassificationIncomplete)
             ? ExternalBoundaryClassificationIncomplete
-            : limit.Descriptor.Id;
+            : limit.Payload.Descriptor.Id;
 
     sealed record MemberNode(
         int Id,

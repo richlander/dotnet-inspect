@@ -178,18 +178,6 @@ This Microsoft Testing Platform executable owns structural invariants, the
 independently compiled direct-consumer proof, and the project plus assembly
 dependency boundary.
 
-### QueryOverflow tests
-
-Run the resumable QuerySpace execution suite from the repository root:
-
-```bash
-dotnet run --project tests/QueryOverflow.Tests -c Release
-```
-
-This Microsoft Testing Platform executable owns QueryOverflow plan admission,
-bounded candidate demand, cross-batch Rows and Count equivalence, terminal
-state, detached output, and the independent-consumer boundary.
-
 ### Persistent-cache tests
 
 Run the cache-owner suite from the repository root:
