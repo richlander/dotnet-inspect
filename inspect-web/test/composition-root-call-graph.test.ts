@@ -922,6 +922,18 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /function renderMember\(type: AppTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?const hasSelectedOverload =[\s\S]*?selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? selectedOverloadIndex \?\? 0 : 0;/);
 });
 
+test("member family re-entry leaves exact ordinary methods for the shared document", () => {
+  const selection =
+    appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
+    ?? "";
+  assert.match(
+    selection,
+    /entry\.group\.kind === "method"[\s\S]*entry\.group\.overloads\.every\(overload => !overload\.graphOnly\)/);
+  assert.match(
+    selection,
+    /ordinaryMethodGroup[\s\S]*state\.memberSection = "overview";[\s\S]*openMemberGroup\(entry\.group\.key\)/);
+});
+
 test("member navigation excludes graph-only projections from ordinary filters", () => {
   const filters =
     appSource.match(/function visibleMemberGroups\([\s\S]*?\n}\n\nfunction renderMemberFilterControls\([\s\S]*?\n}/)?.[0]

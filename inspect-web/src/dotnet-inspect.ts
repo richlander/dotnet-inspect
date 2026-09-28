@@ -6812,7 +6812,13 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      if (entry.group.overloads.length === 1) {
+      const ordinaryMethodGroup =
+        entry.group.kind === "method"
+        && entry.group.overloads.every(overload => !overload.graphOnly);
+      if (ordinaryMethodGroup) {
+        state.memberSection = "overview";
+        openMemberGroup(entry.group.key);
+      } else if (entry.group.overloads.length === 1) {
         render();
       } else {
         state.selectedOverloadIndex = null;

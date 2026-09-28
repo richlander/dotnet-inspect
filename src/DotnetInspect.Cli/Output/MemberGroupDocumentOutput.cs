@@ -77,20 +77,7 @@ internal static class MemberGroupDocumentOutput
             return false;
         }
 
-        List<ApiMember> candidates =
-        [
-            .. type.Members.Where(member =>
-                string.Equals(
-                    member.Name,
-                    memberName,
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-        return candidates.Count > 0
-            && candidates.All(member =>
-                string.Equals(
-                    member.Kind,
-                    "method",
-                    StringComparison.OrdinalIgnoreCase))
+        return ResolveCanonicalMethodName(type, memberName) is not null
             && (options.Tree || !options.FormatFlagExplicitlySet);
     }
 
@@ -108,7 +95,13 @@ internal static class MemberGroupDocumentOutput
             ?? throw new ArgumentException(
                 "An exact metadata Type definition is required.",
                 nameof(type));
-        string memberName = options.MemberFilter.Single();
+        string memberName =
+            ResolveCanonicalMethodName(
+                type,
+                options.MemberFilter.Single())
+            ?? throw new InvalidOperationException(
+                "The native MemberGroup route requires one unambiguous "
+                + "ordinary method name.");
         var plan = new MemberOverloadPopulationInspectionPlan(
             new MemberGroupSubject(definition, memberName),
             new MemberOverloadPopulationRequest(
@@ -192,6 +185,38 @@ internal static class MemberGroupDocumentOutput
                             + row.DisplaySignature))),
         ]);
         return 0;
+    }
+
+    private static string? ResolveCanonicalMethodName(
+        ApiType type,
+        string requestedName)
+    {
+        string? canonicalName = null;
+        foreach (ApiMember candidate in type.Members.Where(member =>
+                     string.Equals(
+                         member.Name,
+                         requestedName,
+                         StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!string.Equals(
+                    candidate.Kind,
+                    "method",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            canonicalName ??= candidate.Name;
+            if (!string.Equals(
+                    canonicalName,
+                    candidate.Name,
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+
+        return canonicalName;
     }
 
     private static string Describe(

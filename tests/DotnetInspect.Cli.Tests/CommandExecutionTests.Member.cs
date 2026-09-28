@@ -664,9 +664,17 @@ public partial class CommandExecutionTests
             "--tree",
             "--tips",
             "q");
+        var caseInsensitive = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.serialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
 
         Assert.Equal(0, natural.Exit);
         Assert.Equal(natural, explicitTree);
+        Assert.Equal(natural, caseInsensitive);
         Assert.StartsWith(
             "method System.Text.Json.JsonSerializer.Serialize (15 overloads)",
             natural.Output);

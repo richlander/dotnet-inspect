@@ -264,6 +264,14 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
+  const familyOverload = page.locator('[data-overload="0"]');
+  await expect(familyOverload).toBeVisible();
+  await expect(page.locator(".member-surface-head p"))
+    .toContainText("1 overload");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-member-group-document-request", /Run/);
 });
 
 test("production Analysis keeps deferred Library results out of the incoming analysis", async ({ page }) => {
