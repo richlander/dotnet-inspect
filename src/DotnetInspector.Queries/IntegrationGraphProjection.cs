@@ -112,7 +112,8 @@ public sealed class IntegrationGraphProjectionResult :
     public InspectionGraphInducedSetRequest GraphRequest { get; }
     public InspectionGraphDocument Document { get; }
     public ImmutableArray<IntegrationGraphCandidateProjection>
-        CandidateInventory { get; }
+        CandidateInventory
+    { get; }
 
     internal static AnalysisRequestPlan RequireGraphPlan(
         AnalysisRequestPlan plan)
@@ -449,10 +450,11 @@ public static class IntegrationGraphProjection
                 :
                 [
                     new InspectionGraphFailure(
-                        InspectionGraphIntegrationsCatalog.ProjectionFailure,
-                        Evidence:
+                        new InspectionGraphFailurePayload(
+                            InspectionGraphIntegrationsCatalog
+                                .ProjectionFailure,
                             new InspectionGraphIntegrationCensusFailureEvidence(
-                                _snapshot)),
+                                _snapshot))),
                 ];
             InspectionGraphDocumentScope scope =
                 _occurrences.Count == 0
@@ -569,7 +571,7 @@ public static class IntegrationGraphProjection
         internal int FromNodeId { get; } = fromNodeId;
         internal int ToNodeId { get; } = toNodeId;
         internal InspectionGraphRelationshipDescriptor Relationship
-            { get; } = relationship;
+        { get; } = relationship;
         internal List<int> OccurrenceIds { get; } = [];
     }
 }

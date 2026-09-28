@@ -433,13 +433,13 @@ internal static class BrowserCallGraphProjection
             [
                 .. characteristics[edge.Id].Where(
                     static characteristic =>
-                        characteristic.Descriptor.Id
+                        characteristic.Payload.Descriptor.Id
                             == InspectionGraphFocusCatalog.Role.Id),
             ];
             if (roles.Length != 1
-                || roles[0].Value
+                || roles[0].Payload.Value
                     is not InspectionGraphValue.TokenSet
-                        { Values.Length: 1 } tokens)
+                    { Values.Length: 1 } tokens)
             {
                 throw new InvalidOperationException(
                     $"External-focused edge {edge.Id} must carry exactly one supported role.");
@@ -481,10 +481,10 @@ internal static class BrowserCallGraphProjection
         InspectionGraphNode node) =>
         node.Subject
             is InspectionGraphSubject.MemberSubject
-            {
-                Identity:
+        {
+            Identity:
                     InspectionGraphMemberIdentity.CallGraph callGraph,
-            }
+        }
                 ? callGraph.Member
                 : throw new InvalidOperationException(
                     "The dependency member call graph contained a non-member node.");
@@ -505,16 +505,16 @@ internal static class BrowserCallGraphProjection
         [
             .. graph.Limits
                 .Where(limit =>
-                    limit.Descriptor.Id
+                    limit.Payload.Descriptor.Id
                         == CallGraphInspectionGraphCatalog
                             .CorrespondenceIncomplete.Id)
-                .Select(static limit => limit.Evidence)
+                .Select(static limit => limit.Payload.Evidence)
                 .OfType<CallGraphCorrespondenceIncompleteEvidence>(),
         ];
         InspectionGraphLimit[] unclassifiedBoundaries =
         [
             .. graph.Limits.Where(limit =>
-                limit.Descriptor.Id
+                limit.Payload.Descriptor.Id
                     == InspectionGraphFocusCatalog
                         .ScopeClassificationIncomplete.Id),
         ];
@@ -548,12 +548,12 @@ internal static class BrowserCallGraphProjection
                 evidence.BindingIdentityConflictCount),
             HasUnexploredTraversalBoundary:
                 graph.Limits.Any(limit =>
-                    limit.Descriptor.Id
+                    limit.Payload.Descriptor.Id
                         == CallGraphInspectionGraphCatalog
                             .TraversalIncomplete.Id),
             HasAnalysisFailureBoundary:
                 graph.Failures.Any(failure =>
-                    failure.Descriptor.Id
+                    failure.Payload.Descriptor.Id
                         == CallGraphInspectionGraphCatalog
                             .AnalysisIncomplete.Id),
             HasIncompleteCorrespondence:
@@ -566,7 +566,7 @@ internal static class BrowserCallGraphProjection
                 unclassifiedAssemblies,
             PhysicalOccurrenceUnavailableEdges:
                 graph.Limits.Count(limit =>
-                    limit.Descriptor.Id
+                    limit.Payload.Descriptor.Id
                         == CallGraphInspectionGraphCatalog
                             .PhysicalOccurrencesUnavailable.Id));
     }
