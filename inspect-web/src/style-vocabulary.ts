@@ -24,7 +24,7 @@ export interface ResolvedStyleChoice {
   readonly oracleEndorsed: boolean;
 }
 
-export interface ResolvedStyleTier {
+interface ResolvedStyleTier {
   readonly term: BrowserVocabularyTerm;
   readonly byteDivergent: boolean;
   readonly choices: readonly ResolvedStyleChoice[];
