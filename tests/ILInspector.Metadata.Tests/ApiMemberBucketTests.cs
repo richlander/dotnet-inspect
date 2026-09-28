@@ -67,6 +67,32 @@ public sealed class ApiMemberBucketTests
         Assert.Equal("protected", finalizer.Accessibility);
     }
 
+    // VB spells an interface implementation as a private, ordinarily named
+    // body. Collection.IListAdd implements the referenced IList.Add, so it is
+    // public in the list and the summary, as its overload population is.
+    [Fact]
+    public void RealVisualBasicInterfaceImplementation_IsPublic()
+    {
+        string path = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+            "Microsoft.VisualBasic.Core.dll");
+        ApiSurface publicSurface = Extract(path, includeAll: false);
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface summarySurface = ApiSurfaceExtractor.ExtractSummary(peReader);
+
+        foreach (ApiSurface surface in new[] { publicSurface, summarySurface })
+        {
+            ApiType collection = surface.Types.Single(
+                type => type.Namespace == "Microsoft.VisualBasic"
+                    && type.Name == "Collection");
+            ApiMember add = Assert.Single(
+                collection.Members,
+                member => member.Name == "IListAdd");
+            Assert.Null(add.Accessibility);
+        }
+    }
+
     static ApiType Type(ApiSurface surface)
         => surface.Types.Single(type => type.Name == nameof(BucketFixture));
 

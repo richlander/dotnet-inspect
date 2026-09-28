@@ -24,7 +24,7 @@ public static partial class ApiSurfaceExtractor
     /// can see that interface, so its access is the wider of its own and the
     /// interface's. Every other method, including a finalizer, keeps its own.
     /// </summary>
-    static MethodAttributes MethodEffectiveAccess(
+    internal static MethodAttributes MethodEffectiveAccess(
         MethodAttributes ownAccess,
         MethodDefinitionHandle methodHandle,
         Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
@@ -247,7 +247,7 @@ public static partial class ApiSurfaceExtractor
     /// A hidden (<c>EditorBrowsable(Never)</c>) method is omitted from the
     /// public-facing population. A MethodImpl body is exempt.
     /// </summary>
-    static bool IsHiddenMethod(
+    internal static bool IsHiddenMethod(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         bool isExplicitImplementation,
