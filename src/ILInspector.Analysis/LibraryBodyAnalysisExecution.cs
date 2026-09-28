@@ -460,10 +460,29 @@ public sealed class LibraryBodyAnalysisExecution
     static bool CanReuseSiblingRelationships(
         ImmutableArray<MethodImplementationMetricEvidence> bodies,
         ImmutableArray<OverloadCallRelationship> relationships)
-        => relationships.All(relationship =>
-            bodies.Any(body =>
-                body.EvidenceMethod.MetadataToken
-                    == relationship.EvidenceMethod.MetadataToken));
+    {
+        foreach (OverloadCallRelationship relationship
+            in relationships)
+        {
+            bool admitted = false;
+            foreach (MethodImplementationMetricEvidence body
+                in bodies)
+            {
+                if (body.EvidenceMethod.MetadataToken
+                    != relationship.EvidenceMethod.MetadataToken)
+                {
+                    continue;
+                }
+
+                admitted = true;
+                break;
+            }
+            if (!admitted)
+                return false;
+        }
+
+        return true;
+    }
 
     static ImmutableArray<DirectCall> SelectMetricDirectCalls(
         ImmutableArray<MethodImplementationMetricEvidence> bodies,
