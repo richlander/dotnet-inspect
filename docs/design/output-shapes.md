@@ -28,6 +28,8 @@ focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
+- [CLI output format and destination](cli-output-format-and-destination.md) —
+  `--format` presentation selection and `-o` / `--output` destination grammar
 - [Output style guide](style-guide.md#machine-names-and-identifiers) — machine
   property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
