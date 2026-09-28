@@ -16,6 +16,13 @@ public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
     readonly ProducerState[] _states;
+    CriticalFailure? _critical;
+
+    /// <summary>
+    /// Units visited by the pass in progress, kept current as it runs, so an
+    /// abort that unwinds the pass still records what was observed.
+    /// </summary>
+    internal int PassUnitsVisited;
 
     MethodDefinitionExecution(WorkDescription description)
     {
@@ -76,6 +83,14 @@ public sealed class MethodDefinitionExecution
 
         MetadataReader reader = peReader.GetMetadataReader();
 
+        // The gate is part of the source. Its identity budget is armed only
+        // when the plan declares identity text, so a plan of counts and
+        // existence checks spends none.
+        var gate = new MethodRowGate(
+            peReader,
+            reader,
+            (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0);
+
         // The module lookup is execution-scoped and costly to build, so it
         // exists only when a planned producer declared it.
         bool lookupDeclared = false;
@@ -88,6 +103,8 @@ public sealed class MethodDefinitionExecution
             builder is null ? null : new LibraryMethodAnalysisRunner(builder);
         int unitsVisited = 0;
 
+        try
+        {
         foreach (PlannedPass pass in description.Passes)
         {
             ProducerState[] visiting = new ProducerState[pass.Visits.Length];
@@ -102,6 +119,8 @@ public sealed class MethodDefinitionExecution
 
             if (anyActive)
             {
+                execution.PassUnitsVisited = 0;
+
                 // A pass that closes one open query with nothing else to
                 // coordinate runs as that query's kernel. A kernel folds
                 // without keeping facts, so a producer whose facts a reader
@@ -114,12 +133,14 @@ public sealed class MethodDefinitionExecution
                         reader,
                         peReader,
                         lookup,
+                        gate,
                         out passUnits))
                 {
                     passUnits = execution.VisitUnits(
                         reader,
                         peReader,
                         lookup,
+                        gate,
                         visiting);
                 }
 
@@ -129,10 +150,56 @@ public sealed class MethodDefinitionExecution
             foreach (int completion in pass.Completions)
                 execution.CompleteProducer(execution._states[completion]);
         }
+        }
+        catch (ProducerAbortException abort)
+        {
+            // A critical failure is never contained: the execution stops
+            // where it was raised, and no producer's result is published.
+            // Participation observed before the abort is kept.
+            execution.Abort(abort.Failure);
+            execution.Receipt = execution.CreateReceipt(
+                Math.Max(unitsVisited, execution.PassUnitsVisited),
+                gate);
+            return execution;
+        }
 
         execution.PropagateFailures();
-        execution.Receipt = execution.CreateReceipt(unitsVisited);
+        execution.Receipt = execution.CreateReceipt(unitsVisited, gate);
         return execution;
+    }
+
+    /// <summary>
+    /// The fields and layers a work description reads: every planned
+    /// producer's declaration and every gate classifier its guards name. It
+    /// explains a plan without executing it.
+    /// </summary>
+    public static MethodDefinitionLayers FieldsRead(WorkDescription description)
+    {
+        ArgumentNullException.ThrowIfNull(description);
+        MethodDefinitionLayers fields = 0;
+        foreach (ProducerDeclaration producer in description.Producers)
+        {
+            if (producer is not IMethodDefinitionProducer declaration)
+                continue;
+            fields |= declaration.Layers;
+            if (declaration.SourceGate is { } guard)
+                fields |= guard.Classifier.Fields;
+        }
+
+        return fields;
+    }
+
+    void Abort(CriticalFailure failure)
+    {
+        _critical = failure;
+        foreach (ProducerState state in _states)
+        {
+            state.Outcome = ProducerOutcome.Aborted;
+            state.Failure = null;
+            state.FailedPrerequisite = null;
+            state.ClearResult();
+            state.IsActive = false;
+        }
     }
 
     /// <summary>
@@ -162,6 +229,8 @@ public sealed class MethodDefinitionExecution
                     state.Outcome.Value,
                     default,
                     FailedPrerequisite: state.FailedPrerequisite),
+            ProducerOutcome.Aborted =>
+                new(state.Outcome.Value, default, Critical: _critical),
             _ => throw new ProducerContractException(
                 $"Producer '{producer.Identity}' has not completed."),
         };
@@ -239,9 +308,10 @@ public sealed class MethodDefinitionExecution
         MetadataReader reader,
         PEReader peReader,
         LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
         ProducerState[] visiting)
     {
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup);
+        var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
         int visited = 0;
         foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
         {
@@ -267,6 +337,8 @@ public sealed class MethodDefinitionExecution
                 bool inScope = true;
                 foreach (ProducerState guard in state.GuardStates)
                     inScope &= guard.TypeInScopeNow;
+                if (inScope && state.SourceGate is { } sourceGate)
+                    inScope = GateTypeInScope(state, gate, sourceGate, typeHandle, typeDefinition);
                 if (inScope)
                     inScope = TypeInScope(state, reader, typeHandle, typeDefinition);
                 state.TypeInScopeNow = inScope;
@@ -284,6 +356,7 @@ public sealed class MethodDefinitionExecution
             {
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
+                PassUnitsVisited = visited;
                 int unitToken = MetadataTokens.GetToken(methodHandle);
                 bool anyActive = false;
                 foreach (ProducerState state in visiting)
@@ -302,6 +375,18 @@ public sealed class MethodDefinitionExecution
                     {
                         anyActive = true;
                         continue;
+                    }
+
+                    if (state.SourceGate is { } sourceGate)
+                    {
+                        bool? accepted = GateAccepts(ref unit, state, sourceGate);
+                        if (accepted is null)
+                            continue;
+                        if (!accepted.Value)
+                        {
+                            anyActive = true;
+                            continue;
+                        }
                     }
 
                     VisitUnit(ref unit, state);
@@ -340,10 +425,71 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 MetadataTokens.GetToken(typeHandle),
                 "(type scope)",
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Whether the gate classifier admits the type for a gate-guarded
+    /// producer. A classifier that cannot read the type fails the producer
+    /// there, as its own type predicate would.
+    /// </summary>
+    static bool GateTypeInScope(
+        ProducerState state,
+        MethodRowGate gate,
+        SourceGateGuard guard,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition)
+    {
+        try
+        {
+            return gate.TypeInScope(guard.Classifier, typeHandle, typeDefinition);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                MetadataTokens.GetToken(typeHandle),
+                "(type scope)",
+                ProducerFailure.Describe(ex));
+            state.IsActive = false;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether the gate classifies the unit into an accepted class. Null when
+    /// the classifier could not read the unit, which fails the producer there.
+    /// </summary>
+    internal static bool? GateAccepts(
+        ref MethodDefinitionUnit unit,
+        ProducerState state,
+        SourceGateGuard guard)
+    {
+        int unitClass;
+        try
+        {
+            unitClass = unit.Gate.ClassOf(guard.Classifier, ref unit);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            state.UnitsAttempted++;
+            state.UnitsFailed++;
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                MetadataTokens.GetToken(unit.MethodHandle),
+                unit.Label,
+                ProducerFailure.Describe(ex));
+            state.IsActive = false;
+            return null;
+        }
+
+        return unitClass is >= 0 and < 64
+            && ((guard.AcceptedClasses >> unitClass) & 1) != 0;
     }
 
     static bool InScope(ProducerState state, int unitToken)
@@ -375,7 +521,7 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 MetadataTokens.GetToken(unit.MethodHandle),
                 unit.Label,
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return;
         }
@@ -473,7 +619,7 @@ public sealed class MethodDefinitionExecution
             state.Failure = new ProducerFailure(
                 0,
                 "(completion)",
-                $"{ex.GetType().Name}: {ex.Message}");
+                ProducerFailure.Describe(ex));
             state.IsActive = false;
             return;
         }
@@ -487,10 +633,10 @@ public sealed class MethodDefinitionExecution
         foreach (int completion in _description.CompletionIndices)
             CompleteProducer(_states[completion]);
         PropagateFailures();
-        Receipt = CreateReceipt(0);
+        Receipt = CreateReceipt(0, gate: null);
     }
 
-    WorkReceipt CreateReceipt(int unitsVisited)
+    WorkReceipt CreateReceipt(int unitsVisited, MethodRowGate? gate)
     {
         var producers = ImmutableArray.CreateBuilder<ProducerParticipation>(
             _states.Length);
@@ -522,7 +668,13 @@ public sealed class MethodDefinitionExecution
                 layers.ToImmutable()));
         }
 
-        return new(unitsVisited, producers.MoveToImmutable());
+        return new(unitsVisited, producers.MoveToImmutable())
+        {
+            Critical = _critical,
+            IdentityBudgetArmed = gate?.IdentityBudgetArmed ?? false,
+            IdentityWorkCharged = gate?.IdentityWorkCharged ?? 0,
+            SignatureShapeNodesWalked = gate?.SignatureShapeNodesWalked ?? 0,
+        };
     }
 
     /// <summary>
@@ -547,6 +699,12 @@ public sealed class MethodDefinitionExecution
 
         public abstract bool HasTypeScope { get; }
 
+        /// <summary>The producer's scope guard on the source gate, if any.</summary>
+        public abstract SourceGateGuard? SourceGate { get; }
+
+        /// <summary>The fields and layers the producer declared.</summary>
+        public MethodDefinitionLayers Layers => layers;
+
         public abstract bool TypeInScope(MetadataReader reader, TypeDefinition type);
 
         /// <summary>Whether this producer classified <paramref name="unitToken"/> into one of <paramref name="acceptedClasses"/>.</summary>
@@ -557,6 +715,7 @@ public sealed class MethodDefinitionExecution
             MetadataReader reader,
             PEReader peReader,
             LibraryMethodAnalysisRunner? lookup,
+            MethodRowGate gate,
             out int unitsVisited);
 
         public abstract bool Visit(scoped MethodDefinitionView view);

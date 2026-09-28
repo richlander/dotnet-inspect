@@ -118,7 +118,7 @@ public sealed class ProducerPlanningTests
             image,
             Plan(new ProducerRequest(
                 UnsafeEvidencePresenceProducer.Instance,
-                ProducerTerminal.All)));
+                ProducerTerminal.Complete)));
         ProducerResult<int> allResult = all.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Complete, allResult.Outcome);
@@ -168,7 +168,7 @@ public sealed class ProducerPlanningTests
             .ResultOf(UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Failed, result.Outcome);
         Assert.False(result.HasValue);
-        Assert.Equal("N.Sample::Broken", result.Failure!.Unit);
+        Assert.Equal("MethodDef 0x06000001", result.Failure!.Unit);
 
         ImmutableArray<byte> evidenceFirst = BuildImage(
             Method.Unsafe("Earlier"),
@@ -250,7 +250,7 @@ public sealed class ProducerPlanningTests
 
         ProducerResult<int> failed = execution.ResultOf(failing);
         Assert.Equal(ProducerOutcome.Failed, failed.Outcome);
-        Assert.Equal("N.Sample::B", failed.Failure!.Unit);
+        Assert.Equal("MethodDef 0x06000002", failed.Failure!.Unit);
         ProducerResult<int> spared = execution.ResultOf(independent);
         Assert.Equal(ProducerOutcome.Complete, spared.Outcome);
         Assert.Equal(3, spared.Value);
@@ -461,7 +461,7 @@ public sealed class ProducerPlanningTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.All)]
+    [InlineData(ProducerTerminal.Complete)]
     [InlineData(ProducerTerminal.Exists)]
     public void ClosedQueryKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal)
     {
