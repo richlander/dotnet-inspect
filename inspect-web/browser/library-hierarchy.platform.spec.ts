@@ -408,12 +408,12 @@ test("superseded Workspace projection cannot steal Activity focus", async ({
 
   await openProductDestination(page, "activity");
   await expect(page).toHaveURL(/\/activity$/);
-  const packageSet = page.locator("#package-changes-package-set");
-  await expect(packageSet).toBeFocused();
+  const ecosystem = page.locator("#package-changes-ecosystem");
+  await expect(ecosystem).toBeFocused();
 
   await releaseFacade(page, "finish-workspace-encode");
   await page.waitForTimeout(100);
-  await expect(packageSet).toBeFocused();
+  await expect(ecosystem).toBeFocused();
 });
 
 test("Platform Workspace projection failure remains visible on Query", async ({

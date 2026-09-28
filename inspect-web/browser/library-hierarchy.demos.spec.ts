@@ -495,7 +495,7 @@ test("Activity catalog failure focuses the visible route heading", async ({
 
   await expect(page.locator(".query-navigation-error"))
     .toContainText("Package Activity catalog offline");
-  await expect(page.locator("#package-changes-package-set")).toBeDisabled();
+  await expect(page.locator("#package-changes-ecosystem")).toBeDisabled();
   await expect(page.getByRole("heading", {
     name: "Package Activity",
     exact: true,

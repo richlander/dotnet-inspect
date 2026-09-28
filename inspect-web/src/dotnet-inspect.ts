@@ -647,7 +647,7 @@ import {
 } from "./package-changes.ts";
 import {
   createBrowserPackageChangesDataSource,
-  packageChangesPackageSets,
+  packageChangesEcosystems,
 } from "./package-changes-source.ts";
 import {
   bindPackageChangesView,
@@ -710,7 +710,7 @@ import {
 } from "./type-explorer-view.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
-  BrowserPackageChangesPackageSetDescriptor,
+  BrowserPackageChangesEcosystemDescriptor,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
@@ -1229,7 +1229,7 @@ const initialState = {
   packageQueryInspection: null,
   packageQueryPresets: [],
   packageQueryTerms: [],
-  packageChangesPackageSets: [],
+  packageChangesEcosystems: [],
   packageChangesState: initialPackageChangesState(),
   platformIndex: null,
   rootKind: "package" as "package" | "platform" | "library",
@@ -1488,7 +1488,7 @@ interface StateOverrides {
   diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
   packageChangesCatalogError: string;
-  packageChangesPackageSets: BrowserPackageChangesPackageSetDescriptor[];
+  packageChangesEcosystems: BrowserPackageChangesEcosystemDescriptor[];
   packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryPresets: QueryPreset[];
@@ -1926,7 +1926,7 @@ function captureRetainedHostState() {
     packageQueryInspection: state.packageQueryInspection,
     packageQueryPresets: state.packageQueryPresets,
     packageQueryTerms: state.packageQueryTerms,
-    packageChangesPackageSets: state.packageChangesPackageSets,
+    packageChangesEcosystems: state.packageChangesEcosystems,
     packageChangesState: state.packageChangesState,
     platformIndex: state.platformIndex,
     platformRecent: state.platformRecent,
@@ -15652,11 +15652,11 @@ function focusPackageQueryInput() {
 
 function focusPackageActivityInput() {
   afterCurrentNavigationFrame(() => {
-    const packageSet = document.querySelector<HTMLSelectElement>(
-      "#package-changes-package-set");
-    if (packageSet && !packageSet.disabled) {
-      packageSet.focus();
-      if (document.activeElement === packageSet) return;
+    const ecosystem = document.querySelector<HTMLSelectElement>(
+      "#package-changes-ecosystem");
+    if (ecosystem && !ecosystem.disabled) {
+      ecosystem.focus();
+      if (document.activeElement === ecosystem) return;
     }
     focusLevelOneHeading();
   });
@@ -17019,22 +17019,22 @@ function runPackageQuery(text: string) {
 }
 
 function runPackageChanges(
-  packageSetId: string,
+  ecosystemId: string,
   fromExclusive: string | null,
   throughInclusive: string | null,
   securityOnly: boolean,
   maximumRows: number,
 ) {
-  if (!state.packageChangesPackageSets.some(
-    packageSet => packageSet.id === packageSetId)) {
+  if (!state.packageChangesEcosystems.some(
+    ecosystem => ecosystem.id === ecosystemId)) {
     state.packageChangesCatalogError =
-      "The selected product package set is unavailable.";
+      "The selected product Ecosystem is unavailable.";
     render();
     return;
   }
   state.packageChangesCatalogError = "";
   void packageChangesController.run(createPackageChangesRequest(
-    packageSetId,
+    ecosystemId,
     {
       fromExclusive,
       throughInclusive,
@@ -17446,7 +17446,7 @@ function renderPackageActivityPage() {
   document.title = "Package Activity · dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, renderPackageChangesView({
     state: state.packageChangesState,
-    packageSets: state.packageChangesPackageSets,
+    ecosystems: state.packageChangesEcosystems,
     catalogError: state.packageChangesCatalogError,
     escapeHtml,
     viewport,
@@ -21859,13 +21859,13 @@ async function bootstrap() {
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      state.packageChangesPackageSets = packageChangesPackageSets(
-        await engineClient.package.listPackageActivityPackageSets());
+      state.packageChangesEcosystems = packageChangesEcosystems(
+        await engineClient.package.listPackageActivityEcosystems());
       state.packageChangesCatalogError = "";
     } catch (error) {
-      state.packageChangesPackageSets = [];
+      state.packageChangesEcosystems = [];
       state.packageChangesCatalogError =
-        `Package Activity package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       const catalog =

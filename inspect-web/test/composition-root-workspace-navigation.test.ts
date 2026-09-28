@@ -1248,7 +1248,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const predecessorEntryId = ensureCurrentHistoryEntryId\(\);[\s\S]*const successorState = predecessorEntryId[\s\S]*packageActivityHistoryState\([\s\S]*predecessorEntryId,[\s\S]*returnFocus[\s\S]*if \(!workspaceLocation\.push\(PACKAGE_ACTIVITY_PATH, successorState\)\) \{[\s\S]*reportProductNavigationFailure\(\s*"activity",[\s\S]*return false;[\s\S]*state\.packageQueryOpen = false;[\s\S]*state\.packageActivityOpen = true;[\s\S]*focusPackageActivityInput\(\)/);
   assert.match(
     appSource,
-    /function focusPackageActivityInput\(\) \{[\s\S]*const packageSet = document\.querySelector<HTMLSelectElement>\([\s\S]*if \(packageSet && !packageSet\.disabled\) \{[\s\S]*packageSet\.focus\(\);[\s\S]*document\.activeElement === packageSet[\s\S]*focusLevelOneHeading\(\)/);
+    /function focusPackageActivityInput\(\) \{[\s\S]*const ecosystem = document\.querySelector<HTMLSelectElement>\(\s*"#package-changes-ecosystem"\);[\s\S]*if \(ecosystem && !ecosystem\.disabled\) \{[\s\S]*ecosystem\.focus\(\);[\s\S]*document\.activeElement === ecosystem[\s\S]*focusLevelOneHeading\(\)/);
   assert.match(
     closeActivityRoute,
     /packageChangesController\.cancel\("disposed"\);[\s\S]*state\.packageActivityOpenedFromApp[\s\S]*history\.back\(\)[\s\S]*state\.packageActivityOpen = false;[\s\S]*workspaceLocation\.replace\("\/"\)/);
