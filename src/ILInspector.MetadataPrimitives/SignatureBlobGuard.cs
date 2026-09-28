@@ -94,6 +94,63 @@ public static class SignatureBlobGuard
         }
     }
 
+    /// <summary>How <see cref="CheckShape"/> judged a signature blob.</summary>
+    public enum ShapeCheck
+    {
+        /// <summary>Safe to decode, as <see cref="IsSafeToDecode(MetadataReader, BlobHandle, Kind, int)"/> judges it.</summary>
+        Safe,
+
+        /// <summary>Its structural nesting exceeds the depth limit.</summary>
+        DepthExceeded,
+
+        /// <summary>It presents more than <see cref="MetadataSafetyPolicy.MaxSignatureTypeNodes"/> type nodes.</summary>
+        NodesExceeded,
+
+        /// <summary>It is malformed in a way that makes its depth unknowable.</summary>
+        Malformed,
+    }
+
+    /// <summary>
+    /// The same judgement as <see cref="IsSafeToDecode(MetadataReader, BlobHandle, Kind, int)"/>,
+    /// with the reason a blob is unsafe: a caller can treat exhausting a
+    /// structural bound differently from a malformed blob.
+    /// </summary>
+    public static ShapeCheck CheckShape(
+        MetadataReader reader,
+        BlobHandle signature,
+        Kind kind,
+        int maxDepth = DefaultMaxDepth)
+    {
+        if (signature.IsNil)
+            return ShapeCheck.Safe;
+
+        BlobReader blob = reader.GetBlobReader(signature);
+        try
+        {
+            SignatureBlobGuardMeasurements measurements = default;
+            if (!ExceedsDepth(
+                    ref blob,
+                    kind,
+                    maxDepth,
+                    ref measurements,
+                    out bool depthBudgetExceeded,
+                    out bool nodeBudgetExceeded))
+            {
+                return ShapeCheck.Safe;
+            }
+
+            return depthBudgetExceeded ? ShapeCheck.DepthExceeded
+                : nodeBudgetExceeded ? ShapeCheck.NodesExceeded
+                : ShapeCheck.Malformed;
+        }
+        catch (BadImageFormatException)
+        {
+            // As in IsSafeToDecode: a truncated but shallow blob is left to
+            // SRM, which raises a catchable BadImageFormatException.
+            return ShapeCheck.Safe;
+        }
+    }
+
     /// <summary>Convenience overload that reads the blob for <paramref name="signature"/>.</summary>
     public static bool IsSafeToDecode(MetadataReader reader, BlobHandle signature, Kind kind, int maxDepth = DefaultMaxDepth)
     {
