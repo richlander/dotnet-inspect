@@ -31,6 +31,8 @@ internal static class NativePasses
     public static ExpressionInliningPass ExpressionInlining => new();
     [Native(NativeCategory.EmitArtifact, "reused evaluation-stack slot live ranges split into distinct typed synthetic carriers")]
     public static StackSlotLiveRangePass StackSlotLiveRange => new();
+    [Native(NativeCategory.EmitArtifact, "canonical I4 zero/one stores recovered as Boolean after every producer and observer in the split carrier agrees")]
+    public static BooleanSlotIdentityPass BooleanSlotIdentity => new();
     [Native(NativeCategory.EmitArtifact, "a spilled single-use struct rvalue temp (V = a.Prop; ldloca V; call get_Member) folded back into its member receiver a.Prop.Member so the guard block it sat in becomes a pure condition structuring can nest")]
     public static StructReceiverInliningPass StructReceiverInlining => new();
     [Native(NativeCategory.EmitArtifact, "single-use address receiver temp in an array-element ToString store folded before declaration planning")]

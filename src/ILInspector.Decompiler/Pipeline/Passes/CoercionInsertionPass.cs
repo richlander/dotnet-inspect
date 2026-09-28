@@ -159,6 +159,10 @@ public static class CoercionSinks
         return testimony;
     }
 
+    internal static bool IsBooleanSlotStoreValue(IrExpression value)
+        => TypeFamilies.IsBoolean(value.ResultType)
+            || value is Constant { Value: int integer } && integer is 0 or 1;
+
     static TypeRef? ElementSlotLoadType(
         LoadStackSlot load,
         IEnumerable<IrExpression> stores,

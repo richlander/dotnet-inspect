@@ -33,10 +33,6 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 if (block.Children[i] is not StoreStackSlot store || store.Value.ResultType is not { } valueType)
                     continue;
 
-                var previousType = PreviousSlotType(block, i, store.Slot);
-                if (previousType is null || previousType.Equals(valueType))
-                    continue;
-
                 // LiveLoads stops at the next store statement. A load in that
                 // statement, or after a nested store that may not execute, may
                 // still observe this definition.
@@ -45,6 +41,11 @@ public sealed class StackSlotLiveRangePass : IIrPass
 
                 var liveLoads = LiveLoads(block, i, store.Slot).ToList();
                 if (liveLoads.Count == 0)
+                    continue;
+
+                var previousType = PreviousSlotType(function, block, i, store.Slot);
+                var currentType = RangeType(function, store.Value, liveLoads);
+                if (previousType is null || previousType.Equals(currentType))
                     continue;
 
                 // The split only renumbers the loads reached by LiveLoads. A read
@@ -389,23 +390,52 @@ public sealed class StackSlotLiveRangePass : IIrPass
         return false;
     }
 
-    static TypeRef? PreviousSlotType(Block block, int beforeChild, int slot)
+    static TypeRef? PreviousSlotType(IrFunction function, Block block, int beforeChild, int slot)
     {
         TypeRef? previous = null;
+        bool hasStore = false;
+        bool hasLoad = false;
+        bool allStoresAreBoolean = true;
+        bool allLoadsAreBoolean = true;
         for (int i = 0; i < beforeChild; i++)
         {
             foreach (var node in block.Children[i].Descendants.Prepend(block.Children[i]))
             {
-                previous = node switch
+                switch (node)
                 {
-                    StoreStackSlot store when store.Slot == slot => store.Value.ResultType ?? previous,
-                    LoadStackSlot load when load.Slot == slot => load.Type ?? previous,
-                    _ => previous,
-                };
+                    case StoreStackSlot store when store.Slot == slot:
+                        hasStore = true;
+                        allStoresAreBoolean &= CoercionSinks.IsBooleanSlotStoreValue(store.Value);
+                        previous = store.Value.ResultType ?? previous;
+                        break;
+                    case LoadStackSlot load when load.Slot == slot:
+                        hasLoad = true;
+                        var booleanType = CoercionSinks.BooleanSlotLoadType(
+                            load,
+                            function.Signature.ReturnType,
+                            function.TypeShapes);
+                        allLoadsAreBoolean &= booleanType is not null;
+                        previous = load.Type ?? previous;
+                        break;
+                }
             }
         }
-        return previous;
+        return hasStore && hasLoad && allStoresAreBoolean && allLoadsAreBoolean
+            ? TypeRef.CoreLib("System", "Boolean")
+            : previous;
     }
+
+    static TypeRef? RangeType(
+        IrFunction function,
+        IrExpression value,
+        IReadOnlyList<LoadStackSlot> loads)
+        => CoercionSinks.IsBooleanSlotStoreValue(value)
+            && loads.All(load => CoercionSinks.BooleanSlotLoadType(
+                load,
+                function.Signature.ReturnType,
+                function.TypeShapes) is not null)
+            ? TypeRef.CoreLib("System", "Boolean")
+            : value.ResultType;
 
     static bool NextStoreBoundaryHasUnprovenLoad(Block block, int storeChild, int slot)
     {
