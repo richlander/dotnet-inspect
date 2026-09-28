@@ -1423,7 +1423,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("@Calls")]
-    [InlineData("@Source")]
     [InlineData("@Audit")]
     public async Task Member_OverloadDomainCategory_PreservesInventoryRoute(
         string category)
@@ -1444,6 +1443,34 @@ public partial class CommandExecutionTests
             "requires a single selected overload",
             error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Member_OverloadSourceCategory_RequiresSingleSelectedOverload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded),
+            "-S",
+            "@Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "sections 'Source', 'Decompiled Source', 'PDB Source', "
+                + "'Source Diff' require a single selected overload",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            $"{nameof(MemberCallsFixture.Overloaded)}:1 through "
+                + $"{nameof(MemberCallsFixture.Overloaded)}:2",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
