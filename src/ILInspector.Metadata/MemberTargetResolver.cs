@@ -184,18 +184,15 @@ public static class MemberTargetResolver
         MemberTargetSelector selector,
         IReadOnlyCollection<string>? kindFilter = null)
     {
-        var declaringMembers = type.Members
-            .SelectMany(member =>
-                ApiMemberAccessors.Create(member, type).Prepend(member))
-            .Where(member => TypeMatcher.MatchesMemberName(member.Name, selector.Name));
+        var declaring = ApplySelectorFilters(type.Members).ToList();
+        if (declaring.Count == 0)
+        {
+            declaring = ApplySelectorFilters(
+                    type.Members.SelectMany(member =>
+                        ApiMemberAccessors.Create(member, type)))
+                .ToList();
+        }
 
-        if (selector.Kind is { Length: > 0 })
-            declaringMembers = declaringMembers.Where(member => string.Equals(member.Kind, selector.Kind, StringComparison.OrdinalIgnoreCase));
-
-        if (kindFilter is { Count: > 0 })
-            declaringMembers = declaringMembers.Where(member => kindFilter.Contains(member.Kind));
-
-        var declaring = declaringMembers.ToList();
         var selected = declaring.AsEnumerable();
         if (selector.GenericArity is { } genericArity)
             selected = selected.Where(member => (member.SignatureModel?.TypeParameters.Count ?? 0) == genericArity);
@@ -222,6 +219,32 @@ public static class MemberTargetResolver
         }
 
         return candidates;
+
+        IEnumerable<ApiMember> ApplySelectorFilters(
+            IEnumerable<ApiMember> members)
+        {
+            members = members.Where(member =>
+                TypeMatcher.MatchesMemberName(
+                    member.Name,
+                    selector.Name));
+
+            if (selector.Kind is { Length: > 0 })
+            {
+                members = members.Where(member =>
+                    string.Equals(
+                        member.Kind,
+                        selector.Kind,
+                        StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (kindFilter is { Count: > 0 })
+            {
+                members = members.Where(member =>
+                    kindFilter.Contains(member.Kind));
+            }
+
+            return members;
+        }
     }
 
     public static MemberTargetResolution Resolve(

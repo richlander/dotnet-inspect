@@ -142,6 +142,21 @@ public class MemberTargetResolverTests
     }
 
     [Fact]
+    public void Resolve_OrdinaryMethodPrecedesProjectedAccessorWithSameName()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(
+            type,
+            MemberTargetSelector.Parse("get_Value"));
+
+        Assert.True(result.Found);
+        Assert.Single(result.Candidates);
+        Assert.Equal(MemberTargetKind.Method, result.Target!.Kind);
+        Assert.Equal(0x06000107, result.Target.Body!.MetadataToken);
+    }
+
+    [Fact]
     public void Resolve_GenericArityFiltersGenericMethod()
     {
         var type = CreateSurface().Types[0];
@@ -354,6 +369,19 @@ public class MemberTargetResolverTests
                                 IsExplicitInterfaceImplementation = true,
                             },
                         ],
+                    },
+                },
+                new ApiMember
+                {
+                    Name = "get_Value",
+                    Kind = "method",
+                    MetadataToken = 0x06000107,
+                    ReturnType = "string",
+                    Signature = "string get_Value()",
+                    SignatureModel = new ApiSignature
+                    {
+                        MemberName = "get_Value",
+                        ReturnType = "string",
                     },
                 }
             ]
