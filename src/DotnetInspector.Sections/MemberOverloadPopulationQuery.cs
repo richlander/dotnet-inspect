@@ -126,7 +126,7 @@ public static class MemberOverloadPopulationQuery
 
         return QuerySpaceRequest.Create(
             QuerySpace.Descriptor,
-            CreateIntent(
+            CreateRequestIntent(
                 accessibility,
                 receiver,
                 includeHidden),
@@ -279,7 +279,47 @@ public static class MemberOverloadPopulationQuery
     private static PortableQueryTerm Term(string key, string value) =>
         new(key, PortableQueryOperator.Equal, value);
 
-    private static PortableQueryIntent CreateIntent(
+    private static PortableQueryIntent CreateRequestIntent(
+        MemberOverloadAccessibilityFilter accessibility,
+        MemberOverloadReceiverFilter receiver,
+        bool includeHidden)
+    {
+        if (accessibility is MemberOverloadAccessibilityFilter.Public
+            && receiver is MemberOverloadReceiverFilter.All
+            && !includeHidden)
+        {
+            return PortableQueryIntent.Empty;
+        }
+
+        var terms = new List<PortableQueryTerm>(3);
+        if (accessibility is not MemberOverloadAccessibilityFilter.Public)
+        {
+            terms.Add(
+                Term(
+                    AccessibilityTermKey,
+                    AccessibilityText(accessibility)));
+        }
+        if (receiver is not MemberOverloadReceiverFilter.All)
+        {
+            terms.Add(
+                Term(
+                    ReceiverTermKey,
+                    ReceiverText(receiver)));
+        }
+        if (includeHidden)
+        {
+            terms.Add(
+                Term(
+                    IncludeHiddenTermKey,
+                    "true"));
+        }
+
+        return terms.Count == 0
+            ? PortableQueryIntent.Empty
+            : PortableQueryIntent.Create(terms, [], [], []);
+    }
+
+    private static PortableQueryIntent CreateCanonicalIntent(
         MemberOverloadAccessibilityFilter accessibility,
         MemberOverloadReceiverFilter receiver,
         bool includeHidden) =>
@@ -456,7 +496,7 @@ public static class MemberOverloadPopulationQuery
             }
 
             return new(
-                CreateIntent(
+                CreateCanonicalIntent(
                     accessibility,
                     receiver,
                     includeHidden),

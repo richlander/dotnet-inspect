@@ -128,6 +128,13 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         Assert.Empty(plan.Intent.Stages);
         Assert.Empty(plan.Intent.Order);
         Assert.Equal(
+            (accessibility is MemberOverloadAccessibilityFilter.Public
+                ? 0
+                : 1)
+            + (receiver is MemberOverloadReceiverFilter.All ? 0 : 1)
+            + (includeHidden ? 1 : 0),
+            request.Operation.Terms.Count);
+        Assert.Equal(
             MemberOverloadPopulationQuery.QuerySpaceIdentity,
             request.QuerySpace);
         Assert.Equal(
