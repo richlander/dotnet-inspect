@@ -147,9 +147,20 @@ under
 [Budget exhaustion aborts the execution](producer-planning.md#budget-exhaustion-aborts-the-execution).
 Every requested closing is `Aborted` with the typed `CriticalFailure`. Nothing
 is published, and a partial count is never reported. On hostile inputs, rows
-fail together, as legacy's do. An unreadable row, such as an undecodable
-signature, is a recoverable failure: legacy skips it, counts it against the
-decode-failure budget, and does the same here.
+fail together, as legacy's do.
+
+Below the budgets, legacy handles two recoverable failures differently, and
+the analyzers do the same:
+
+- **Identity projection fails** for a row that is classified. The row is
+  still emitted, with signature text `methodName(...)` and a null anchor and
+  return type. The failure counts against the decode-failure budget. This
+  applies to P/Invoke, async, and pointer rows alike.
+- **The pointer probe fails** with a malformed signature. The method gets no
+  pointer row, and a `BadImageFormatException` counts against the
+  decode-failure budget. Legacy also swallows any other exception from the
+  probe silently. The analyzer keeps the same rows, but records the failure
+  in the receipt as a diagnostic, so it is visible without changing output.
 
 ## Queries and demand
 
@@ -159,18 +170,23 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
 - **One query per analyzer:** P/Invoke, async, and pointer signature. Each is
   parameterized by its closing (Rows, Count, or Exists) and returns a typed
   result for that closing, or the typed critical failure.
-- **Rows order.** A Rows result comes in the order its consumers show it
-  today: declaring type, then method name, compared as the CLI compares them
-  today (the default string comparer). Async rows are sorted by kind first,
-  compared ordinally. No host sorts or projects rows again.
-- **One combined request** asks for all three analyzers in one execution, for
-  the classified-method Finding, Signals, and LibraryInfo counts. It returns
-  a typed result that carries:
-  - the three analyzers' rows merged in legacy order;
-  - the Finding inspection built from them; and
-  - each analyzer's count.
+- **Rows order is a typed request parameter,** not a host sort. Today's
+  outputs use two orders, and a query offers both:
+  - **Model order:** declaring type, then method name, using today's
+    comparers. Async rows are sorted by kind first, compared ordinally. The
+    JSON and model outputs use it.
+  - **Display order:** declaring type, then method name and signature. The
+    Markdown Async Methods view uses it today
+    (`LibraryInspectionView.cs`).
 
-  No host merges three results by hand.
+  A host names the order it shows, and the query returns rows in that order.
+  No host sorts or projects rows itself.
+- **One combined request** runs every requested analyzer and closing in one
+  execution, with each consumer's own closing. Only the Finding asks for
+  Rows. The merged rows, in legacy order, and the Finding inspection built
+  from them come only when the Finding is requested. Signals and LibraryInfo
+  counts get Count and Exists closings, which declare no `IdentityText`, so
+  they spend no identity budget. No host merges results by hand.
 
 Hosts only bind. A section registers the query and the closing it shows.
 `LibraryInspection` maps typed results into its model, with no splitting,
@@ -185,8 +201,9 @@ Each consumer asks only for what it shows:
 | Async Methods section | async rows, or Count for `--count` |
 | P/Invoke Methods section | P/Invoke rows |
 | Pointer-signature method list (`UnsafeMethods`) | pointer rows |
-| Signals | Count of P/Invoke and pointer, and the async kinds present |
-| Classified-method Finding and LibraryInfo counts | rows of all three, merged |
+| Signals | Exists for P/Invoke and pointer; Exists for each async kind |
+| LibraryInfo counts | Count for each analyzer |
+| Classified-method Finding | Rows of all three, merged |
 
 The combined request's Finding observations equal those legacy produces from
 `ClassifiedMethodsQuery`. On a critical failure, every query that was asked
