@@ -520,6 +520,12 @@ not adopted this transport.
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
+`--offline` is the only way to guarantee no network dependence. Without it,
+commands other than plain `-D` discovery may acquire packages and PDBs to
+answer the request. The
+[network policy](design/progressive-disclosure.md#network-policy) owns this
+rule and its adoption status.
+
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
@@ -1412,13 +1418,48 @@ Changes without a compatibility classification remain visible under
 not classified as breaking or additive. An incomplete or rejected comparison
 returns nonzero and says **not compared**, rather than claiming no changes.
 Multi-Library packages, member-filtered diffs, Analysis Diff, Implementation
-Diff, Finding Transitions, and mixed-section requests retain their existing
+Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Complexity Context`, `Structural Context`, and `Finding
-Transitions` remain exact-name sections because their focused semantics do not
-compose with those comparison views.
+Diff` views. `Complexity Context`, `Structural Context`, `Summary`, and
+`Transitions` remain exact-name sections because their focused semantics do
+not compose with those comparison views.
+
+`--analysis` selects which keyed Finding comparisons a pairwise diff runs.
+It takes one or more analysis identities, comma-separated or repeated, and
+`-S` then selects views of their result. `diff -D`, `--help`, and
+`explain analyses` list the identities: `api`, `api-attribute`,
+`allocation`, `call-site`, `unsafety`, `csharp`, and `il`. The request's
+surface comes from its filters: any `--member` is Member, otherwise `--type`
+is Type, otherwise Library. The body analyses (`allocation`, `call-site`,
+`unsafety`, `csharp`, `il`) take exactly one `--member`; `api-attribute`
+takes `--type`.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --member "Serialize:1" \
+  --analysis api,call-site,allocation
+```
+
+Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
+unchanged. One selected analysis defaults to `Changes` for `api` and to
+`Transitions` otherwise; several default to one `Summary` row per analysis
+with its outcome (`Compared`, `Unavailable`, or `Failed`) and its `Added`,
+`Removed`, `Changed`, and `Present` counts. `-S Transitions` lists each
+selected analysis's per-Finding transitions in selection order; at the Type
+surface `api` shows its `api.type` rows and then its `api.member` rows.
+`Changes` requires `api`, and `Transitions` requires `--type` or `--member`.
+`--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
+only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
+entries are all reported before acquisition.
+
+Pairwise `--finding` and `-S "Finding Transitions"` are retired: they fail
+with guidance naming the `--analysis` identity and `-S Transitions`.
+`--history` keeps `--finding` and does not accept `--analysis` yet.
+`--analysis` does not combine with `Analysis Diff`, `Implementation Diff`,
+`Complexity Context`, or `Structural Context`, and `--json` and `--envelope`
+are rejected with it until the result's JSON transport lands.
 
 Select `Implementation Diff` directly to inspect body-level C#, IL, and
 normal-flow complexity evidence. Select `Complexity Context` directly for a

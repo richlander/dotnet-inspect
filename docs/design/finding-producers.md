@@ -284,16 +284,16 @@ Research can retain typed allocation comparisons, including exact comparisons,
 when a consumer requests them, and derives its compatibility count/hotness
 projection from the same comparison path; there is no separate count-only
 allocation diff path. The CLI selects and retains the native comparison with
-`diff --finding analysis.allocation`.
+`diff --analysis allocation`.
 
 Direct calls are the second end-to-end Analysis proof. Research's call-site
-fact producers and `diff --finding analysis.call-site` consume the same
+fact producers and `diff --analysis call-site` consume the same
 IL-ordered `Finding<DirectCall>` census. Research retains the complete native
 comparison only when requested, so `Present` remains observable without
 increasing the ordinary Body Signals result.
 
 Definite unsafe IL operations are the third end-to-end Analysis proof.
-`diff --finding analysis.unsafety` consumes the same IL-ordered
+`diff --analysis unsafety` consumes the same IL-ordered
 `Finding<UnsafetyOccurrence>` census used by Research's safety projection.
 Allocation, call-site, and unsafety comparisons share one descriptor-keyed
 retention container; new descriptors do not add parallel flags, lists,

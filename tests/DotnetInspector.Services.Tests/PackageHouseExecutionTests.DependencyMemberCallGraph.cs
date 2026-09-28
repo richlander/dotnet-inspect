@@ -102,6 +102,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             TraversalTargetFrameworkPolicySource.ProductDefault,
             available.Document.TraversalTargetPolicy.Source);
+        Assert.Equal(
+            MemberCallGraphFocalLength.Everything,
+            available.Document.FocalScope.FocalLength);
         PackageDependencyMemberCallGraphInspectionDestination.Package
             destination =
             Assert.IsType<
@@ -231,6 +234,13 @@ public sealed partial class PackageHouseExecutionTests
                         operation.OperationTimeout)));
 
         Assert.Empty(completed.Routes);
+        Assert.Same(
+            completed.ScopeRevision,
+            completed.FocalScope.ScopeRevision);
+        Assert.Equal(
+            MemberCallGraphFocalLength.Everything,
+            completed.FocalScope.FocalLength);
+        Assert.Empty(completed.FocalScope.PlatformPopulations);
         Assert.NotEmpty(
             completed.IntrinsicCoreLibraryContextNonParticipation);
         Assert.True(
@@ -1420,11 +1430,11 @@ public sealed partial class PackageHouseExecutionTests
                     document.Characteristics,
                     characteristic =>
                         ReferenceEquals(
-                            characteristic.Descriptor,
+                            characteristic.Payload.Descriptor,
                             InspectionGraphFocusCatalog.Role)
                         && characteristic.Target
                             == InspectionGraphTarget.Edge(edge.Id))
-                    .Value)
+                    .Payload.Value)
                 .Values);
 
     private static WorkspaceRegistrationRevision CurrentRegistrations(

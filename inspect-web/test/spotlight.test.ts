@@ -6,6 +6,7 @@ import {
   distinctSpotlightResults,
   nextSpotlightScope,
   nextSpotlightSelection,
+  spotlightCapabilityDraftValue,
   spotlightResultIdentity,
 } from "../src/spotlight.ts";
 import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
@@ -44,6 +45,7 @@ interface HarnessOptions {
   packageSearchLoading?: () => boolean;
   typeSearchLoading?: () => boolean;
   typeSearchNotice?: () => string;
+  capabilitySearchMessage?: () => string;
 }
 
 // The library owns the real DOM event/element contract; this harness models only the
@@ -92,6 +94,7 @@ function createHarness({
   packageSearchLoading = () => false,
   typeSearchLoading,
   typeSearchNotice,
+  capabilitySearchMessage,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
     spotlightOpen: false,
@@ -121,6 +124,9 @@ function createHarness({
     ...(packageSearchError ? { packageSearchError } : {}),
     ...(typeSearchLoading ? { typeSearchLoading } : {}),
     ...(typeSearchNotice ? { typeSearchNotice } : {}),
+    scheduleCapabilitySearch: () => {},
+    resetCapabilitySearch: () => {},
+    ...(capabilitySearchMessage ? { capabilitySearchMessage } : {}),
     packageCount: () => 1,
     render: () => {},
     focusAfterDismiss,
@@ -774,6 +780,87 @@ test("Spotlight renders Package Activity as a routed package action", () => {
   assert.match(html, /Package Activity/);
   assert.match(html, /Review product package changes over time/);
   assert.match(html, /data-sl-package-activity="1"/);
+});
+
+test("Spotlight renders installed resources in one Capabilities group", () => {
+  const capability = {
+    similarity: 1,
+    matchedTerm: "literal",
+    matchSource: "CanonicalKey" as const,
+    isSegment: true,
+    resourceIdentity: {
+      kind: "QueryFacet" as const,
+      identity: "package-query.term.library-literal",
+      parentIdentity: "package-query/query-space/v1",
+    },
+    resourceKind: "QueryFacet" as const,
+    resourceName: "library literal",
+    canonicalKeys: ["library-literal"],
+    resourcePath: "package-query/query/facets/library-literal",
+    owningRoutes: [{
+      identity: "package-query/route/default",
+      name: "Package Query",
+      resourcePath: "package-query/routes/default",
+    }],
+    productionBindings: [{
+      identity: "dotnet-inspect.web/package-query",
+      name: "dotnet-inspect Browser",
+      consumerKind: "Browser" as const,
+      gesture: "Package Query workspace search",
+      resourcePath: "package-query/bindings/browser",
+    }],
+  };
+  const { spotlight } = createHarness({
+    query: "literal",
+    searchResults: () => [{
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [[8, 15]],
+    }],
+  });
+
+  const html = spotlight.modalHtml();
+
+  assert.match(html, /Capabilities/);
+  assert.match(html, /Library literal/);
+  assert.match(html, /Query facet · Package Query · library-literal/);
+  assert.match(
+    html,
+    /data-sl-capability="package-query\/query\/facets\/library-literal"/,
+  );
+  assert.equal(
+    spotlightResultIdentity({
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [],
+    }),
+    '["capability","package-query/query/facets/library-literal"]',
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "https://",
+      capability: {
+        ...capability,
+        matchedTerm: "https://",
+        matchSource: "ExampleValue",
+        isSegment: false,
+      },
+      ranges: [],
+    }),
+    "https://",
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [],
+    }),
+    "",
+  );
 });
 
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {

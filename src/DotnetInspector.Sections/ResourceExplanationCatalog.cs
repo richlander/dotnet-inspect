@@ -579,6 +579,7 @@ public sealed class ResourceExplanationCatalog
                             PortableQueryModel.TextOf),
                         term.ValueKind,
                         term.Values,
+                        term.Examples,
                         term.Effects.Select(static effect =>
                             $"{effect.Kind}: {effect.Identity}")));
             }
@@ -763,6 +764,119 @@ public sealed class ResourceExplanationCatalog
 
         return Create(resources, relationships);
     }
+
+    /// <summary>
+    /// Explains every registered analysis as an Analysis resource at
+    /// <c>analyses/&lt;analysis-id&gt;</c> under the <c>analyses</c>
+    /// collection, from the same registrations operations dispatch on.
+    /// </summary>
+    public static ResourceExplanationCatalog CreateAnalyses(
+        InspectionCapabilityCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        if (catalog.Analyses.IsEmpty)
+        {
+            throw new ArgumentException(
+                "The capability catalog registers no analyses.",
+                nameof(catalog));
+        }
+
+        var collectionPath = new ResourcePath(AnalysesCollectionSegment);
+        var collectionIdentity =
+            new ResourceExplanationIdentity.Capability(
+                new InspectionCapabilityResourceIdentity(
+                    InspectionCapabilityResourceKind.AnalysisCollection,
+                    AnalysesCollectionSegment));
+        var resources = new List<ResourceExplanationResource>
+        {
+            new(
+                collectionPath,
+                collectionIdentity,
+                ResourceExplanationResourceKind.NavigationCollection,
+                new ResourceExplanationDetail.NavigationCollectionDetails(
+                    "Analyses",
+                    catalog.Analyses.Length)),
+        };
+        var relationships = new List<ResourceExplanationRelationship>();
+        foreach (InspectionAnalysisRegistration registration
+                 in catalog.Analyses)
+        {
+            DotnetInspector.Queries.AnalysisDescriptor analysis =
+                registration.Analysis;
+            ResourcePath path = AnalysisPath(analysis.Id.Value);
+            var identity =
+                new ResourceExplanationIdentity.Capability(
+                    AnalysisIdentity(registration));
+            resources.Add(
+                new(
+                    path,
+                    identity,
+                    ResourceExplanationResourceKind.Analysis,
+                    new ResourceExplanationDetail.AnalysisDetails(
+                        analysis.Id.Value,
+                        analysis.Revision,
+                        analysis.Cost.ToString(),
+                        analysis.Participations.SelectMany(
+                            static participation =>
+                                participation.Surfaces.Select(surface =>
+                                    $"{participation.Operation} "
+                                    + $"{surface.Surface}: "
+                                    + string.Join(
+                                        ", ",
+                                        surface.Descriptors.Select(
+                                            static descriptor =>
+                                                descriptor.Id)))))));
+            AddRelationship(
+                relationships,
+                collectionIdentity,
+                ResourceExplanationRelationshipKind.CollectionMember,
+                identity,
+                path);
+            foreach (var participation in analysis.Participations)
+            {
+                foreach (var surface in participation.Surfaces)
+                {
+                    string operation = participation.Operation.ToString();
+                    string surfaceKind = surface.Surface.ToString();
+                    AddRelationship(
+                        relationships,
+                        identity,
+                        ResourceExplanationRelationshipKind.Participates,
+                        new ResourceExplanationIdentity.OperationSurface(
+                            operation,
+                            surfaceKind),
+                        targetPath: null);
+                    foreach (var descriptor in surface.Descriptors)
+                    {
+                        AddRelationship(
+                            relationships,
+                            identity,
+                            ResourceExplanationRelationshipKind.Issues,
+                            new ResourceExplanationIdentity.IssuedFinding(
+                                operation,
+                                surfaceKind,
+                                descriptor.Id),
+                            targetPath: null);
+                    }
+                }
+            }
+        }
+
+        return Create(resources, relationships);
+    }
+
+    /// <summary>The collection segment that lists registered analyses.</summary>
+    public const string AnalysesCollectionSegment = "analyses";
+
+    /// <summary>The canonical path of one registered analysis.</summary>
+    public static ResourcePath AnalysisPath(string analysisIdentity) =>
+        new ResourcePath(AnalysesCollectionSegment).Append(analysisIdentity);
+
+    internal static InspectionCapabilityResourceIdentity AnalysisIdentity(
+        InspectionAnalysisRegistration registration) =>
+        new(
+            InspectionCapabilityResourceKind.Analysis,
+            registration.Analysis.Id.Value);
 
     public static ResourceExplanationCatalog Combine(
         params ResourceExplanationCatalog[] catalogs)
@@ -1172,7 +1286,7 @@ public sealed class ResourceExplanationCatalog
         ResourceExplanationIdentity source,
         ResourceExplanationRelationshipKind kind,
         ResourceExplanationIdentity target,
-        ResourcePath targetPath) =>
+        ResourcePath? targetPath) =>
         relationships.Add(
             new ResourceExplanationRelationship(
                 source,

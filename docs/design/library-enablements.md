@@ -99,6 +99,10 @@ every enablement reports Unavailable with the reason `ReferenceAssembly`.
 This rule applies before the per-enablement rules below; reference assemblies
 never report Enabled or Not enabled.
 
+An assembly-level attribute whose type cannot be named might be
+`ReferenceAssemblyAttribute`, so the reference rule cannot be decided: every
+enablement then reports Unavailable with the reason `UndecodableMetadata`.
+
 The real `Microsoft.NETCore.App.Ref` and `Microsoft.NETCore.App.Runtime`
 11.0.0-rc.1.26425.128 packs show why one rule is needed:
 

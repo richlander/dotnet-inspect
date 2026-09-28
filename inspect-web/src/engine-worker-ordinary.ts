@@ -43,6 +43,7 @@ type PackageOperationName =
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "matchPackageDependencyCoordinate"
+  | "searchCapabilities"
   | "searchTypes"
   | "activateWorkspacePackageOccurrence"
   | "clearWorkspacePackageOccurrences"
@@ -945,6 +946,14 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.package.matchPackageDependencyCoordinate(...args),
     ),
+    searchCapabilities: valueOperation(
+      "ordinary-package-search-capabilities",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["searchCapabilities"]>
+      ) => facades.package.searchCapabilities(...args),
+    ),
     searchTypes: valueOperation(
       "ordinary-package-search-types",
       2,
@@ -1799,6 +1808,9 @@ export function bindEngineWorkerOrdinaryClient(
       matchPackageDependencyCoordinate: bind(
         engineWorkerOrdinaryOperations.package
           .matchPackageDependencyCoordinate,
+      ),
+      searchCapabilities: bind(
+        engineWorkerOrdinaryOperations.package.searchCapabilities,
       ),
       searchTypes: bind(
         engineWorkerOrdinaryOperations.package.searchTypes,

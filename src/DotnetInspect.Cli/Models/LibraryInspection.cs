@@ -183,10 +183,19 @@ public class LibraryInspection
         SurfaceClassificationInspection { get; set; }
 
     /// <summary>
-    /// File last modified timestamp.
+    /// The host-neutral Library document facts for a managed assembly
+    /// (<c>docs/design/library-info-composition.md</c>), or null for native and
+    /// manifestless images, which keep the legacy view path.
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public DateTime? LastModified { get; set; }
+    [JsonIgnore]
+    public LibraryDocument? LibraryDocument { get; set; }
+
+    /// <summary>
+    /// Why the Library document could not be read for a managed assembly.
+    /// Library Info reports it instead of document-sourced rows.
+    /// </summary>
+    [JsonIgnore]
+    public string? LibraryDocumentFailure { get; set; }
 
     /// <summary>
     /// Publisher identity from NuGet package author signature (CN).

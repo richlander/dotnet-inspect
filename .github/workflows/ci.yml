@@ -1115,6 +1115,10 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
+      - name: Run Graph contract tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/Inspector.Graph.Tests -c Release
+
       - name: Run Library contract tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Libraries.Tests -c Release
@@ -1166,10 +1170,6 @@ jobs:
       - name: Run row-selection tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
-
-      - name: Run QueryOverflow tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/QueryOverflow.Tests -c Release
 
       - name: Run decoded-text tests
         if: matrix.shard == 'contracts'

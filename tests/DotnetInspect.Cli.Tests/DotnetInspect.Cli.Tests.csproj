@@ -30,9 +30,36 @@
     <PackageDownload Include="CrestApps.AgentSkills.Mcp.OrchardCore"
                      Version="[1.2.0]" />
     <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
+    <PackageDownload Include="System.Text.Json" Version="[9.0.0];[10.0.0]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64" Version="[11.0.0-rc.1.26425.128]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Ref" Version="[11.0.0-rc.1.26425.128]" />
+    <PackageDownload Include="System.Runtime.CompilerServices.Unsafe" Version="[6.0.0]" />
+    <PackageDownload Include="Antlr" Version="[3.5.0.2]" />
+    <PackageDownload Include="Gee.External.Capstone" Version="[2.3.0]" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/DiffAnalysis/9.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/DiffAnalysis/10.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Net.Sockets.dll"
+          Link="RealAssets/LibraryInfo/runtime/System.Net.Sockets.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/11.0.0-rc.1.26425.128/ref/net11.0/System.Net.Sockets.dll"
+          Link="RealAssets/LibraryInfo/ref/System.Net.Sockets.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.runtime.compilerservices.unsafe/6.0.0/lib/net6.0/System.Runtime.CompilerServices.Unsafe.dll"
+          Link="RealAssets/LibraryInfo/unsafe/System.Runtime.CompilerServices.Unsafe.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)antlr/3.5.0.2/lib/Antlr3.Runtime.dll"
+          Link="RealAssets/LibraryInfo/antlr/Antlr3.Runtime.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)gee.external.capstone/2.3.0/runtimes/win-x64/native/capstone.dll"
+          Link="RealAssets/LibraryInfo/native/capstone.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
           Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"
           CopyToOutputDirectory="PreserveNewest" />

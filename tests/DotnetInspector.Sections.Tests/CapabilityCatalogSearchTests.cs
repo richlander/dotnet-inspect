@@ -47,6 +47,31 @@ public sealed class CapabilityCatalogSearchTests
     }
 
     [Fact]
+    public void ExampleValue_FindsTheExposedLibraryLiteralFacet()
+    {
+        (InspectionCapabilityCatalog catalog,
+            ResourceExplanationCatalog explanation) = CreateCatalog();
+
+        CapabilityCatalogSearchResult result =
+            CapabilityCatalogSearch.Search(
+                    catalog,
+                    explanation,
+                    new("https://"))
+                .Content
+                .Results[0];
+
+        Assert.Equal(1.0, result.Similarity);
+        Assert.Equal("https://", result.MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.ExampleValue,
+            result.MatchSource);
+        Assert.False(result.IsSegment);
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            result.ResourcePath);
+    }
+
+    [Fact]
     public void Misspelling_UsesTheExistingSimilarityModel()
     {
         (InspectionCapabilityCatalog catalog,

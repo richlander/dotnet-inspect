@@ -512,7 +512,9 @@ import {
 import {
   createSpotlight,
   type ManagedTypeResult,
+  spotlightCapabilityDraftValue,
   type RemovableSpotlightResult,
+  type SpotlightCapabilityResult,
   type SpotlightPackageResult,
   type SpotlightPackageHit,
   type SpotlightResult,
@@ -523,6 +525,13 @@ import {
   createSpotlightTypeFind,
   spotlightTypeCandidatesForScope,
 } from "./spotlight-type-find.ts";
+import {
+  createSpotlightCapabilitySearch,
+  normalizeSpotlightCapabilitySearchSnapshot,
+  spotlightCapabilitySearchMessage,
+  visibleSpotlightCapabilityResults,
+  type SpotlightCapabilitySearchResultState,
+} from "./spotlight-capability-search.ts";
 import {
   createSpotlightPackageSearch,
   normalizeSpotlightPackageSearchSnapshot,
@@ -796,6 +805,7 @@ let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
 let inspectRunPackageActivity: EngineClient["package"]["runPackageActivity"];
+let inspectSearchCapabilities: EngineClient["package"]["searchCapabilities"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   EngineClient["package"]["queryWorkspacePackageOccurrences"];
@@ -973,6 +983,7 @@ async function loadEngineModule() {
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
       runPackageQuery: inspectRunPackageQuery,
+      searchCapabilities: inspectSearchCapabilities,
       searchTypes: inspectSearchTypes,
       queryWorkspacePackageOccurrences:
         inspectQueryWorkspacePackageOccurrences,
@@ -1371,6 +1382,7 @@ const initialState = {
   spotlightScope: "all" as const,
   spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
+  spotlightCapabilitySearch: { status: "idle" as const },
   spotlightPackageSearch: { status: "idle" as const },
   runtimePackLoading: false,
   runtimePackError: "",
@@ -1465,6 +1477,7 @@ interface StateOverrides {
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
+  spotlightCapabilitySearch: SpotlightCapabilitySearchResultState;
   spotlightPackageSearch: SpotlightPackageSearchResultState;
   spotlightFocus: "input" | "chips";
   spotlightScope: SpotlightScope;
@@ -1678,6 +1691,8 @@ CanonicalWorkspaceRestoreSnapshot {
       platformStack: structuredClone(state.platformStack),
       platformRecent: structuredClone(state.platformRecent),
       recentPackages: structuredClone(state.recentPackages),
+      spotlightCapabilitySearch:
+        structuredClone(state.spotlightCapabilitySearch),
       spotlightPackageSearch:
         structuredClone(state.spotlightPackageSearch),
       history: [...state.history],
@@ -1752,6 +1767,10 @@ function normalizeWorkspaceAsyncSnapshotState(
   }
   snapshotState.docViewer =
     normalizeDocumentViewerSnapshot(snapshotState.docViewer);
+  snapshotState.spotlightCapabilitySearch =
+    normalizeSpotlightCapabilitySearchSnapshot(
+      snapshotState.spotlightCapabilitySearch,
+    );
   snapshotState.spotlightPackageSearch =
     normalizeSpotlightPackageSearchSnapshot(
       snapshotState.spotlightPackageSearch,
@@ -1847,6 +1866,8 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     platformIndex: null,
     retryAction: null,
     queryNoticeRetryAction: null,
+    implementationProfiles: { status: "idle" as const },
+    typeHeat: { status: "idle" as const },
   });
   const retainedState: AppState = {
     ...cloned,
@@ -1934,6 +1955,7 @@ function captureRetainedHostState() {
     spotlightScope: state.spotlightScope,
     spotlightFocus: state.spotlightFocus,
     spotlightChipIndex: state.spotlightChipIndex,
+    spotlightCapabilitySearch: state.spotlightCapabilitySearch,
     spotlightPackageSearch: state.spotlightPackageSearch,
     styleTiers: state.styleTiers,
     styleOptions: state.styleOptions,
@@ -4412,6 +4434,14 @@ const spotlightTypeFind = createSpotlightTypeFind({
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
 });
+const spotlightCapabilitySearch = createSpotlightCapabilitySearch({
+  state,
+  searchCapabilities: (query, maximumResults) =>
+    inspectSearchCapabilities(query, maximumResults),
+  schedule: (callback, delay) => setTimeout(() => void callback(), delay),
+  cancelScheduled: handle => clearTimeout(handle),
+  updateResults: () => spotlight.updateResults(),
+});
 const catalogRequests = createCatalogRequests({
   state,
   queryPackageVersions: pkg => inspectPackageVersions(pkg.id, pkg.version),
@@ -4513,6 +4543,13 @@ const spotlight = createSpotlight({
   typeSearchLoading: () => spotlightTypeFind.loading(),
   typeSearchError: () => spotlightTypeFind.error(),
   typeSearchNotice: () => spotlightTypeFind.notice(),
+  scheduleCapabilitySearch: () => spotlightCapabilitySearch.schedule(),
+  resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
+  capabilitySearchMessage: () =>
+    spotlightCapabilitySearchMessage(
+      state.spotlightCapabilitySearch,
+      state.spotlightQuery.trim(),
+    ),
   packageCount: () => state.packages.length,
   render,
   focusAfterDismiss: () =>
@@ -12470,6 +12507,22 @@ function spotlightResults(): SpotlightResult[] {
     });
     results.push({ kind: "package-activity" });
   }
+  if (all && query) {
+    for (const capability of visibleSpotlightCapabilityResults(
+      state.spotlightCapabilitySearch,
+      query,
+    )) {
+      results.push({
+        kind: "capability",
+        query,
+        capability,
+        ranges: computeHighlightRanges(
+          capability.resourceName,
+          query.toLowerCase(),
+        ),
+      });
+    }
+  }
   if (requestsTypes && activeRetainedWorkspacePosting !== null) {
     for (const candidate of spotlightTypeCandidatesForScope(
       spotlightTypeFind.results(),
@@ -12813,6 +12866,29 @@ async function switchPackageFramework(
 
 
 // Routes a blended result to the right navigation path per its kind.
+const PACKAGE_QUERY_BROWSER_BINDING_IDENTITY =
+  "dotnet-inspect.web/package-query";
+
+function openSpotlightCapability(result: SpotlightCapabilityResult): void {
+  const { capability } = result;
+  const binding = capability.productionBindings.find(candidate =>
+    candidate.consumerKind === "Browser"
+    && candidate.identity === PACKAGE_QUERY_BROWSER_BINDING_IDENTITY);
+  if (!binding) {
+    showToast("This capability has no available Browser destination.");
+    return;
+  }
+  if (!openPackageQueryRoute("")) return;
+  if (capability.resourceKind !== "QueryFacet") return;
+  const termKey = capability.canonicalKeys[0];
+  if (termKey) {
+    addPackageQueryTerm(
+      termKey,
+      spotlightCapabilityDraftValue(result),
+    );
+  }
+}
+
 function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
@@ -12821,6 +12897,9 @@ function pickSpotlightResult(result: SpotlightResult) {
       break;
     case "package-activity":
       openPackageActivityRoute();
+      break;
+    case "capability":
+      openSpotlightCapability(result);
       break;
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
     case "pkg-nuget":
@@ -17195,7 +17274,7 @@ function togglePackageQueryPreset(presetId: string, text: string) {
   submitPackageQueryRequest(togglePreset(current, preset));
 }
 
-function addPackageQueryTerm(termKey: string) {
+function addPackageQueryTerm(termKey: string, initialValue = "") {
   const descriptor = state.packageQueryTerms.find(
     candidate => candidate.key === termKey);
   if (!descriptor || descriptor.operators.length === 0) {
@@ -17208,7 +17287,7 @@ function addPackageQueryTerm(termKey: string) {
   state.packageQueryState.termDraft = {
     descriptor,
     operator: descriptor.operators[0] ?? "",
-    value: "",
+    value: initialValue,
   };
   state.packageQueryNavigationError = "";
   render();
@@ -17687,16 +17766,25 @@ async function loadSelectedMemberDocumentation() {
   }
   const signature = memberRequestSignature(type, overload);
   const pkg = currentPackage();
+  const platformCoordinates = pkg.isRuntimePack
+    ? (() => {
+        const row = platformLibraryForRequest(pkg, type.assemblyId);
+        return {
+          assemblyFileName: platformAssemblyRequest(row),
+          pack: row.pack,
+        };
+      })()
+    : null;
+  const assembly = platformCoordinates?.assemblyFileName ?? type.assembly;
+  const platformPack = platformCoordinates?.pack ?? "";
   await Promise.all([
     memberDetailInspection.loadDocumentation({
       signature,
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
-      assembly: type.assembly,
-      platformPack: pkg.isRuntimePack
-        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
-        : "",
+      assembly,
+      platformPack,
       overload,
       isRuntimePack: Boolean(state.package?.isRuntimePack),
       isCurrent: () => memberRequestIsCurrent(signature),
@@ -17706,11 +17794,9 @@ async function loadSelectedMemberDocumentation() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
-      assembly: type.assembly,
+      assembly,
       isRuntimePack: pkg.isRuntimePack,
-      platformPack: pkg.isRuntimePack
-        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
-        : "",
+      platformPack,
       typeIdentity: type.definitionId ?? type.id,
       member: overload.name,
       selectorKey: overload.graphSelectorKey,

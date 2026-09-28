@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -32,7 +33,7 @@ public static class UnsafeEvidencePresenceQuery
         try
         {
             return new UnsafeEvidencePresenceResult.Available(
-                LibraryBodyIndex.HasUnsafeEvidence(path, context));
+                UnsafeEvidencePresence.HasEvidence(path, context));
         }
         catch (Exception ex)
         {

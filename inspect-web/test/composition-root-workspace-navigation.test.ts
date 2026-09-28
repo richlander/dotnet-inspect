@@ -12,6 +12,7 @@ import {
   packageAt,
   appSource,
   functionDeclaration,
+  sourceText,
   workspaceNavigationSource,
   workspaceFeedActivationSource,
   shellControlsSource,
@@ -35,6 +36,43 @@ import {
   diagnosticsRouteSource,
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
+
+test("retained Workspace clones drop live implementation callbacks", () => {
+  const clone = sourceText(
+    functionDeclaration("cloneCanonicalWorkspaceSnapshotForRetention"),
+  );
+  assert.match(
+    clone,
+    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*implementationProfiles:\s*\{\s*status:\s*"idle" as const\s*\},\s*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
+  );
+
+  const liveState = {
+    implementationProfiles: {
+      status: "ready",
+      selection: { isCurrent: () => true },
+    },
+    typeHeat: {
+      status: "ready",
+      isCurrent: () => true,
+    },
+  };
+  assert.throws(
+    () => structuredClone(liveState),
+    { name: "DataCloneError" },
+  );
+  assert.deepEqual(
+    structuredClone({
+      ...liveState,
+      implementationProfiles: { status: "idle" },
+      typeHeat: { status: "idle" },
+    }),
+    {
+      implementationProfiles: { status: "idle" },
+      typeHeat: { status: "idle" },
+    },
+  );
+});
+
 test("dependency graph render identity includes truncation and navigation", () => {
   const graph = {
     definition: "flowchart TD\n  d0[Example]",

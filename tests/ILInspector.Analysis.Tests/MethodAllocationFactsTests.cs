@@ -18,6 +18,7 @@ public sealed class MethodAllocationFactsTests
     const int FieldToken = 0x04000001;
 
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
     static readonly TypeRef s_widget =
         TypeRef.Definition("Fixture", "Fixtures", "Widget");
 
@@ -270,6 +271,113 @@ public sealed class MethodAllocationFactsTests
         Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
     }
 
+    [Theory]
+    [InlineData(true, AllocationEscape.LocalOnly)]
+    [InlineData(false, AllocationEscape.Unknown)]
+    public void StringArrayConstructor_IsTrustedOnlyForCoreLibrary(
+        bool coreLibrary,
+        AllocationEscape expected)
+    {
+        // ldc.i4.1; newarr char; stloc.0; ldloc.0;
+        // newobj String::.ctor(char[]); pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x06,
+            0x73, 0x02, 0x00, 0x00, 0x06,
+            0x26,
+            0x2A,
+        ];
+        TypeRef array = TypeRef.SzArray(s_char);
+        var constructor = new MemberRef(
+            coreLibrary
+                ? TypeRef.CoreLib("System", "String")
+                : TypeRef.Definition(
+                    "Fixture",
+                    "System",
+                    "String"),
+            ".ctor",
+            [array],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Constructor);
+
+        var result = Collect(
+            il,
+            resolvedType: s_char,
+            resolvedMember: constructor);
+
+        Assert.Equal(
+            expected,
+            Assert.Single(
+                    result.ClassifiedOccurrences,
+                    occurrence => occurrence.Kind == AllocationKind.Array)
+                .Escape);
+    }
+
+    [Fact]
+    public void StringArrayConstructor_WithRetainedAliasIsNotLocalOnly()
+    {
+        // ldc.i4.1; newarr char; dup;
+        // newobj String::.ctor(char[]); pop; stsfld; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x25,
+            0x73, 0x02, 0x00, 0x00, 0x06,
+            0x26,
+            0x80, 0x03, 0x00, 0x00, 0x04,
+            0x2A,
+        ];
+        TypeRef array = TypeRef.SzArray(s_char);
+        var constructor = new MemberRef(
+            TypeRef.CoreLib("System", "String"),
+            ".ctor",
+            [array],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Constructor);
+
+        var result = Collect(
+            il,
+            resolvedType: s_char,
+            resolvedMember: constructor);
+
+        Assert.Equal(
+            AllocationEscape.Unknown,
+            Assert.Single(
+                    result.ClassifiedOccurrences,
+                    occurrence => occurrence.Kind == AllocationKind.Array)
+                .Escape);
+    }
+
+    [Fact]
+    public void IncompleteReachingDefinitions_KeepStoredArrayUnknown()
+    {
+        // ldc.i4.1; newarr int; stloc.0; ldloc.0; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x06,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            incompleteReachingDefinitions: true);
+
+        Assert.Equal(
+            AllocationEscape.Unknown,
+            Assert.Single(
+                    result.ClassifiedOccurrences,
+                    occurrence => occurrence.Kind == AllocationKind.Array)
+                .Escape);
+    }
+
     [Fact]
     public void NonHeapConstructionIsNotReported()
     {
@@ -309,7 +417,10 @@ public sealed class MethodAllocationFactsTests
         byte[] il,
         IReadOnlyList<(int Start, int End)>? loopRegions = null,
         (TypeRef? DeclaringType, string? Name) fieldOwner = default,
-        bool nonHeapConstruction = false)
+        bool nonHeapConstruction = false,
+        TypeRef? resolvedType = null,
+        MemberRef? resolvedMember = null,
+        bool incompleteReachingDefinitions = false)
     {
         var context = Context(il, loopRegions);
         var result = MethodAllocationFacts.Create(context);
@@ -317,6 +428,10 @@ public sealed class MethodAllocationFactsTests
             {
                 FieldOwner = fieldOwner,
                 NonHeapConstruction = nonHeapConstruction,
+                ResolvedType = resolvedType,
+                ResolvedMember = resolvedMember,
+                IncompleteReachingDefinitions =
+                    incompleteReachingDefinitions,
             });
         return result;
     }
@@ -357,19 +472,28 @@ public sealed class MethodAllocationFactsTests
 
         public bool ThrowOnMemberResolution { get; init; }
 
+        public TypeRef? ResolvedType { get; init; }
+
+        public MemberRef? ResolvedMember { get; init; }
+
+        public bool IncompleteReachingDefinitions { get; init; }
+
         public TypeRef ResolveType(int token)
-            => token == TypeToken ? s_int : TypeRef.Unsupported("type token");
+            => token == TypeToken
+                ? ResolvedType ?? s_int
+                : TypeRef.Unsupported("type token");
 
         public MemberRef ResolveMember(int token)
             => ThrowOnMemberResolution
                 ? throw new BadImageFormatException("Malformed member token.")
                 : token == ConstructorToken
-                ? new MemberRef(
-                    s_widget,
-                    ".ctor",
-                    [],
-                    TypeRef.CoreLib("System", "Void"),
-                    MemberKind.Constructor)
+                ? ResolvedMember
+                    ?? new MemberRef(
+                        s_widget,
+                        ".ctor",
+                        [],
+                        TypeRef.CoreLib("System", "Void"),
+                        MemberKind.Constructor)
                 : MemberRef.Unsupported("member token");
 
         public NewObjectConstructionKind ClassifyConstruction(
@@ -392,6 +516,10 @@ public sealed class MethodAllocationFactsTests
             => fieldToken == FieldToken ? FieldOwner : (null, null);
 
         public ReachingDefinitionsResult AnalyzeReachingDefinitions()
-            => ReachingDefinitions.Analyze(il, argumentSlotCount: 1);
+            => IncompleteReachingDefinitions
+                ? new([], [], false, "Synthetic incomplete flow.")
+                : ReachingDefinitions.Analyze(
+                    il,
+                    argumentSlotCount: 1);
     }
 }

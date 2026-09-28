@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using DotnetInspector.Queries;
 using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections;
@@ -341,6 +342,138 @@ public sealed record InspectionProductionAdoptionRequirement
     public InspectionConsumerKind ConsumerKind { get; }
 }
 
+/// <summary>
+/// One typed producer bound to one report surface of one operation
+/// participation. The operation dispatches this binding; it is never a
+/// delivery path.
+/// </summary>
+public abstract class InspectionAnalysisProducerBinding
+{
+    private protected InspectionAnalysisProducerBinding(
+        AnalysisOperationKind operation,
+        AnalysisSurfaceParticipation participation)
+    {
+        if (!Enum.IsDefined(operation))
+            throw new ArgumentOutOfRangeException(nameof(operation));
+        Operation = operation;
+        Participation = participation
+            ?? throw new ArgumentNullException(nameof(participation));
+    }
+
+    public AnalysisOperationKind Operation { get; }
+
+    public AnalysisSurfaceParticipation Participation { get; }
+
+    /// <summary>The producer's declared input type.</summary>
+    public abstract Type InputType { get; }
+
+    /// <summary>The producer's declared result type.</summary>
+    public abstract Type ResultType { get; }
+}
+
+public sealed class InspectionAnalysisProducerBinding<TInput, TResult> :
+    InspectionAnalysisProducerBinding
+{
+    private readonly Func<TInput, TResult> _produce;
+
+    public InspectionAnalysisProducerBinding(
+        AnalysisOperationKind operation,
+        AnalysisSurfaceParticipation participation,
+        Func<TInput, TResult> produce)
+        : base(operation, participation)
+    {
+        _produce = produce ?? throw new ArgumentNullException(nameof(produce));
+    }
+
+    public override Type InputType => typeof(TInput);
+
+    public override Type ResultType => typeof(TResult);
+
+    public TResult Produce(TInput input) => _produce(input);
+}
+
+/// <summary>
+/// One analysis participation registration: the owner-issued analysis
+/// descriptor and exactly one typed producer binding for every report
+/// surface of every operation it declares. Discovery and dispatch read the
+/// same registration.
+/// </summary>
+public sealed class InspectionAnalysisRegistration
+{
+    public InspectionAnalysisRegistration(
+        AnalysisDescriptor analysis,
+        IEnumerable<InspectionAnalysisProducerBinding> producers)
+    {
+        Analysis = analysis ?? throw new ArgumentNullException(nameof(analysis));
+        ArgumentNullException.ThrowIfNull(producers);
+        Producers = [.. producers];
+        if (Producers.Any(static producer => producer is null))
+            throw new ArgumentException("The collection cannot contain null.", nameof(producers));
+        if (analysis.Participations.IsEmpty)
+        {
+            throw new ArgumentException(
+                $"Analysis '{analysis.Id.Value}' declares no operation participation.",
+                nameof(analysis));
+        }
+
+        var declared = analysis.Participations
+            .SelectMany(static participation => participation.Surfaces
+                .Select(surface => (participation.Operation, Surface: surface)))
+            .ToArray();
+        foreach (var (operation, surface) in declared)
+        {
+            if (Producers.Count(producer =>
+                    producer.Operation == operation
+                    && ReferenceEquals(producer.Participation, surface)) != 1)
+            {
+                throw new ArgumentException(
+                    $"Analysis '{analysis.Id.Value}' must bind exactly one producer "
+                    + $"for {operation} at the {surface.Surface} surface.",
+                    nameof(producers));
+            }
+        }
+        if (Producers.Length != declared.Length)
+        {
+            throw new ArgumentException(
+                $"Analysis '{analysis.Id.Value}' binds a producer for an "
+                + "undeclared participation.",
+                nameof(producers));
+        }
+    }
+
+    public AnalysisDescriptor Analysis { get; }
+
+    public ImmutableArray<InspectionAnalysisProducerBinding> Producers { get; }
+
+    public InspectionAnalysisProducerBinding? ProducerFor(
+        AnalysisOperationKind operation,
+        AnalysisReportSurfaceKind surface)
+        => Producers.FirstOrDefault(producer =>
+            producer.Operation == operation
+            && producer.Participation.Surface == surface);
+}
+
+/// <summary>
+/// One host consumer that selects analyses by identity for one operation,
+/// such as the CLI <c>diff --analysis</c> option.
+/// </summary>
+public sealed class InspectionAnalysisConsumerBinding
+{
+    public InspectionAnalysisConsumerBinding(
+        InspectionConsumerDescriptor descriptor,
+        AnalysisOperationDefinition operation)
+    {
+        Descriptor = descriptor
+            ?? throw new ArgumentNullException(nameof(descriptor));
+        Operation = operation
+            ?? throw new ArgumentNullException(nameof(operation));
+    }
+
+    public InspectionConsumerDescriptor Descriptor { get; }
+
+    public AnalysisOperationDefinition Operation { get; }
+}
+
 public sealed record InspectionCapabilityModule
 {
     public InspectionCapabilityModule(
@@ -349,7 +482,9 @@ public sealed record InspectionCapabilityModule
         IEnumerable<InspectionRouteRegistration>? routes = null,
         IEnumerable<InspectionConsumerBinding>? bindings = null,
         IEnumerable<InspectionProductionAdoptionRequirement>?
-            adoptionRequirements = null)
+            adoptionRequirements = null,
+        IEnumerable<InspectionAnalysisRegistration>? analyses = null,
+        IEnumerable<InspectionAnalysisConsumerBinding>? analysisBindings = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         Identity = identity;
@@ -357,6 +492,8 @@ public sealed record InspectionCapabilityModule
         Routes = [.. routes ?? []];
         Bindings = [.. bindings ?? []];
         AdoptionRequirements = [.. adoptionRequirements ?? []];
+        Analyses = [.. analyses ?? []];
+        AnalysisBindings = [.. analysisBindings ?? []];
     }
 
     public string Identity { get; }
@@ -369,6 +506,14 @@ public sealed record InspectionCapabilityModule
 
     public ImmutableArray<InspectionProductionAdoptionRequirement>
         AdoptionRequirements { get; }
+
+    /// <summary>Analysis participation registrations, in product order.</summary>
+    public ImmutableArray<InspectionAnalysisRegistration> Analyses { get; }
+
+    public ImmutableArray<InspectionAnalysisConsumerBinding> AnalysisBindings
+    {
+        get;
+    }
 }
 
 public sealed record InspectionProductionAdoptionGap(
@@ -382,13 +527,19 @@ public sealed class InspectionCapabilityCatalog
         ImmutableArray<InspectionDocumentRegistration> documents,
         ImmutableArray<InspectionRouteRegistration> routes,
         ImmutableArray<InspectionConsumerBinding> bindings,
-        ImmutableArray<InspectionProductionAdoptionGap> adoptionGaps)
+        ImmutableArray<InspectionProductionAdoptionGap> adoptionGaps,
+        ImmutableArray<InspectionAnalysisRegistration> analyses,
+        ImmutableArray<InspectionAnalysisConsumerBinding> analysisBindings,
+        AnalysisCapabilityCatalog analysisCapabilities)
     {
         Modules = modules;
         Documents = documents;
         Routes = routes;
         Bindings = bindings;
         AdoptionGaps = adoptionGaps;
+        Analyses = analyses;
+        AnalysisBindings = analysisBindings;
+        AnalysisCapabilities = analysisCapabilities;
     }
 
     public ImmutableArray<InspectionCapabilityModule> Modules { get; }
@@ -403,6 +554,28 @@ public sealed class InspectionCapabilityCatalog
     {
         get;
     }
+
+    /// <summary>
+    /// Registered analyses in product order. The same registrations serve
+    /// explanation and operation dispatch.
+    /// </summary>
+    public ImmutableArray<InspectionAnalysisRegistration> Analyses { get; }
+
+    public ImmutableArray<InspectionAnalysisConsumerBinding> AnalysisBindings
+    {
+        get;
+    }
+
+    /// <summary>
+    /// The host-neutral analysis capability catalog over exactly the
+    /// registered descriptors; it owns identity and set validation.
+    /// </summary>
+    public AnalysisCapabilityCatalog AnalysisCapabilities { get; }
+
+    public InspectionAnalysisRegistration? FindAnalysis(
+        AnalysisDescriptor analysis)
+        => Analyses.FirstOrDefault(registration =>
+            ReferenceEquals(registration.Analysis, analysis));
 
     public static InspectionCapabilityCatalog Create(
         IEnumerable<InspectionCapabilityModule> modules)
@@ -562,12 +735,65 @@ public sealed class InspectionCapabilityCatalog
                         requirement.ConsumerKind)),
         ];
 
+        ImmutableArray<InspectionAnalysisRegistration> analyses =
+        [
+            .. moduleArray.SelectMany(static module => module.Analyses),
+        ];
+        EnsureUnique(
+            analyses,
+            static analysis => analysis.Analysis.Id.Value,
+            "analysis");
+        var analysisCapabilities = new AnalysisCapabilityCatalog(
+            analyses.Select(static analysis => analysis.Analysis));
+        ImmutableArray<InspectionAnalysisConsumerBinding> analysisBindings =
+        [
+            .. moduleArray
+                .SelectMany(static module => module.AnalysisBindings)
+                .OrderBy(
+                    static binding => binding.Descriptor.Identity,
+                    StringComparer.Ordinal),
+        ];
+        EnsureUnique(
+            analysisBindings.Select(static binding => binding.Descriptor.Identity)
+                .Concat(bindings.Select(static binding => binding.Descriptor.Identity)),
+            static identity => identity,
+            "consumer binding");
+        foreach (InspectionAnalysisConsumerBinding binding in analysisBindings)
+        {
+            if (!analyses.Any(analysis =>
+                    analysis.Analysis.ParticipationFor(binding.Operation.Kind)
+                        is not null))
+            {
+                throw new ArgumentException(
+                    $"Analysis consumer binding '{binding.Descriptor.Identity}' "
+                    + $"selects {binding.Operation.Kind} analyses, but no "
+                    + "registered analysis participates in that operation.",
+                    nameof(modules));
+            }
+            foreach (string identity in binding.Operation.DefaultSet)
+            {
+                if (!analyses.Any(analysis =>
+                        analysis.Analysis.Id.Value == identity
+                        && analysis.Analysis.ParticipationFor(
+                            binding.Operation.Kind) is not null))
+                {
+                    throw new ArgumentException(
+                        $"Analysis consumer binding '{binding.Descriptor.Identity}' "
+                        + $"defaults to unregistered analysis '{identity}'.",
+                        nameof(modules));
+                }
+            }
+        }
+
         return new(
             moduleArray,
             documents,
             routes,
             bindings,
-            gaps);
+            gaps,
+            analyses,
+            analysisBindings,
+            analysisCapabilities);
     }
 
     private static void EnsureUnique<T>(
