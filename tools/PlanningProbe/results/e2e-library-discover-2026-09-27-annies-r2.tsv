@@ -1,0 +1,22 @@
+base 0.27.0+e854c6a fbb9ebb9646abcd3
+s1 0.27.0+ac1db08 1d7d8cf8aa3fea4a
+s2 0.27.0+b52611e 29c1eab475ef1c05
+s3 0.27.0+6c4e5e4 6bb790f2354c92c0
+19:02  up 1 day, 20:46, 1 user, load averages: 2.19 1.86 1.81
+scenario	bin	answer	exit	hash	n	median_ms	p95_ms	min_ms
+System.CommandLine	base	true	0	b81de588bfab	20	49.9	51.2	49.2
+System.CommandLine	s1	true	0	b81de588bfab	20	50.4	53.8	49.8
+System.CommandLine	s2	true	0	b81de588bfab	20	50.4	51.7	49.4
+System.CommandLine	s3	true	0	b81de588bfab	20	50.3	51.8	49.0
+Newtonsoft.Json	base	true	0	f014e163633f	20	104.5	108.0	102.9
+Newtonsoft.Json	s1	true	0	f014e163633f	20	105.1	108.7	103.4
+Newtonsoft.Json	s2	true	0	f014e163633f	20	106.1	107.6	103.9
+Newtonsoft.Json	s3	true	0	f014e163633f	20	105.9	108.4	104.1
+Mono.Cecil	base	false	0	6550e8772f5f	20	75.7	78.3	74.7
+Mono.Cecil	s1	false	0	6550e8772f5f	20	76.2	77.9	74.9
+Mono.Cecil	s2	false	0	6550e8772f5f	20	76.6	78.3	75.4
+Mono.Cecil	s3	false	0	6550e8772f5f	20	76.1	78.1	75.1
+Roslyn C#	base	incomplete	1	916747cb738a	20	510.3	533.3	501.5
+Roslyn C#	s1	incomplete	1	916747cb738a	20	516.5	551.5	511.0
+Roslyn C#	s2	incomplete	1	916747cb738a	20	517.8	573.9	510.2
+Roslyn C#	s3	incomplete	1	916747cb738a	20	523.0	604.2	514.0
