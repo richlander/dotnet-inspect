@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
 namespace AttributeEnumFixtures;
@@ -25,7 +27,14 @@ public static class ProducerTruth
 
 public sealed record JsonOptionsPayload(string? Name);
 
-public sealed record UnresolvedCollectionPayload(List<string>? Items);
+public sealed record UnresolvedCollectionPayload(List<string>? Items)
+{
+    public Guid RequestId { get; init; }
+
+    public ImmutableArray<string> Rejections { get; init; } = [];
+
+    public ImmutableArray<string>? PreviousRejections { get; init; }
+}
 
 [JsonSerializable(typeof(JsonOptionsPayload))]
 public partial class AbsentJsonOptionsContext : JsonSerializerContext;

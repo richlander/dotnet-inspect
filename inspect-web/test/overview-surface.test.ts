@@ -106,3 +106,20 @@ test("Library uses the same identity frame without adding package controls", () 
   assert.doesNotMatch(html, /overview-controls|overview-with-controls/);
   assert.equal(html.match(/<h1\b/g)?.length, 1);
 });
+
+test("Library Overview lists only Enabled enablements in the identity header", () => {
+  const html = overview({
+    subject: "library",
+    subjectLabel: "Library",
+    enablements: [
+      { id: "aot-compatible", label: "AOT" },
+      { id: "runtime-async", label: "Runtime Async" },
+    ],
+  });
+  assert.match(
+    html,
+    /overview-identity[\s\S]*<ul class="overview-enablements" aria-label="Enabled"><li class="overview-enablement" data-enablement="aot-compatible">AOT<\/li><li class="overview-enablement" data-enablement="runtime-async">Runtime Async<\/li><\/ul>/,
+  );
+  assert.doesNotMatch(overview({ enablements: [] }), /overview-enablements/);
+  assert.doesNotMatch(overview(), /overview-enablements/);
+});

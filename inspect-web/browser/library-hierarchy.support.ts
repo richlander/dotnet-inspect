@@ -855,6 +855,26 @@ async function installFacades(
     library: `
       const uploadMode = ${JSON.stringify(libraryUpload)};
       const uploadInspection = ${JSON.stringify(uploadInspection)};
+      export async function inspectLibrary(request) {
+        document.documentElement.dataset.libraryInspectionRequest =
+          JSON.stringify(request);
+        return {
+          outcome: "Available",
+          detail: null,
+          assembly: null,
+          enablements: {
+            outcome: "Available",
+            role: "implementation-assembly",
+            failure: null,
+            items: [
+              { id: "aot-compatible", kind: "enabled", label: "AOT", reason: null },
+              { id: "runtime-async", kind: "enabled", label: "Runtime Async", reason: null },
+              { id: "memory-safety-v2", kind: "not-enabled", label: "Memory Safety v2", reason: null },
+            ],
+          },
+          diagnostics: [],
+        };
+      }
       export async function openUploadedLibrary(declaredName, content) {
         document.documentElement.dataset.libraryUploadRequest =
           JSON.stringify([declaredName, content.length]);
@@ -1227,6 +1247,160 @@ async function installFacades(
           file.replace(/\\.dll$/i, ""),
           typeDefinitionId,
           stableSelectors,
+          { status: "Selected", targetFramework: framework, message: null },
+          {
+            kind: "platform",
+            packageId: null,
+            packageVersion: null,
+            framework,
+            frameworkVersion: version,
+            runtimeIdentifier: null,
+            assetPath: null,
+            resolverSource: pack,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      let typeHeatRequestCount = 0;
+      // Run(int) forwards to the hub Run(string); Compute has two peers.
+      const typeHeatSizes = {
+        [0x06000100]: 98,
+        [0x06000101]: 5,
+        [0x06000102]: 40,
+        [0x06000103]: 36
+      };
+      async function typeImplementationHeat(
+        surface,
+        subjectName,
+        typeDefinitionId,
+        requestKey,
+        compileLibrary,
+        provenance
+      ) {
+        document.documentElement.dataset.typeHeatRequestCount =
+          String(++typeHeatRequestCount);
+        const scenario = ${JSON.stringify(analysis)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-type-heat-ready:" + requestKey,
+            resolve,
+            { once: true }));
+        }
+        if (scenario === "query-error")
+          throw new Error("Type implementation-heat query unavailable.");
+        const type = surface.types.find(item =>
+          item.definitionId === typeDefinitionId);
+        const byName = new Map();
+        for (const member of type?.api ?? []) {
+          if (!byName.has(member.name)) byName.set(member.name, []);
+          byName.get(member.name).push(member);
+        }
+        const families = [...byName.entries()]
+          .filter(([, members]) => members.length > 1)
+          .map(([name, members]) => ({
+            member: name,
+            roster: members.map(member => ({
+              typeDefinitionId,
+              stableSelector: member.stableSelector,
+              metadataToken: member.metadataToken
+            })),
+            methods: members.map(member => ({
+              metadataToken: member.metadataToken,
+              isRosterMember: true,
+              hasBody: true,
+              size: typeHeatSizes[member.metadataToken] ?? 10,
+              isTrivial: false,
+              isComplete: true
+            })),
+            relationships: name === "Run" && members.length === 2
+              ? [{
+                  callerToken: members[0].metadataToken,
+                  calleeToken: members[1].metadataToken
+                }]
+              : [],
+            unavailableBodies: [],
+            analysisDiagnostics: []
+          }));
+        return {
+          schemaVersion: 1,
+          outcome: "available",
+          subject: {
+            identity: {
+              name: subjectName,
+              version: "1.0.0.0",
+              culture: null,
+              publicKeyToken: null
+            },
+            moduleVersionId: "11111111-1111-1111-1111-111111111111",
+            provenance
+          },
+          content: {
+            typeDefinitionId,
+            families,
+            analysisDiagnostics: [],
+            apiSurfaceInspectionFailures: []
+          },
+          failure: null,
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "type-implementation-heat/share",
+            reason: "Fixture projection."
+          },
+          diagnostics: [],
+          compileLibrary
+        };
+      }
+      export async function queryPackageTypeImplementationHeat(
+        id,
+        version,
+        framework,
+        asset,
+        typeDefinitionId
+      ) {
+        document.documentElement.dataset.typeHeatRequest =
+          JSON.stringify([id, version, framework, asset, typeDefinitionId]);
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return typeImplementationHeat(
+          surface,
+          selected.name,
+          typeDefinitionId,
+          asset,
+          surface.compileLibrary,
+          {
+            kind: "package",
+            packageId: id,
+            packageVersion: version,
+            framework,
+            frameworkVersion: null,
+            runtimeIdentifier: null,
+            assetPath: selected.asset,
+            resolverSource: null,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      export async function queryPlatformTypeImplementationHeat(
+        framework,
+        version,
+        file,
+        pack,
+        typeDefinitionId
+      ) {
+        document.documentElement.dataset.typeHeatRequest =
+          JSON.stringify([framework, version, file, pack, typeDefinitionId]);
+        return typeImplementationHeat(
+          surfaceFor("Microsoft.NETCore.App"),
+          file.replace(/\\.dll$/i, ""),
+          typeDefinitionId,
+          file,
           { status: "Selected", targetFramework: framework, message: null },
           {
             kind: "platform",

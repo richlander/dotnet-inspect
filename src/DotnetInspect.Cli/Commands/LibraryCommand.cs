@@ -4685,7 +4685,7 @@ public partial class LibraryCommand
         return new(payload, null);
     }
 
-    private static string? GetToolPayloadPackageId(string extractPath, string? packageName)
+    internal static string? GetToolPayloadPackageId(string extractPath, string? packageName)
     {
         var toolsDir = Path.Combine(extractPath, "tools");
         if (Directory.Exists(toolsDir))

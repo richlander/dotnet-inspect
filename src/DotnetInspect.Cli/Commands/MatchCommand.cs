@@ -4,7 +4,10 @@ using System.Reflection.Metadata.Ecma335;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
@@ -174,10 +177,12 @@ public static class MatchCommand
                 return 1;
             }
 
-            ResearchMatchResult result = ResearchMatch.Compare(
-                left.OriginAssemblyPath!,
-                MetadataTokens.MethodDefinitionHandle(left.Token!.Value),
-                MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
+            InspectionEnvelope<ResearchMatchResult> inspection =
+                StructuralMatchInspection.Execute(
+                    left.OriginAssemblyPath!,
+                    MetadataTokens.MethodDefinitionHandle(left.Token!.Value),
+                    MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
+            ResearchMatchResult result = inspection.Content;
 
             MethodBodyDiffDocument? body = options.IncludeBody
                 ? await CompareBodiesAsync(left, right, result, loaded, source, options, cancellationToken)
@@ -744,14 +749,23 @@ public static class MatchCommand
         MethodBodyDiffDocument? body,
         MatchOptions options)
     {
-        var view = MatchOutputFormatter.BuildView(leftDisplay, rightDisplay, result);
+        StructuralMatchView view =
+            StructuralMatchPresentation.Create(
+                leftDisplay,
+                rightDisplay,
+                result);
 
         if (options.Tabular)
         {
             OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        StructuralMatchViewContext.Default,
+                        writerOptions),
                 options.Rows);
         }
         else
@@ -759,7 +773,10 @@ public static class MatchCommand
             OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
                 opts =>
                 {
-                    var text = MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts);
+                    var text = MarkoutSerializer.Serialize(
+                        view,
+                        StructuralMatchViewContext.Default,
+                        opts);
                     if (body is not null)
                     {
                         text = $"{text}\n\n{MethodBodyDiffFormatter.Render(body, opts)}";

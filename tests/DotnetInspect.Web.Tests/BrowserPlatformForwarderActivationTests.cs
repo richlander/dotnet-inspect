@@ -584,6 +584,7 @@ public sealed class BrowserPlatformForwarderActivationTests
             LibraryDocument document =
                 Assert.IsType<LibraryInspectionOutcome.Available>(
                     inspection.Content).Document;
+            Assert.NotNull(document.Types);
             return Assert.Single(
                 Assert.IsType<
                         LibraryTypePopulationRowsOutcome.Read>(

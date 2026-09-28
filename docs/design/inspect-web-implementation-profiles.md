@@ -140,10 +140,10 @@ run to finish, and cancellation cannot interrupt it. Selecting another Type
 while a heat run is under way can therefore delay that Type's member list by
 the remainder of the run. The Browser bounds this:
 
-- a Type heat request is sent only when no interactive ordinary-Worker request
-  from the current view is outstanding; an interactive request that arrives
-  before the heat request starts goes first, and the family's parent row shows
-  `measuring` while the request waits;
+- a Type heat request is sent only when no ordinary-Worker request of any kind
+  is outstanding; a request that arrives before the heat request starts goes
+  first, and the family's parent row shows `measuring` while the request
+  waits;
 - at most one Type heat request runs; a queued request for a Type the reader
   has left is dropped, and a running request finishes and settles its cache
   entry but publishes only into the view that still owns it; and
@@ -176,9 +176,9 @@ record per eligible family. Each family record carries:
 - the family's public Member anchors in roster order: Type definition ID,
   stable selector, and the owner-issued logical method token;
 - for each analyzed method: metadata token, whether it is a roster member,
-  whether it was declared with a body, its size and whether it is trivial as
-  defined under Family projection, and whether its measurement, including
-  every body counted in that size, is complete;
+  whether it was declared with a body, its size, whether its measurement,
+  including every body counted in that size, is complete, and, for a complete
+  measurement, whether it is trivial as defined under Family projection;
 - the family's same-name call relationships: caller and callee tokens; and
 - the family's coverage receipt: unavailable bodies and Analysis diagnostics
   that fall inside the analyzed family.
@@ -200,6 +200,10 @@ normalize repeated identities, but it preserves these exact join currencies:
 - overload relationships: caller and callee method identity, and, for the
   family detail result, evidence-body identity, IL offset, and call kind; and
 - subject identity: assembly name, version, culture, and public-key token.
+
+A Type heat record analyzes one module, so it carries method identity as a
+bare metadata token under the record's subject module version ID; its
+relationships join by caller and callee token.
 
 Method names, declaring Types, parameter Types, return Types, and generated
 framework Types are carried as host-produced display strings. Browser logic
@@ -265,8 +269,8 @@ An overload is a **hub** when all of the following hold:
   and this overload as its callee;
 - no relationship has this overload as its caller and another analyzed-family
   method as its callee; and
-- the overload's own measurement, including every body counted in its size, is
-  complete.
+- the overload was declared with a body, and its own measurement, including
+  every body counted in its size, is complete.
 
 Hub state is shown for an overload whose own measurement is complete even when
 another analyzed body is incomplete: a missing relationship from an incomplete
@@ -280,16 +284,24 @@ rows; they never reorder them.
 ### Overload rows
 
 The member navigation list shows an expanded family as its parent member row
-followed by nested overload rows. Selecting an overloaded method is the
+followed by nested overload rows. Nested rows carry no branch glyph: they sit
+under their family row and spend the width on parameters. The selected nested
+row shows its measured size at the right edge; other rows carry it only in
+their accessible description. Selecting an overloaded method is the
 expansion. Heat and the hub strip annotate the nested rows; the parent row
 carries family-level status text.
 
-The target nested-row label is the member name and its parameter types in C#
-spelling without namespace qualification, for example
-`Parse(ReadOnlySequence<byte>, JsonDocumentOptions)`. That compact label is
-owned by a separate member-surface-producer design; the Browser does not
-derive it by editing the rendered signature. Until the producer issues it,
-nested rows keep the existing signature text.
+A nested row carries only enough to tell its siblings apart. The return type
+rarely differs between overloads, and parameter names never do, so both stay in
+the overload's detail. The label is the member name, its type parameters, and
+its parameter types in C# spelling without namespace or enclosing-type
+qualification, with pass-by modifiers (`ref`, `out`, `in`) but not `params`,
+for example `Parse(ReadOnlySequence<byte>, JsonDocumentOptions)`. A
+constructor or operator uses the display name its signature spells, such as
+`Utf8JsonWriter(Stream, JsonWriterOptions)`. The Browser builds the label from
+the member surface's structured parameter types; it reads no identity from the
+label, and a row without structured parameters shows its signature from the
+member name.
 
 ### Heat
 
@@ -364,9 +376,10 @@ For the Type heat record:
   on its parent row;
 - **rejected, failed, or unavailable Content**, or **producer failed**: no heat
   or hub strip, and `heat unavailable` on each eligible family's parent row
-  when expanded. The owner-issued outcome, diagnostics, and an explicit Retry
-  appear in the Member detail of any selected member of an eligible family in
-  that Type; and
+  when expanded. The owner-issued outcome and diagnostics appear in the Member
+  detail of any selected member of an eligible family in that Type, with an
+  explicit Retry for a transport or producer failure; settled Content belongs
+  to its key and is not retried; and
 - **superseded**: no state is published because operation authority removed
   the view's publication right.
 
@@ -380,7 +393,7 @@ Subjects:
 - `System.Private.CoreLib` from `Microsoft.NETCore.App` 11.0.0-rc.1, `net11.0`:
   `System.Text.StringBuilder.AppendFormat` has 15 public overloads and one hub
   of size 387: a 367-instruction body plus a 20-instruction local function.
-- `System.Text.Json` 10.0.5, `net10.0`:
+- `System.Text.Json` 10.0.0, `net10.0`:
   - `JsonDocument.Parse`: 5 public overloads measuring 55, 44, 33, 9, and 8
     instructions; the non-public `Parse(ReadOnlySpan<byte>, JsonReaderOptions,
     ref MetadataDb, ref StackRowStack)` measures 288; neither channel shows;
@@ -395,7 +408,7 @@ Subjects:
   overload reaches half the family maximum and none is a hub.
 
 Reproduce the per-body counts with
-`dotnet-inspect member <Type> <Member> --package System.Text.Json@10.0.5
+`dotnet-inspect member <Type> <Member> --package System.Text.Json@10.0.0
 -S "Member Metrics" --all`, or `--platform System.Private.CoreLib`.
 
 Measurements that shaped this revision, observational rather than thresholds:

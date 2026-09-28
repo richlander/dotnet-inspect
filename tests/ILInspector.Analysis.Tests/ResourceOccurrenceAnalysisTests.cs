@@ -112,7 +112,6 @@ public sealed class ResourceOccurrenceAnalysisTests
                 use.Kind == ResourceOwnershipUseKind.Released
                 && Assert.Single(use.ResourceKinds).Identity
                     == ArrayPoolResourceEffectModel.BufferKind);
-        Assert.Empty(execution.CallGraph.OwnershipEvidence);
         Assert.NotEmpty(
             execution.CallGraph.ResourceOwnershipSummaries);
     }

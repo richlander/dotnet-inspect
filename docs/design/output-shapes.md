@@ -1068,6 +1068,12 @@ and a `categories` array whose rows contain `name`, `size`, and `items`.
 JSONL emits that complete object as exactly one line. An empty cache retains the
 same object shape with `categories: []`.
 
+The Browser-focused
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) contract does not
+change this or another public CLI JSONL shape. It consumes the established
+one-complete-JSON-value-per-line convention while using a separately declared
+compact positional row only for its explicit managed Browser stream.
+
 This boundary exists because generated Markout list sections do not emit an
 empty section, so lowered JSON cannot preserve the required empty array.
 Ordinary Markout JSONL would instead emit one object per category row and

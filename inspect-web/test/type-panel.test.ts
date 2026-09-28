@@ -4,6 +4,8 @@ import {
   bindTypePanel,
   createMemberSourcePartSelector,
   memberSourceText,
+  overloadNavLabel,
+  unqualifiedType,
   renderGraphMemberPending,
   renderMemberNav,
   renderSourcePageActions,
@@ -698,7 +700,6 @@ test("the type nav lists namespace groups with the current type selected", () =>
     typeLibraryLabel: item =>
       item.id === jsonSerializer.id ? "System.Text.Json" : "",
     kindIcon,
-    shortKind,
   });
 
   assert.match(html, /2 shown/);
@@ -724,7 +725,9 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, />System\.Text\.Json<\/span>/);
   assert.doesNotMatch(html, /type-library-context/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
-  assert.match(html, /System\.Text\.Json · class/);
+  // The icon carries the kind; the row's detail is the member count.
+  assert.match(html, /title="12 members">System\.Text\.Json · 12<\/small>/);
+  assert.doesNotMatch(html, /· class</);
 });
 
 test("the type nav reports no matches for an empty filtered group", () => {
@@ -747,7 +750,6 @@ test("the type nav reports no matches for an empty filtered group", () => {
     typeDisplayName,
     typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
-    shortKind,
   });
 
   assert.match(html, /No public types match this filter\./);
@@ -774,7 +776,6 @@ test("the type nav omits a parent action when the Library has no visible parent"
     typeDisplayName,
     typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
-    shortKind,
   });
 
   assert.doesNotMatch(html, /data-type-nav-back/);
@@ -800,7 +801,6 @@ test("the type nav handles a package with no projected types", () => {
     typeDisplayName,
     typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
-    shortKind,
   });
 
   assert.match(html, /data-nav-selection=""/);
@@ -1869,3 +1869,130 @@ function memberSourceFixture(): BrowserMemberSource {
     ],
   };
 }
+
+test("overload rows show the name and unqualified parameter types", () => {
+  assert.equal(
+    overloadNavLabel("WriteString", {
+      signature: "void WriteString(System.ReadOnlySpan<byte> utf8PropertyName, System.DateTime value)",
+      parameters: [
+        { type: "System.ReadOnlySpan<byte>" },
+        { type: "System.DateTime" },
+      ],
+    }),
+    "WriteString(ReadOnlySpan<byte>, DateTime)");
+  assert.equal(
+    overloadNavLabel("Serialize", {
+      signature: "string Serialize<TValue>(TValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo)",
+      parameters: [
+        { type: "TValue" },
+        { type: "System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue>" },
+      ],
+    }),
+    "Serialize<TValue>(TValue, JsonTypeInfo<TValue>)");
+  // Pass-by modifiers distinguish overloads; params does not.
+  assert.equal(
+    overloadNavLabel("Read", {
+      signature: "bool Read(ref System.Text.Json.Utf8JsonReader reader, params object[] values)",
+      parameters: [
+        { type: "System.Text.Json.Utf8JsonReader", modifier: "ref" },
+        { type: "object[]", modifier: "params" },
+      ],
+    }),
+    "Read(ref Utf8JsonReader, object[])");
+  assert.equal(
+    unqualifiedType("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<System.Int32?>>[]"),
+    "Dictionary<string, List<Int32?>>[]");
+  // Constructors and operators use the display name their signature spells.
+  assert.equal(
+    overloadNavLabel(".ctor", {
+      signature: "public Utf8JsonWriter(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = default)",
+      parameters: [
+        { type: "System.IO.Stream" },
+        { type: "System.Text.Json.JsonWriterOptions" },
+      ],
+    }),
+    "Utf8JsonWriter(Stream, JsonWriterOptions)");
+  assert.equal(
+    overloadNavLabel("op_Addition", {
+      signature: "public static Money operator +(Money left, Money right)",
+      parameters: [{ type: "Money" }, { type: "Money" }],
+    }),
+    "operator +(Money, Money)");
+  // Without structured parameters the signature is shown from the name.
+  assert.equal(
+    overloadNavLabel("Run", { signature: "void Run(int value)" }),
+    "Run(int value)");
+});
+
+test("member rows say what a member is rather than which kind it is", () => {
+  const writeTo = {
+    key: "method:WriteTo",
+    name: "WriteTo",
+    kind: "method",
+    overloads: [{
+      signature: "public void WriteTo(System.Text.Json.Utf8JsonWriter writer)",
+      parameters: [{ type: "System.Text.Json.Utf8JsonWriter" }],
+    }],
+  };
+  const rootElement = {
+    key: "property:RootElement",
+    name: "RootElement",
+    kind: "property",
+    overloads: [{
+      signature: "public System.Text.Json.JsonElement RootElement { get; }",
+      parameters: [],
+      returnType: "System.Text.Json.JsonElement",
+    }],
+  };
+  const parse = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    overloads: [
+      {
+        signature: "public static System.Text.Json.JsonDocument Parse(string json, System.Text.Json.JsonDocumentOptions options = default)",
+        parameters: [{ type: "string" }, { type: "System.Text.Json.JsonDocumentOptions" }],
+      },
+      {
+        signature: "public static System.Text.Json.JsonDocument Parse(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default)",
+        parameters: [{ type: "System.IO.Stream" }, { type: "System.Text.Json.JsonDocumentOptions" }],
+      },
+    ],
+  };
+  const html = renderMemberNav({
+    type: jsonDocument,
+    entries: [
+      { kind: "member", group: writeTo },
+      { kind: "member", group: rootElement },
+      { kind: "member", group: parse },
+      { kind: "overload", group: parse, index: 0 },
+      { kind: "overload", group: parse, index: 1 },
+    ],
+    memberCount: 3,
+    visibleMemberCount: 3,
+    filterControlsHtml: "",
+    selectedMemberKey: "method:Parse",
+    selectedOverloadIndex: 1,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+    overloadHeat: (_group, index) => ({
+      heatStrength: index === 1 ? 1 : null,
+      hub: false,
+      description: index === 1 ? "33 instructions" : "8 instructions",
+      size: index === 1 ? 33 : 8,
+    }),
+  });
+
+  // A single method shows its compact parameter list; a property its type.
+  assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
+  assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
+  assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
+  // Nested overloads have no branch glyph, color keyword types, and show the
+  // size only on the selected row.
+  assert.doesNotMatch(html, /↳|overload-branch/);
+  assert.match(html, /<span class="sig-keyword">string<\/span>/);
+  assert.match(html, /<small class="overload-size" title="33 instructions">33<\/small>/);
+  assert.doesNotMatch(html, />8<\/small>/);
+});

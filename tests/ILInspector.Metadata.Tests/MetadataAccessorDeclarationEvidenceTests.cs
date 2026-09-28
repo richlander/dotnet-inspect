@@ -236,6 +236,50 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         Assert.Empty(posted.Evidence.Accessors);
     }
 
+    [Fact]
+    public void Mdp006_UnrelatedAssociationLookupUsesOneIndexedProbe()
+    {
+        const int associationCount = 4096;
+        using var fixture = Fixture.Create(
+            methodCount: associationCount,
+            propertyCount: associationCount,
+            rows: Enumerable.Range(1, associationCount)
+                .Select(methodRow => PropertyRow(
+                    methodRow,
+                    (ushort)MethodSemanticsAttributes.Other))
+                .ToArray());
+        var work = new List<MetadataOperationWorkKind>();
+        using var assembly = AssemblyInspectionSession.Open(fixture.Path);
+        using var operation = new MetadataOperationContext(
+            new MetadataOperationPolicy(
+                long.MaxValue,
+                maxRelationshipEdges: 0,
+                maxRetainedMethodSemanticsAssociations: associationCount),
+            work.Add);
+        using MetadataDeclarationSession declaration =
+            assembly.CreateDeclarationSession(operation);
+        MetadataAccessorDeclarationRequest request =
+            CreateRequest(
+                assembly.GetMetadataReaderForDeclarationSession(),
+                MetadataAccessorDeclarationKind.Property,
+                associationCount);
+
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                declaration.PostAccessorDeclaration(
+                    request,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(posted.Evidence.Accessors);
+        Assert.Equal(0, operation.Counters.RelationshipEdges);
+        Assert.Equal(
+            1,
+            work.Count(kind =>
+                kind
+                == MetadataOperationWorkKind
+                    .AccessorAssociationLookupProbe));
+    }
+
     [Theory]
     [InlineData(MetadataAccessorDeclarationKind.Property, 0x0000)]
     [InlineData(MetadataAccessorDeclarationKind.Property, 0x0003)]
@@ -548,7 +592,8 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
 
     static MetadataAccessorDeclarationRequest CreateRequest(
         MetadataReader reader,
-        MetadataAccessorDeclarationKind kind)
+        MetadataAccessorDeclarationKind kind,
+        int rowNumber = 1)
     {
         MetadataTypeDefinitionAddress type =
             MetadataTypeDefinitionAddress.FromHandle(
@@ -559,11 +604,11 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             MetadataAccessorDeclarationKind.Property =>
                 MetadataAccessorDeclarationAddress.Create(
                     reader,
-                    MetadataTokens.PropertyDefinitionHandle(1)),
+                    MetadataTokens.PropertyDefinitionHandle(rowNumber)),
             MetadataAccessorDeclarationKind.Event =>
                 MetadataAccessorDeclarationAddress.Create(
                     reader,
-                    MetadataTokens.EventDefinitionHandle(1)),
+                    MetadataTokens.EventDefinitionHandle(rowNumber)),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         return new(type, declaration);

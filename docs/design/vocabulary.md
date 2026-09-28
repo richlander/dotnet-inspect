@@ -100,6 +100,29 @@ Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected
 target while retaining the static value IDs.
 
+## Vocabulary Mappings adoption
+
+[Vocabulary Mappings](vocabulary-mappings.md) generalizes stable terms and
+named scalar or term-reference maps across hosts. Product Vocabulary is its
+first adopter. This owner continues to define the query values, fields,
+operators, accepted inputs, and CLI behavior; the mapping pattern defines only
+how those owner-issued facts become an immutable, exactly identified snapshot.
+
+The first adoption preserves the existing CLI structured contract as a
+compatibility projection. It additionally authenticates
+`csharp.style-choices.tier` as a complete, exactly-one term map to
+`csharp.style-tiers`, allowing Inspect Web to group choices without treating an
+ordinary string field as an implicit foreign key. Other string-valued fields
+remain scalar until their owners publish a target vocabulary.
+
+Inspect Web still knows that its Settings feature consumes
+`csharp.style-choices`, `csharp.style-tiers`, and their relevant map identities.
+The general API makes those contracts resolvable and their contents
+discoverable; it does not infer which product feature should use them.
+
+Implementation and host migration remain tracked by
+[#8593](https://github.com/richlander/dotnet-inspect/issues/8593).
+
 ## Current sections
 
 | Section | Stable ID | Values |

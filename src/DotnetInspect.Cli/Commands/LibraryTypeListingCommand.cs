@@ -202,7 +202,7 @@ internal static class LibraryTypeListingCommand
             session.Execute(plan, cancellationToken);
         if (!TryGetDocument(envelope, out LibraryDocument document))
             return null;
-        if (document.Types.Count
+        if (document.Types!.Count
             is not LibraryTypePopulationCountOutcome.Counted)
         {
             WriteCountFailure(document.Types.Count);
@@ -253,8 +253,8 @@ internal static class LibraryTypeListingCommand
             }
 
             firstDocument ??= document;
-            binding ??= document.Types.Binding;
-            if (document.Types.Binding != binding)
+            binding ??= document.Types!.Binding;
+            if (document.Types!.Binding != binding)
             {
                 CommandError.Write(
                     "The Library Type population changed while rows "
