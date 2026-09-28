@@ -60,12 +60,23 @@ public sealed record WorkReceipt(
     int UnitsVisited,
     ImmutableArray<ProducerParticipation> Producers)
 {
-    public ProducerParticipation For(ProducerDeclaration producer) =>
-        Producers.Single(participation =>
-            string.Equals(
-                participation.Producer,
-                producer.Identity,
-                StringComparison.Ordinal));
+    public ProducerParticipation For(ProducerDeclaration producer)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        foreach (ProducerParticipation participation in Producers)
+        {
+            if (string.Equals(
+                    participation.Producer,
+                    producer.Identity,
+                    StringComparison.Ordinal))
+            {
+                return participation;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Producer '{producer.Identity}' has no participation.");
+    }
 }
 
 /// <summary>
