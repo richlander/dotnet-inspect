@@ -118,7 +118,8 @@ rows it has loaded.
   through its MethodImpl, moves to `protected`, its declared accessibility.
   Explicit implementations of internal interfaces, which the public default
   also shows today (`JsonSerializerContext`, and 766 MethodImpl rows on public
-  CoreLib Types such as `System.Byte`'s `IUtfChar<byte>` members), move to
+  System.Private.CoreLib 10.0.8 Types such as `System.Byte`'s `IUtfChar<byte>`
+  members), move to
   their interface's bucket. The Browser's host-side mapping of explicit
   implementations to `private` and finalizers to `protected` retires.
 - **Heat over non-public rows.**
