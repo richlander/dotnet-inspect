@@ -314,6 +314,12 @@ dotnet run --project tests/DotnetInspect.Web.Tests -c Release -- \
 ```
 
 `PlatformForwarders_SourceFailurePreservesContribution` is PR-fast.
+`PlatformForwarders_OpenFailureReturnsTypedNonSuccess` is PR-fast and covers
+unavailable acquisition and cancellation through the opening operation and its
+wire result. Opening and activation both report typed non-success rather than
+an action when preparation fails. Forwarder inspection uses the shared
+`AssemblyContextLibraryInspection` lifecycle; cleanup diagnostics accompany
+the primary failure, and cleanup failure prevents successful publication.
 `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` includes
 `OpenPlatformForwarderView`, `ActivatePlatformForwarder`, and
 `ClosePlatformForwarderView` in the closed Package export inventory.

@@ -40,76 +40,46 @@ internal static class BrowserPlatformSurfaceProjection
     internal static async Task<LibraryDocument> ReadForwardersAsync(
         BrowserPlatformScope scope,
         WorkspaceContextMember participant,
+        ICollection<string> cleanupFailures,
         CancellationToken cancellationToken = default)
     {
-        AssemblyContextLibraryAdapterResult materialization =
-            await scope.UseParticipant(
-                participant,
-                (group, selected) =>
-                    AssemblyContextLibraryAdapter.MaterializeAsync(
-                        group,
-                        selected,
-                        AssemblyContextLibraryRole.ApiOnly,
-                        new(
-                            BrowserInspectionScope.MaxRetainedImageBytes,
-                            BrowserInspectionScope.MaxRetainedImageBytes),
-                        cancellationToken));
-        if (materialization is not AssemblyContextLibraryAdapterResult.Completed completed)
+        AssemblyContextLibraryInspectionRun<InspectionEnvelope<LibraryInspectionOutcome>> run =
+            await AssemblyContextLibraryInspection.ExecuteAsync(
+                scope.UseParticipant(
+                    participant,
+                    (group, selected) =>
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            selected,
+                            AssemblyContextLibraryRole.ApiOnly,
+                            new(
+                                BrowserInspectionScope.MaxRetainedImageBytes,
+                                BrowserInspectionScope.MaxRetainedImageBytes),
+                            cancellationToken)),
+                (reference, owner) =>
+                    owner.IssueOperationLease(reference) is LibraryOperationLeaseIssueOutcome.Issued issued
+                        ? LibraryInspectionOperation.Execute(
+                            new(
+                                reference,
+                                new(
+                                    new(
+                                        LibraryTypeAccessibility.Public,
+                                        count: null,
+                                        new(BrowserApiSurfacePolicy.MaxTypeForwarders),
+                                        LibraryTypeDeclarationSelection.Forwarders),
+                                    BrowserApiSurfacePolicy.ExtractionBounds)),
+                            issued.Lease,
+                            cancellationToken)
+                        : null,
+                cleanupFailures);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (run.Result?.Content is not LibraryInspectionOutcome.Available available)
         {
             throw new InvalidOperationException(
-                $"Forwarded Type inventory could not acquire the selected Library ({materialization.GetType().Name}).");
+                run.Failure
+                    ?? $"Forwarded Type inventory could not inspect the selected Library ({run.Result?.Content}).");
         }
-
-        InspectionEnvelope<LibraryInspectionOutcome> inspection;
-        try
-        {
-            if (completed.Owner.IssueOperationLease(completed.Reference)
-                is not LibraryOperationLeaseIssueOutcome.Issued issued)
-            {
-                throw new InvalidOperationException(
-                    "The selected Library could not issue its forwarding inspection lease.");
-            }
-            inspection = LibraryInspectionOperation.Execute(
-                new(
-                    completed.Reference,
-                    new(
-                        new(
-                            LibraryTypeAccessibility.Public,
-                            count: null,
-                            new(BrowserApiSurfacePolicy.MaxTypeForwarders),
-                            LibraryTypeDeclarationSelection.Forwarders),
-                        BrowserApiSurfacePolicy.ExtractionBounds)),
-                issued.Lease,
-                cancellationToken);
-        }
-        finally
-        {
-            try
-            {
-                await completed.Owner.DisposeAsync();
-            }
-            finally
-            {
-                await completed.Artifacts.DisposeAsync();
-            }
-            if (completed.Owner.CleanupFailures.Count != 0
-                || completed.Owner.ReleaseFailures.Count != 0
-                || completed.Artifacts.CleanupFailures.Count != 0)
-            {
-                throw new AggregateException(
-                    "The forwarded Type inspection could not release its Library content.",
-                    completed.Owner.CleanupFailures
-                        .Concat(completed.Owner.ReleaseFailures.Select(failure => failure.Failure))
-                        .Concat(completed.Artifacts.CleanupFailures));
-            }
-        }
-
-        return inspection.Content switch
-        {
-            LibraryInspectionOutcome.Available available => available.Document,
-            _ => throw new InvalidOperationException(
-                $"Forwarded Type inventory could not inspect the selected Library ({inspection.Content})."),
-        };
+        return available.Document;
     }
 
     internal static BrowserPackageSurfaceInfo Project(

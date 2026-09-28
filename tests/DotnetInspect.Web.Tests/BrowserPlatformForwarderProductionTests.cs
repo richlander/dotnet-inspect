@@ -143,6 +143,39 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.NotEmpty(failure.Message);
     }
 
+    [Theory]
+    [InlineData(false, "failed")]
+    [InlineData(true, "canceled")]
+    public async Task PlatformForwarders_OpenFailureReturnsTypedNonSuccess(bool cancel, string expectedStatus)
+    {
+        var handler = new PlatformCatalogHandler("11.0.999");
+        PackageSourceAuthorization authority =
+            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
+        using IPackageSourceClient packageClient = PackageSourceClientFactory.CreateGallery(
+            authority.Authorities[0].Association, handler);
+        using var networkClient = new HttpClient(handler, disposeHandler: false);
+        using var navigation = new BrowserPlatformForwarderNavigation(
+            networkClient, packageClient, new FixedPackageSourceAuthorization(authority), TimeSpan.FromSeconds(10));
+        CancellationToken cancellationToken = cancel
+            ? new CancellationToken(canceled: true)
+            : TestContext.Current.CancellationToken;
+
+        var blocked = Assert.IsType<BrowserPlatformForwarderNavigationResult.Blocked>(
+            await navigation.OpenAsync(
+                "net11.0", "11.0.999", "System.Xml.dll", "netcore.app", cancellationToken));
+        Assert.Equal(expectedStatus, blocked.Status);
+        Assert.NotEmpty(blocked.Message);
+        Assert.Null(blocked.Resolution);
+        if (!cancel)
+            Assert.Contains("PlatformPackUnavailable", blocked.Message, StringComparison.Ordinal);
+
+        using JsonDocument wire = JsonDocument.Parse(
+            Interop.Package.PackageExports.SerializeForwarderResult(blocked));
+        Assert.Equal(expectedStatus, wire.RootElement.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, wire.RootElement.GetProperty("view").ValueKind);
+        Assert.Equal(0, wire.RootElement.GetProperty("hops").GetArrayLength());
+    }
+
     static BrowserPlatformForwarderRowInfo XmlReaderForwarder(BrowserPlatformForwarderViewInfo view) =>
         Assert.Single(view.Forwarders,
             row => row.Declaration.Identity.ToEscapedFullName() == "System.Xml.XmlReader");

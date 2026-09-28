@@ -77,14 +77,33 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             publication = Begin();
         }
-        PreparedLibrary prepared = await PrepareAsync(
-            framework, version, assembly, pack, cancellationToken);
-        lock (_gate)
+        List<string> cleanupFailures = [];
+        try
         {
-            if (!Current(publication))
-                return Stale();
-            return new BrowserPlatformForwarderNavigationResult.Opened(
-                Publish(publication, prepared, selectedType: null));
+            PreparedLibrary prepared = await PrepareAsync(
+                framework, version, assembly, pack, cleanupFailures, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                if (!Current(publication))
+                    return Stale();
+                return new BrowserPlatformForwarderNavigationResult.Opened(
+                    Publish(publication, prepared, selectedType: null));
+            }
+        }
+        catch (Exception failure) when (IsNavigationFailure(failure))
+        {
+            BrowserPlatformForwarderNavigationResult.Blocked blocked =
+                Failure(publication, failure, cleanupFailures, cancellationToken);
+            lock (_gate)
+            {
+                if (Current(publication))
+                {
+                    publication.Owner.Dispose();
+                    _current = null;
+                }
+            }
+            return blocked;
         }
     }
 
@@ -105,6 +124,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
         }
 
         BrowserPlatformForwarderActivationResult.Activated? activated = null;
+        List<string> cleanupFailures = [];
         try
         {
             BrowserPlatformForwarderActivationResult result =
@@ -126,6 +146,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
                 destination.Framework.Version.Value,
                 $"{destination.Identity.Name}.dll",
                 BrowserPlatformWorkspace.Pack(family),
+                cleanupFailures,
                 cancellationToken);
             PlatformTypeResolutionAssemblyEvidence expectedAssembly = activated.Destination switch
             {
@@ -163,33 +184,9 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
                     activated.Resolution);
             }
         }
-        catch (BrowserPlatformForwarderOperationException failure)
+        catch (Exception failure) when (IsNavigationFailure(failure))
         {
-            if (!IsCurrent(publication))
-                return Stale(activated?.Resolution);
-            return new BrowserPlatformForwarderNavigationResult.Blocked(
-                failure.Status,
-                failure.Message,
-                failure.Receipt,
-                failure.Contribution,
-                activated?.Resolution);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return new BrowserPlatformForwarderNavigationResult.Blocked(
-                "canceled", "Forwarded Type navigation was canceled.",
-                Resolution: activated?.Resolution);
-        }
-        catch (Exception failure) when (
-            failure is InvalidOperationException or IOException or BadImageFormatException
-                or AggregateException or HttpRequestException or TimeoutException)
-        {
-            if (!IsCurrent(publication))
-                return Stale(activated?.Resolution);
-            return new BrowserPlatformForwarderNavigationResult.Blocked(
-                failure is TimeoutException ? "incomplete" : "failed",
-                failure.Message,
-                Resolution: activated?.Resolution);
+            return Failure(publication, failure, cleanupFailures, cancellationToken, activated?.Resolution);
         }
     }
 
@@ -220,6 +217,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
         string version,
         string assembly,
         string pack,
+        ICollection<string> cleanupFailures,
         CancellationToken cancellationToken)
     {
         await using BrowserPlatformScopeResolution resolution =
@@ -227,7 +225,7 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
                 framework, version, assembly, pack,
                 _networkClient, _authorization, _timeout, cancellationToken);
         LibraryDocument document = await BrowserPlatformSurfaceProjection.ReadForwardersAsync(
-            resolution.Scope, resolution.Participant, cancellationToken);
+            resolution.Scope, resolution.Participant, cleanupFailures, cancellationToken);
         LibraryTypePopulationRowsOutcome? rows = document.Types?.Rows;
         if (rows is not LibraryTypePopulationRowsOutcome.Read { IsComplete: true } forwarders)
         {
@@ -235,6 +233,11 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
                 rows is LibraryTypePopulationRowsOutcome.Incomplete
                     or LibraryTypePopulationRowsOutcome.Read ? "incomplete" : "failed",
                 $"Forwarded Type inventory could not be completed ({rows}).");
+        }
+        if (cleanupFailures.Count != 0)
+        {
+            throw new InvalidOperationException(
+                "The forwarded Type inspection could not release its Library content.");
         }
         BrowserPlatformProjectionInfo projection = BrowserPlatformSurfaceProjection.Project(
             resolution.Scope, resolution.Participant, resolution.Coordinate);
@@ -339,6 +342,38 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
     {
         lock (_gate)
             return Current(publication);
+    }
+
+    static bool IsNavigationFailure(Exception failure) =>
+        failure is BrowserPlatformForwarderOperationException or OperationCanceledException
+            or InvalidOperationException or IOException or BadImageFormatException
+            or AggregateException or HttpRequestException or TimeoutException
+            or ArgumentException or FormatException;
+
+    BrowserPlatformForwarderNavigationResult.Blocked Failure(
+        Publication publication,
+        Exception failure,
+        IReadOnlyCollection<string> cleanupFailures,
+        CancellationToken cancellationToken,
+        PlatformTypeDefinitionResolutionResult? resolution = null)
+    {
+        BrowserPlatformForwarderNavigationResult.Blocked blocked = !IsCurrent(publication)
+            ? Stale(resolution)
+            : failure switch
+            {
+                BrowserPlatformForwarderOperationException operation =>
+                    new(operation.Status, operation.Message, operation.Receipt, operation.Contribution, resolution),
+                OperationCanceledException when cancellationToken.IsCancellationRequested =>
+                    new("canceled", "Forwarded Type navigation was canceled.", Resolution: resolution),
+                OperationCanceledException or TimeoutException =>
+                    new("incomplete", failure.Message, Resolution: resolution),
+                ArgumentException or FormatException =>
+                    new("refused", failure.Message, Resolution: resolution),
+                _ => new("failed", failure.Message, Resolution: resolution),
+            };
+        return cleanupFailures.Count == 0
+            ? blocked
+            : blocked with { Message = $"{blocked.Message} Cleanup: {string.Join(" ", cleanupFailures)}" };
     }
 
     static BrowserPlatformForwarderNavigationResult.Blocked Stale(
