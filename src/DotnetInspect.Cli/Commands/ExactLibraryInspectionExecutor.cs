@@ -46,7 +46,8 @@ internal static class ExactLibraryInspectionExecutor
         string assemblyPath,
         string provenanceLabel,
         Func<ExactLibraryInspectionSession, T?> inspect,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AssemblyContextLibraryRole role = AssemblyContextLibraryRole.ApiOnly)
         where T : class
     {
         AssemblyDescriptorSelectionResult selection;
@@ -93,7 +94,7 @@ internal static class ExactLibraryInspectionExecutor
                     AssemblyContextLibraryAdapter.MaterializeAsync(
                         group,
                         participant,
-                        AssemblyContextLibraryRole.ApiOnly,
+                        role,
                         new AssemblyContextLibraryMaterializationLimits(
                             MaxAssemblyImageBytes,
                             MaxAssemblyImageBytes),
@@ -102,9 +103,9 @@ internal static class ExactLibraryInspectionExecutor
                         inspect(
                             new ExactLibraryInspectionSession(
                                 reference,
-                                owner)))
+                                owner)),
+                    cleanupFailures)
                 .ConfigureAwait(false);
-            cleanupFailures.AddRange(run.CleanupFailures);
         }
         catch (Exception failure)
         {

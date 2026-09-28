@@ -304,6 +304,8 @@ public partial class PackageCommand
         }
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(commandDemand: commandQueryDemand);
+        bool readLibraryDocument =
+            LibraryMetadataService.WantsLibraryDocument(sectionPlan, libraryOptions);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -473,7 +475,8 @@ public partial class PackageCommand
                         assemblyReference
                         ?? subject.AssemblyReference,
                     integrationsEntry: integrations,
-                    integrationOpportunitiesEntry: opportunities);
+                    integrationOpportunitiesEntry: opportunities,
+                    readLibraryDocument: readLibraryDocument);
             }
 
             LibraryInspection? inspection;
@@ -737,14 +740,6 @@ public partial class PackageCommand
                             integrations,
                             opportunities)
                         .ConfigureAwait(false);
-                if (inspection is not null
-                    && retainedAssembly?.Registration
-                        .ArtifactRegistration is not null)
-                {
-                    inspection.LastModified =
-                        File.GetLastWriteTimeUtc(path);
-                }
-
                 return inspection;
             });
     }
@@ -1696,6 +1691,7 @@ public partial class PackageCommand
                      ("Copyright", info.Copyright),
                      ("Custom Attributes", info.CustomAttributes),
                      ("Deterministic", info.Deterministic ? "Yes" : "No"),
+                     ("Enabled", info.Enabled),
                      ("Extension Methods", info.ExtensionMethods),
                      ("Facade", info.Facade switch
                      {
@@ -1706,12 +1702,12 @@ public partial class PackageCommand
                      ("File Size", info.FileSize),
                      ("Informational Version", info.InformationalVersion),
                      ("Integrations", info.Integrations),
+                     ("Library Document", info.LibraryDocument),
                      ("Methods", info.Methods),
-                     ("Modified", info.Modified),
                      ("Name", info.Name),
                      ("Product", info.Product),
                      ("Public Key Token", info.PublicKeyToken),
-                     ("Reproducible", info.Reproducible ? "Yes" : "No"),
+                     ("Reproducible", info.Reproducible),
                      ("Resources", info.Resources),
                      ("Signed", info.Signed),
                      ("Source", info.Source),
