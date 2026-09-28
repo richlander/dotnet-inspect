@@ -60,12 +60,14 @@ static class FixturePostcard
             new("Planner", (closing, pe) => Convert(Exp.Postcard.After(Name(closing), pathOf[pe], pe))),
         ];
 
-        IReadOnlyList<PostcardMismatch> mismatches = Postcard.Check(assets, oracle, columns, PublicMethods.RowText);
-        foreach (PostcardMismatch mismatch in mismatches)
-            Console.WriteLine($"mismatch\t{mismatch.Asset}\t{mismatch.Closing}\t{mismatch.Column}\t{mismatch.Answer}\toracle={mismatch.OracleAnswer}");
-        Console.WriteLine($"# answers: {assets.Count * Postcard.Closings.Count * (columns.Length - 1)} compared, {mismatches.Count} mismatches");
-        if (mismatches.Count != 0)
+        PostcardCheck check = Postcard.Check(assets, oracle, columns, PublicMethods.RowText);
+        foreach (PostcardMismatch mismatch in check.Mismatches)
+            Console.WriteLine($"mismatch\t{mismatch.Asset}\t{shape.Label(mismatch.Closing)}\t{mismatch.Column}\t{mismatch.Answer}\toracle={mismatch.OracleAnswer}");
+        Console.WriteLine($"# answers: {check.Compared} compared, {check.Mismatches.Count} mismatches, {check.WindowFailures.Count} strict-window failures");
+        if (!check.Agrees)
             return 1;
+        foreach (string asset in check.WindowFailures)
+            Console.WriteLine($"window-failed\t{asset}\t{shape.Label(PostcardClosing.Window)}\tevery column fails: the window does not exist");
         if (args[1] == "check")
             return 0;
 
@@ -76,7 +78,7 @@ static class FixturePostcard
             Postcard.WriteTsv(cells, tsv);
         }
 
-        Console.Write(Postcard.SummaryTable(cells, oracle.Name));
+        Console.Write(Postcard.Report(cells, oracle.Name, shape));
         return 0;
     }
 

@@ -1,0 +1,193 @@
+asset	closing	column	median_us	round_medians_us
+CommandLine	Exists	Naive Planner	167.65	164.4,166.8,167.6,172,172.5,167.7
+CommandLine	Exists	LINQ	4.8	4.8,4.8,4.8,5,5,4.8
+CommandLine	Exists	NLinq	2	2,2,2,2,2,2
+CommandLine	Exists	Planner	1.1	1.1,1.1,1.1,1.2,1.2,1.1
+CommandLine	Count	Naive Planner	167.75	163.2,166.4,167.8,170.5,180,167.7
+CommandLine	Count	LINQ	208.4	204.4,207.5,208.4,213.9,211.5,208.4
+CommandLine	Count	NLinq	18.65	18.6,18.7,18.3,19.3,18.6,18.8
+CommandLine	Count	Planner	11.8	11.7,11.8,11.7,12.1,11.9,11.8
+CommandLine	Head	Naive Planner	166.8	163.2,166,167.4,172.8,169.5,166.2
+CommandLine	Head	LINQ	6.75	6.7,6.7,6.7,6.8,14.7,6.8
+CommandLine	Head	NLinq	3.5	3.2,3.5,3.5,3.6,3.6,3.5
+CommandLine	Head	Planner	2.5	2.3,2.5,2.5,2.6,2.5,2.5
+CommandLine	Tail	Naive Planner	167.35	162.6,166.6,167.2,173.2,174.3,167.5
+CommandLine	Tail	LINQ	213.35	209.7,212.5,213.3,220.5,219,213.4
+CommandLine	Tail	NLinq	23.7	23.7,23.6,23.7,24.6,24.3,23.7
+CommandLine	Tail	Planner	12.4	12.3,12.4,12.3,12.8,12.6,12.4
+CommandLine	Rows	Naive Planner	166.05	162.25,166.1,165,171.1,169.1,166
+CommandLine	Rows	LINQ	213.75	211.1,213.6,213.9,221.4,216.9,213.4
+CommandLine	Rows	NLinq	172.25	170.3,172,172.2,178.3,172.9,172.3
+CommandLine	Rows	Planner	166.25	162.5,166.3,166.2,170.3,167.9,165.7
+CommandLine	Window	Naive Planner	165.95	163.4,166,165.9,169.9,169,165.8
+CommandLine	Window	LINQ	53.35	53.1,53.4,53.3,55.1,53.3,53.4
+CommandLine	Window	NLinq	8.2	8.2,8.2,8.2,8.5,8.2,8.2
+CommandLine	Window	Planner	6.5	6.5,6.5,6.5,6.7,6.6,6.5
+Humanizer	Exists	Naive Planner	162.05	160.6,162.1,161.7,166.9,163,162
+Humanizer	Exists	LINQ	1.2	1.2,1.2,1.2,1.2,1.2,1.2
+Humanizer	Exists	NLinq	0.95	0.9,0.9,0.9,1,1,1
+Humanizer	Exists	Planner	1	1,1,1,1,1,1
+Humanizer	Count	Naive Planner	162	159.8,162,162,167.4,166,162
+Humanizer	Count	LINQ	192.35	191,192,192.3,199,196,192.4
+Humanizer	Count	NLinq	24.2	24,24.2,24.3,24.8,24.2,24.2
+Humanizer	Count	Planner	19.5	19.5,19.5,19.5,20.1,19.5,19.5
+Humanizer	Head	Naive Planner	162	160,162,162,168,163.8,161.9
+Humanizer	Head	LINQ	2.6	2.5,2.6,2.6,2.7,2.5,2.6
+Humanizer	Head	NLinq	2	2,2,2,2.1,2,2
+Humanizer	Head	Planner	1.9	1.8,1.9,1.9,1.9,1.9,1.9
+Humanizer	Tail	Naive Planner	161.8	161.2,162.4,161.4,168.5,161.1,162.2
+Humanizer	Tail	LINQ	201.05	199.8,200.9,201,208,201.1,201.2
+Humanizer	Tail	NLinq	29.7	29.6,29.7,29.7,30.7,29.7,29.8
+Humanizer	Tail	Planner	19.1	19,19.1,19,19.8,19.1,19.1
+Humanizer	Rows	Naive Planner	161.75	160.4,162.2,161.9,167.4,161,161.6
+Humanizer	Rows	LINQ	201.55	201,201.5,201.6,209.2,202,201.5
+Humanizer	Rows	NLinq	160.6	160.5,160.4,160.7,166.2,160.3,160.7
+Humanizer	Rows	Planner	161.8	160.9,161.9,161.6,168.2,161.7,162
+Humanizer	Window	Naive Planner	162.15	161.3,162.5,162.5,165.4,161.5,161.8
+Humanizer	Window	LINQ	27.5	27.5,27.5,27.7,28.5,27.5,27.5
+Humanizer	Window	NLinq	5.5	5.5,5.5,5.5,5.7,5.5,5.5
+Humanizer	Window	Planner	4.8	4.8,4.8,4.8,5,4.8,4.8
+Mono.Cecil	Exists	Naive Planner	266.25	264.1,266.5,267.9,275.2,265.6,266
+Mono.Cecil	Exists	LINQ	1.2	1.2,1.2,1.2,1.2,1.2,1.2
+Mono.Cecil	Exists	NLinq	0.95	0.9,0.9,0.9,1,1,1
+Mono.Cecil	Exists	Planner	1	1,1,1,1,1,1
+Mono.Cecil	Count	Naive Planner	266.1	263.7,266.1,267.2,278.1,265,266.1
+Mono.Cecil	Count	LINQ	320.6	318.4,320.3,321.7,333.2,320.9,320.3
+Mono.Cecil	Count	NLinq	47.25	47.2,47.3,46.5,48.6,47.1,47.3
+Mono.Cecil	Count	Planner	37.4	37,37.4,37.5,38.5,37.4,37.4
+Mono.Cecil	Head	Naive Planner	266	263.7,266.1,266.9,277.7,265.2,265.9
+Mono.Cecil	Head	LINQ	2.5	2.5,2.5,2.5,5.2,2.5,2.5
+Mono.Cecil	Head	NLinq	2	1.9,2,2,2,2,2
+Mono.Cecil	Head	Planner	1.9	1.9,1.9,1.9,1.9,1.9,1.9
+Mono.Cecil	Tail	Naive Planner	266.675	264.2,266.55,267.5,275.7,265.7,266.8
+Mono.Cecil	Tail	LINQ	333.45	331.9,332.8,334.1,346.5,334.2,332.7
+Mono.Cecil	Tail	NLinq	56.8	56.7,56.8,56.8,59,58.1,56.7
+Mono.Cecil	Tail	Planner	35.85	35.6,35.9,35.8,36.7,36.8,35.8
+Mono.Cecil	Rows	Naive Planner	267.35	266.1,267.4,267.3,273.6,268,267.2
+Mono.Cecil	Rows	LINQ	334.3	334.1,334.4,334.2,348.5,335,334.2
+Mono.Cecil	Rows	NLinq	263.6	263.3,263.5,263.2,271.2,263.7,263.9
+Mono.Cecil	Rows	Planner	267.5	266,267.7,267.2,279.2,268,267.3
+Mono.Cecil	Window	Naive Planner	267.4	267.2,267.7,267.3,275.1,266.9,267.5
+Mono.Cecil	Window	LINQ	30.85	30.8,30.9,30.9,31.7,30.5,30.8
+Mono.Cecil	Window	NLinq	6.7	6.7,6.7,6.8,6.9,6.7,6.7
+Mono.Cecil	Window	Planner	5.8	5.8,5.8,5.8,5.9,5.7,5.8
+Newtonsoft.Json	Exists	Naive Planner	402.15	400.5,403,401.7,412,400.5,402.6
+Newtonsoft.Json	Exists	LINQ	1.2	1.1,1.2,1.2,1.2,1.2,1.2
+Newtonsoft.Json	Exists	NLinq	0.95	0.9,0.9,0.9,1,1,1
+Newtonsoft.Json	Exists	Planner	1	1,1,1,1,1,1
+Newtonsoft.Json	Count	Naive Planner	402.25	400.5,403.1,401.2,412.7,403.5,401.4
+Newtonsoft.Json	Count	LINQ	481	478.4,480.9,481.1,522.95,482.3,479.3
+Newtonsoft.Json	Count	NLinq	59.75	59.7,59.6,59.7,61.7,59.9,59.8
+Newtonsoft.Json	Count	Planner	44.9	45,44.8,44.8,45.6,45,44.8
+Newtonsoft.Json	Head	Naive Planner	402.95	400.9,403.7,401.7,419.5,403.2,402.7
+Newtonsoft.Json	Head	LINQ	2.5	2.4,2.4,2.5,2.5,2.5,2.5
+Newtonsoft.Json	Head	NLinq	1.9	1.9,1.9,1.9,2,2,1.9
+Newtonsoft.Json	Head	Planner	1.9	1.8,1.9,1.9,1.9,1.9,1.9
+Newtonsoft.Json	Tail	Naive Planner	402.8	402.2,403.4,400.6,412.5,404.3,401.4
+Newtonsoft.Json	Tail	LINQ	499.8	499.7,499.2,499.9,507,500.3,498.15
+Newtonsoft.Json	Tail	NLinq	71.9	71.9,71.9,71.9,72,71.9,72
+Newtonsoft.Json	Tail	Planner	43.5	43.3,43.8,43.7,45,43.3,43.2
+Newtonsoft.Json	Rows	Naive Planner	404.35	404.2,404.6,403.3,419.2,404.5,404
+Newtonsoft.Json	Rows	LINQ	501.95	501.2,501.6,502.3,523.15,502.8,501.4
+Newtonsoft.Json	Rows	NLinq	404	403.8,404.2,403.25,414.7,402.6,404.2
+Newtonsoft.Json	Rows	Planner	404	404.3,404.85,403,412,402.1,403.7
+Newtonsoft.Json	Window	Naive Planner	403.7	404.4,403.7,403.6,414.7,401,403.7
+Newtonsoft.Json	Window	LINQ	31	31,30.9,31,31.6,31,30.9
+Newtonsoft.Json	Window	NLinq	7.7	7.7,7.7,7.7,7.9,7.7,7.7
+Newtonsoft.Json	Window	Planner	6.55	6.6,6.5,6.5,6.7,6.5,6.6
+System.Text.Json	Exists	Naive Planner	382	382,383.2,382,381.8,378.5,382
+System.Text.Json	Exists	LINQ	1.3	1.3,1.3,1.3,1.3,1.3,1.3
+System.Text.Json	Exists	NLinq	0.9	0.9,0.9,0.9,0.9,0.9,0.9
+System.Text.Json	Exists	Planner	1	1,1,1,1.1,1,1
+System.Text.Json	Count	Naive Planner	380.95	382.1,382,380.6,380.2,378.9,381.3
+System.Text.Json	Count	LINQ	447.3	448,447.9,447.3,446.2,447.1,447.3
+System.Text.Json	Count	NLinq	51.8	51.7,51.5,52,51.9,51.7,51.9
+System.Text.Json	Count	Planner	37.85	37.9,38,37.8,37.7,37.8,38
+System.Text.Json	Head	Naive Planner	381.6	381.7,382,381.9,380,380.9,381.5
+System.Text.Json	Head	LINQ	6.35	6.3,6.4,6.3,6.5,6.3,6.4
+System.Text.Json	Head	NLinq	3.4	3.4,3.4,3.5,3.5,3.4,3.4
+System.Text.Json	Head	Planner	2.6	2.6,2.6,2.7,2.6,2.6,2.6
+System.Text.Json	Tail	Naive Planner	382	381.9,382.2,382.1,379,380.9,382.2
+System.Text.Json	Tail	LINQ	463.4	464.4,463.6,463.2,463.2,463.9,463.1
+System.Text.Json	Tail	NLinq	62.95	63.1,63,62.9,62.7,62.7,63
+System.Text.Json	Tail	Planner	36.3	36.2,36.3,36.25,36.4,36.3,36.3
+System.Text.Json	Rows	Naive Planner	383.25	383.7,383.2,383,382.5,383.3,383.9
+System.Text.Json	Rows	LINQ	465.65	465.7,465.1,465.5,465.6,466.6,466.2
+System.Text.Json	Rows	NLinq	380.5	380.5,380.2,380.5,381,380.5,380.7
+System.Text.Json	Rows	Planner	383.55	383.6,383.5,383.1,383.9,382.5,384.2
+System.Text.Json	Window	Naive Planner	382.8	382.5,383.3,383.1,380.3,382,383.8
+System.Text.Json	Window	LINQ	32.7	32.8,32.7,32.7,32.7,32.7,32.7
+System.Text.Json	Window	NLinq	7.2	7.1,7.1,7.2,7.2,7.2,7.2
+System.Text.Json	Window	Planner	5.5	5.5,5.6,5.5,5.5,5.5,5.6
+NuGet.Packaging	Exists	Naive Planner	302.95	303.1,302.8,302.3,311.95,302.7,303.6
+NuGet.Packaging	Exists	LINQ	3.4	3.4,3.4,3.5,3.6,3.4,3.4
+NuGet.Packaging	Exists	NLinq	1.5	1.5,1.5,1.5,1.7,1.6,1.5
+NuGet.Packaging	Exists	Planner	1	1,1,1,1,1.1,1
+NuGet.Packaging	Count	Naive Planner	302.9	303,301.2,302.8,314.4,302.5,303.1
+NuGet.Packaging	Count	LINQ	384	384.7,383.3,383.8,393.4,384.2,383.8
+NuGet.Packaging	Count	NLinq	49.35	49.3,49.4,48.9,50.1,49,49.4
+NuGet.Packaging	Count	Planner	34.7	34.7,34.4,34.7,36,34.7,34.9
+NuGet.Packaging	Head	Naive Planner	302.5	302.7,300.2,302.1,306.2,302.3,303.2
+NuGet.Packaging	Head	LINQ	5.05	5.1,5,5,5.1,5,5.1
+NuGet.Packaging	Head	NLinq	3.2	3.2,3.2,3.2,3.2,3.2,3.2
+NuGet.Packaging	Head	Planner	2.5	2.5,2.5,2.5,2.5,2.5,2.5
+NuGet.Packaging	Tail	Naive Planner	302.55	303.45,301.7,303,301.2,302.7,302.4
+NuGet.Packaging	Tail	LINQ	397.75	398.2,396.4,397.2,397.8,398.2,397.7
+NuGet.Packaging	Tail	NLinq	58.9	58.9,58.7,58.7,60.9,58.9,59
+NuGet.Packaging	Tail	Planner	32.65	32.7,32.6,32.4,32.8,32.9,32.5
+NuGet.Packaging	Rows	Naive Planner	301.725	302.5,301.75,300.3,312.5,301.5,301.7
+NuGet.Packaging	Rows	LINQ	399.05	398.8,398.5,398.4,404.1,399.3,399.6
+NuGet.Packaging	Rows	NLinq	303.15	303.5,302.8,302.9,301.8,303.4,303.7
+NuGet.Packaging	Rows	Planner	301.7	302.1,301.5,301.4,312.9,301.8,301.6
+NuGet.Packaging	Window	Naive Planner	300.25	300.2,301.05,300.3,297.7,300.1,300.4
+NuGet.Packaging	Window	LINQ	34.45	34.4,34.7,34.5,34.2,34.4,34.5
+NuGet.Packaging	Window	NLinq	7.3	7.2,7.3,7.3,7.3,7.2,7.3
+NuGet.Packaging	Window	Planner	5.7	5.7,5.7,5.7,5.7,5.7,5.7
+Microsoft.CodeAnalysis.CSharp	Exists	Naive Planner	10273.8	10202,10426.2,10364,10256.85,10191.4,10290.75
+Microsoft.CodeAnalysis.CSharp	Exists	LINQ	1.6	1.5,1.6,1.5,1.6,1.6,1.6
+Microsoft.CodeAnalysis.CSharp	Exists	NLinq	1	1,1,1,1,1,1
+Microsoft.CodeAnalysis.CSharp	Exists	Planner	1	1,1,1,1,1,1
+Microsoft.CodeAnalysis.CSharp	Count	Naive Planner	10309.475	10288.7,10268.1,10391.6,10397.9,10276.5,10330.25
+Microsoft.CodeAnalysis.CSharp	Count	LINQ	5201.825	5201.7,5195.7,5243.2,5201.95,5213.25,5200.7
+Microsoft.CodeAnalysis.CSharp	Count	NLinq	533.4	533,533.8,533.9,526.3,535.2,532.1
+Microsoft.CodeAnalysis.CSharp	Count	Planner	388.7	388.9,388.4,387.8,388.5,389,389
+Microsoft.CodeAnalysis.CSharp	Head	Naive Planner	10333.6	10290.6,10404.8,10454.35,10320.7,10269.1,10346.5
+Microsoft.CodeAnalysis.CSharp	Head	LINQ	2.7	2.7,2.6,2.7,2.7,2.7,2.7
+Microsoft.CodeAnalysis.CSharp	Head	NLinq	1.9	1.9,1.9,1.9,1.9,1.9,1.9
+Microsoft.CodeAnalysis.CSharp	Head	Planner	1.8	1.7,1.8,1.8,1.7,1.8,1.8
+Microsoft.CodeAnalysis.CSharp	Tail	Naive Planner	10314.65	10185.55,10403.8,10370.8,10567.1,10247.65,10258.5
+Microsoft.CodeAnalysis.CSharp	Tail	LINQ	5373.725	5372.7,5371,5385.4,5374.75,5364.2,5377.1
+Microsoft.CodeAnalysis.CSharp	Tail	NLinq	647.5	647.45,647.55,649.1,645.7,646.2,647.6
+Microsoft.CodeAnalysis.CSharp	Tail	Planner	358.225	356.8,356.9,360.75,363,357.8,358.65
+Microsoft.CodeAnalysis.CSharp	Rows	Naive Planner	10442.2	10446.9,10291.3,10289.55,10464.25,10437.5,10549.9
+Microsoft.CodeAnalysis.CSharp	Rows	LINQ	10682.625	10487.25,10718.3,10747.8,10646.95,10775.65,10574.45
+Microsoft.CodeAnalysis.CSharp	Rows	NLinq	9878.525	9810.9,10000.85,9810.2,10778,9695.55,9946.15
+Microsoft.CodeAnalysis.CSharp	Rows	Planner	10414.675	10195.6,10490.9,10407.2,10556.7,10422.15,10217
+Microsoft.CodeAnalysis.CSharp	Window	Naive Planner	10358.825	10291.05,10354.65,10461.5,14324.7,10326.1,10363
+Microsoft.CodeAnalysis.CSharp	Window	LINQ	65.75	65.9,65.5,65.4,67.3,65.7,65.8
+Microsoft.CodeAnalysis.CSharp	Window	NLinq	18	18,18,18,18.5,17.9,18
+Microsoft.CodeAnalysis.CSharp	Window	Planner	10.8	10.8,10.8,10.9,11.1,10.8,10.8
+System.Private.CoreLib	Exists	Naive Planner	15941	15903.7,15923.5,15943.1,18627.2,15970.4,15938.9
+System.Private.CoreLib	Exists	LINQ	3.3	3.3,3.3,3.3,3.4,3.3,3.3
+System.Private.CoreLib	Exists	NLinq	1.6	1.6,1.6,1.6,1.7,1.6,1.6
+System.Private.CoreLib	Exists	Planner	1.3	1.3,1.3,1.3,1.3,1.3,1.3
+System.Private.CoreLib	Count	Naive Planner	15959.95	15976.7,15923.5,15943.2,24998.7,16094.15,15872.25
+System.Private.CoreLib	Count	LINQ	7891.55	7874.45,7889.9,7893.2,8415.8,7917.4,7854.2
+System.Private.CoreLib	Count	NLinq	603.5	605.5,603.2,603,618,603.7,603.3
+System.Private.CoreLib	Count	Planner	492.35	492.2,492.2,492.5,502.4,492.1,492.5
+System.Private.CoreLib	Head	Naive Planner	15943.7	15810,15876.4,16163.1,23658.65,15946.4,15941
+System.Private.CoreLib	Head	LINQ	9.3	9.4,9.2,9.3,9.7,9.3,9.3
+System.Private.CoreLib	Head	NLinq	4	4,4,4,4.1,4,4
+System.Private.CoreLib	Head	Planner	2.9	2.9,2.9,2.9,3,2.9,2.9
+System.Private.CoreLib	Tail	Naive Planner	15964.7	15909.1,15812.7,25415.3,25115.1,15943.4,15986
+System.Private.CoreLib	Tail	LINQ	8152.05	8147.9,8156.2,8558.2,8673,8145.3,8137.7
+System.Private.CoreLib	Tail	NLinq	733.25	735.8,732.8,732.1,762.7,733.7,731.4
+System.Private.CoreLib	Tail	Planner	464.95	464.4,464,481.3,481.2,465.5,464.2
+System.Private.CoreLib	Rows	Naive Planner	15868.95	15740.75,15737.95,18794.85,19259.25,15939.5,15798.4
+System.Private.CoreLib	Rows	LINQ	17881.975	17800.65,17861.5,29386.6,26098,17902.45,17852
+System.Private.CoreLib	Rows	NLinq	17154.825	16910.6,17107.3,32180.5,22187,17096.2,17202.35
+System.Private.CoreLib	Rows	Planner	15865.9	15741.75,15777.25,30531.95,20612.8,15916.4,15815.4
+System.Private.CoreLib	Window	Naive Planner	15946.875	15928.7,15906.7,17027.1,22360.35,15885.6,15965.05
+System.Private.CoreLib	Window	LINQ	37.7	37.7,37.7,38.6,39,37.6,37.6
+System.Private.CoreLib	Window	NLinq	8.1	8.1,8.1,8.4,8.4,8.1,8.1
+System.Private.CoreLib	Window	Planner	6.05	6,6,6.3,6.3,6.1,6
