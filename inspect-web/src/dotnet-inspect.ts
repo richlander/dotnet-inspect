@@ -17729,7 +17729,7 @@ function memberGroupDocumentRequestKey(
     pkg?.id ?? "",
     pkg?.version ?? "",
     pkg?.activeFramework ?? "",
-    pkg?.isRuntimePack ? state.platformDemoContextId ?? "" : "",
+    platformDemoContextIdFor(pkg ?? null) ?? "",
     type.assemblyId,
     type.definitionId ?? type.id,
     member.key,
