@@ -16,6 +16,15 @@ public enum ProducerTerminal
     /// settling; no later unit is visited for it.
     /// </summary>
     Exists,
+
+    /// <summary>
+    /// Every unit in scope contributes, and each unit that satisfies the
+    /// producer's open query is projected to a row. A producer may declare
+    /// fields it reads only for this closing, such as identity text. Planning
+    /// never derives another closing from it: a consumer that needs Count or
+    /// Exists requests that closing in its own work description.
+    /// </summary>
+    Rows,
 }
 
 /// <summary>One requested producer and the terminal the requester needs.</summary>
@@ -260,24 +269,37 @@ public static class ProducerPlanner
             ArgumentNullException.ThrowIfNull(request.Producer);
             requested.Add(request.Producer);
             Close(request.Producer);
-            terminals[request.Producer] =
-                terminals.TryGetValue(
-                    request.Producer,
-                    out ProducerTerminal existing)
-                && existing == ProducerTerminal.Complete
-                    ? ProducerTerminal.Complete
-                    : request.Terminal;
+
+            // Planning never ranks or merges closings; an identical
+            // duplicate is the same request.
+            if (terminals.TryGetValue(request.Producer, out ProducerTerminal existing)
+                && existing != request.Terminal)
+            {
+                throw DistinctClosings(request.Producer, existing, request.Terminal);
+            }
+
+            terminals[request.Producer] = request.Terminal;
         }
 
-        // A dependency is needed in full by its dependent.
+        // A dependency is needed in full by its dependent: that is the
+        // Complete closing, so a dependency requested with another closing
+        // has two distinct closings.
         foreach (ProducerDeclaration producer in closure)
         {
             if (!requested.Contains(producer))
                 terminals[producer] = ProducerTerminal.Complete;
+        }
+
+        foreach (ProducerDeclaration producer in closure)
+        {
             foreach (ProducerDependency dependency in producer.Dependencies)
             {
-                if (dependency.Producer is { } target)
-                    terminals[target] = ProducerTerminal.Complete;
+                if (dependency.Producer is { } target
+                    && terminals.TryGetValue(target, out ProducerTerminal closing)
+                    && closing != ProducerTerminal.Complete)
+                {
+                    throw DistinctClosings(target, closing, ProducerTerminal.Complete);
+                }
             }
         }
 
@@ -348,6 +370,16 @@ public static class ProducerPlanner
             }
         }
     }
+
+    /// <summary>
+    /// Until QuerySpace composes requests (#8574), one plan runs one closing
+    /// per producer; more than one is a contract error, never a lossy plan.
+    /// </summary>
+    static ProducerContractException DistinctClosings(
+        ProducerDeclaration producer,
+        ProducerTerminal first,
+        ProducerTerminal second) =>
+        new($"Producer '{producer.Identity}' was requested with distinct closings {first} and {second} in one plan; request each closing in its own plan.");
 
     sealed record StageSchedule(
         ImmutableArray<ProducerDeclaration> VisitOrder,
