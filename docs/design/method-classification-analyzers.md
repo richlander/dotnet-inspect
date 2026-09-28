@@ -261,16 +261,19 @@ merging, sorting, or counting logic of its own. Counts come from Count
 closings, or from the combined result's counts, never from counting rows in
 the host.
 
-Each consumer asks only for what it shows:
+Each consumer asks only for what it shows. Operator decision (2026-09-28):
+summaries and the default `--json` model collapse to counts, and lists appear
+only when their section asks for them.
 
 | Consumer | Asks for |
 | --- | --- |
-| Async Methods section | async rows, or Count for `--count` |
-| P/Invoke Methods section | P/Invoke rows, or Count for `--count` |
-| Pointer-signature method list (`UnsafeMethods`) | pointer rows |
-| Signals | Count for pointer ("public pointer signatures"); Count for P/Invoke when the metadata-wide P/Invoke count is unavailable |
-| LibraryInfo counts | Count for each analyzer |
-| Classified-method Finding | Rows of all three, merged |
+| Async Methods section | async rows in the model and display orders, or Count for `--count` |
+| P/Invoke Methods section | P/Invoke rows in the model and display orders, or Count for `--count` |
+| Pointer-signature method list (`UnsafeMethods`) | nothing: no section shows it, so the list is retired and the pointer Count stands for it |
+| Signals | Count for pointer ("public pointer signatures") and Count for P/Invoke; the P/Invoke signal prefers the metadata-wide count |
+| Library Info | Count for async, the one classification count it shows |
+| Default `--json` model dump | Count for each analyzer |
+| Classified-method Finding | nothing in the CLI: no host reads its per-method observations, and classification failures come from the typed answers |
 
 The combined request's Finding observations equal those legacy produces from
 `ClassifiedMethodsQuery`. On a critical failure, every query that was asked

@@ -11,6 +11,7 @@ using ILInspector.Decompiler;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using ClassifiedRow = ILInspector.Analysis.Classification.ClassifiedMethodRow;
 
 namespace DotnetInspect.Cli.Models;
 
@@ -439,19 +440,6 @@ public class LibraryInspection
             ref _extensionMethods,
             ProjectExtensionMethods);
 
-    private List<ClassifiedMethodSummary>? _unsafeMethods;
-
-    /// <summary>
-    /// Presentation rows for public methods with unsafe (pointer) signatures.
-    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<ClassifiedMethodSummary>? UnsafeMethods
-    {
-        get => ClassifiedMethodInspection.Failure() is null ? _unsafeMethods : null;
-        set => _unsafeMethods = value;
-    }
-
     /// <summary>
     /// Members with unsafe signature or body-level unsafe evidence.
     /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
@@ -699,66 +687,129 @@ public class LibraryInspection
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;
 
+    private string? _methodClassificationFailure;
+    private Dictionary<MethodClassificationAnalyzer, string>? _analyzerFailures;
+
+    /// <summary>
+    /// Why the method classification request as a whole failed, such as an
+    /// image that could not be acquired, or null. It withholds every
+    /// classification count and row, and shows in Inspection Failures.
+    /// </summary>
+    [JsonIgnore]
+    public string? MethodClassificationFailure
+    {
+        get => _methodClassificationFailure;
+        set
+        {
+            _methodClassificationFailure = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    /// <summary>
+    /// Records that one analyzer failed or aborted, naming it and the method.
+    /// It withholds that analyzer's counts and rows only.
+    /// </summary>
+    public void FailMethodClassification(MethodClassificationAnalyzer analyzer, string reason)
+    {
+        _analyzerFailures ??= [];
+        _analyzerFailures.TryAdd(analyzer, reason);
+        ResetFindingProjectionCaches();
+    }
+
+    /// <summary>Why <paramref name="analyzer"/> has no answer, or null when it answered.</summary>
+    public string? MethodClassificationFailureOf(MethodClassificationAnalyzer analyzer) =>
+        _methodClassificationFailure
+        ?? (_analyzerFailures is { } failures && failures.TryGetValue(analyzer, out string? reason) ? reason : null);
+
     private List<ClassifiedMethodSummary>? _pInvokeMethods;
 
     /// <summary>
-    /// Presentation rows for public P/Invoke (DllImport/LibraryImport) methods.
-    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
+    /// Public P/Invoke (DllImport/LibraryImport) methods in model order, present
+    /// only when the P/Invoke Methods section asked for its rows.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ClassifiedMethodSummary>? PInvokeMethods
     {
-        get => ClassifiedMethodInspection.Failure() is null ? _pInvokeMethods : null;
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null ? _pInvokeMethods : null;
         set => _pInvokeMethods = value;
     }
 
     private List<AsyncMethodSummary>? _asyncMethods;
 
     /// <summary>
-    /// Presentation rows for public runtime or classic state-machine async methods.
-    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
+    /// Public runtime or classic state-machine async methods in model order,
+    /// present only when the Async Methods section asked for its rows.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AsyncMethodSummary>? AsyncMethods
     {
-        get => ClassifiedMethodInspection.Failure() is null ? _asyncMethods : null;
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Async) is null ? _asyncMethods : null;
         set => _asyncMethods = value;
     }
 
-    private FindingInspection<ClassifiedMethodObservation>? _classifiedMethodInspection;
+    private ImmutableArray<ClassifiedRow> _pInvokeMethodDisplayRows;
 
+    /// <summary>The P/Invoke rows in the Markdown display order; default when not asked.</summary>
     [JsonIgnore]
-    public FindingInspection<ClassifiedMethodObservation>? ClassifiedMethodInspection
+    public ImmutableArray<ClassifiedRow> PInvokeMethodDisplayRows
     {
-        get => _classifiedMethodInspection;
-        set
-        {
-            _classifiedMethodInspection = value;
-            ResetFindingProjectionCaches();
-        }
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null ? _pInvokeMethodDisplayRows : default;
+        set => _pInvokeMethodDisplayRows = value;
     }
 
-    [JsonIgnore]
-    public int UnsafeMethodCount =>
-        CountClassifiedMethods(MethodClassification.Unsafe, _unsafeMethods?.Count ?? 0);
+    private ImmutableArray<ClassifiedRow> _asyncMethodDisplayRows;
 
+    /// <summary>The async rows in the Markdown display order; default when not asked.</summary>
     [JsonIgnore]
-    public int PInvokeMethodCount =>
-        CountClassifiedMethods(MethodClassification.PInvoke, _pInvokeMethods?.Count ?? 0);
-
-    [JsonIgnore]
-    public int AsyncMethodCount
+    public ImmutableArray<ClassifiedRow> AsyncMethodDisplayRows
     {
-        get
-        {
-            if (ClassifiedMethodInspection is null)
-                return _asyncMethods?.Count ?? 0;
-
-            return ClassifiedMethodInspection.PayloadsForRendering().Count(
-                static method => method.Classification is MethodClassification.RuntimeAsync
-                    or MethodClassification.StateMachineAsync);
-        }
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Async) is null ? _asyncMethodDisplayRows : default;
+        set => _asyncMethodDisplayRows = value;
     }
+
+    private int? _unsafeMethodCount;
+
+    /// <summary>
+    /// The number of public methods with pointer signatures, from the pointer
+    /// analyzer's Count; null when no consumer asked or the request failed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? UnsafeMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PointerSignature) is null ? _unsafeMethodCount : null;
+        set => _unsafeMethodCount = value;
+    }
+
+    private int? _pInvokeMethodCount;
+
+    /// <summary>The number of public P/Invoke methods, from the P/Invoke analyzer's Count.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? PInvokeMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null ? _pInvokeMethodCount : null;
+        set => _pInvokeMethodCount = value;
+    }
+
+    private int? _asyncMethodCount;
+
+    /// <summary>The number of public async methods, from the async analyzer's Count.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? AsyncMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Async) is null ? _asyncMethodCount : null;
+        set => _asyncMethodCount = value;
+    }
+
+    /// <summary>Whether the async analyzer found any method, by its rows or its count.</summary>
+    [JsonIgnore]
+    public bool HasAsyncMethods =>
+        AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false } || AsyncMethodCount > 0;
+
+    /// <summary>Whether the P/Invoke analyzer found any method, by its rows or its count.</summary>
+    [JsonIgnore]
+    public bool HasPInvokeMethods =>
+        PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false } || PInvokeMethodCount > 0;
 
     private FindingInspection<EcosystemIntegrationSignalInfo>? _ecosystemIntegrationInspection;
     private FindingInspection<OpenTelemetrySignalInfo>? _openTelemetryInspection;
@@ -959,7 +1010,26 @@ public class LibraryInspection
             AddFailure(failures, "Source Documents", SourceDocumentInspection);
             AddFailure(failures, "Compilation Options", CompilationOptionInspection);
             AddFailure(failures, "Compilation References", CompilationReferenceInspection);
-            AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
+            if (MethodClassificationFailure is { } classificationFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    "Classified Methods",
+                    MethodClassificationQuery.Definition.Name,
+                    classificationFailure));
+            }
+            else if (_analyzerFailures is { } analyzerFailures)
+            {
+                foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
+                {
+                    if (analyzerFailures.TryGetValue(analyzer, out string? analyzerFailure))
+                    {
+                        failures.Add(new LibraryInspectionFailureJson(
+                            "Classified Methods",
+                            MethodClassificationQuery.Definition.Name,
+                            analyzerFailure));
+                    }
+                }
+            }
             AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
             if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
             {
@@ -1362,12 +1432,6 @@ public class LibraryInspection
         _switches = null;
     }
 
-    private int CountClassifiedMethods(MethodClassification classification, int fallback)
-        => ClassifiedMethodInspection is null
-            ? fallback
-            : ClassifiedMethodInspection.PayloadsForRendering().Count(
-                method => method.Classification == classification);
-
     private List<LibraryExtensionMethodJson>? ProjectExtensionMethods()
     {
         if (_extensionMemberDisplayOrder is null)
@@ -1453,7 +1517,7 @@ public sealed record LibraryExtensionMethodJson(
     int? Overloads);
 
 /// <summary>
-/// Summary of a classified method (unsafe or P/Invoke).
+/// Summary of a public P/Invoke method.
 /// </summary>
 public record class ClassifiedMethodSummary
 {

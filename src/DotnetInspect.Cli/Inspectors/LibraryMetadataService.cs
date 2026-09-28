@@ -183,6 +183,8 @@ internal static class LibraryMetadataService
                         MetadataRoot = options.MetadataRoot,
                         BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.None,
                         Trace = trace,
+                        RequestedQueries = requiredQueries,
+                        CountOnly = options.Count,
                     };
                     await RunTypedQueriesAsync(
                         path,
@@ -323,6 +325,8 @@ internal static class LibraryMetadataService
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
                     BodyAnalysisRequest = bodyAnalysisRequest,
                     Trace = trace,
+                    RequestedQueries = requiredQueries,
+                    CountOnly = options.Count,
                 };
 
                 await RunTypedQueriesAsync(
@@ -366,11 +370,14 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         UnionTypesQuery.Execute(session));
-                    ApplyClassifiedMethodsResult(
+                    ApplyMethodClassificationResult(
                         path,
                         inspection,
                         logger,
-                        ClassifiedMethodsQuery.Execute(session));
+                        new MethodClassificationBindingResult.Available(
+                            MethodClassificationQuery.Execute(
+                                session,
+                                MethodClassificationDemand.AllQuestions)));
                 }
 
                 catch (Exception ex)
@@ -383,8 +390,7 @@ internal static class LibraryMetadataService
                                 path, MetadataFindings.ExtensionMemberDescriptor, ex),
                             displayOrder: null);
                     }
-                    inspection.ClassifiedMethodInspection ??= FailedInspection<ClassifiedMethodObservation>(
-                        path, MetadataFindings.ClassifiedMethodDescriptor, ex);
+                    inspection.MethodClassificationFailure ??= ex.Message;
                     inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
                         path, MetadataFindings.ResourceDescriptor, ex);
                     if (inspection.AssemblyAttributeInspection is null)
@@ -887,6 +893,14 @@ internal static class LibraryMetadataService
         && (OutputFormatter.ShouldRenderLibraryContext(options)
             || sectionPlan.Demands.Any(
                 static demand => demand.Section == SectionNames.LibraryInfo));
+
+    /// <summary>
+    /// Whether the request is the default <c>--json</c> model dump, with no
+    /// section selected. It shows every method classification count.
+    /// </summary>
+    internal static bool WritesDefaultModelDump(LibraryOptions options) =>
+        WritesLegacyModelDump(options)
+        && options.IncludeSections is not { Count: > 0 };
 
     /// <summary>
     /// Whether the request's output is the legacy <c>LibraryInspection</c> JSON
@@ -2258,11 +2272,14 @@ internal static class LibraryMetadataService
             ApplyAssemblyReferencesResult(path, inspection, logger, references);
         }
 
-        if (results.TryGet(
-                ClassifiedMethodsQuery.Definition,
-                out ClassifiedMethodsResult? classifiedMethods))
+        // Every requested classification consumer reads the one shared request.
+        foreach (InspectionQuery<MethodClassificationBindingResult> demand in MethodClassificationDemand.All)
         {
-            ApplyClassifiedMethodsResult(path, inspection, logger, classifiedMethods);
+            if (results.TryGet(demand, out MethodClassificationBindingResult? methodClassification))
+            {
+                ApplyMethodClassificationResult(path, inspection, logger, methodClassification);
+                break;
+            }
         }
 
         if (results.TryGet(
@@ -2820,86 +2837,117 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyClassifiedMethodsResult(
+    /// <summary>
+    /// Maps each classification answer into the model. The query owns every
+    /// count and order; this binding filters, sorts, merges, and counts nothing.
+    /// </summary>
+    internal static void ApplyMethodClassificationResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        ClassifiedMethodsResult result)
+        MethodClassificationBindingResult result)
     {
         switch (result)
         {
-            case ClassifiedMethodsResult.Available available:
-                inspection.ClassifiedMethodInspection =
-                    MetadataFindings.InspectClassifiedMethods(
-                        available.Methods,
-                        FindingSubjectFor(path));
-
-                var unsafeMethods = available.Methods
-                    .Where(m => m.Classification == MethodClassification.Unsafe)
-                    .Select(m => new ClassifiedMethodSummary
-                    {
-                        MethodName = m.MethodName,
-                        DeclaringType = m.DeclaringType,
-                        Signature = m.Signature
-                    })
-                    .OrderBy(m => m.DeclaringType)
-                    .ThenBy(m => m.MethodName)
-                    .ToList();
-
-                var pinvokeMethods = available.Methods
-                    .Where(m => m.Classification == MethodClassification.PInvoke)
-                    .Select(m => new ClassifiedMethodSummary
-                    {
-                        MethodName = m.MethodName,
-                        DeclaringType = m.DeclaringType,
-                        Signature = m.Signature,
-                        ModuleName = m.ModuleName
-                    })
-                    .OrderBy(m => m.DeclaringType)
-                    .ThenBy(m => m.MethodName)
-                    .ToList();
-
-                var asyncMethods = available.Methods
-                    .Where(m => m.Classification is MethodClassification.RuntimeAsync
-                                                 or MethodClassification.StateMachineAsync)
-                    .Select(m => new AsyncMethodSummary
-                    {
-                        MethodName = m.MethodName,
-                        DeclaringType = m.DeclaringType,
-                        Signature = m.Signature,
-                        Kind = m.Classification == MethodClassification.RuntimeAsync
-                            ? AsyncMethodSummary.RuntimeKind
-                            : AsyncMethodSummary.StateMachineKind
-                    })
-                    .OrderBy(m => m.Kind, StringComparer.Ordinal)
-                    .ThenBy(m => m.DeclaringType)
-                    .ThenBy(m => m.MethodName)
-                    .ToList();
-
-                inspection.UnsafeMethods =
-                    unsafeMethods.Count > 0 ? unsafeMethods : null;
-                inspection.PInvokeMethods =
-                    pinvokeMethods.Count > 0 ? pinvokeMethods : null;
-                inspection.AsyncMethods =
-                    asyncMethods.Count > 0 ? asyncMethods : null;
+            case MethodClassificationBindingResult.Available available:
+                foreach ((ClassificationQuestion question, ClassificationAnswer answer) in available.Result.Answers)
+                    ApplyClassificationAnswer(path, inspection, logger, question, answer);
                 break;
 
-            case ClassifiedMethodsResult.Failed failed:
+            case MethodClassificationBindingResult.Failed failed:
                 logger.LogWarning(
-                    $"Error scanning classified methods in {path}: {failed.Error.Message}");
-                inspection.ClassifiedMethodInspection =
-                    FailedInspection<ClassifiedMethodObservation>(
-                        path,
-                        MetadataFindings.ClassifiedMethodDescriptor,
-                        failed.Error);
-                inspection.UnsafeMethods = null;
-                inspection.PInvokeMethods = null;
-                inspection.AsyncMethods = null;
+                    $"Error classifying methods in {path}: {failed.Error.Message}");
+                inspection.MethodClassificationFailure = failed.Error.Message;
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    $"Unknown classified-methods result '{result.GetType().Name}'.");
+                    $"Unknown method classification result '{result.GetType().Name}'.");
+        }
+    }
+
+    static void ApplyClassificationAnswer(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ClassificationQuestion question,
+        ClassificationAnswer answer)
+    {
+        switch (answer)
+        {
+            case ClassificationAnswer.Count count:
+                switch (question.Analyzer)
+                {
+                    case MethodClassificationAnalyzer.PInvoke:
+                        inspection.PInvokeMethodCount = count.Value;
+                        break;
+                    case MethodClassificationAnalyzer.Async:
+                        inspection.AsyncMethodCount = count.Value;
+                        break;
+                    default:
+                        inspection.UnsafeMethodCount = count.Value;
+                        break;
+                }
+
+                break;
+
+            case ClassificationAnswer.Rows rows:
+                switch ((question.Analyzer, question.Order))
+                {
+                    case (MethodClassificationAnalyzer.PInvoke, ClassifiedRowOrder.Display):
+                        inspection.PInvokeMethodDisplayRows = rows.Methods;
+                        break;
+                    case (MethodClassificationAnalyzer.PInvoke, _):
+                        inspection.PInvokeMethods =
+                        [
+                            .. rows.Methods.Select(static row => new ClassifiedMethodSummary
+                            {
+                                MethodName = row.MethodName.ToString(),
+                                DeclaringType = row.DeclaringType.ToString(),
+                                Signature = row.Signature.ToString(),
+                                ModuleName = row.ModuleName?.ToString(),
+                            }),
+                        ];
+                        break;
+                    case (MethodClassificationAnalyzer.Async, ClassifiedRowOrder.Display):
+                        inspection.AsyncMethodDisplayRows = rows.Methods;
+                        break;
+                    case (MethodClassificationAnalyzer.Async, _):
+                        inspection.AsyncMethods =
+                        [
+                            .. rows.Methods.Select(static row => new AsyncMethodSummary
+                            {
+                                MethodName = row.MethodName.ToString(),
+                                DeclaringType = row.DeclaringType.ToString(),
+                                Signature = row.Signature.ToString(),
+                                Kind = row.Classification == MethodClassification.RuntimeAsync
+                                    ? AsyncMethodSummary.RuntimeKind
+                                    : AsyncMethodSummary.StateMachineKind,
+                            }),
+                        ];
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No consumer asks for {question.Analyzer} rows.");
+                }
+
+                break;
+
+            case ClassificationAnswer.Failed failed:
+                string reason = $"{question.Analyzer} analyzer failed at {failed.Failure.Unit}: {failed.Failure.Message}";
+                logger.LogWarning($"Error classifying methods in {path}: {reason}");
+                inspection.FailMethodClassification(question.Analyzer, reason);
+                break;
+
+            case ClassificationAnswer.Aborted aborted:
+                string critical = $"{question.Analyzer} analyzer aborted at {aborted.Critical.Unit}: {aborted.Critical.Budget}.";
+                logger.LogWarning($"Error classifying methods in {path}: {critical}");
+                inspection.FailMethodClassification(question.Analyzer, critical);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"No consumer asks the {question.Closing} closing.");
         }
     }
 

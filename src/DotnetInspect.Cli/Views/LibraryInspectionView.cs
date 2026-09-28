@@ -132,20 +132,14 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
-    public bool HasAsyncMethods => _data.AsyncMethodCount > 0;
+    public bool HasAsyncMethods => _data.AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false };
 
+    /// <summary>The async rows as the query returned them, in display order.</summary>
     [MarkoutSection(Name = "Async Methods", ShowWhenProperty = nameof(HasAsyncMethods))]
     public List<AsyncMethodRow>? AsyncMethodsSection =>
-        _data.AsyncMethods?
-            .OrderBy(m => m.DeclaringType, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.MethodName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new AsyncMethodRow(
-                m.MethodName,
-                MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType),
-                m.Kind,
-                m.Signature))
-            .ToList();
+        _data.AsyncMethodDisplayRows.IsDefault
+            ? null
+            : [.. _data.AsyncMethodDisplayRows.Select(AsyncMethodRow.Create)];
 
     [MarkoutIgnore]
     public bool HasCustomAttributes => _data.AssemblyAttributeInspection.HasFindings();
@@ -194,7 +188,7 @@ public class LibraryInspectionView
     {
         Architecture = fields.Architecture,
         AssemblyVersion = fields.AssemblyVersion,
-        AsyncMethods = _data.AsyncMethodCount,
+        AsyncMethods = _data.AsyncMethodCount ?? 0,
         Company = fields.Company,
         Compilation = fields.Compilation,
         Copyright = fields.Copyright,
@@ -381,21 +375,14 @@ public class LibraryInspectionView
     }
 
     [MarkoutIgnore]
-    public bool HasPInvokeMethods => _data.PInvokeMethodCount > 0;
+    public bool HasPInvokeMethods => _data.PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false };
 
+    /// <summary>The P/Invoke rows as the query returned them, in display order.</summary>
     [MarkoutSection(Name = "P/Invoke Methods", ShowWhenProperty = nameof(HasPInvokeMethods))]
     public List<PInvokeMethodRow>? PInvokeMethodsSection =>
-        _data.PInvokeMethods?
-            .OrderBy(m => m.DeclaringType, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.MethodName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.ModuleName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new PInvokeMethodRow(
-                m.MethodName,
-                MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType),
-                m.ModuleName ?? "",
-                m.Signature))
-            .ToList();
+        _data.PInvokeMethodDisplayRows.IsDefault
+            ? null
+            : [.. _data.PInvokeMethodDisplayRows.Select(PInvokeMethodRow.Create)];
 
     [MarkoutIgnore]
     public bool HasResources => _data.ResourceInspection.HasFindings();
@@ -1563,59 +1550,89 @@ public record ClassifiedMethodRow(
     public string Signature => SignatureText.ToString();
 }
 
+/// <summary>
+/// A P/Invoke Methods row. The classified row's identity text is already
+/// field-safe (<see cref="InertString"/> from the method-row gate), so the row
+/// only lays it out and never encodes it again.
+/// Gate: LibraryFindingConsumerTests.ClassifiedRows_AreInertOnceAtTheGate.
+/// </summary>
 [MarkoutSerializable]
 public record PInvokeMethodRow(
-    string Name,
-    string DeclaringType,
-    string Module,
-    string Signature)
+    InertString NameText,
+    InertString DeclaringTypeText,
+    InertString ModuleText,
+    InertString SignatureText)
 {
-    /// <summary>
-    /// Crosses exact classified-method evidence into field-safe presentation text.
-    /// Gate: LibraryFindingConsumerTests.ClassifiedMethodsQueryProjection_PreservesIdentityUntilInertViewBoundary.
-    /// </summary>
-    public string Name { get; init; } =
-        new InertString(TextPolicy.Field, Name).ToString();
+    public static PInvokeMethodRow Create(ILInspector.Analysis.Classification.ClassifiedMethodRow row) =>
+        new(
+            row.MethodName,
+            FormatDeclaringType(row.DeclaringType),
+            row.ModuleName ?? InertString.Empty,
+            row.Signature);
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString NameText { get; init; } = NameText;
+
+    public string Name => NameText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DeclaringTypeText { get; init; } = DeclaringTypeText;
 
     [MarkoutPropertyName("Declaring Type")]
-    public string DeclaringType { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, DeclaringType).ToString());
+    public string DeclaringType => MarkoutInline.Code(DeclaringTypeText.ToString());
 
-    /// <inheritdoc cref="Name"/>
-    public string Module { get; init; } =
-        new InertString(TextPolicy.Field, Module).ToString();
+    [MarkoutIgnore, JsonIgnore]
+    public InertString ModuleText { get; init; } = ModuleText;
 
-    /// <inheritdoc cref="Name"/>
-    public string Signature { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, Signature).ToString());
+    public string Module => ModuleText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SignatureText { get; init; } = SignatureText;
+
+    public string Signature => MarkoutInline.Code(SignatureText.ToString());
+
+    /// <summary>Spells generic arity as type parameters, keeping the text field-safe.</summary>
+    internal static InertString FormatDeclaringType(InertString declaringType) =>
+        InertString.FromEncoded(
+            TextPolicy.Field,
+            MetadataTypeNameFormatter.FormatGenericTypeName(declaringType.ToString()));
 }
 
+/// <inheritdoc cref="PInvokeMethodRow"/>
 [MarkoutSerializable]
 public record AsyncMethodRow(
-    string Name,
-    string DeclaringType,
+    InertString NameText,
+    InertString DeclaringTypeText,
     string Kind,
-    string Signature)
+    InertString SignatureText)
 {
-    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
-    public string Name { get; init; } =
-        new InertString(TextPolicy.Field, Name).ToString();
+    public static AsyncMethodRow Create(ILInspector.Analysis.Classification.ClassifiedMethodRow row) =>
+        new(
+            row.MethodName,
+            PInvokeMethodRow.FormatDeclaringType(row.DeclaringType),
+            row.Classification == MethodClassification.RuntimeAsync
+                ? AsyncMethodSummary.RuntimeKind
+                : AsyncMethodSummary.StateMachineKind,
+            row.Signature);
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString NameText { get; init; } = NameText;
+
+    public string Name => NameText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DeclaringTypeText { get; init; } = DeclaringTypeText;
 
     [MarkoutPropertyName("Declaring Type")]
-    public string DeclaringType { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, DeclaringType).ToString());
+    public string DeclaringType => MarkoutInline.Code(DeclaringTypeText.ToString());
 
-    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
-    public string Kind { get; init; } =
-        new InertString(TextPolicy.Field, Kind).ToString();
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
 
-    /// <inheritdoc cref="PInvokeMethodRow.Name"/>
-    public string Signature { get; init; } =
-        MarkoutInline.Code(
-            new InertString(TextPolicy.Field, Signature).ToString());
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SignatureText { get; init; } = SignatureText;
+
+    public string Signature => MarkoutInline.Code(SignatureText.ToString());
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]

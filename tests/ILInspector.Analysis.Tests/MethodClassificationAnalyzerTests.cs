@@ -1,3 +1,4 @@
+using ILInspector.Metadata.LegacyOracles;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -42,7 +43,7 @@ public sealed class MethodClassificationAnalyzerTests
         Assert.Equal("native.dll", Assert.Single(pinvoke).ModuleName?.ToString());
 
         using var peReader = new PEReader(image);
-        List<ClassifiedMethodInfo> legacy = MethodClassificationScanner.Scan(peReader);
+        List<ClassifiedMethodInfo> legacy = LegacyMethodClassificationScanner.Scan(peReader);
         Assert.Equal(
             legacy.Select(static row => (row.MethodName, row.Classification)),
             pinvoke.Concat(async).Concat(pointer)
@@ -79,7 +80,7 @@ public sealed class MethodClassificationAnalyzerTests
         ClassifiedMethodRow row = Assert.Single(result.Value!.Rows);
 
         using var peReader = new PEReader(image);
-        ClassifiedMethodInfo legacy = Assert.Single(MethodClassificationScanner.Scan(peReader));
+        ClassifiedMethodInfo legacy = Assert.Single(LegacyMethodClassificationScanner.Scan(peReader));
         Assert.Equal(legacy.Signature, row.Signature.ToString());
         Assert.Equal("M(...)", row.Signature.ToString());
         Assert.Null(row.Anchor);

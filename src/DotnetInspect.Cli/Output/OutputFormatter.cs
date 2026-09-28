@@ -1346,9 +1346,47 @@ public static class OutputFormatter
                 SectionNames.ReferenceHierarchy,
                 count);
         }
+        ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
+    }
+
+    /// <summary>
+    /// Under <c>--count</c> the Async Methods and P/Invoke Methods sections ask
+    /// their analyzer for a Count, not rows, so the windowed count comes from
+    /// that answer.
+    /// </summary>
+    private static void ApplyClassificationCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
+    {
+        if (includedSections is null)
+            return;
+
+        if (includedSections.Contains(SectionNames.AsyncMethods)
+            && inspection.AsyncMethodDisplayRows.IsDefault
+            && inspection.AsyncMethodCount is int asyncCount)
+        {
+            projection.SetRows(SectionNames.AsyncMethods, WindowedCount(asyncCount, rows));
+        }
+
+        if (includedSections.Contains(SectionNames.PInvokeMethods)
+            && inspection.PInvokeMethodDisplayRows.IsDefault
+            && inspection.PInvokeMethodCount is int pInvokeCount)
+        {
+            projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
+        }
+
+        static int WindowedCount(int count, RowWindow? rows)
+        {
+            if (rows is not { IsUnlimited: false } window)
+                return count;
+            (int keepStart, int keepEnd) = window.Resolve(count);
+            return keepEnd - keepStart;
+        }
     }
 
     private static void ApplyILCoordinateCardinality(

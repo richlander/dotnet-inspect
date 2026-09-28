@@ -130,9 +130,9 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
             ],
@@ -167,9 +167,9 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
             ],
@@ -204,9 +204,9 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
             ],
@@ -241,9 +241,9 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
+                MethodClassificationDemand.LibraryInfo,
                 ResourcesQuery.Definition,
                 TypeForwardersQuery.Definition,
             ],
@@ -528,24 +528,11 @@ public partial class SectionPipelineTests
         Assert.Equal("Union Types", Assert.Single(model.InspectionFailures!).Section);
     }
 
-    [Fact]
-    public void ClassifiedMethodsQuery_ReturnsMetadataOrderedMethodsFromBorrowedContent()
-    {
-        using var session = AssemblyInspectionSession.Open(
-            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
-
-        var result = Assert.IsType<ClassifiedMethodsResult.Available>(
-            ClassifiedMethodsQuery.Execute(session));
-
-        Assert.Contains(
-            result.Methods,
-            method => method.MethodName == "PointerNoneMethod"
-                && method.Classification == MethodClassification.Unsafe);
-        Assert.Equal(session.ClassifiedMethods(), result.Methods);
-    }
+    static readonly ClassificationQuestion PointerCount =
+        new(MethodClassificationAnalyzer.PointerSignature, ClassificationClosing.Count);
 
     [Fact]
-    public void ClassifiedMethodsQuery_UsesTheCommandsOpenImage()
+    public void MethodClassificationDemand_UsesTheCommandsOpenImage()
     {
         string missingPath = Path.Combine(
             Path.GetTempPath(),
@@ -561,19 +548,80 @@ public partial class SectionPipelineTests
         };
 
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.ModelCounts],
             context);
-        var methods = Assert.IsType<ClassifiedMethodsResult.Available>(
-            results.Get(ClassifiedMethodsQuery.Definition));
+        var available = Assert.IsType<MethodClassificationBindingResult.Available>(
+            results.Get(MethodClassificationDemand.ModelCounts));
 
-        Assert.Contains(
-            methods.Methods,
-            method => method.MethodName == "PointerNoneMethod");
+        var count = Assert.IsType<ClassificationAnswer.Count>(available.Result.AnswerTo(PointerCount));
+        Assert.True(count.Value > 0);
         Assert.Equal(1, context.SharedQueryCount);
     }
 
     [Fact]
-    public void ClassifiedMethodsQuery_OpenFailureRemainsTyped()
+    public void MethodClassificationDemand_RequestedConsumersShareOneRequest()
+    {
+        using var metadataContext = PdbContext.Open(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        InspectionQueryDefinition[] requested =
+        [
+            MethodClassificationDemand.LibraryInfo,
+            MethodClassificationDemand.Signals,
+            MethodClassificationDemand.AsyncMethods,
+        ];
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+            RequestedQueries = requested,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(requested, context);
+
+        MethodClassificationBindingResult shared = results.Get(MethodClassificationDemand.LibraryInfo);
+        Assert.Same(shared, results.Get(MethodClassificationDemand.Signals));
+        Assert.Same(shared, results.Get(MethodClassificationDemand.AsyncMethods));
+        var available = Assert.IsType<MethodClassificationBindingResult.Available>(shared);
+        // Async Count (Library Info) and async Rows (the section) are separate closings.
+        Assert.Equal(
+            [ClassificationClosing.Rows, ClassificationClosing.Count],
+            available.Result.Receipts.Keys.Order());
+        Assert.False(available.Result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+        Assert.Equal(1, context.SharedQueryCount);
+    }
+
+    [Fact]
+    public void MethodClassificationDemand_SectionAsksForCountUnderCount()
+    {
+        using var metadataContext = PdbContext.Open(
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath());
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath = FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+            RequestedQueries = [MethodClassificationDemand.AsyncMethods],
+            CountOnly = true,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [MethodClassificationDemand.AsyncMethods],
+            context);
+        var available = Assert.IsType<MethodClassificationBindingResult.Available>(
+            results.Get(MethodClassificationDemand.AsyncMethods));
+
+        (ClassificationQuestion question, ClassificationAnswer answer) = Assert.Single(available.Result.Answers);
+        Assert.Equal(ClassificationClosing.Count, question.Closing);
+        Assert.True(Assert.IsType<ClassificationAnswer.Count>(answer).Value > 0);
+        Assert.Equal([ClassificationClosing.Count], available.Result.Receipts.Keys);
+        Assert.False(available.Result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+    }
+
+    [Fact]
+    public void MethodClassificationDemand_OpenFailureRemainsTyped()
     {
         string missingPath = Path.Combine(
             Path.GetTempPath(),
@@ -586,42 +634,27 @@ public partial class SectionPipelineTests
         };
 
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.ModelCounts],
             context);
-        var failure = Assert.IsType<ClassifiedMethodsResult.Failed>(
-            results.Get(ClassifiedMethodsQuery.Definition));
+        var failure = Assert.IsType<MethodClassificationBindingResult.Failed>(
+            results.Get(MethodClassificationDemand.ModelCounts));
 
         Assert.IsType<FileNotFoundException>(failure.Error);
         Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
-    public void ClassifiedMethodsQuery_DisposedBorrowedSessionRemainsTyped()
-    {
-        using var lender = PdbContext.Open(
-            typeof(SampleUnsafeClass).Assembly.Location);
-        var session = AssemblyInspectionSession.Borrow(lender);
-        session.Dispose();
-
-        var failure = Assert.IsType<ClassifiedMethodsResult.Failed>(
-            ClassifiedMethodsQuery.Execute(session));
-
-        Assert.IsType<ObjectDisposedException>(failure.Error);
-    }
-
-    [Fact]
-    public void ClassifiedMethodsQuery_RetainedImageFailureDoesNotReopenPath()
+    public void MethodClassificationDemand_RetainedImageFailureDoesNotReopenPath()
     {
         using var metadataContext = PdbContext.Open(
             typeof(LibraryInspection).Assembly.Location);
         string reopenCanary = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
         {
-            var canary = Assert.IsType<ClassifiedMethodsResult.Available>(
-                ClassifiedMethodsQuery.Execute(canarySession));
-            Assert.Contains(
-                canary.Methods,
-                method => method.MethodName == "PointerNoneMethod");
+            MethodClassificationResult canary = MethodClassificationQuery.Execute(
+                canarySession,
+                [PointerCount]);
+            Assert.True(Assert.IsType<ClassificationAnswer.Count>(canary.AnswerTo(PointerCount)).Value > 0);
         }
 
         using var context = new InspectionQueryContext
@@ -634,35 +667,35 @@ public partial class SectionPipelineTests
         metadataContext.Dispose();
 
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.ModelCounts],
             context);
-        var failure = Assert.IsType<ClassifiedMethodsResult.Failed>(
-            results.Get(ClassifiedMethodsQuery.Definition));
+        var failure = Assert.IsType<MethodClassificationBindingResult.Failed>(
+            results.Get(MethodClassificationDemand.ModelCounts));
 
         Assert.IsType<ObjectDisposedException>(failure.Error);
         Assert.Equal(0, context.SharedQueryCount);
     }
 
     [Fact]
-    public void ClassifiedMethodsQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    public void MethodClassificationDemand_FailureRemainsTypedAndIsReported()
     {
-        var session = AssemblyInspectionSession.Open(
-            typeof(SectionPipelineTests).Assembly.Location);
-        session.Dispose();
-        var model = new LibraryInspection();
+        var model = new LibraryInspection
+        {
+            AsyncMethods = [new AsyncMethodSummary { MethodName = "A" }],
+            PInvokeMethods = [new ClassifiedMethodSummary { MethodName = "P" }],
+            AsyncMethodCount = 1,
+        };
 
-        var result = Assert.IsType<ClassifiedMethodsResult.Failed>(
-            ClassifiedMethodsQuery.Execute(session));
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             "disposed.dll",
             model,
             new Output.VerboseLogger(false),
-            result);
+            new MethodClassificationBindingResult.Failed(new ObjectDisposedException("image")));
 
-        Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
-            model.ClassifiedMethodInspection!.Value);
+        Assert.NotNull(model.MethodClassificationFailure);
         Assert.Null(model.PInvokeMethods);
         Assert.Null(model.AsyncMethods);
+        Assert.Null(model.AsyncMethodCount);
         Assert.Equal("Classified Methods", Assert.Single(model.InspectionFailures!).Section);
     }
 

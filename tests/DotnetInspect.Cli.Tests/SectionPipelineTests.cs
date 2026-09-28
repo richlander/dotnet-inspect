@@ -306,14 +306,14 @@ public partial class SectionPipelineTests
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.ModelCounts,
             ],
             context);
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             context.AssemblyPath,
             context.Model,
             context.Logger,
-            results.Get(ClassifiedMethodsQuery.Definition));
+            results.Get(MethodClassificationDemand.ModelCounts));
         LibraryMetadataService.ApplyAuditMetadataResult(
             context.AssemblyPath,
             context.Model,
@@ -323,7 +323,7 @@ public partial class SectionPipelineTests
 
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
-        $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
+        $"classified={model.UnsafeMethodCount},{model.PInvokeMethodCount},{model.AsyncMethodCount}",
         AuditSignatureOf(model));
 
     private static string AuditSignatureOf(LibraryInspection model) =>

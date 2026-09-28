@@ -384,11 +384,17 @@ internal static class AuditSignalBuilder
                 ? null
                 : new SignalValue(FormatBool(context.Metadata.HasDisableRuntimeMarshalling), "DisableRuntimeMarshallingAttribute");
 
+        // Counts come from the analyzers' Count closings; a failed request has
+        // no count, and its failure shows in Inspection Failures.
         private static SignalValue? ResolveMemorySafetyUnsafePublicSignatures(in LibrarySignalContext context) =>
-            new(FormatCount(context.Inspection.UnsafeMethodCount), "public pointer signatures");
+            context.Inspection.UnsafeMethodCount is { } count
+                ? new(FormatCount(count), "public pointer signatures")
+                : null;
 
         private static SignalValue? ResolveInteropPInvokeMethods(in LibrarySignalContext context) =>
-            new(FormatCount(context.PInvokeMethodCount ?? context.Inspection.PInvokeMethodCount), "all PInvokeImpl metadata");
+            (context.PInvokeMethodCount ?? context.Inspection.PInvokeMethodCount) is { } count
+                ? new(FormatCount(count), "all PInvokeImpl metadata")
+                : null;
     }
 
     private static class PackageSignalRows

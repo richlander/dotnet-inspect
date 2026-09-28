@@ -998,7 +998,6 @@ public sealed class MetadataAdmissionCleanupTests
             stream => _ = ResourceScanner.ExtractAll(
                 stream,
                 Path.GetTempPath()),
-            stream => _ = MethodClassificationScanner.Scan(stream),
             stream => _ = ExtensionMethodScanner.FindAllExtensions(
                 stream).ToList(),
             stream => _ = ExtensionMethodScanner.FindExtensions(
@@ -1019,7 +1018,6 @@ public sealed class MetadataAdmissionCleanupTests
             stream => Assert.Empty(ResourceScanner.ExtractAll(
                 stream,
                 Path.GetTempPath())),
-            stream => Assert.Empty(MethodClassificationScanner.Scan(stream)),
             stream => Assert.Empty(
                 ExtensionMethodScanner.FindAllExtensions(stream)),
             stream => Assert.Empty(

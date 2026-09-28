@@ -1,3 +1,4 @@
+using ILInspector.Metadata.LegacyOracles;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -14,7 +15,7 @@ namespace DotnetInspector.Queries.Tests;
 /// <summary>
 /// Release gates for the host-neutral method classification queries
 /// (docs/design/method-classification-analyzers.md#queries-and-demand):
-/// equivalence with <see cref="MethodClassificationScanner.Scan(PEReader)"/>
+/// equivalence with <see cref="LegacyMethodClassificationScanner.Scan(PEReader)"/>
 /// on every repository fixture assembly and on real platform assemblies,
 /// row orders, closings, and combined requests.
 /// </summary>
@@ -99,7 +100,7 @@ public sealed class MethodClassificationQueryTests
         List<ClassifiedMethodInfo> legacy;
         try
         {
-            legacy = MethodClassificationScanner.Scan(legacyReader);
+            legacy = LegacyMethodClassificationScanner.Scan(legacyReader);
         }
         catch (BadImageFormatException)
         {
@@ -153,7 +154,7 @@ public sealed class MethodClassificationQueryTests
         {
             try
             {
-                legacy = MethodClassificationScanner.Scan(legacyReader);
+                legacy = LegacyMethodClassificationScanner.Scan(legacyReader);
             }
             catch (BadImageFormatException)
             {
@@ -215,7 +216,7 @@ public sealed class MethodClassificationQueryTests
     {
         string path = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var legacyReader = new PEReader(File.OpenRead(path));
-        List<ClassifiedMethodInfo> legacy = MethodClassificationScanner.Scan(legacyReader);
+        List<ClassifiedMethodInfo> legacy = LegacyMethodClassificationScanner.Scan(legacyReader);
         ClassificationQuestion[] signals =
         [
             new(MethodClassificationAnalyzer.PointerSignature, ClassificationClosing.Count),
@@ -335,7 +336,7 @@ public sealed class MethodClassificationQueryTests
         using (var legacyReader = new PEReader(File.OpenRead(path)))
         {
             Assert.Contains(
-                MethodClassificationScanner.Scan(legacyReader),
+                LegacyMethodClassificationScanner.Scan(legacyReader),
                 static row => row.MethodName == "Analyze"
                     && row.DeclaringType == "System.AsyncAttributeSpoofer"
                     && row.Classification == MethodClassification.StateMachineAsync);
@@ -388,7 +389,7 @@ public sealed class MethodClassificationQueryTests
     {
         byte[] image = MetadataMethodPtrFixture.BuildPointerMethods(2, 1);
         using var legacyReader = new PEReader(ImmutableArray.Create(image));
-        List<ClassifiedMethodInfo> legacy = MethodClassificationScanner.Scan(legacyReader);
+        List<ClassifiedMethodInfo> legacy = LegacyMethodClassificationScanner.Scan(legacyReader);
         Assert.True(legacy.Count >= 2, $"The reordered fixture yields {legacy.Count} legacy rows.");
 
         using var peReader = new PEReader(ImmutableArray.Create(image));

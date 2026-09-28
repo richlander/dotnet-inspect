@@ -1,3 +1,4 @@
+using ILInspector.Metadata.LegacyOracles;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -294,7 +295,7 @@ public sealed class MethodRowGateTests
         ImmutableArray<byte> image = builder.Build();
 
         using var peReader = new PEReader(image);
-        HashSet<string> legacy = MethodClassificationScanner.Scan(peReader)
+        HashSet<string> legacy = LegacyMethodClassificationScanner.Scan(peReader)
             .Where(static row => row.Classification == MethodClassification.Unsafe)
             .Select(static row => row.MethodName)
             .ToHashSet();

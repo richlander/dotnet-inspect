@@ -302,6 +302,8 @@ public partial class PackageCommand
                     "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
+        if (LibraryMetadataService.WritesDefaultModelDump(libraryOptions))
+            commandQueryDemand.Add(LibraryCommand.ModelDumpCountsDemand);
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(commandDemand: commandQueryDemand);
         bool readLibraryDocument =
