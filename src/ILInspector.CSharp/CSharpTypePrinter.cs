@@ -433,16 +433,6 @@ public sealed class CSharpTypePrinter
                 policy,
                 request.PrimaryConstructorParameters.Count,
                 parameterName);
-            if (CSharpExplicitAccessorMembers.TryGetExplicitAccessorName(
-                    snapshot,
-                    out string? explicitAccessorName))
-            {
-                CSharpExplicitAccessorMembers.ApplyExplicitShape(
-                    snapshot,
-                    explicitAccessorName,
-                    type.Namespace,
-                    namespaces: null);
-            }
             members.Add(new PreparedMember(snapshot, policy.BodyPolicy, policy.Body));
         }
 
