@@ -367,6 +367,7 @@ function harness() {
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
+    memberGroupDocumentLoading: false, memberGroupDocumentKey: "",
     memberSource: { status: "idle" } as SourceResultState,
     typeSource: { status: "idle" } as SourceResultState,
     typeMetadataGeneration: 0,
@@ -963,6 +964,8 @@ test("capture settles a loading document viewer without claiming ready content",
   };
   h.state.docViewer = { status: "loading", request };
   h.state.memberSource = { status: "loading", signature: "member" };
+  h.state.memberGroupDocumentLoading = true;
+  h.state.memberGroupDocumentKey = "member-group";
   h.state.typeSource = {
     status: "failed",
     signature: "type",
@@ -979,6 +982,8 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.ok(snapshotState !== null && typeof snapshotState === "object"
     && "docViewer" in snapshotState
     && "memberSource" in snapshotState
+    && "memberGroupDocumentLoading" in snapshotState
+    && "memberGroupDocumentKey" in snapshotState
     && "typeSource" in snapshotState);
 
   assert.deepEqual(snapshotState.docViewer, {
@@ -987,11 +992,15 @@ test("capture settles a loading document viewer without claiming ready content",
     error: "",
   });
   assert.deepEqual(snapshotState.memberSource, { status: "idle" });
+  assert.equal(snapshotState.memberGroupDocumentLoading, false);
+  assert.equal(snapshotState.memberGroupDocumentKey, "");
   assert.deepEqual(snapshotState.typeSource, h.state.typeSource);
   assert.equal(h.state.docViewer.status, "loading");
   assert.deepEqual(
     h.state.memberSource,
     { status: "loading", signature: "member" });
+  assert.equal(h.state.memberGroupDocumentLoading, true);
+  assert.equal(h.state.memberGroupDocumentKey, "member-group");
 });
 
 test("capture settles Spotlight package loading to cache or idle", () => {

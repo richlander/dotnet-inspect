@@ -272,6 +272,9 @@ test("graph-only members open through the typed member surface", () => {
   const openMember =
     appSource.match(/function openMemberGroup\([\s\S]*?\n}(?=\n\nfunction enterMemberScope)/)?.[0]
     ?? "";
+  const applyMemberSection =
+    appSource.match(/function applyMemberSection\([\s\S]*?\n}(?=\n\n\/\/ Flattened)/)?.[0]
+    ?? "";
   assert.match(
     binding,
     /navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)/);
@@ -279,6 +282,12 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     openMember,
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+  assert.match(
+    applyMemberSection,
+    /member\s*&& id !== "overview"\s*&& state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex = 0/);
+  assert.doesNotMatch(
+    applyMemberSection,
+    /member\.overloads\.length > 1/);
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /\$requireManagedExports\(\)\["DotnetInspect"\]\["Web"\]\["Interop"\]\["Metadata"\]\["MetadataExports"\]\["QueryGraphMemberSurface\.-?\d+"\]/);
@@ -913,6 +922,89 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /function renderMember\(type: AppTypeSurface, member: AppMemberGroup\) \{[\s\S]*?const selectedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?const hasSelectedOverload =[\s\S]*?selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? selectedOverloadIndex \?\? 0 : 0;/);
 });
 
+test("member family re-entry leaves exact ordinary methods for the shared document", () => {
+  const selection =
+    appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
+    ?? "";
+  assert.match(
+    selection,
+    /ordinaryMethodGroup\(entry\.group\)/);
+  assert.match(
+    selection,
+    /ordinaryMethodGroup[\s\S]*state\.memberSection = "overview";[\s\S]*openMemberGroup\(entry\.group\.key\)/);
+
+  const openMemberGroup =
+    appSource.match(/function openMemberGroup\([\s\S]*?\n}\n\nfunction enterMemberScope/)?.[0]
+    ?? "";
+  assert.match(
+    openMemberGroup,
+    /const methodGroup = ordinaryMethodGroup\(group\)/);
+  assert.match(
+    openMemberGroup,
+    /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+});
+
+test("restored ordinary families load the shared document", () => {
+  const overview =
+    appSource.match(/function loadSelectedMemberOverview\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    overview,
+    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+
+  const applyView =
+    appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
+    ?? "";
+  assert.match(
+    applyView,
+    /state\.selectedMemberKey && member\) \{\s*loadMemberSectionContent\(state\.memberSection\)/);
+
+  const spotlight =
+    appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
+    ?? "";
+  assert.match(spotlight, /await loadSelectedMemberOverview\(\)/);
+
+  const drillOut =
+    appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
+    ?? "";
+  assert.match(
+    drillOut,
+    /ordinaryMethodGroup\(member\)[\s\S]*state\.selectedOverloadIndex != null[\s\S]*state\.selectedOverloadIndex = null;\s*state\.memberSection = "overview";\s*clearMemberContentCache\(\);\s*loadMemberSectionContent\(state\.memberSection\)/);
+  assert.doesNotMatch(drillOut, /resetMemberSectionState\(\)/);
+
+  const drillIn =
+    appSource.match(/function drillIn\(\)[\s\S]*?\n}\n\nfunction drillOut/)?.[0]
+    ?? "";
+  assert.match(
+    drillIn,
+    /ordinaryMethodGroup\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*openOverload\(0\)/);
+  assert.doesNotMatch(drillIn, /member\.overloads\.length > 1/);
+
+  const stepHorizontal =
+    appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
+    ?? "";
+  assert.match(
+    stepHorizontal,
+    /const overloadOpen = member\s*&& !\(ordinaryMethodGroup\(member\)\s*&& state\.selectedOverloadIndex == null\)/);
+  assert.doesNotMatch(
+    stepHorizontal,
+    /member\.overloads\.length > 1/);
+
+  const normalizeSnapshot =
+    appSource.match(/function normalizeWorkspaceAsyncSnapshotState\([\s\S]*?\n}\n\nfunction settleInterruptedPlatformStatus/)?.[0]
+    ?? "";
+  assert.match(
+    normalizeSnapshot,
+    /const memberGroupDocumentLoading =\s*snapshotState\.memberGroupDocumentLoading[\s\S]*snapshotState\.memberGroupDocumentLoading = false;[\s\S]*if \(memberGroupDocumentLoading\) snapshotState\.memberGroupDocumentKey = "";/);
+
+  const loadSelection =
+    appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}\n\nasync function share/)?.[0]
+    ?? "";
+  assert.match(
+    loadSelection,
+    /if \(state\.memberSection === "overview"\) \{\s*return loadSelectedMemberOverview\(\);\s*}[\s\S]*member\.overloads\.length > 1/);
+});
+
 test("member navigation excludes graph-only projections from ordinary filters", () => {
   const filters =
     appSource.match(/function visibleMemberGroups\([\s\S]*?\n}\n\nfunction renderMemberFilterControls\([\s\S]*?\n}/)?.[0]
@@ -973,7 +1065,19 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{member\.overloads\.length} overloads/);
+    /member\.kind === "method"[\s\S]*class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{document\.count} \$\{document\.count === 1 \? "overload" : "overloads"}/);
+  assert.match(
+    renderMember,
+    /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
+  assert.match(
+    renderMember,
+    /memberGroupDocumentError[\s\S]*Overload query failed/);
+  assert.match(
+    renderMember,
+    /document\.rows\.map\(row =>[\s\S]*row\.metadataToken[\s\S]*detail unavailable/);
+  assert.doesNotMatch(
+    renderMember,
+    /member\.overloads\.map\(\(overload, index\) =>/);
   assert.match(
     renderMember,
     /const callGraphExplore = state\.memberSection === "call-graph"[\s\S]*class="member-surface-actions"[\s\S]*id="call-graph-explore" data-graph-explore/);
