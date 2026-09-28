@@ -21,6 +21,8 @@ public sealed class MethodAllocationFactsTests
 
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
+    static readonly TypeRef s_string =
+        TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_widget =
         TypeRef.Definition("Fixture", "Fixtures", "Widget");
 
@@ -535,6 +537,78 @@ public sealed class MethodAllocationFactsTests
     }
 
     [Fact]
+    public void NestedFunctionPointerMismatchPublishesLimitation()
+    {
+        // ldc.i4.1; newarr delegate*<int>; stloc.0; ldloca.s 0;
+        // ldobj delegate*<string>[]; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            resolvedType: FunctionPointerReturning(s_int),
+            resolvedLoadType: TypeRef.SzArray(
+                FunctionPointerReturning(s_string)));
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Empty(occurrence.LifetimeEvidence.Uses);
+        Assert.Equal(
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                9,
+                ILOpCode.Ldobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
+    }
+
+    [Fact]
+    public void MatchingNestedFunctionPointerResumesArrayConsumer()
+    {
+        // ldc.i4.1; newarr delegate*<int>; stloc.0; ldloca.s 0;
+        // ldobj delegate*<int>[]; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+        TypeRef pointer = FunctionPointerReturning(s_int);
+
+        var result = Collect(
+            il,
+            resolvedType: pointer,
+            resolvedLoadType: TypeRef.SzArray(pointer));
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.LocalOnly, occurrence.Escape);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                14,
+                AllocationLifetimeUseKind.LengthRead),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+    }
+
+    [Fact]
     public void ByReferenceCallUsesCallCoordinate()
     {
         // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
@@ -838,6 +912,19 @@ public sealed class MethodAllocationFactsTests
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method);
 
+    static TypeRef FunctionPointerReturning(
+        TypeRef returnType) =>
+        TypeRef.UnsupportedFunctionPointer(
+            new MethodSignature<TypeRef>(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.Default,
+                    SignatureAttributes.None),
+                returnType,
+                requiredParameterCount: 0,
+                genericParameterCount: 0,
+                []));
+
     static byte[] ConvergentAliasGraph(int depth)
     {
         List<byte> il =
@@ -967,6 +1054,11 @@ public sealed class MethodAllocationFactsTests
                 _ => TypeRef.Unsupported("type token"),
             };
         }
+
+        public bool ExactSignatureTypesMatch(
+            TypeRef left,
+            TypeRef right) =>
+            TypeRef.ExactSignatureEquals(left, right);
 
         public MemberRef ResolveMember(int token)
             => ThrowOnMemberResolution

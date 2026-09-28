@@ -34,6 +34,12 @@ internal interface IMethodAllocationResolver
     TypeRef ResolveType(int token);
 
     /// <summary>
+    /// True only when both types have complete signature identity and denote
+    /// the same type in the current metadata image.
+    /// </summary>
+    bool ExactSignatureTypesMatch(TypeRef left, TypeRef right);
+
+    /// <summary>
     /// Resolves a method/constructor operand token using the shared member
     /// resolver, including its unsupported-member result for unknown shapes.
     /// </summary>
@@ -989,14 +995,18 @@ internal sealed class MethodAllocationFacts
                 instruction.OpCode);
         }
 
-        if (loadedType.Kind == TypeRefKind.Unsupported)
+        if (allocatedType is null
+            || !SignatureTypeFacts.HasCompleteIdentity(loadedType)
+            || !SignatureTypeFacts.HasCompleteIdentity(allocatedType))
         {
             return EscapeClassification.Unknown(
                 AllocationLifetimeLimitationKind.MetadataResolution,
                 instruction.Offset,
                 instruction.OpCode);
         }
-        if (allocatedType is null || !loadedType.Equals(allocatedType))
+        if (!resolver.ExactSignatureTypesMatch(
+                loadedType,
+                allocatedType))
         {
             return EscapeClassification.Unknown(
                 AllocationLifetimeLimitationKind
