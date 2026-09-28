@@ -42,6 +42,19 @@ export interface BrowserAllocationFact {
   readonly inLoop: boolean;
   readonly estimatedSizeBytes: number | null;
   readonly detail: string | null;
+  readonly lifetimeUses: ReadonlyArray<BrowserAllocationLifetimeUse>;
+  readonly lifetimeLimitations: ReadonlyArray<BrowserAllocationLifetimeLimitation>;
+}
+
+export interface BrowserAllocationLifetimeLimitation {
+  readonly kind: string;
+  readonly ilOffset: number | null;
+  readonly operation: string | null;
+}
+
+export interface BrowserAllocationLifetimeUse {
+  readonly ilOffset: number;
+  readonly kind: string;
 }
 
 export interface BrowserAnalysisAssemblyIdentity {
