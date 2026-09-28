@@ -282,8 +282,9 @@ work, tracked in #8733, and not part of this change.
 
 ## Verification
 
-- **Combined consumers.** One execution with async section Rows, LibraryInfo
-  Count, and Signals Count runs Rows once and derives the others. A request
+- **Combined consumers.** One execution with async section Rows and a
+  LibraryInfo async Count runs async Rows once and derives the Count. Signals'
+  pointer Count, with no pointer Rows requested, runs alone. A request
   with no Rows declares no `IdentityText`.
 - **Malformed pointer signature under Count.** It fails the pointer analyzer
   with a typed `Failed` outcome naming the method, and never publishes a
