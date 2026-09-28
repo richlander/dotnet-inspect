@@ -278,6 +278,16 @@ public static partial class ApiSurfaceExtractor
         => name.StartsWith('<') && !includeCompilerGenerated;
 
     /// <summary>
+    /// The same rule read from the string heap without decoding the name.
+    /// </summary>
+    static bool IsExcludedCompilerNamedMember(
+        MetadataReader reader,
+        StringHandle name,
+        bool includeCompilerGenerated)
+        => !includeCompilerGenerated
+            && reader.StringComparer.StartsWith(name, "<");
+
+    /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) method is omitted from the
     /// public-facing population. A MethodImpl body is exempt.
     /// </summary>
@@ -397,4 +407,7 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     static bool IsEnumStorageField(bool isEnum, string fieldName)
         => isEnum && fieldName == "value__";
+
+    static bool IsEnumStorageField(bool isEnum, MetadataReader reader, StringHandle fieldName)
+        => isEnum && reader.StringComparer.Equals(fieldName, "value__");
 }

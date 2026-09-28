@@ -84,6 +84,29 @@ public sealed class MetadataDeclarationSession : IDisposable
             maximumRetainedTextCharacters);
     }
 
+    /// <summary>
+    /// Counts one Type's Member population per accessibility bucket and
+    /// receiver form in the requested spelling and hidden admission
+    /// (docs/design/type-member-inspection-documents.md#composition-count).
+    /// </summary>
+    public MetadataTypeMemberCompositionOutcome InspectTypeMemberComposition(
+        MetadataTypeDefinitionName type,
+        MetadataMemberSpelling spelling,
+        bool includeHidden,
+        MetadataMethodAccessibilityFilter accessibility)
+    {
+        EnsureAccess();
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+            return new MetadataTypeMemberCompositionOutcome.Failed();
+
+        return MetadataTypeMemberCompositionInspection.Read(
+            _assemblySession!.GetMetadataReaderForDeclarationSession(),
+            type,
+            spelling,
+            includeHidden,
+            accessibility);
+    }
+
     public MetadataMethodDeclarationResult PostMethodDeclaration(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress method,

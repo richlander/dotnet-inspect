@@ -1092,7 +1092,7 @@ public static partial class ApiSurfaceExtractor
                 context: null,
                 beforeMaterialize: beforeDecodeWork) == "System.Enum";
 
-    private sealed class MetadataRowRejectedException
+    internal sealed class MetadataRowRejectedException
         : InvalidOperationException
     {
         public MetadataRowRejectedException(
