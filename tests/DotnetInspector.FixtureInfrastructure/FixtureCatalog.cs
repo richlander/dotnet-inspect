@@ -130,6 +130,8 @@ public static class FixtureIds
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
     public const string AnalysisSpoofSystemRuntime = "analysis.spoof.system-runtime";
     public const string AnalysisStringLiterals = "analysis.string-literals";
+    public const string AnalysisAllocationLifetime =
+        "analysis.allocation-lifetime";
     public const string AnalysisStringMaterialization =
         "analysis.string-materialization";
 
@@ -664,6 +666,14 @@ public static class FixtureCatalog
         "analysis", "string-literals");
 
     public static readonly FixtureDefinition
+        AnalysisAllocationLifetime = Fixture(
+            FixtureIds.AnalysisAllocationLifetime,
+            "ILInspector.Analysis.AllocationLifetimeFixtures",
+            "ILInspector.Analysis.AllocationLifetimeFixtures.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "analysis", "allocation-lifetime");
+
+    public static readonly FixtureDefinition
         AnalysisStringMaterialization = Fixture(
             FixtureIds.AnalysisStringMaterialization,
             "ILInspector.Analysis.StringMaterializationFixtures",
@@ -1142,6 +1152,7 @@ public static class FixtureCatalog
         AnalysisOverloadFamilyLens,
         AnalysisLocalThrows,
         AnalysisStringLiterals,
+        AnalysisAllocationLifetime,
         AnalysisStringMaterialization,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
@@ -1232,6 +1243,7 @@ public static class FixtureCatalog
             AnalysisCallGenericScope,
             AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
+            AnalysisAllocationLifetime,
             AnalysisStringMaterialization,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
@@ -1576,6 +1588,7 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.InterfaceBase" => "fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase",
             "DotnetInspector.Services.RouteLearning.Middle" => "fixtures/services/DotnetInspector.Services.RouteLearning.Middle",
             "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
+            "ILInspector.Analysis.AllocationLifetimeFixtures" => "fixtures/analysis/ILInspector.Analysis.AllocationLifetimeFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",
             "ILInspector.Analysis.AsyncSiblingRepositoryFixture" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture",
