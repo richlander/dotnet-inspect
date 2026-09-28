@@ -23,9 +23,13 @@ public sealed record GraphConsumerObservation(
     IReadOnlyList<string> Failures,
     IReadOnlyList<string> NeighborhoodNodes,
     IReadOnlyList<string> FocusRelationships,
+    IReadOnlyList<string> AdjacentNodes,
+    IReadOnlyList<int> Degrees,
     GraphStructuralCompletion NeighborhoodCompletion,
     GraphStructuralCompletion FocusCompletion,
     GraphExecutionWorkReceipt NeighborhoodReceipt,
+    GraphExecutionWorkReceipt AdjacencyReceipt,
+    GraphExecutionWorkReceipt DegreeReceipt,
     Type SubjectType,
     Type RelationshipType);
 
@@ -135,6 +139,20 @@ public static class GraphDirectConsumer
                     ],
                     originNodeIds: [0],
                     GraphFocusReachability.FromOrigins));
+        GraphAdjacencyResult adjacency =
+            GraphDocumentExecution.Adjacency(
+                document,
+                new GraphNeighborPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    GraphSelfLoopPolicy.Exclude));
+        GraphDistinctNeighborDegreeResult degree =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                new GraphNeighborPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    GraphSelfLoopPolicy.Exclude));
 
         return new(
             [.. document.Nodes.Select(node => node.Subject.Name)],
@@ -149,9 +167,14 @@ public static class GraphDirectConsumer
                 document.Nodes[id].Subject.Name)],
             [.. focus.ExitEdgeIds.Select(id =>
                 document.Edges[id].Relationship.Kind)],
+            [.. adjacency.Rows[0].NeighborNodeIds.Select(id =>
+                document.Nodes[id].Subject.Name)],
+            [.. degree.Rows.Select(row => row.Degree)],
             neighborhood.Completion,
             focus.Completion,
             neighborhood.Receipt,
+            adjacency.Receipt,
+            degree.Receipt,
             typeof(Service),
             typeof(DependsOn));
     }
