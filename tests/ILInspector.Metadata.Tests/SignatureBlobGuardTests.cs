@@ -107,6 +107,33 @@ public class SignatureBlobGuardTests
     }
 
     [Fact]
+    public void BulkNodeReservationReportsActualAttemptedCharge()
+    {
+        const int parameterCount = 70_000;
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        signature.WriteBytes(I4, parameterCount);
+        var (reader, handle) = BuildStandaloneSig(signature);
+
+        SignatureBlobGuard.CompleteValidationResult result =
+            SignatureBlobGuard.ValidateCompleteDetailed(
+                reader,
+                reader.GetStandaloneSignature(handle).Signature,
+                SignatureBlobGuard.Kind.Method,
+                out _);
+
+        Assert.Equal(
+            SignatureBlobGuard.CompleteValidationKind.NodeBudgetExceeded,
+            result.Kind);
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxSignatureTypeNodes,
+            result.BudgetLimit);
+        Assert.Equal(parameterCount + 1, result.AttemptedCharge);
+    }
+
+    [Fact]
     public void CompleteMethodSignature_RejectsTruncationAndTrailingBytes()
     {
         Assert.True(GuardCompleteMethodSig([0x00, 0x00, 0x01]));

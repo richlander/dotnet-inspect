@@ -557,6 +557,28 @@ public sealed class MetadataLibrarySignatureUseTests
     }
 
     [Fact]
+    public void BulkStructuralNodeBoundProducesActualAttemptedCharge()
+    {
+        const int parameterCount = 70_000;
+        byte[] image = BuildBulkMethodSignatureImage(parameterCount);
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        AssertLocalLimit(
+            result,
+            MetadataOperationDimension.StructuredNodes,
+            MetadataSafetyPolicy.MaxSignatureTypeNodes,
+            attemptedCharge: parameterCount + 1);
+    }
+
+    [Fact]
     public void TypeSpecificationDepthProducesTypedLimitedSite()
     {
         byte[] image = BuildTypeSpecificationDepthImage();
@@ -1134,6 +1156,43 @@ public sealed class MetadataLibrarySignatureUseTests
             FieldAttributes.Public,
             metadata.GetOrAddString("Bounded"),
             metadata.GetOrAddBlob(signature));
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildBulkMethodSignatureImage(
+        int parameterCount)
+    {
+        var metadata = CreateMetadata("BulkMethodSignature");
+        AddModuleType(metadata);
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AddTypeField(metadata, "Healthy", target);
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        signature.WriteBytes(0x08, parameterCount);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Bounded"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
         return Serialize(metadata);
     }
 

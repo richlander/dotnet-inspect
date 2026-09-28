@@ -128,34 +128,34 @@ internal sealed class SignatureOccurrenceProvider(
                 length);
         }
         budget.Work(SignatureOccurrenceMetric.TypeSpecificationBytes, length);
-        SignatureBlobGuard.CompleteValidationKind validation =
-            SignatureBlobGuard.ValidateComplete(
+        SignatureBlobGuard.CompleteValidationResult validation =
+            SignatureBlobGuard.ValidateCompleteDetailed(
                 reader,
                 specification.Signature,
                 SignatureBlobGuard.Kind.TypeSpecification,
                 out SignatureBlobGuardMeasurements measurements);
         budget.ObserveGuard(measurements);
-        if (validation
+        if (validation.Kind
             == SignatureBlobGuard.CompleteValidationKind
                 .DepthBudgetExceeded)
         {
             throw new SignatureOccurrenceRejectedException(
                 SignatureOccurrenceRejectionReason.TypeSpecificationBudget,
                 MetadataOperationDimension.StructuredNodes,
-                SignatureBlobGuard.DefaultMaxDepth,
-                SignatureBlobGuard.DefaultMaxDepth + 1L);
+                validation.BudgetLimit,
+                validation.AttemptedCharge);
         }
-        if (validation
+        if (validation.Kind
             == SignatureBlobGuard.CompleteValidationKind
                 .NodeBudgetExceeded)
         {
             throw new SignatureOccurrenceRejectedException(
                 SignatureOccurrenceRejectionReason.NodeBudget,
                 MetadataOperationDimension.StructuredNodes,
-                MetadataSafetyPolicy.MaxSignatureTypeNodes,
-                MetadataSafetyPolicy.MaxSignatureTypeNodes + 1L);
+                validation.BudgetLimit,
+                validation.AttemptedCharge);
         }
-        if (validation
+        if (validation.Kind
             != SignatureBlobGuard.CompleteValidationKind.Valid)
         {
             throw new SignatureOccurrenceRejectedException(

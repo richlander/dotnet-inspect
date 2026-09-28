@@ -1114,34 +1114,34 @@ internal static class MetadataLibrarySignatureUseInspection
             _operation.Charge(
                 MetadataOperationDimension.SignatureBytes,
                 length);
-            SignatureBlobGuard.CompleteValidationKind validation =
-                SignatureBlobGuard.ValidateComplete(
+            SignatureBlobGuard.CompleteValidationResult validation =
+                SignatureBlobGuard.ValidateCompleteDetailed(
                     _reader,
                     signature,
                     kind,
                     out SignatureBlobGuardMeasurements measurements);
             provider.ObserveGuard(measurements);
-            if (validation
+            if (validation.Kind
                 == SignatureBlobGuard.CompleteValidationKind
                     .DepthBudgetExceeded)
             {
                 throw new SiteLimitException(
                     MetadataOperationDimension.StructuredNodes,
-                    SignatureBlobGuard.DefaultMaxDepth,
-                    SignatureBlobGuard.DefaultMaxDepth + 1L,
+                    validation.BudgetLimit!.Value,
+                    validation.AttemptedCharge!.Value,
                     "The signature exceeded the structural-depth limit.");
             }
-            if (validation
+            if (validation.Kind
                 == SignatureBlobGuard.CompleteValidationKind
                     .NodeBudgetExceeded)
             {
                 throw new SiteLimitException(
                     MetadataOperationDimension.StructuredNodes,
-                    MetadataSafetyPolicy.MaxSignatureTypeNodes,
-                    MetadataSafetyPolicy.MaxSignatureTypeNodes + 1L,
+                    validation.BudgetLimit!.Value,
+                    validation.AttemptedCharge!.Value,
                     "The signature exceeded the structural-node limit.");
             }
-            if (validation
+            if (validation.Kind
                 != SignatureBlobGuard.CompleteValidationKind.Valid)
             {
                 throw new SiteUnavailableException(
