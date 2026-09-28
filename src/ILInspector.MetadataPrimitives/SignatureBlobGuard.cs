@@ -464,7 +464,7 @@ public static class SignatureBlobGuard
                     allowCdeclSentinel: kind == Kind.StandaloneMethod,
                     requireMethodKind: true,
                     ref remainingTypeNodes,
-                    ref nodeBudgetExceeded);
+                    ref failure);
 
             case Kind.Property:
                 return SeedPropertyRoots(
@@ -482,7 +482,7 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         Stack<WorkItem> work,
         ref int remainingTypeNodes,
-        ref bool nodeBudgetExceeded)
+        ref CompleteValidationResult? failure)
     {
         SignatureHeader header = blob.ReadSignatureHeader();
         if (header.RawValue is not (0x08 or 0x28))
@@ -496,7 +496,9 @@ public static class SignatureBlobGuard
         }
         if ((long)paramCount + 1 > remainingTypeNodes)
         {
-            nodeBudgetExceeded = true;
+            failure = NodeBudgetFailure(
+                remainingTypeNodes,
+                (long)paramCount + 1);
             return true;
         }
 

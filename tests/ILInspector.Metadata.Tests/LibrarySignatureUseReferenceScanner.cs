@@ -125,7 +125,7 @@ internal static class LibrarySignatureUseReferenceScanner
                     {
                         RequireSafe(
                             property.Signature,
-                            SignatureBlobGuard.Kind.Method);
+                            SignatureBlobGuard.Kind.Property);
                         MethodSignature<
                             ImmutableArray<SignatureNamedTypeOccurrence>>
                             signature =

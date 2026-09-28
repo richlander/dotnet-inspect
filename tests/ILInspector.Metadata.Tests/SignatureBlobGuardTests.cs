@@ -106,12 +106,16 @@ public class SignatureBlobGuardTests
         Assert.True(GuardMethodSig(sig));
     }
 
-    [Fact]
-    public void BulkNodeReservationReportsActualAttemptedCharge()
+    [Theory]
+    [InlineData(0x00, SignatureBlobGuard.Kind.Method)]
+    [InlineData(0x08, SignatureBlobGuard.Kind.Property)]
+    public void BulkNodeReservationReportsActualAttemptedCharge(
+        byte header,
+        SignatureBlobGuard.Kind kind)
     {
         const int parameterCount = 70_000;
         var signature = new BlobBuilder();
-        signature.WriteByte(0x00);
+        signature.WriteByte(header);
         signature.WriteCompressedInteger(parameterCount);
         signature.WriteByte(0x01);
         signature.WriteBytes(I4, parameterCount);
@@ -121,7 +125,7 @@ public class SignatureBlobGuardTests
             SignatureBlobGuard.ValidateCompleteDetailed(
                 reader,
                 reader.GetStandaloneSignature(handle).Signature,
-                SignatureBlobGuard.Kind.Method,
+                kind,
                 out _);
 
         Assert.Equal(

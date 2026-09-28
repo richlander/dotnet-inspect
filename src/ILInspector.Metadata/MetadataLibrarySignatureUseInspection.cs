@@ -704,7 +704,7 @@ internal static class MetadataLibrarySignatureUseInspection
                                     propertyHandle);
                             RequireSafe(
                                 property.Signature,
-                                SignatureBlobGuard.Kind.Method,
+                                SignatureBlobGuard.Kind.Property,
                                 provider);
                             MethodSignature<
                                 ImmutableArray<
