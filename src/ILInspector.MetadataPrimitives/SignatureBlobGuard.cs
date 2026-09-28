@@ -48,6 +48,14 @@ public static class SignatureBlobGuard
         /// param count], param count, return type, parameters.</summary>
         Method,
 
+        /// <summary>An exact MethodDefSig: default or vararg calling convention, optional
+        /// generic/instance/explicit-this flags, and no sentinel.</summary>
+        MethodDefinition,
+
+        /// <summary>An exact PropertySig: PROPERTY, optional HASTHIS, parameter count,
+        /// return type, and parameters.</summary>
+        Property,
+
         /// <summary>A StandAloneMethodSig used by <c>calli</c>. Unlike other method signatures,
         /// this permits a sentinel for both managed vararg and unmanaged cdecl conventions.</summary>
         StandaloneMethod,
@@ -63,6 +71,10 @@ public static class SignatureBlobGuard
 
         /// <summary>A TypeSpec signature: a single Type with no header.</summary>
         TypeSpecification,
+
+        /// <summary>An exact current-runtime Type production. Unlike the compatibility
+        /// TypeSpec guard, custom modifiers and named types require TypeDef or TypeRef tokens.</summary>
+        Type,
     }
 
     /// <summary>
@@ -277,6 +289,10 @@ public static class SignatureBlobGuard
         var work = new Stack<WorkItem>();
         int remainingTypeNodes =
             MetadataSafetyPolicy.MaxSignatureTypeNodes;
+        bool requireTypeDefOrRefTokens =
+            kind is Kind.MethodDefinition
+                or Kind.Property
+                or Kind.Type;
         if (SeedRoots(
                 ref blob,
                 kind,
@@ -300,6 +316,7 @@ public static class SignatureBlobGuard
                             ref blob,
                             item.Depth,
                             work,
+                            requireTypeDefOrRefTokens,
                             ref remainingTypeNodes,
                             ref nodeBudgetExceeded))
                         return true;
@@ -315,6 +332,7 @@ public static class SignatureBlobGuard
                             ref blob,
                             item,
                             work,
+                            requireTypeDefOrRefTokens,
                             ref remainingTypeNodes,
                             ref nodeBudgetExceeded))
                         return true;
@@ -386,6 +404,7 @@ public static class SignatureBlobGuard
         switch (kind)
         {
             case Kind.TypeSpecification:
+            case Kind.Type:
                 return PushType(
                     work,
                     1,
@@ -420,8 +439,28 @@ public static class SignatureBlobGuard
                     ref blob,
                     work,
                     depth: 1,
+                    MethodGrammar.General,
                     allowCdeclSentinel: kind == Kind.StandaloneMethod,
-                    requireMethodKind: false,
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
+
+            case Kind.MethodDefinition:
+                return SeedMethodRoots(
+                    ref blob,
+                    work,
+                    depth: 1,
+                    MethodGrammar.Definition,
+                    allowCdeclSentinel: false,
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
+
+            case Kind.Property:
+                return SeedMethodRoots(
+                    ref blob,
+                    work,
+                    depth: 1,
+                    MethodGrammar.Property,
+                    allowCdeclSentinel: false,
                     ref remainingTypeNodes,
                     ref nodeBudgetExceeded);
 
@@ -434,13 +473,13 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         Stack<WorkItem> work,
         int depth,
+        MethodGrammar grammar,
         bool allowCdeclSentinel,
-        bool requireMethodKind,
         ref int remainingTypeNodes,
         ref bool nodeBudgetExceeded)
     {
         var header = blob.ReadSignatureHeader();
-        if (requireMethodKind && header.Kind != SignatureKind.Method)
+        if (!HeaderMatchesGrammar(header, grammar))
             return true;
         if (header.IsGeneric)
             blob.ReadCompressedInteger(); // generic parameter count
@@ -455,21 +494,53 @@ public static class SignatureBlobGuard
         }
         remainingTypeNodes -= paramCount + 1;
         var state = new MethodState(
-            header.CallingConvention
-                == SignatureCallingConvention.VarArgs
+            grammar == MethodGrammar.General
+            && (header.CallingConvention
+                    == SignatureCallingConvention.VarArgs
             || (allowCdeclSentinel
                 && header.CallingConvention
-                    == SignatureCallingConvention.CDecl));
+                    == SignatureCallingConvention.CDecl)));
         for (int i = paramCount - 1; i >= 0; i--)
             work.Push(WorkItem.MethodParameter(depth, state));
         work.Push(WorkItem.Type(depth));
         return false;
     }
 
+    static bool HeaderMatchesGrammar(
+        SignatureHeader header,
+        MethodGrammar grammar) =>
+        grammar switch
+        {
+            MethodGrammar.General => true,
+            MethodGrammar.Definition =>
+                (header.RawValue & 0x80) == 0
+                && header.Kind == SignatureKind.Method
+                && header.CallingConvention is (
+                    SignatureCallingConvention.Default
+                    or SignatureCallingConvention.VarArgs)
+                && (!header.HasExplicitThis || header.IsInstance),
+            MethodGrammar.Property =>
+                header.RawValue is 0x08 or 0x28,
+            MethodGrammar.FunctionPointer =>
+                (header.RawValue & 0x80) == 0
+                && header.Kind == SignatureKind.Method
+                && header.CallingConvention is (
+                    SignatureCallingConvention.Default
+                    or SignatureCallingConvention.CDecl
+                    or SignatureCallingConvention.StdCall
+                    or SignatureCallingConvention.ThisCall
+                    or SignatureCallingConvention.FastCall
+                    or SignatureCallingConvention.VarArgs
+                    or SignatureCallingConvention.Unmanaged)
+                && (!header.HasExplicitThis || header.IsInstance),
+            _ => false,
+        };
+
     static bool ReadMethodParameter(
         ref BlobReader blob,
         WorkItem item,
         Stack<WorkItem> work,
+        bool requireTypeDefOrRefTokens,
         ref int remainingTypeNodes,
         ref bool nodeBudgetExceeded)
     {
@@ -494,6 +565,7 @@ public static class SignatureBlobGuard
             ref blob,
             item.Depth,
             work,
+            requireTypeDefOrRefTokens,
             ref remainingTypeNodes,
             ref nodeBudgetExceeded);
     }
@@ -507,6 +579,7 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         int depth,
         Stack<WorkItem> work,
+        bool requireTypeDefOrRefTokens,
         ref int remainingTypeNodes,
         ref bool nodeBudgetExceeded)
     {
@@ -521,7 +594,10 @@ public static class SignatureBlobGuard
         {
             case ElementTypeCmodReqd:
             case ElementTypeCmodOpt:
-                ReadTypeDefOrRefOrSpec(ref blob);
+                if (ReadTypeToken(
+                        ref blob,
+                        requireTypeDefOrRefTokens))
+                    return true;
                 return PushType(
                     work,
                     depth + 1,
@@ -561,7 +637,10 @@ public static class SignatureBlobGuard
                     byte genericTypeCode = blob.ReadByte();
                     if (genericTypeCode is not (ElementTypeClass or ElementTypeValueType))
                         return true;
-                    ReadTypeDefOrRefOrSpec(ref blob);
+                    if (ReadTypeToken(
+                            ref blob,
+                            requireTypeDefOrRefTokens))
+                        return true;
                     int args = blob.ReadCompressedInteger();
                     return PushTypes(
                         work,
@@ -578,15 +657,16 @@ public static class SignatureBlobGuard
                     ref blob,
                     work,
                     depth + 1,
+                    MethodGrammar.FunctionPointer,
                     allowCdeclSentinel: false,
-                    requireMethodKind: true,
                     ref remainingTypeNodes,
                     ref nodeBudgetExceeded);
 
             case ElementTypeClass:
             case ElementTypeValueType:
-                ReadTypeDefOrRefOrSpec(ref blob);
-                return false;
+                return ReadTypeToken(
+                    ref blob,
+                    requireTypeDefOrRefTokens);
 
             case ElementTypeVar:
             case ElementTypeMVar:
@@ -599,16 +679,15 @@ public static class SignatureBlobGuard
                 return false;
         }
 
-        static void ReadTypeDefOrRefOrSpec(ref BlobReader blob)
+        static bool ReadTypeToken(
+            ref BlobReader blob,
+            bool requireTypeDefOrRef)
         {
             int encoded = blob.ReadCompressedInteger();
             int row = encoded >> 2;
             int tag = encoded & 3;
-            if (row <= 0 || tag > 2)
-            {
-                throw new BadImageFormatException(
-                    "The signature contains an invalid TypeDefOrRefOrSpec encoding.");
-            }
+            return row <= 0
+                || tag > (requireTypeDefOrRef ? 1 : 2);
         }
 
     }
@@ -687,6 +766,14 @@ public static class SignatureBlobGuard
     const byte ElementTypeCmodOpt = 0x20;     // ELEMENT_TYPE_CMOD_OPT
     const byte ElementTypeSentinel = 0x41;    // ELEMENT_TYPE_SENTINEL
     const byte ElementTypePinned = 0x45;      // ELEMENT_TYPE_PINNED
+
+    enum MethodGrammar : byte
+    {
+        General,
+        Definition,
+        Property,
+        FunctionPointer,
+    }
 
     enum Op : byte { Type, MethodParameter, ArrayShape }
 

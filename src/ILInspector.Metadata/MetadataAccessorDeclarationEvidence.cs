@@ -778,7 +778,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             SignatureBlobGuard.ValidateComplete(
                 _reader,
                 signatureBlob,
-                SignatureBlobGuard.Kind.Method);
+                SignatureBlobGuard.Kind.Property);
         if (validation
             != SignatureBlobGuard.CompleteValidationKind.Valid)
         {
@@ -807,7 +807,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 static parameter => parameter.IsDegraded))
         {
             throw new BadImageFormatException(
-                "The PropertyDef signature is not a complete ordinary property signature.");
+                "The PropertyDef signature is not a complete PropertySig.");
         }
 
         string? signatureFailure =
@@ -905,16 +905,20 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 RawSemantics = accessor.RawSemantics,
                 Method = accessor.Method.Method,
             };
-            MethodSignature<TypeNode> decodedSignature =
+            (
+                MethodSignature<TypeNode> decodedSignature,
+                GenericContext generic
+            ) =
                 DecodeAccessorSignature(
                     accessor.Method.Method.Handle,
                     owner,
                     site);
             string? signatureFailure =
                 MetadataStructuralTypeValidator
-                    .ValidateAccessorMethodSignature(
+                    .ValidateMethodDefinitionSignature(
                         decodedSignature,
-                        accessor.Method.TypeParameters.Length,
+                        generic.TypeParameters.Count,
+                        generic.MethodParameters.Count,
                         "The conventional accessor");
             if (signatureFailure is not null)
                 throw new BadImageFormatException(signatureFailure);
@@ -970,7 +974,10 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             }
         }
 
-        MethodSignature<TypeNode> DecodeAccessorSignature(
+        (
+            MethodSignature<TypeNode> Signature,
+            GenericContext Generic
+        ) DecodeAccessorSignature(
             MethodDefinitionHandle handle,
             TypeDefinition owner,
             MetadataAccessorDeclarationSite site)
@@ -996,6 +1003,25 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             _context.Charge(
                 MetadataOperationDimension.SignatureBytes,
                 _reader.GetBlobReader(signatureBlob).Length);
+            SignatureBlobGuard.CompleteValidationKind validation =
+                SignatureBlobGuard.ValidateComplete(
+                    _reader,
+                    signatureBlob,
+                    SignatureBlobGuard.Kind.MethodDefinition);
+            if (validation
+                != SignatureBlobGuard.CompleteValidationKind.Valid)
+            {
+                throw new AccessorDeclarationRejectedException(
+                    validation is SignatureBlobGuard.CompleteValidationKind
+                            .DepthBudgetExceeded
+                        or SignatureBlobGuard.CompleteValidationKind
+                            .NodeBudgetExceeded
+                        ? MetadataAccessorDeclarationFailureReason
+                            .BudgetExceeded
+                        : MetadataAccessorDeclarationFailureReason
+                            .MalformedMetadata,
+                    "The MethodDef signature is incomplete or exceeds structural limits.");
+            }
             var decoded = GuardedProviderDecode.MethodResult(
                 _reader,
                 definition,
@@ -1008,9 +1034,9 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     static parameter => parameter.IsDegraded))
             {
                 throw new BadImageFormatException(
-                    "A conventional accessor signature cannot be decoded completely.");
+                    "The MethodDef signature cannot be decoded completely.");
             }
-            return decoded.Value;
+            return (decoded.Value, generic);
         }
 
         if (root
@@ -1252,6 +1278,25 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             reader.GetBlobReader(blob).Length);
         if (_validatedSpecs.Contains(handle))
             return;
+        SignatureBlobGuard.CompleteValidationKind validation =
+            SignatureBlobGuard.ValidateComplete(
+                reader,
+                blob,
+                SignatureBlobGuard.Kind.Type);
+        if (validation
+            != SignatureBlobGuard.CompleteValidationKind.Valid)
+        {
+            throw new AccessorDeclarationRejectedException(
+                validation is SignatureBlobGuard.CompleteValidationKind
+                        .DepthBudgetExceeded
+                    or SignatureBlobGuard.CompleteValidationKind
+                        .NodeBudgetExceeded
+                    ? MetadataAccessorDeclarationFailureReason
+                        .BudgetExceeded
+                    : MetadataAccessorDeclarationFailureReason
+                        .MalformedMetadata,
+                "The TypeSpec signature is incomplete or exceeds structural limits.");
+        }
         TypeSpecificationRootReadResult? failure =
             TypeSpecificationRoot.ValidateGraph(
                 reader,

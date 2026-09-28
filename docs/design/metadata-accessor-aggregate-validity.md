@@ -243,6 +243,13 @@ The implementation issues own Release gates for:
   and
 - detached use after session retirement.
 
+The #8836 shared-grammar slice is gated by
+`MetadataAccessorSignatureGrammarTests`, which decodes raw neighboring
+PropertySig, MethodDefSig, and Event TypeSpec forms through the production
+guard, provider, and structural validator. `SignatureBlobGuardTests` retains
+the exact structural depth and node-budget boundaries. Aggregate posting,
+correspondence, and detached-lifetime claims remain #8837 responsibilities.
+
 Until #8836 and #8837 land, these product properties are **unverified**. The
 design PR gate is Markdown validation only.
 

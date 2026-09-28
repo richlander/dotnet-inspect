@@ -69,7 +69,7 @@ public class SignatureBlobGuardTests
         {
             blob.Add(GenericInst);
             blob.Add(Class);
-            blob.Add(0x06); // TypeDefOrRefOrSpec coded token (some TypeRef row)
+            blob.Add(0x05); // TypeDefOrRef coded token (some TypeRef row)
             blob.Add(0x01); // one generic argument follows
         }
         blob.Add(I4);
@@ -85,7 +85,7 @@ public class SignatureBlobGuardTests
         for (int i = 0; i < 1_000; i++)
             blob.Add(SzArray);
         blob.Add(CmodReqd);
-        blob.Add(0x06);
+        blob.Add(0x05);
         blob.Add(I4);
         Assert.False(GuardTypeSpec(blob.ToArray()));
     }
@@ -315,7 +315,7 @@ public class SignatureBlobGuardTests
         for (int i = 0; i < 1_000; i++)
         {
             cmods.Add(CmodReqd);
-            cmods.Add(0x06); // modifier's TypeDefOrRefOrSpec coded token
+            cmods.Add(0x05); // modifier's TypeDefOrRef coded token
         }
         cmods.Add(I4);
         Assert.False(GuardTypeSpec(cmods.ToArray()));
@@ -435,7 +435,7 @@ public class SignatureBlobGuardTests
 
     [Fact]
     public void GenericInstanceClassArgument_IsSafe()
-        => Assert.True(GuardTypeSpec([GenericInst, Class, 0x06, 0x01, I4]));
+        => Assert.True(GuardTypeSpec([GenericInst, Class, 0x05, 0x01, I4]));
 
     [Fact]
     public void StackedGenericInstPrefix_IsUnsafe()
@@ -448,12 +448,12 @@ public class SignatureBlobGuardTests
         for (int i = 0; i < 8; i++)
             blob.Add(GenericInst);
         blob.Add(Class);
-        blob.Add(0x06);
+        blob.Add(0x05);
         for (int i = 0; i < 8; i++)
         {
             blob.Add(0x01);
             blob.Add(Class);
-            blob.Add(0x06);
+            blob.Add(0x05);
         }
 
         Assert.False(GuardTypeSpec(blob.ToArray()));
@@ -475,7 +475,7 @@ public class SignatureBlobGuardTests
         // SRM reads type codes as compressed integers, so 0x80 0x0F is PTR.
         // A wide GENERICINST argument count would otherwise let the guard treat
         // each 0x80 as a leaf and miss the nested pointer chain.
-        var blob = new List<byte> { GenericInst, Class, 0x06, 0x04 };
+        var blob = new List<byte> { GenericInst, Class, 0x05, 0x04 };
         for (int i = 0; i < 3; i++)
         {
             blob.Add(0x80);

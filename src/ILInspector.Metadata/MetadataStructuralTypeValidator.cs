@@ -20,7 +20,7 @@ internal static class MetadataStructuralTypeValidator
         string? failure = ValidateSignatureType(
             signature.ReturnType,
             allowByReference: true,
-            allowVoid: false,
+            allowVoid: true,
             allowTypedReference: true,
             $"{subject} value type");
         if (failure is not null)
@@ -73,23 +73,27 @@ internal static class MetadataStructuralTypeValidator
             methodParameterCount,
             subject);
 
-    internal static string? ValidateAccessorMethodSignature(
+    internal static string? ValidateMethodDefinitionSignature(
         MethodSignature<TypeNode> signature,
         int typeParameterCount,
+        int methodParameterCount,
         string subject)
     {
         SignatureHeader header = signature.Header;
         if ((header.RawValue & 0x80) != 0
             || header.Kind != SignatureKind.Method
-            || header.HasExplicitThis
+            || header.HasExplicitThis && !header.IsInstance
+            || header.CallingConvention is not (
+                SignatureCallingConvention.Default
+                or SignatureCallingConvention.VarArgs)
             || header.IsGeneric
-            || header.CallingConvention
-                != SignatureCallingConvention.Default
-            || signature.GenericParameterCount != 0
+                != (signature.GenericParameterCount > 0)
+            || signature.GenericParameterCount
+                != methodParameterCount
             || signature.RequiredParameterCount
                 != signature.ParameterTypes.Length)
         {
-            return $"{subject} does not carry a complete ordinary method signature.";
+            return $"{subject} does not carry a valid MethodDefSig.";
         }
 
         string? failure = ValidateSignatureType(
@@ -104,7 +108,7 @@ internal static class MetadataStructuralTypeValidator
         failure = Validate(
             signature.ReturnType,
             typeParameterCount,
-            methodParameterCount: 0,
+            methodParameterCount,
             $"{subject} return type");
         if (failure is not null)
             return failure;
@@ -123,7 +127,7 @@ internal static class MetadataStructuralTypeValidator
             failure = Validate(
                 parameter,
                 typeParameterCount,
-                methodParameterCount: 0,
+                methodParameterCount,
                 $"{subject} parameter");
             if (failure is not null)
                 return failure;
@@ -153,12 +157,32 @@ internal static class MetadataStructuralTypeValidator
         {
             int declaredArity =
                 DeclaredGenericArity(generic.MetadataName);
-            if (declaredArity != generic.Arguments.Length)
+            if (generic.Arguments.Length == 0
+                || declaredArity != generic.Arguments.Length)
             {
                 return $"{subject} constructs a type with "
                     + $"{generic.Arguments.Length} arguments for "
                     + $"{declaredArity} authenticated generic parameters.";
             }
+        }
+        if (node is FunctionPointerTypeNode functionPointer)
+        {
+            int nestedMethodParameterCount =
+                functionPointer.Signature.Header.IsGeneric
+                    ? functionPointer.Signature
+                        .GenericParameterCount
+                    : methodParameterCount;
+            foreach (TypeNode child in functionPointer.ChildTypes)
+            {
+                string? failure = Validate(
+                    child,
+                    typeParameterCount,
+                    nestedMethodParameterCount,
+                    subject);
+                if (failure is not null)
+                    return failure;
+            }
+            return null;
         }
         foreach (TypeNode child in Children(node))
         {
@@ -193,7 +217,9 @@ internal static class MetadataStructuralTypeValidator
                     : $"{subject} cannot contain a nested typed reference.";
 
             case ModifiedTypeNode modified:
-                return ValidateSignatureType(
+                return modified.Modifier is not NamedTypeNode
+                    ? $"{subject} custom modifier is not a TypeDef or TypeRef."
+                    : ValidateSignatureType(
                         modified.Modifier,
                         allowByReference: false,
                         allowVoid: false,
@@ -281,13 +307,10 @@ internal static class MetadataStructuralTypeValidator
         if ((header.RawValue & 0x80) != 0
             || header.Kind != SignatureKind.Method
             || header.HasExplicitThis && !header.IsInstance
-            || signature.RequiredParameterCount < 0
+            || header.IsGeneric
+                != (signature.GenericParameterCount > 0)
             || signature.RequiredParameterCount
-                > signature.ParameterTypes.Length
-            || signature.RequiredParameterCount
-                    != signature.ParameterTypes.Length
-                && header.CallingConvention
-                    != SignatureCallingConvention.VarArgs
+                != signature.ParameterTypes.Length
             || header.CallingConvention is not (
                 SignatureCallingConvention.Default
                 or SignatureCallingConvention.CDecl

@@ -528,30 +528,6 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             Assert.Equal(mechanism, rejected.Failure.Mechanism);
     }
 
-    [Fact]
-    public void Mdp007_MalformedPropertyRootSignatureRejectsAggregate()
-    {
-            using var fixture = new Fixture(
-                BuildPropertyRootShapeImage(
-                    RootShapeMismatch.VoidProperty));
-
-            var rejected = Assert.IsType<
-                MetadataAccessorDeclarationResult.Rejected>(
-                    Run(
-                        fixture,
-                        MetadataAccessorDeclarationKind.Property));
-
-            Assert.Equal(
-                MetadataAccessorDeclarationFailureReason.MalformedMetadata,
-                rejected.Failure.Reason);
-            Assert.Equal(
-                MetadataAccessorDeclarationStage.RootDeclaration,
-                rejected.Failure.Stage);
-            Assert.Equal(
-                MetadataAccessorDeclarationMechanism.SignatureDecode,
-                rejected.Failure.Mechanism);
-    }
-
     [Theory]
     [InlineData(new byte[] { 0xA8, 0x00, 0x08 })]
     [InlineData(new byte[] { 0x28, 0x01, 0x08, 0x01 })]
@@ -588,6 +564,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
 
     [Theory]
     [InlineData(new byte[] { 0x08, 0x00, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x01 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x16 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x10, 0x08 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x0F, 0x01 })]
@@ -1042,7 +1019,9 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
     [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x16 })]
     [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x1D, 0x08 })]
     [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x0F, 0x01 })]
-    public void Mdp007_EventFirePreservesLegalParameterGrammar(
+    [InlineData(new byte[] { 0x25, 0x01, 0x01, 0x08 })]
+    [InlineData(new byte[] { 0x60, 0x01, 0x01, 0x08 })]
+    public void Mdp007_EventFirePreservesLegalMethodDefinitionGrammar(
         byte[] signature)
     {
         using var fixture = new Fixture(
