@@ -58,6 +58,26 @@ if (args[0] == "rwcheck")
     return;
 }
 
+if (args[0] == "pccheck")
+{
+    int mismatches = 0;
+    foreach (string dll in args.Skip(1))
+    {
+        var img = ImmutableArray.Create(File.ReadAllBytes(dll));
+        foreach (string closing in (string[])["exists", "count", "head", "tail", "rows", "window"])
+        {
+            string[] answers = [.. ((string[])["before", "nlinq", "after"]).Select(impl => Run($"pc:{closing}:{impl}", dll, img))];
+            bool agree = answers.All(a => a == answers[0]);
+            if (!agree)
+                mismatches++;
+            Console.WriteLine($"{Path.GetFileName(dll),-36} {closing,-7} {(agree ? answers[0] : "MISMATCH " + string.Join(" / ", answers))}");
+        }
+    }
+
+    Console.WriteLine($"mismatches={mismatches}");
+    return;
+}
+
 if (args[0] == "calls")
 {
     foreach (string dll in args.Skip(1))
@@ -92,8 +112,12 @@ foreach (string path in args.Skip(2))
 {
     var image = ImmutableArray.Create(File.ReadAllBytes(path));
     string answer = Run(variant, path, image);
+    // Postcard variants time the closing itself; the answer text is built once, above.
+    Action timed = variant.StartsWith("pc:", StringComparison.Ordinal)
+        ? () => { using var pe = new PEReader(image); GC.KeepAlive(PostcardProbe.Exec(variant, path, pe)); }
+        : () => Run(variant, path, image);
     for (int i = 0; i < 5; i++)
-        Run(variant, path, image);
+        timed();
 
     var samples = new List<double>();
     long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
@@ -101,7 +125,7 @@ foreach (string path in args.Skip(2))
     while ((total.ElapsedMilliseconds < budgetMs || samples.Count < 20) && samples.Count < 5000)
     {
         long start = Stopwatch.GetTimestamp();
-        Run(variant, path, image);
+        timed();
         samples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
     }
 
@@ -141,6 +165,7 @@ static string Run(string variant, string path, ImmutableArray<byte> image)
         "n-kernel" => AsyncClosedQueriesK2.AtLeast(true, path, peReader) ? "true" : "false",
         "c-typed-fused" => TypedClassifiedFusion.Run(peReader).ToString(),
         _ when variant.StartsWith("rw:", StringComparison.Ordinal) => RowWindow(variant, peReader),
+        _ when variant.StartsWith("pc:", StringComparison.Ordinal) => PostcardProbe.Describe(PostcardProbe.Exec(variant, path, peReader)),
         "c-legacy" => ClassifiedFusion.Legacy(peReader).ToString(),
         "c-hand-separate" => ClassifiedFusion.HandSeparate(peReader).ToString(),
         "c-hand-fused" => ClassifiedFusion.HandFused(peReader).ToString(),
