@@ -55,6 +55,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         MetadataReader reader,
         PEReader peReader,
         LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
         out int unitsVisited)
     {
         unitsVisited = 0;
@@ -63,8 +64,9 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
 
         bool exists = state.Terminal == ProducerTerminal.Exists;
         bool typeScoped = HasTypeScope;
+        SourceGateGuard? sourceGate = SourceGate;
         TPredicate predicate = default;
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup);
+        var unit = new MethodDefinitionUnit(reader, peReader, lookup, gate);
         int visited = 0;
         int attempted = 0;
         int completed = 0;
@@ -73,6 +75,24 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
         {
             TypeDefinition typeDefinition = reader.GetTypeDefinition(typeHandle);
+            if (sourceGate is not null)
+            {
+                bool gateInScope;
+                try
+                {
+                    gateInScope = gate.TypeInScope(sourceGate.Classifier, typeHandle, typeDefinition);
+                }
+                catch (Exception ex)
+                    when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+                {
+                    Fail(state, MetadataTokens.GetToken(typeHandle), "(type scope)", ex);
+                    goto Done;
+                }
+
+                if (!gateInScope)
+                    continue;
+            }
+
             if (typeScoped)
             {
                 bool inScope;
@@ -95,6 +115,15 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
             {
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
+                if (sourceGate is not null)
+                {
+                    bool? accepted = MethodDefinitionExecution.GateAccepts(ref unit, state, sourceGate);
+                    if (accepted is null)
+                        goto Done;
+                    if (!accepted.Value)
+                        continue;
+                }
+
                 attempted++;
                 bool fact;
                 try
