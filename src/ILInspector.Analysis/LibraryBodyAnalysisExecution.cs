@@ -217,6 +217,7 @@ public sealed class LibraryBodyAnalysisExecution
                 Receipt,
                 analysis,
                 CallGraph,
+                ImplementationProfiles,
                 plan);
         Optimization = new(
             Receipt,
@@ -318,6 +319,8 @@ public sealed class LibraryBodyAnalysisExecution
             LibraryBodyAnalysisReceipt receipt,
             LibraryBodyAnalysisResult analysis,
             LibraryCallGraphAnalysisResult callGraph,
+            LibraryImplementationProfileAnalysisResult
+                implementationProfiles,
             LibraryBodyAnalysisPlan plan)
     {
         ImmutableArray<AnalysisDiagnostic> metricDiagnostics =
@@ -334,6 +337,7 @@ public sealed class LibraryBodyAnalysisExecution
                 analysis.Methods.DeclaredMethods,
                 analysis.Methods.Methods,
                 [],
+                SiblingRelationships: null,
                 metricDiagnostics);
         }
 
@@ -346,6 +350,31 @@ public sealed class LibraryBodyAnalysisExecution
                 callGraph,
                 metricDiagnostics);
         }
+        ImplementationMetricSiblingRelationships?
+            siblingRelationships = null;
+        ImmutableArray<ImplementationMetricStageParticipation>
+            actualStages =
+                analysis.ImplementationMetricParticipation
+                    ?.Stages ?? [];
+        if (metricPlan.RequestedEvidence.HasFlag(
+                ImplementationMetricEvidenceKind
+                    .SiblingOverloadRelationships))
+        {
+            siblingRelationships =
+                PublishSiblingRelationships(
+                    bodies,
+                    callGraph,
+                    implementationProfiles,
+                    metricDiagnostics);
+            if (!bodies.IsEmpty)
+            {
+                actualStages =
+                    AddSiblingRelationshipParticipation(
+                        actualStages,
+                        bodies,
+                        plan.RequestedFeatures);
+            }
+        }
 
         return new(
             receipt,
@@ -357,13 +386,94 @@ public sealed class LibraryBodyAnalysisExecution
                 metricPlan.UsesFocusedExecution
                     && plan.RequestedFeatures
                         == LibraryBodyAnalysisFeatures.None,
-                analysis.ImplementationMetricParticipation
-                    ?.Stages ?? [],
+                actualStages,
                 analysis.ImplementationMetricWork),
             analysis.Methods.DeclaredMethods,
             analysis.Methods.Methods,
             bodies,
+            siblingRelationships,
             metricDiagnostics);
+    }
+
+    static ImplementationMetricSiblingRelationships
+        PublishSiblingRelationships(
+            ImmutableArray<MethodImplementationMetricEvidence> bodies,
+            LibraryCallGraphAnalysisResult callGraph,
+            LibraryImplementationProfileAnalysisResult
+                implementationProfiles,
+            ImmutableArray<AnalysisDiagnostic> diagnostics)
+    {
+        var relationshipDiagnostics =
+            diagnostics.ToBuilder();
+        HashSet<int> diagnosedTokens =
+        [
+            .. diagnostics.Select(static diagnostic =>
+                diagnostic.MethodToken),
+        ];
+        foreach (MethodImplementationMetricEvidence body in bodies)
+        {
+            if (body.DirectCallCollectionAttempted
+                && body.DirectCallCollectionComplete)
+            {
+                continue;
+            }
+            if (!diagnosedTokens.Add(
+                    body.EvidenceMethod.MetadataToken))
+            {
+                continue;
+            }
+
+            relationshipDiagnostics.Add(
+                new(
+                    body.EvidenceMethod.MetadataToken,
+                    body.EvidenceMethod.Name,
+                    body.DirectCalls?.IncompleteReason
+                        ?? "Direct-call collection did not complete.",
+                    SourceMethodToken:
+                        body.Method.MetadataToken,
+                    DeclaringType:
+                        body.EvidenceMethod.DeclaringType,
+                    SourceDeclaringType:
+                        body.Method.DeclaringType));
+        }
+
+        return new(
+            implementationProfiles.WasRequested
+                ? implementationProfiles
+                    .OverloadRelationships
+                : MethodImplementationProfileAnalysis
+                    .CollectOverloadRelationships(
+                        callGraph.DeclaredMethods,
+                        callGraph.DirectCalls,
+                        callGraph.DeclaredMethodMap),
+            relationshipDiagnostics.ToImmutable());
+    }
+
+    static ImmutableArray<ImplementationMetricStageParticipation>
+        AddSiblingRelationshipParticipation(
+            ImmutableArray<ImplementationMetricStageParticipation>
+                stages,
+            ImmutableArray<MethodImplementationMetricEvidence> bodies,
+            LibraryBodyAnalysisFeatures featureCauses)
+    {
+        int completedBodies = bodies.Count(static body =>
+            body.DirectCallCollectionAttempted
+            && body.DirectCallCollectionComplete);
+        return
+        [
+            .. stages
+                .Append(
+                    new(
+                        ImplementationMetricWorkStage
+                            .SiblingRelationshipProjection,
+                        ImplementationMetricEvidenceKind
+                            .SiblingOverloadRelationships,
+                        featureCauses,
+                        bodies.Length,
+                        completedBodies,
+                        bodies.Length - completedBodies))
+                .OrderBy(static stage => stage.Stage),
+        ];
     }
 
     static ImmutableArray<MethodImplementationMetricEvidence>
