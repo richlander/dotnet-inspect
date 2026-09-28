@@ -4,7 +4,9 @@ Cell = median of round medians; each view is a per-closing geometric mean
 across the eight assemblies, with the min-max range.
 
 usage: summarize-perf-views.py <view> <machine> <tsv>
-  view: old | wrong | linq | detail | load
+  view: old | naive | linq | detail-dense | detail-async | load
+Variants: pc:<closing>:<naive|linq|nlinq|after> (dense population),
+          pa:<closing>:<old|nlinq|after> (async population).
 """
 import math, statistics, sys
 from collections import defaultdict
@@ -21,8 +23,8 @@ rounds = defaultdict(list)
 loads = []
 for line in open(path):
     variant, rnd, load, asm, answer, n, med, p10, p90, al = line.rstrip("\n").split("\t")
-    _, closing, impl = variant.split(":")
-    rounds[(closing, impl, asm)].append(float(med))
+    pop, closing, impl = variant.split(":")
+    rounds[(closing, pop + ":" + impl, asm)].append(float(med))
     loads.append(float(load))
 cell = {k: statistics.median(v) for k, v in rounds.items()}
 
@@ -39,23 +41,25 @@ def fmt(ms):
 if view == "load":
     print(f"{min(loads):.1f} to {max(loads):.1f}")
 elif view == "old":
-    print("| Closing | Old | NLinq | After |")
+    print("| Closing | Old | NLinq | Planner |")
     print("| --- | ---: | ---: | ---: |")
     for k, label in CLOSINGS:
-        print(f"| {label} | {ratio(k, 'old', 'nlinq')} | 1.00× | {ratio(k, 'after', 'nlinq')} |")
-elif view == "wrong":
-    print("| Closing | Materialize ÷ After |")
+        print(f"| {label} | {ratio(k, 'pa:old', 'pa:nlinq')} | 1.00× | {ratio(k, 'pa:after', 'pa:nlinq')} |")
+elif view == "naive":
+    print("| Closing | Naive Planner ÷ Planner |")
     print("| --- | ---: |")
     for k, label in CLOSINGS:
-        print(f"| {label} | {ratio(k, 'mat', 'after')} |")
+        print(f"| {label} | {ratio(k, 'pc:naive', 'pc:after')} |")
 elif view == "linq":
-    print("| Closing | LINQ | NLinq | After |")
+    print("| Closing | LINQ | NLinq | Planner |")
     print("| --- | ---: | ---: | ---: |")
     for k, label in CLOSINGS:
-        print(f"| {label} | {ratio(k, 'linq', 'nlinq')} | 1.00× | {ratio(k, 'after', 'nlinq')} |")
-elif view == "detail":
-    print("| Assembly | Closing | Old | Materialize | LINQ | NLinq | After |")
-    print("| --- | --- | ---: | ---: | ---: | ---: | ---: |")
+        print(f"| {label} | {ratio(k, 'pc:linq', 'pc:nlinq')} | 1.00× | {ratio(k, 'pc:after', 'pc:nlinq')} |")
+elif view in ("detail-dense", "detail-async"):
+    cols = [("pc:naive", "Naive Planner"), ("pc:linq", "LINQ"), ("pc:nlinq", "NLinq"), ("pc:after", "Planner")] \
+        if view == "detail-dense" else [("pa:old", "Old"), ("pa:nlinq", "NLinq"), ("pa:after", "Planner")]
+    print("| Assembly | Closing | " + " | ".join(c[1] for c in cols) + " |")
+    print("| --- | --- | " + " | ".join("---:" for _ in cols) + " |")
     for a, name in ASMS.items():
         for k, label in CLOSINGS:
-            print(f"| {name} | {label} | " + " | ".join(fmt(cell[(k, i, a)]) for i in ["old", "mat", "linq", "nlinq", "after"]) + " |")
+            print(f"| {name} | {label} | " + " | ".join(fmt(cell[(k, c[0], a)]) for c in cols) + " |")
