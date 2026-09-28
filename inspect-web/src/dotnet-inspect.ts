@@ -1748,6 +1748,8 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberFactsLoading = snapshotState.memberFactsLoading;
   const memberDocumentationLoading = snapshotState.memberDocumentationLoading;
   const memberDeclarationLoading = snapshotState.memberDeclarationLoading;
+  const memberGroupDocumentLoading =
+    snapshotState.memberGroupDocumentLoading;
 
   snapshotState.loading = false;
   snapshotState.memberAnnotatedLoading = false;
@@ -1764,6 +1766,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
   snapshotState.memberDeclarationLoading = false;
+  snapshotState.memberGroupDocumentLoading = false;
   snapshotState.runtimePackLoading = false;
   settleInterruptedPlatformStatus(snapshotState);
   if (snapshotState.graphSource.status === "loading") {
@@ -1809,6 +1812,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (memberFactsLoading) snapshotState.memberFactsKey = "";
   if (memberDocumentationLoading) snapshotState.memberDocumentationKey = "";
   if (memberDeclarationLoading) snapshotState.memberDeclarationKey = "";
+  if (memberGroupDocumentLoading) snapshotState.memberGroupDocumentKey = "";
 }
 
 function settleInterruptedPlatformStatus(targetState: AppState): void {
@@ -7006,11 +7010,12 @@ function drillOut() {
     const member = selectedMember(selectedType());
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
-      resetMemberSectionState();
+      state.memberSection = "overview";
+      clearMemberContentCache();
+      loadMemberSectionContent(state.memberSection);
     } else {
       return exitMemberScope();
     }
-    render();
     return true;
   }
   if (!state.atPackageRoot && !state.atLibraryRoot) {
@@ -14290,6 +14295,9 @@ function loadSelectionData() {
   if (!state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
   if (!member) return undefined;
+  if (state.memberSection === "overview") {
+    return loadSelectedMemberOverview();
+  }
   if (member.overloads.length > 1
     && state.selectedOverloadIndex == null) {
     return undefined;
@@ -14299,7 +14307,6 @@ function loadSelectionData() {
     case "annotated": return loadSelectedMemberAnnotatedSource();
     case "call-graph": return loadSelectedMemberCallGraph();
     case "facts": return loadSelectedMemberFactsSurface();
-    case "overview": return loadSelectedMemberDocumentation();
     case "compare": return undefined;
     default: return assertNever(state.memberSection, "member section");
   }

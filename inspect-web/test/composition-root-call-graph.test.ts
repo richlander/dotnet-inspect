@@ -963,6 +963,28 @@ test("restored ordinary families load the shared document", () => {
     appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
     ?? "";
   assert.match(spotlight, /await loadSelectedMemberOverview\(\)/);
+
+  const drillOut =
+    appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
+    ?? "";
+  assert.match(
+    drillOut,
+    /state\.selectedOverloadIndex = null;\s*state\.memberSection = "overview";\s*clearMemberContentCache\(\);\s*loadMemberSectionContent\(state\.memberSection\)/);
+  assert.doesNotMatch(drillOut, /resetMemberSectionState\(\)/);
+
+  const normalizeSnapshot =
+    appSource.match(/function normalizeWorkspaceAsyncSnapshotState\([\s\S]*?\n}\n\nfunction settleInterruptedPlatformStatus/)?.[0]
+    ?? "";
+  assert.match(
+    normalizeSnapshot,
+    /const memberGroupDocumentLoading =\s*snapshotState\.memberGroupDocumentLoading[\s\S]*snapshotState\.memberGroupDocumentLoading = false;[\s\S]*if \(memberGroupDocumentLoading\) snapshotState\.memberGroupDocumentKey = "";/);
+
+  const loadSelection =
+    appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}\n\nasync function share/)?.[0]
+    ?? "";
+  assert.match(
+    loadSelection,
+    /if \(state\.memberSection === "overview"\) \{\s*return loadSelectedMemberOverview\(\);\s*}[\s\S]*member\.overloads\.length > 1/);
 });
 
 test("member navigation excludes graph-only projections from ordinary filters", () => {

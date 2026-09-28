@@ -365,6 +365,12 @@ test("different family navigation leaves exact Facts for the shared document", a
     .toHaveCount(2);
   await expect(page.locator("html"))
     .toHaveAttribute("data-member-group-document-request", /Stop/);
+
+  await page.locator(".member-surface-list .overload-row").first().click();
+  await page.keyboard.press("Backspace");
+  await expect(page.locator("#member-surface-title")).toHaveText("Stop");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
 });
 
 test("production Analysis keeps deferred Library results out of the incoming analysis", async ({ page }) => {
