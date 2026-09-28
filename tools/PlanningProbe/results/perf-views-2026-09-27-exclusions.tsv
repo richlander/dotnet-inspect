@@ -1,0 +1,3 @@
+machine	date	load1	reason
+mac	2026-09-27	32.2 at start	excluded: load above 8 from other work; not run
+merritt	2026-09-27	-	dropped by scope change; partial run stopped and discarded
