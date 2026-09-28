@@ -85,7 +85,7 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
                     bool gateInScope;
                     try
                     {
-                        gateInScope = gate.TypeInScope(sourceGate.Classifier, typeHandle, typeDefinition);
+                        gateInScope = gate.TypeInScope(state.GateCache ??= gate.Resolve(sourceGate.Classifier), typeHandle, typeDefinition);
                     }
                     catch (Exception ex)
                         when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -321,7 +321,7 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
                 try
                 {
                     if (sourceGate is not null
-                        && !gate.TypeInScope(sourceGate.Classifier, typeHandle, typeDefinition))
+                        && !gate.TypeInScope(state.GateCache ??= gate.Resolve(sourceGate.Classifier), typeHandle, typeDefinition))
                     {
                         continue;
                     }

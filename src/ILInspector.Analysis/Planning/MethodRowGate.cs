@@ -231,9 +231,27 @@ internal sealed class MethodRowGate
     internal bool TypeInScope(
         MethodRowClassifier classifier,
         TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition) =>
+        TypeInScope(CacheFor(classifier), typeHandle, typeDefinition);
+
+    /// <summary>
+    /// The classifier's per-execution cache. A consumer resolves it once and
+    /// passes it to <see cref="TypeInScope(ClassifierCache, TypeDefinitionHandle, TypeDefinition)"/>
+    /// and <see cref="ClassOf(ClassifierCache, ref MethodDefinitionUnit)"/>, so
+    /// no per-unit call looks the classifier up. Every consumer of one
+    /// classifier resolves the same cache, so their answers are shared.
+    /// </summary>
+    internal ClassifierCache Resolve(MethodRowClassifier classifier) => CacheFor(classifier);
+
+    /// <summary>How many times a classifier's cache was looked up in this execution.</summary>
+    internal int CacheLookups { get; private set; }
+
+    internal bool TypeInScope(
+        ClassifierCache cache,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition)
     {
-        ClassifierCache cache = CacheFor(classifier);
+        MethodRowClassifier classifier = cache.Classifier;
         if (cache.TypeHandle != typeHandle || cache.TypeHandle.IsNil)
         {
             cache.TypeHandle = typeHandle;
@@ -255,9 +273,12 @@ internal sealed class MethodRowGate
         return cache.TypeInScope;
     }
 
-    internal int ClassOf(MethodRowClassifier classifier, ref MethodDefinitionUnit unit)
+    internal int ClassOf(MethodRowClassifier classifier, ref MethodDefinitionUnit unit) =>
+        ClassOf(CacheFor(classifier), ref unit);
+
+    internal int ClassOf(ClassifierCache cache, ref MethodDefinitionUnit unit)
     {
-        ClassifierCache cache = CacheFor(classifier);
+        MethodRowClassifier classifier = cache.Classifier;
         if (cache.RowToken != _rowToken || _rowToken == 0)
         {
             cache.RowToken = _rowToken;
@@ -281,17 +302,19 @@ internal sealed class MethodRowGate
 
     ClassifierCache CacheFor(MethodRowClassifier classifier)
     {
+        CacheLookups++;
         if (!_classifiers.TryGetValue(classifier, out ClassifierCache? cache))
         {
-            cache = new ClassifierCache();
+            cache = new ClassifierCache(classifier);
             _classifiers[classifier] = cache;
         }
 
         return cache;
     }
 
-    sealed class ClassifierCache
+    internal sealed class ClassifierCache(MethodRowClassifier classifier)
     {
+        public readonly MethodRowClassifier Classifier = classifier;
         public TypeDefinitionHandle TypeHandle;
         public bool TypeInScope;
         public Exception? TypeFailure;
