@@ -21,8 +21,19 @@ internal delegate void LocalDelegate(LocalTarget value);
 
 internal sealed class LocalException : Exception;
 
+internal class GenericException<T> : Exception;
+
+internal class ConstructedException : GenericException<LocalTarget>;
+
+internal sealed class ConstructedExceptionLeaf : ConstructedException;
+
 [AttributeUsage(AttributeTargets.All)]
 internal sealed class LocalAttribute : Attribute;
+
+internal class GenericAttribute<T> : Attribute;
+
+internal sealed class ConstructedAttribute :
+    GenericAttribute<LocalTarget>;
 
 internal sealed unsafe class SignatureOwner<T> :
     Base<LocalTarget>,

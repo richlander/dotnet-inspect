@@ -376,6 +376,85 @@ internal static class MetadataLibrarySignatureUseInspection
                     continue;
                 }
 
+                if (baseType.Kind == HandleKind.TypeSpecification)
+                {
+                    TypeSpecificationRootReadResult rootResult =
+                        TypeSpecificationRoot.Read(
+                            _reader,
+                            (TypeSpecificationHandle)baseType);
+                    if (rootResult
+                            is not TypeSpecificationRootReadResult.Read
+                                rootRead
+                        || rootRead.Root is not
+                            {
+                                Kind:
+                                    TypeSpecificationRootKind.NamedType,
+                                RawTypeKind: 0x12,
+                            } root)
+                    {
+                        result =
+                            MetadataLibraryTypeClassification.None;
+                        break;
+                    }
+
+                    if (root.Type.Kind
+                        == HandleKind.TypeDefinition)
+                    {
+                        TypeDefinitionHandle localHandle =
+                            (TypeDefinitionHandle)root.Type;
+                        if (!HasGenericArity(
+                                localHandle,
+                                root.GenericArgumentCount))
+                        {
+                            result =
+                                MetadataLibraryTypeClassification.None;
+                            break;
+                        }
+                        current = localHandle;
+                        continue;
+                    }
+                    if (root.Type.Kind
+                        != HandleKind.TypeReference)
+                    {
+                        result =
+                            MetadataLibraryTypeClassification.None;
+                        break;
+                    }
+
+                    TypeReference specificationReference =
+                        _reader.GetTypeReference(
+                            (TypeReferenceHandle)root.Type);
+                    MetadataTypeDefinitionName specificationName =
+                        ReadName((TypeReferenceHandle)root.Type);
+                    if (IsCurrentImage(
+                            (TypeReferenceHandle)root.Type)
+                        && _typesByName.TryGetValue(
+                            specificationName,
+                            out TypeEntry? specificationEntry))
+                    {
+                        if (!HasGenericArity(
+                                specificationEntry.Handle,
+                                root.GenericArgumentCount))
+                        {
+                            result =
+                                MetadataLibraryTypeClassification.None;
+                            break;
+                        }
+                        current = specificationEntry.Handle;
+                        continue;
+                    }
+
+                    result =
+                        root.GenericArgumentCount == 0
+                        && ApiSurfaceExtractor
+                            .ResolvesThroughCoreLibrary(
+                                _reader,
+                                specificationReference.ResolutionScope)
+                            ? CoreBaseClassification(specificationName)
+                            : MetadataLibraryTypeClassification.None;
+                    break;
+                }
+
                 if (baseType.Kind != HandleKind.TypeReference)
                 {
                     result = MetadataLibraryTypeClassification.None;
@@ -413,6 +492,12 @@ internal static class MetadataLibrarySignatureUseInspection
             }
             return result;
         }
+
+        private bool HasGenericArity(
+            TypeDefinitionHandle handle,
+            int expected) =>
+            _reader.GetTypeDefinition(handle)
+                .GetGenericParameters().Count == expected;
 
         private int TypeRow(TypeDefinitionHandle handle)
         {
@@ -497,17 +582,25 @@ internal static class MetadataLibrarySignatureUseInspection
                 {
                     if (_limited)
                         return;
-                    _operation.Charge(
-                        MetadataOperationDimension
-                            .InterfaceImplementationRows);
-                    InterfaceImplementation implementation =
-                        _reader.GetInterfaceImplementation(
-                            implementationHandle);
-                    ScanEntitySite(
+                    ScanSite(
                         source,
-                        implementation.Interface,
-                        MetadataLibrarySignatureUseSiteKind.Interface,
-                        MetadataTokens.GetToken(implementationHandle));
+                        MetadataTokens.GetToken(implementationHandle),
+                        (pending, provider) =>
+                        {
+                            _operation.Charge(
+                                MetadataOperationDimension
+                                    .InterfaceImplementationRows);
+                            InterfaceImplementation implementation =
+                                _reader.GetInterfaceImplementation(
+                                    implementationHandle);
+                            Collect(
+                                DecodeEntity(
+                                    implementation.Interface,
+                                    provider),
+                                MetadataLibrarySignatureUseSiteKind
+                                    .Interface,
+                                pending);
+                        });
                 }
 
                 ScanConstraints(
@@ -730,6 +823,16 @@ internal static class MetadataLibrarySignatureUseInspection
                         exception.Message));
                 _unavailable++;
             }
+            catch (SignatureOccurrenceRejectedException exception)
+            {
+                _diagnostics.Add(
+                    new(
+                        RejectionDiagnosticKind(exception.Reason),
+                        metadataToken,
+                        "The signature occurrence was rejected: "
+                            + $"{exception.Reason}."));
+                _unavailable++;
+            }
             catch (MetadataOperationBudgetExceededException exception)
             {
                 _diagnostics.Add(
@@ -758,6 +861,27 @@ internal static class MetadataLibrarySignatureUseInspection
                 _unavailable++;
             }
         }
+
+        private static MetadataLibrarySignatureUseDiagnosticKind
+            RejectionDiagnosticKind(
+                SignatureOccurrenceRejectionReason reason) =>
+            reason switch
+            {
+                SignatureOccurrenceRejectionReason.MalformedMetadata
+                    or SignatureOccurrenceRejectionReason.UnsafeSignature =>
+                    MetadataLibrarySignatureUseDiagnosticKind
+                        .MalformedMetadata,
+                SignatureOccurrenceRejectionReason.TypeSpecificationBudget
+                    or SignatureOccurrenceRejectionReason.TypeNameBudget
+                    or SignatureOccurrenceRejectionReason.NodeBudget
+                    or SignatureOccurrenceRejectionReason
+                        .OccurrenceCopyBudget
+                    or SignatureOccurrenceRejectionReason.WorkBudget =>
+                    MetadataLibrarySignatureUseDiagnosticKind.Limit,
+                _ =>
+                    MetadataLibrarySignatureUseDiagnosticKind
+                        .UnsupportedShape,
+            };
 
         private void Collect(
             ImmutableArray<SignatureNamedTypeOccurrence> occurrences,

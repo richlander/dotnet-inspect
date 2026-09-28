@@ -65,6 +65,18 @@ public sealed class MetadataLibrarySignatureUseTests
             result,
             "LocalException",
             MetadataLibraryTypeClassification.Exception);
+        AssertClassification(
+            result,
+            "ConstructedException",
+            MetadataLibraryTypeClassification.Exception);
+        AssertClassification(
+            result,
+            "ConstructedExceptionLeaf",
+            MetadataLibraryTypeClassification.Exception);
+        AssertClassification(
+            result,
+            "ConstructedAttribute",
+            MetadataLibraryTypeClassification.Attribute);
 
         AssertOccurrence(
             result,
@@ -203,7 +215,9 @@ public sealed class MetadataLibrarySignatureUseTests
     [InlineData(MetadataOperationDimension.SignatureBytes)]
     [InlineData(MetadataOperationDimension.StructuredNodes)]
     [InlineData(MetadataOperationDimension.RetainedText)]
-    public void DecoderWorkParticipatesInOperationLimits(
+    [InlineData(
+        MetadataOperationDimension.InterfaceImplementationRows)]
+    public void ProducerWorkParticipatesInOperationLimits(
         MetadataOperationDimension dimension)
     {
         using AssemblyInspectionSession session =
@@ -222,6 +236,8 @@ public sealed class MetadataLibrarySignatureUseTests
                 baseline.Receipt.Counters.StructuredNodes,
             MetadataOperationDimension.RetainedText =>
                 baseline.Receipt.Counters.RetainedText,
+            MetadataOperationDimension.InterfaceImplementationRows =>
+                baseline.Receipt.Counters.InterfaceImplementationRows,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(dimension)),
         };
@@ -312,6 +328,41 @@ public sealed class MetadataLibrarySignatureUseTests
         Assert.Equal(
             MetadataLibrarySignatureUseDiagnosticKind.MalformedMetadata,
             Assert.Single(result.Diagnostics).Kind);
+        Assert.Contains(
+            result.Types,
+            static type => type.Name.Segments is ["Owner"]);
+    }
+
+    [Fact]
+    public void MalformedEventTypeSpecificationProducesVisiblePartialPopulation()
+    {
+        byte[] image = BuildMalformedEventTypeSpecificationImage();
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(
+            new(
+                considered: 1,
+                examined: 0,
+                unavailable: 1,
+                limited: 0),
+            result.Coverage);
+        MetadataLibrarySignatureUseDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            MetadataLibrarySignatureUseDiagnosticKind.MalformedMetadata,
+            diagnostic.Kind);
+        Assert.Equal(0x14000001, diagnostic.MetadataToken);
         Assert.Contains(
             result.Types,
             static type => type.Name.Segments is ["Owner"]);
@@ -501,6 +552,30 @@ public sealed class MetadataLibrarySignatureUseTests
         return Serialize(metadata);
     }
 
+    private static byte[] BuildMalformedEventTypeSpecificationImage()
+    {
+        var metadata = CreateMetadata("MalformedEventType");
+        AddModuleType(metadata);
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeSpecificationHandle type =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob((byte[])[0xFF]));
+        EventDefinitionHandle @event =
+            metadata.AddEvent(
+                EventAttributes.None,
+                metadata.GetOrAddString("Broken"),
+                type);
+        metadata.AddEventMap(owner, @event);
+        return Serialize(metadata);
+    }
+
     private static byte[] BuildModifierImage()
     {
         var metadata = CreateMetadata("Modifiers");
@@ -650,6 +725,12 @@ public sealed class MetadataLibrarySignatureUseTests
                     : long.MaxValue,
             maxRetainedText:
                 dimension == MetadataOperationDimension.RetainedText
+                    ? limit
+                    : long.MaxValue,
+            maxInterfaceImplementationRows:
+                dimension
+                    == MetadataOperationDimension
+                        .InterfaceImplementationRows
                     ? limit
                     : long.MaxValue);
 }
