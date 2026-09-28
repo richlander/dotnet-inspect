@@ -66,8 +66,9 @@ The chips follow the selected spelling, and the spelling choice stays for the
 session like the accessibility choice.
 
 The CLI asks the same questions of the same population and reports the same
-counts. `--spelling metadata` selects metadata spelling; C# spelling is the
-default. Its Type-subject Count already counts actual members (see
+counts, with `--spelling metadata` as its
+[spelling gesture](api-population-scope.md#accessibility-within-api-visibility-scope).
+Its Type-subject Count already counts actual members (see
 [subject-default API count](progressive-disclosure.md#subject-default-api-count)).
 After adoption:
 
@@ -115,8 +116,11 @@ rows it has loaded.
   spelling it becomes one `public` declaration, and under metadata spelling
   two `private` records. A C# finalizer, which the public default shows today
   through its MethodImpl, moves to `protected`, its declared accessibility.
-  The Browser's host-side mapping of explicit implementations to `private`
-  and finalizers to `protected` retires.
+  Explicit implementations of internal interfaces, which the public default
+  also shows today (`JsonSerializerContext`, and 766 MethodImpl rows on public
+  CoreLib Types such as `System.Byte`'s `IUtfChar<byte>` members), move to
+  their interface's bucket. The Browser's host-side mapping of explicit
+  implementations to `private` and finalizers to `protected` retires.
 - **Heat over non-public rows.**
   [Implementation profiles](inspect-web-implementation-profiles.md) currently
   states that methods outside the public roster are never rows. Showing heat
