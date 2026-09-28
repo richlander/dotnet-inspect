@@ -1125,7 +1125,10 @@ test("duplicate runtime Type discovery preserves one pending Space activation", 
   await page.keyboard.down("Space");
 
   releaseSearch();
-  await expect(page.locator(".spotlight-hint")).toHaveCount(0);
+  await expect(page.getByText(
+    "Searching nuget.org…",
+    { exact: true },
+  )).toHaveCount(0);
 
   expect(await resultHandle.evaluate((element, selector) =>
     document.querySelector(selector) === element, resultSelector)).toBe(true);

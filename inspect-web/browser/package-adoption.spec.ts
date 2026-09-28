@@ -1700,9 +1700,12 @@ test.describe("Package Activity website over real Wasm", () => {
     await homeSearch.fill("activity");
     // Package-search completion replaces the result list, so settle it before clicking
     // the built-in Activity route.
-    await expect(page.locator(".spotlight-hint"))
-      .toHaveText("Searching nuget.org…");
-    await expect(page.locator(".spotlight-hint")).toHaveCount(0);
+    const packageSearchHint = page.getByText(
+      "Searching nuget.org…",
+      { exact: true },
+    );
+    await expect(packageSearchHint).toBeVisible();
+    await expect(packageSearchHint).toHaveCount(0);
     await page.locator('[data-sl-package-activity="1"]').click();
     await expect(page).toHaveURL(/\/activity$/);
     await page.goBack();
