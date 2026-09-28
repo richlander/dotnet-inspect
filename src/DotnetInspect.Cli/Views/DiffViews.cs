@@ -206,7 +206,30 @@ public class DiffAnalysisDiscoveryView
 }
 
 [MarkoutSerializable]
-public record DiffAnalysisDiscoveryRow(string Analysis, string Default, string Surfaces, string Findings);
+public record DiffAnalysisDiscoveryRow(
+    [property: MarkoutIgnore, JsonIgnore] InertString AnalysisText,
+    [property: MarkoutIgnore, JsonIgnore] InertString DefaultText,
+    [property: MarkoutIgnore, JsonIgnore] InertString SurfacesText,
+    [property: MarkoutIgnore, JsonIgnore] InertString FindingsText)
+{
+    public DiffAnalysisDiscoveryRow(
+        string analysis,
+        string @default,
+        string surfaces,
+        string findings)
+        : this(
+            DiffViewText.Field(analysis),
+            DiffViewText.Field(@default),
+            DiffViewText.Field(surfaces),
+            DiffViewText.Field(findings))
+    {
+    }
+
+    public string Analysis => AnalysisText.ToString();
+    public string Default => DefaultText.ToString();
+    public string Surfaces => SurfacesText.ToString();
+    public string Findings => FindingsText.ToString();
+}
 
 [MarkoutSerializable]
 public record DiffAnalysisSummaryRow(
