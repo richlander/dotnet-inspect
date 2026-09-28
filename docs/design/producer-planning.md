@@ -357,27 +357,60 @@ guards and type scopes are the query model's scope predicates at method and
 type grain. When method bodies become a QuerySpace source, tracked by #8577,
 they move to level 2 as its vocabulary.
 
-### Shared scope classifiers
+### The source gate owns safety
 
-**Rule.** A producer may declare two equivalent forms of its scope. The
-**standalone** form tests scope itself, with its own type scope and unit
-check. The **guarded** form depends on a named shared scope classifier through
-a scope guard. The planner picks the guarded form for every requested
-producer that names the same classifier when two or more such producers are
-requested, and the standalone form otherwise. Both forms must select the same
-units, so the choice never changes a result. It changes only whether scope is
-tested once or once per producer. This is a choice between forms the producer
-declared, not the substitution or narrowing of a request, which
-[Planning](#planning) forbids. The work description records which form was
-chosen.
+**Rule.** Every method-definition source includes a **method-row gate**. The
+gate is part of the source, not a producer in the dependency graph. It applies
+the source's scope, classifies each row, and is the only path by which a
+producer reads a row's fields. A producer contains no safety code except a
+bound specific to its own domain. Unsafe presence's same-image correspondence
+budget is one such bound.
 
-*Lets the lower levels:* pay for a shared classification only when more than
-one question needs it, so a single question costs what its own check costs.
+The gate offers two tiers of access:
 
-*Lesson:* the
-[method classification analyzers](method-classification-analyzers.md) split
-a scan that answered three questions every time. A consumer asking one
-question should not pay for a classifier built for three.
+- **Tier 1, bounded accessors:**
+  - flags;
+  - a name comparison done in place, with no string materialized;
+  - an attribute type match;
+  - a yes/no signature-shape walk.
+
+  Each costs at most a fixed amount per row and charges no execution budget.
+- **Tier 2, identity text:** anchors and signature text. These go through the
+  gate's budgeted identity decoder and are returned as `InertString`, so they
+  are bounded in cost and inert in content.
+
+A row the gate cannot read is a recoverable failure, handled as in
+[Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed).
+
+**Field demand is declared before work.** A producer declares the fields it
+reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
+`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`, and
+`IdentityText`, beside `Body` and `ModuleLookup`. Reading an undeclared field
+throws `ProducerContractException`, exactly as reading an undeclared layer
+does. That runtime contract is the enforcement gate. From the declarations,
+the planner:
+
+- arms the gate's budget and abort only when some requested producer declares
+  `IdentityText`, so a plan of Count, Exists, and classification is budget-free
+  as a property of the plan;
+- reads each field shared by several producers once per row;
+- chooses the kernel; and
+- explains what a plan reads.
+
+The gate's classification is a unit class that scope guards accept, as
+[Scope is declared on the edge](#scope-is-declared-on-the-edge-not-tested-inside-the-visit)
+describes. The gate is not a dependency, so a producer asked alone still has
+no dependencies and still qualifies for a closed-query kernel. That kernel is
+one loop, specialized to the gate, the predicate, and the closing.
+
+*Lets the lower levels:* share scope, classification, and decoding among every
+producer without a classifier producer, and prove from the plan alone that a
+count reads no identity text.
+
+*Lesson:* `InertString` made untrusted text safe at construction, rather than
+at each use. The gate does the same for untrusted rows: bounded cost and inert
+content are properties of the only access path, so no producer needs to
+repeat them.
 
 ### Access is borrowed for the visit
 
@@ -434,14 +467,16 @@ never had one touches every consumer.
 
 ### Budget exhaustion aborts the execution
 
-**Rule.** A producer may charge containment budgets: work, decode-failure
-counts, or any other bound that stops an untrusted input from consuming
-unbounded effort. Each budget belongs to one producer and is sized for that
-producer. Exhausting any budget is a **critical failure**, not a producer
-failure. The execution stops before the next untrusted read, and it
+**Rule.** A containment budget bounds the effort an untrusted input can
+consume. Its unit might be work or a count of decode failures. The source
+gate owns one fixed budget for each execution; see
+[The source gate owns safety](#the-source-gate-owns-safety). A producer owns a
+budget only for a bound specific to its domain. Exhausting any budget is a
+**critical failure**, not a producer failure. The execution stops before the next untrusted read, and it
 publishes no producer's result. Every requested producer's outcome is
-**aborted**, and each carries the same critical failure: the producer whose
-budget was exhausted, the budget's identity, and the unit being visited. The
+**aborted**, and each carries the same critical failure: the owner of the
+exhausted budget (the gate or a producer), the budget's identity, and the unit
+being visited. The
 receipt records the same. A critical failure is never contained to one
 producer. It is never reported as `Failed` for one producer while others
 complete, and never presented as a partial or successful answer.
@@ -461,7 +496,7 @@ Suggested shape:
 
 ```text
 ProducerOutcome.Aborted
-CriticalFailure(Producer identity, Budget identity, Unit, Message)
+CriticalFailure(Owner identity, Budget identity, Unit, Message)
 ```
 
 *Lesson:* a stack overflow looks recoverable at the frame that sees it, but
@@ -641,10 +676,13 @@ property above is **unverified**.
 - **Failure containment:** an injected producer failure leaves independent
   producers' results unchanged and gives dependents a typed prerequisite
   failure.
-- **Critical failure aborts:** a producer that exhausts a budget, in a plan
-  with an independent producer, leaves every requested producer `Aborted` with
-  the same `CriticalFailure`, publishes no result, and reads no unit after the
-  one that exhausted the budget.
+- **Critical failure aborts:** when a budget is exhausted in a plan with
+  several producers, every requested producer is `Aborted` with the same
+  `CriticalFailure`, no result is published, and no unit is read after the one
+  that exhausted the budget.
+- **Field demand:** reading an undeclared gate field throws
+  `ProducerContractException`. A plan with no `IdentityText` declaration never
+  charges the identity budget.
 
 Equivalence between executors and pushdown equivalence are level 2 gates,
 tracked in #8577 and #8574.
