@@ -838,6 +838,7 @@ type $ManagedExports = {
             readonly "QueryPlatformMetadata.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformMetadataTable.1945598111": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
             readonly "QueryTypeProjection.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string) => Promise<string>;
+            readonly "QueryUploadedLibraryMemberGroupDocument.838892986": (declaredName: string, content: number[], typeIdentity: string, memberName: string) => Promise<string>;
           };
         };
       };
@@ -1067,6 +1068,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.1160082336\u0027 is not callable.");
     }
   }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryUploadedLibraryMemberGroupDocument.838892986");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryUploadedLibraryMemberGroupDocument.838892986\u0027 is not callable.");
+    }
+  }
 }
 
 async function $initializeRuntimeCore(
@@ -1206,5 +1219,11 @@ export async function queryTypeProjection(packageId: string, version: string, ta
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.1160082336"](packageId, version, targetFramework, assemblyName, typeQueryId, typeDefinitionId, workspaceJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
+}
+
+export async function queryUploadedLibraryMemberGroupDocument(declaredName: string, content: number[], typeIdentity: string, memberName: string): Promise<BrowserMemberGroupDocumentInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryUploadedLibraryMemberGroupDocument.838892986"](declaredName, content, typeIdentity, memberName);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMemberGroupDocumentInspection;
 }
 

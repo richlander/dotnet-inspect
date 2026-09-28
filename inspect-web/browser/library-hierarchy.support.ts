@@ -972,6 +972,15 @@ async function installFacades(
           typeIdentity,
           memberName);
       }
+      export async function queryUploadedLibraryMemberGroupDocument(
+        declaredName, content, typeIdentity, memberName) {
+        document.documentElement.dataset.uploadedLibraryMemberGroupDocumentRequest =
+          JSON.stringify([declaredName, content.length, typeIdentity, memberName]);
+        return memberGroupDocument(
+          surfaces[0],
+          typeIdentity,
+          memberName);
+      }
       export async function queryPlatformMetadata(tfm, version, file, pack) {
         document.documentElement.dataset.platformMetadataRequest = JSON.stringify([tfm, version, file, pack]);
         return {
@@ -1956,10 +1965,11 @@ async function installLibraryUploadFacades(
   page: Page,
   libraryUpload: LibraryUploadFixture,
   packageLoading: PackageLoadingFixture = {},
+  model: BrowserPackageSurface = surface,
 ) {
   await installFacades(
     page,
-    surface,
+    model,
     [],
     "ready",
     "ready",

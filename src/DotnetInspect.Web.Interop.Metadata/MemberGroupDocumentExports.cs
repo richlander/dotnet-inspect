@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -19,6 +20,9 @@ namespace DotnetInspect.Web.Interop.Metadata;
     typeof(BrowserMemberGroupDocumentInspection))]
 [JsExportJsonOutput(
     nameof(MetadataExports.QueryPlatformMemberGroupDocument),
+    typeof(BrowserMemberGroupDocumentInspection))]
+[JsExportJsonOutput(
+    nameof(MetadataExports.QueryUploadedLibraryMemberGroupDocument),
     typeof(BrowserMemberGroupDocumentInspection))]
 public static partial class MetadataExports
 {
@@ -95,6 +99,28 @@ public static partial class MetadataExports
                                 AssemblyContextLibraryRole.Implementation,
                                 s_memberGroupMaterializationLimits,
                                 CancellationToken.None)),
+                    typeIdentity,
+                    memberName)
+                .ConfigureAwait(false));
+        return SerializeMemberGroupDocument(inspection);
+    }
+
+    [JSExport]
+    public static async Task<string> QueryUploadedLibraryMemberGroupDocument(
+        string declaredName,
+        byte[] content,
+        string typeIdentity,
+        string memberName)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        BrowserMemberGroupDocumentInspection inspection =
+            ProjectMemberGroupDocument(
+                await ExecuteMemberGroupDocumentAsync(
+                    EmbeddedLibraryInspection.MaterializeAsync(
+                        declaredName,
+                        ImmutableArray.CreateRange(content),
+                        AssemblyContextLibraryRole.Implementation,
+                        s_memberGroupMaterializationLimits),
                     typeIdentity,
                     memberName)
                 .ConfigureAwait(false));

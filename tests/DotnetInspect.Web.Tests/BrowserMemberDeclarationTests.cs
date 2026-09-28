@@ -186,6 +186,26 @@ public sealed class BrowserMemberDeclarationTests
             singletonRow.DisplaySignature,
             StringComparison.Ordinal);
 
+        BrowserMemberGroupDocumentInspection uploadedGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryUploadedLibraryMemberGroupDocument(
+                    AssemblyFileName,
+                    image,
+                    ExtensionType,
+                    "Examine"));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            uploadedGroup.Outcome);
+        BrowserMemberGroupDocument uploadedDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                uploadedGroup.Document);
+        Assert.Equal(ExtensionType, uploadedDocument.TypeIdentity);
+        Assert.Equal("Examine", uploadedDocument.MemberName);
+        Assert.Equal(5, uploadedDocument.Count);
+        Assert.All(
+            uploadedDocument.Rows,
+            static row => Assert.Equal("Extension", row.Receiver));
+
         BrowserMemberGroupDocumentInspection missingGroup =
             MemberGroupDocument(
                 await MetadataExports.QueryMemberGroupDocument(
@@ -470,6 +490,9 @@ public sealed class BrowserMemberDeclarationTests
                 document.Rows.Select(static row => row.MetadataToken)
                     .Distinct()
                     .Count());
+            Assert.All(
+                document.Rows,
+                static row => Assert.Equal("Extension", row.Receiver));
             Assert.Equal(requests, handler.Requests);
         }
         finally

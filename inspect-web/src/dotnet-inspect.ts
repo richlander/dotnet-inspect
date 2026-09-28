@@ -806,6 +806,8 @@ let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
 let inspectPlatformMemberGroupDocument:
   EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
+let inspectUploadedLibraryMemberGroupDocument:
+  EngineClient["metadata"]["queryUploadedLibraryMemberGroupDocument"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -991,6 +993,8 @@ async function loadEngineModule() {
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPlatformMemberGroupDocument:
         inspectPlatformMemberGroupDocument,
+      queryUploadedLibraryMemberGroupDocument:
+        inspectUploadedLibraryMemberGroupDocument,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -10116,7 +10120,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
                   ?? overload.metadataToken
                   ?? 0) === row.metadataToken);
               const signature =
-                `${row.accessibility} ${row.receiver === "This" ? "" : "static "}${row.displaySignature}`;
+                `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`;
               return index >= 0
                 ? `<button class="api-row overload-row" data-overload="${index}">
                     <span class="member-icon">${row.baselineOrdinal}</span>
@@ -10330,6 +10334,19 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       </header>
       <div class="member-surface-scroll">${content}</div>
     </section>`;
+}
+
+function memberReceiverPrefix(receiver: string): string {
+  switch (receiver) {
+    case "This":
+      return "";
+    case "Static":
+      return "static ";
+    case "Extension":
+      return "extension ";
+    default:
+      throw new Error(`Unknown member receiver '${receiver}'.`);
+  }
 }
 
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
@@ -17452,7 +17469,7 @@ function memberGroupDocumentRequestKey(
     pkg?.version ?? "",
     pkg?.activeFramework ?? "",
     pkg?.isRuntimePack ? state.platformDemoContextId ?? "" : "",
-    type.assembly,
+    type.assemblyId,
     type.definitionId ?? type.id,
     member.key,
   ]);
@@ -17466,15 +17483,6 @@ async function loadSelectedMemberGroupDocument() {
     return;
   }
   const key = memberGroupDocumentRequestKey(type, member);
-  if (state.rootKind === "library") {
-    state.memberGroupDocument = null;
-    state.memberGroupDocumentLoading = false;
-    state.memberGroupDocumentError =
-      "Member-group documents are unavailable for uploaded Libraries.";
-    state.memberGroupDocumentKey = key;
-    renderPreservingMemberFocus();
-    return;
-  }
   if (!key
     || state.memberGroupDocumentLoading
       && state.memberGroupDocumentKey === key
@@ -17491,7 +17499,12 @@ async function loadSelectedMemberGroupDocument() {
   renderPreservingMemberFocus();
   const pkg = currentPackage();
   try {
-    const result = pkg.isRuntimePack
+    const result = state.rootKind === "library"
+      ? inspectUploadedLibraryMemberGroupDocument(
+          type.assemblyId,
+          type.definitionId ?? type.id,
+          member.name)
+      : pkg.isRuntimePack
       ? (() => {
           const row = platformLibraryForRequest(pkg, type.assemblyId);
           return inspectPlatformMemberGroupDocument(

@@ -177,15 +177,21 @@ internal static class MemberGroupDocumentOutput
                 new TreeNode(
                     CSharpIdentifier.ContainRenderedText(
                         $"{row.Accessibility} "
-                            + (row.Receiver
-                                    is MemberReceiver.Static
-                                        or MemberReceiver.Extension
-                                ? "static "
-                                : string.Empty)
+                            + ReceiverPrefix(row.Receiver)
                             + row.DisplaySignature))),
         ]);
         return 0;
     }
+
+    private static string ReceiverPrefix(MemberReceiver receiver) =>
+        receiver switch
+        {
+            MemberReceiver.This => string.Empty,
+            MemberReceiver.Static => "static ",
+            MemberReceiver.Extension => "extension ",
+            _ => throw new InvalidOperationException(
+                $"Unknown member receiver '{receiver}'."),
+        };
 
     private static string? ResolveCanonicalMethodName(
         ApiType type,

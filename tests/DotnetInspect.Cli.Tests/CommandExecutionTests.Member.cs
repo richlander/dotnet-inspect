@@ -688,6 +688,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_ExactMethodGroup_DistinguishesExtensionReceivers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Deserialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Deserialize (",
+            output);
+        Assert.Contains("public static ", output);
+        Assert.Contains("public extension ", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task
         Member_SingleMethod_DefaultAndTreeUseTheSameNativeDocument()
     {

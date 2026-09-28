@@ -1,9 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  chooseSubject,
   installLibraryUploadFacades,
   openProductDestination,
   releaseFacade,
+  run,
   root,
+  surface,
   subjectTab,
 } from "./library-hierarchy.support.ts";
 
@@ -239,6 +242,98 @@ test("successful upload replaces stale Package URL with Home", async ({ page }) 
   await page.reload();
   await expect(page.locator(".home-title"))
     .toHaveText("Inspect .NET packages and libraries in your browser.");
+});
+
+test("uploaded Library method family renders owner-backed receiver kinds", async ({
+  page,
+}) => {
+  const widget = surface.types.find(
+    candidate => candidate.definitionId === "Example.Widget",
+  );
+  if (!widget) throw new Error("The upload fixture has no Widget Type.");
+  const staticRun = {
+    ...run,
+    signature: "void Run(int value)",
+    isStatic: true,
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:1",
+    anchorDigest: "widget-run-static",
+    canonicalSignature: "M:Example.Widget.Run(System.Int32)",
+    bodySelectors: [{
+      token: 0x06000002,
+      memberName: "Run",
+      selectorKey: "Run:1",
+    }],
+  };
+  const extensionRun = {
+    ...run,
+    signature: "void Run(Example.Widget value)",
+    isStatic: true,
+    isExtension: true,
+    metadataToken: 0x06000003,
+    declarationMetadataToken: 0x06000003,
+    stableSelector: "Run:2",
+    anchorDigest: "widget-run-extension",
+    canonicalSignature: "M:Example.Widget.Run(Example.Widget)",
+    bodySelectors: [{
+      token: 0x06000003,
+      memberName: "Run",
+      selectorKey: "Run:2",
+    }],
+  };
+  const uploadedSurface = {
+    ...surface,
+    assemblies: [{
+      ...surface.assemblies[0]!,
+      publicTypes: 1,
+      publicMembers: 2,
+    }],
+    types: [{
+      ...widget,
+      members: 2,
+      api: [staticRun, extensionRun],
+    }],
+    accessibility: [{
+      id: "public",
+      label: "Public",
+      order: 0,
+      isDefault: true,
+      count: 2,
+    }],
+    totalMembers: 2,
+  };
+  await installLibraryUploadFacades(
+    page,
+    "available",
+    {},
+    uploadedSurface,
+  );
+  await page.goto(root);
+
+  await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+  await expect(page.getByText("Browser upload", { exact: true }))
+    .toBeVisible();
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    `#type-list [data-type="${widget.id}"]`,
+  ).click();
+  await page.locator("[data-member]", { hasText: "Run" }).click();
+
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
+  await expect(page.locator(".member-surface-list"))
+    .toContainText("public static void Run(int value)");
+  await expect(page.locator(".member-surface-list"))
+    .toContainText("public extension void Run(Example.Widget value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-uploaded-library-member-group-document-request",
+    JSON.stringify([
+      "Uploaded.Library.dll",
+      4,
+      "Example.Widget",
+      "Run",
+    ]),
+  );
 });
 
 test("successful upload is excluded from retained Workspace restoration", async ({
