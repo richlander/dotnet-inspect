@@ -161,6 +161,8 @@ tests/DotnetInspector.MetadataRendering.Tests
 tests/DotnetInspector.Networking.Tests
 tests/DotnetInspector.PackageManifestCorpus
 tests/DotnetInspector.Packages.Tests
+tests/DotnetInspector.PerformanceOracles
+tests/DotnetInspector.PerformanceOracles.Tests
 tests/DotnetInspector.PlatformHouse.Execution.Tests
 tests/DotnetInspector.PlatformHouse.Installed.Tests
 tests/DotnetInspector.PlatformHouse.Packages.Tests
@@ -200,6 +202,7 @@ tests/Inspector.Artifacts.Tests
 tests/Inspector.Resources.Tests
 tests/Inspector.Text.Tests
 tests/MsdlProxy.Tests
+tests/NLinq.Oracle
 tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
 tests/QuerySpace.Consumer
@@ -218,4 +221,5 @@ tools/DiffHarnessCommon
 tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/InspectWebFixtureResolver
+tools/QuerySpacePostcard
 tools/SectionRegistrySpike

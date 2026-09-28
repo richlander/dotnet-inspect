@@ -1167,6 +1167,10 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
+      - name: Run performance-oracle fixture tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/DotnetInspector.PerformanceOracles.Tests -c Release
+
       - name: Run QueryOverflow tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/QueryOverflow.Tests -c Release

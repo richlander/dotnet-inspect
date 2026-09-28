@@ -147,6 +147,21 @@ To show an After against a source-native ceiling, add a labeled column beside
 the three. It is not checked by regression tracking, and its answers must
 agree with the other columns.
 
+**The fixture** lives in `tests/`, because it is test infrastructure rather
+than an inspected artifact:
+
+- `tests/NLinq.Oracle` is the pinned NLinq copy, with its provenance in
+  `PROVENANCE.md`.
+- `tests/DotnetInspector.PerformanceOracles` adds the operators NLinq lacks
+  (`Take`, `Skip`, `TryTakeExactly` for a strict window, and `TakeLast`), the
+  population sources, and the `Postcard` harness that checks answers and times
+  rotated rounds. An enablement registers its Before and After columns beside
+  the population's NLinq column.
+- `tools/QuerySpacePostcard` runs a postcard. `queryspace-postcard check
+  <assembly>...` compares answers, and `queryspace-postcard time [--rounds N]
+  [--budget-ms N] [--tsv <path>] <assembly>...` prints the summary table. Time
+  the NativeAOT publish, not `dotnet run`.
+
 **The postcard** scores Before, NLinq, and After for Exists, Count, Head(N),
 Tail(N), Rows, and Rows(n..m), over one open query on pinned real assets:
 
