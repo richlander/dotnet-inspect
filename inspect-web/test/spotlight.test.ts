@@ -43,7 +43,6 @@ interface HarnessOptions {
   packageSearchError?: () => string;
   packageSearchLoading?: () => boolean;
   capabilitySearchMessage?: () => string;
-  capabilitySearchLoading?: () => boolean;
 }
 
 // The library owns the real DOM event/element contract; this harness models only the
@@ -91,7 +90,6 @@ function createHarness({
   packageSearchError,
   packageSearchLoading = () => false,
   capabilitySearchMessage,
-  capabilitySearchLoading = () => false,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
     spotlightOpen: false,
@@ -121,7 +119,6 @@ function createHarness({
     ...(packageSearchError ? { packageSearchError } : {}),
     scheduleCapabilitySearch: () => {},
     resetCapabilitySearch: () => {},
-    capabilitySearchLoading,
     ...(capabilitySearchMessage ? { capabilitySearchMessage } : {}),
     packageCount: () => 1,
     render: () => {},

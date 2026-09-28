@@ -435,6 +435,10 @@ own result construction and ranking; Spotlight owns grouping, row lowering,
 selection, and destination activation. A completed empty capability result
 contributes no `Capabilities` group to the blended result list, matching the
 group's transient nature rather than adding a persistent empty-state row.
+Because this lookup is local, bounded, and normally completes within one
+Worker turn, Spotlight does not add a second loading hint beside the
+network-backed NuGet status. A complete empty result therefore requires no
+completion render; matches, diagnostics, and failures remain visible.
 
 Spotlight's
 [destination-activation

@@ -152,7 +152,6 @@ interface SpotlightOptions {
   packageSearchError?: () => string;
   scheduleCapabilitySearch: () => void;
   resetCapabilitySearch: () => void;
-  capabilitySearchLoading: () => boolean;
   capabilitySearchMessage?: () => string;
   packageCount: () => number;
   render: () => void;
@@ -543,10 +542,6 @@ export function createSpotlight(options: SpotlightOptions) {
     if (!searchError && options.packageSearchLoading()
       && (state.spotlightScope === "all" || state.spotlightScope === "packages")) {
       html += '<div class="spotlight-hint">Searching nuget.org…</div>';
-    }
-    if (!capabilityMessage && options.capabilitySearchLoading()
-      && state.spotlightScope === "all") {
-      html += '<div class="spotlight-hint">Searching installed capabilities…</div>';
     }
     return html;
   }

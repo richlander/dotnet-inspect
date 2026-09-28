@@ -520,7 +520,6 @@ import {
 import {
   createSpotlightCapabilitySearch,
   normalizeSpotlightCapabilitySearchSnapshot,
-  spotlightCapabilitySearchIsLoading,
   spotlightCapabilitySearchMessage,
   visibleSpotlightCapabilityResults,
   type SpotlightCapabilitySearchResultState,
@@ -4517,8 +4516,6 @@ const spotlight = createSpotlight({
     spotlightPackageSearchError(state.spotlightPackageSearch),
   scheduleCapabilitySearch: () => spotlightCapabilitySearch.schedule(),
   resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
-  capabilitySearchLoading: () =>
-    spotlightCapabilitySearchIsLoading(state.spotlightCapabilitySearch),
   capabilitySearchMessage: () =>
     spotlightCapabilitySearchMessage(
       state.spotlightCapabilitySearch,

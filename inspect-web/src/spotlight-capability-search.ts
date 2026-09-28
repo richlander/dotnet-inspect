@@ -43,12 +43,6 @@ export function visibleSpotlightCapabilityResults(
     : [];
 }
 
-export function spotlightCapabilitySearchIsLoading(
-  state: SpotlightCapabilitySearchResultState,
-): boolean {
-  return state.status === "loading";
-}
-
 export function spotlightCapabilitySearchMessage(
   state: SpotlightCapabilitySearchResultState,
   query: string,
@@ -141,7 +135,11 @@ export function createSpotlightCapabilitySearch<TSchedule>(
           || state.spotlightQuery.trim() !== query
           || state.spotlightScope !== "all") return;
         state.spotlightCapabilitySearch = next;
-        dependencies.updateResults();
+        if (next.status === "failed"
+          || next.inspection.content.results.length > 0
+          || next.inspection.diagnostics.length > 0) {
+          dependencies.updateResults();
+        }
       }, 60);
     },
   };

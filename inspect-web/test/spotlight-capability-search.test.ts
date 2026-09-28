@@ -63,6 +63,21 @@ function inspection(
   };
 }
 
+function emptyInspection(
+  query: string,
+): BrowserCapabilityCatalogSearchInspection {
+  const populated = inspection(query);
+  return {
+    ...populated,
+    content: {
+      ...populated.content,
+      matchCount: 0,
+      returnedCount: 0,
+      results: [],
+    },
+  };
+}
+
 test("Capability search publishes only the current All-scope query", async () => {
   const state: SpotlightCapabilitySearchState = {
     spotlightQuery: "literal",
@@ -165,4 +180,30 @@ test("Capability search snapshots never preserve in-flight work", () => {
     }),
     { status: "idle" },
   );
+});
+
+test("Capability search does not render a completed empty local lookup", async () => {
+  const state: SpotlightCapabilitySearchState = {
+    spotlightQuery: "unmatched",
+    spotlightScope: "all",
+    spotlightCapabilitySearch: { status: "idle" },
+  };
+  const callbacks: Array<() => Promise<void>> = [];
+  let updates = 0;
+  const search = createSpotlightCapabilitySearch({
+    state,
+    searchCapabilities: async query => emptyInspection(query),
+    schedule: callback => {
+      callbacks.push(callback);
+      return callback;
+    },
+    cancelScheduled: () => {},
+    updateResults: () => { updates++; },
+  });
+
+  search.schedule();
+  await callbacks[0]!();
+
+  assert.equal(state.spotlightCapabilitySearch.status, "ready");
+  assert.equal(updates, 0);
 });

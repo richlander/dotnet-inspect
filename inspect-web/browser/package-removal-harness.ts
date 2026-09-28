@@ -87,7 +87,6 @@ const spotlight = createSpotlight({
   commandContext: () => null, schedulePackageFetch: () => {},
   resetPackageSearch: () => {}, packageSearchLoading: () => false,
   scheduleCapabilitySearch: () => {}, resetCapabilitySearch: () => {},
-  capabilitySearchLoading: () => false,
   packageCount: () => state.packages.length,
   render,
 });
