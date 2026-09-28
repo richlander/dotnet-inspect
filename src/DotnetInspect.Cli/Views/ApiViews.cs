@@ -1597,15 +1597,54 @@ public record CalledTypeRow(
 
 [MarkoutSerializable]
 public record AllocationFactRow(
-    [property: MarkoutSkipNull] string? Member,
-    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
-    [property: MarkoutPropertyName("Allocation Kind")] string AllocationKind,
-    [property: MarkoutPropertyName("Allocated Type")] string? AllocatedType,
-    [property: MarkoutPropertyName("Counted As Heap")] string CountedAsHeap,
+    string? Member,
+    string ILOffset,
+    string AllocationKind,
+    string? AllocatedType,
+    string CountedAsHeap,
     string Frequency,
     string Escape,
-    [property: MarkoutPropertyName("In Loop")] string InLoop,
-    string Evidence);
+    string? LifetimeUses,
+    string? LifetimeLimitations,
+    string InLoop,
+    string Evidence)
+{
+    [MarkoutSkipNull]
+    public string? Member { get; init; } = Member;
+
+    [MarkoutPropertyName("IL Offset")]
+    public string ILOffset { get; init; } = ILOffset;
+
+    [MarkoutPropertyName("Allocation Kind")]
+    public string AllocationKind { get; init; } = AllocationKind;
+
+    [MarkoutPropertyName("Allocated Type")]
+    public string? AllocatedType { get; init; } = AllocatedType;
+
+    [MarkoutPropertyName("Counted As Heap")]
+    public string CountedAsHeap { get; init; } = CountedAsHeap;
+
+    public string Frequency { get; init; } = Frequency;
+
+    public string Escape { get; init; } = Escape;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Lifetime Uses")]
+    [MarkoutSkipNull]
+    public string? LifetimeUses { get; init; } =
+        LibraryViewText.Contain(LifetimeUses);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Lifetime Limitations")]
+    [MarkoutSkipNull]
+    public string? LifetimeLimitations { get; init; } =
+        LibraryViewText.Contain(LifetimeLimitations);
+
+    [MarkoutPropertyName("In Loop")]
+    public string InLoop { get; init; } = InLoop;
+
+    public string Evidence { get; init; } = Evidence;
+}
 
 [MarkoutSerializable]
 public record SafetyFactRow(
