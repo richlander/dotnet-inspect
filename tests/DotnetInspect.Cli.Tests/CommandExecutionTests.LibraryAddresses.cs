@@ -266,6 +266,17 @@ public partial class CommandExecutionTests
             Assert.Equal(0, json.Exit);
             Assert.Empty(json.Error);
             using var document = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                "dll",
+                document.RootElement
+                    .GetProperty("file_type")
+                    .GetString());
+            Assert.Equal(
+                "DotnetInspect.Cli.Tests",
+                document.RootElement
+                    .GetProperty("assembly_info")
+                    .GetProperty("assembly_name")
+                    .GetString());
             Assert.Contains(
                 nameof(SemanticFactsFixture.AllSignals),
                 document.RootElement.ToString());

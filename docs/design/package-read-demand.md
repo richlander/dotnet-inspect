@@ -308,7 +308,8 @@ root `README.md` and the Markdown under `skills/`. Two consumers read them:
 | Command | Demand | Access at this head |
 | --- | --- | --- |
 | `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` | ranged, size first |
-| `library address` with one exact package Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | ranged, size first |
+| `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | ranged, size first |
+| `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
 | `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
@@ -316,8 +317,9 @@ root `README.md` and the Markdown under `skills/`. Two consumers read them:
 | `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
 | `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
 
-The first two rows and the last three rows adopt ranged access. The others keep
-their current complete acquisition until they adopt ranged access (see
+The first two command families and the last three rows adopt ranged access,
+except that `library address --json` retains complete acquisition. The others
+keep their current complete acquisition until they adopt ranged access (see
 [Adoption](#adoption)).
 
 ## Pathological cases and gates
@@ -359,7 +361,9 @@ All gates run in Release.
    acquisition step, with gates 6 to 10.
 3. `library address` adopts ranged access with
    `SurfaceAndImplementation`, one named implementation, selected Library
-   handoffs, and source-sensitive companion demand.
+   handoffs, and source-sensitive companion demand for non-JSON output. JSON
+   retains the complete path until the shared Address result owns its existing
+   Library metadata schema.
 4. `type`, `member`, and the remaining `library` operations adopt ranged
    access, naming the assemblies that define what they inspect and reusing the
    folders a surface search cached.

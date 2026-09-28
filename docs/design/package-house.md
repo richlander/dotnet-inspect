@@ -1268,7 +1268,10 @@ configured coordinates and PackageHouse-owned version selection use the same
 desktop composition. A local `.nupkg` is admitted as one immutable exact-only
 source before the same realization request. The CLI consumes the detached
 Address envelope and lowers it through its existing Address section, terminal,
-row-selection, JSON, text, and diagnostic presentation.
+row-selection, text, and diagnostic presentation. JSON retains the existing
+complete Library inspection path until the shared Address result owns the
+Library metadata required by that established schema; the CLI does not emit a
+success-shaped partial replacement.
 
 Other package-backed Library modes and Workspace-backed Address requests still
 use their existing paths. Browser/Wasm adoption and final removal of the

@@ -176,9 +176,10 @@ public partial class LibraryCommand
         if (source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
                 || options.AddressRequest is null
+                || options.JsonOutput
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
-                || !string.Equals(
+                || string.Equals(
                     options.Tfm,
                     "all",
                     StringComparison.OrdinalIgnoreCase)))
@@ -1233,8 +1234,13 @@ public partial class LibraryCommand
             else if (source.Selector
                 is SourceSelector.PackageSource)
             {
-                if (options.AddressRequest is not null
-                    && options.WorkspacePacket is null)
+                if (preResolvedPackage is null
+                    && options.AddressRequest is not null
+                    && options.WorkspacePacket is null
+                    && !options.JsonOutput
+                    && !options.NamesakeLibrary
+                    && !string.IsNullOrWhiteSpace(
+                        options.AssemblyName))
                 {
                     return await ExecutePackageAddressAsync(
                         source.PackageTarget!,
