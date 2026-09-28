@@ -187,6 +187,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
       "../playwright.worker-cpu.config.ts",
       "../playwright.package-adoption.config.ts",
       "../playwright.published-benchmark.config.ts",
+      "../playwright.find-unit-cost.config.ts",
       "../playwright.source-comparison.config.ts",
     ],
   );
@@ -3035,6 +3036,7 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts "
       + "playwright.published-benchmark.config.ts "
+      + "playwright.find-unit-cost.config.ts "
       + "playwright.source-comparison.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );

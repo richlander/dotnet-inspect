@@ -420,35 +420,19 @@ public static class CSharpStructuredTypePlanProducer
             ApiMember member,
             IReadOnlyCollection<string> namespaces)
         {
-            var accessor = member.SignatureModel?.Accessors.FirstOrDefault(value =>
-                value.IsExplicitInterfaceImplementation == true
-                && !string.IsNullOrWhiteSpace(value.Name));
-            if (member.Kind is not ("property" or "event") || accessor?.Name is not { } name)
+            if (!CSharpExplicitAccessorMembers.TryGetExplicitAccessorName(
+                    member,
+                    out string? name))
+            {
                 return member;
+            }
 
-            int separator = name.LastIndexOf('.');
-            if (separator < 0)
-                throw new NotSupportedException("An explicit accessor has no interface-qualified name.");
             ApiMember snapshot = CSharpTypePrinter.SnapshotTypeForRendering(type, [member]).Members[0];
-            string leaf = member.SignatureModel!.MemberName ?? member.Name;
-            leaf = leaf[(leaf.LastIndexOf('.') + 1)..];
-            snapshot.Kind = "explicit-interface-implementation";
-            string qualifier = name[..separator];
-            string? prefix = namespaces
-                .Append(type.Namespace)
-                .Where(static value =>
-                    !string.IsNullOrWhiteSpace(value))
-                .OrderByDescending(static value => value!.Length)
-                .FirstOrDefault(value =>
-                    qualifier.StartsWith(
-                        value + ".",
-                        StringComparison.Ordinal));
-            if (prefix is not null)
-                qualifier = qualifier[(prefix.Length + 1)..];
-            snapshot.Name = qualifier + "." + leaf;
-            snapshot.SignatureModel!.MemberName = leaf == "this[]"
-                ? leaf
-                : snapshot.Name;
+            CSharpExplicitAccessorMembers.ApplyExplicitShape(
+                snapshot,
+                name,
+                type.Namespace,
+                namespaces);
             return snapshot;
         }
 

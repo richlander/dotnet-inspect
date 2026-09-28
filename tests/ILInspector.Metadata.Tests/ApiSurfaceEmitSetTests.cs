@@ -6,12 +6,12 @@ namespace ILInspector.Metadata.Tests;
 /// <summary>
 /// Gate for #3975: method-list membership uses property/event
 /// <c>MethodSemantics</c>, not a <c>get_</c>/<c>set_</c>/<c>add_</c>/<c>remove_</c>
-/// name prefix. Ordinary prefix-named methods stay methods; ordinary accessors
-/// do not; a private MethodImpl accessor stays
-/// <c>explicit-interface-implementation</c> because its private property or
-/// event row would otherwise hide the public contract. A public MethodImpl
-/// accessor — covariant override or static-abstract implementation — stays on
-/// that public property or event row.
+/// name prefix. Ordinary prefix-named methods stay methods; accessors do not.
+/// An explicit implementation's accessors compose into its property or event
+/// row, which takes their effective access, so the row carries the interface's
+/// bucket (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+/// A public MethodImpl accessor — covariant override or static-abstract
+/// implementation — stays on that public property or event row.
 /// </summary>
 public sealed class ApiSurfaceEmitSetTests
 {
@@ -85,51 +85,35 @@ public sealed class ApiSurfaceEmitSetTests
     }
 
     [Fact]
-    public void PublicExtract_KeepsExplicitInterfaceAccessorsAsMethods()
+    public void PublicExtract_ComposesExplicitInterfaceAccessorsIntoTheirRecords()
     {
         ApiType type = PublicType();
 
-        ApiMember propertyAccessor = Assert.Single(
-            type.Members,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(
-                    $".get_{nameof(IEmitSetContract.ExplicitValue)}",
-                    StringComparison.Ordinal));
-        Assert.Contains(
-            type.Members,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(
-                    $".add_{nameof(IEmitSetContract.Changed)}",
-                    StringComparison.Ordinal));
-        Assert.Contains(
-            type.Members,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(
-                    $".remove_{nameof(IEmitSetContract.Changed)}",
-                    StringComparison.Ordinal));
-        Assert.Equal(
-            ApiMethodSemanticsKind.PropertyGetter,
-            propertyAccessor.MethodSemantics);
-        Assert.Contains(
-            type.Members,
-            member => member.MethodSemantics == ApiMethodSemanticsKind.EventAdder);
-        Assert.Contains(
-            type.Members,
-            member => member.MethodSemantics == ApiMethodSemanticsKind.EventRemover);
-
-        Assert.DoesNotContain(
+        ApiMember property = Assert.Single(
             type.Members,
             member => member.Kind == "property"
                 && member.Name.EndsWith(
                     $".{nameof(IEmitSetContract.ExplicitValue)}",
                     StringComparison.Ordinal));
-        Assert.DoesNotContain(
+        Assert.Null(property.Accessibility);
+        ApiMember evt = Assert.Single(
             type.Members,
             member => member.Kind == "event"
                 && member.Name.EndsWith(
                     $".{nameof(IEmitSetContract.Changed)}",
                     StringComparison.Ordinal));
-        Assert.NotNull(propertyAccessor.MetadataToken);
+        Assert.Null(evt.Accessibility);
+
+        string[] accessorNames =
+        [
+            $".get_{nameof(IEmitSetContract.ExplicitValue)}",
+            $".add_{nameof(IEmitSetContract.Changed)}",
+            $".remove_{nameof(IEmitSetContract.Changed)}",
+        ];
+        Assert.DoesNotContain(
+            type.Members,
+            member => accessorNames.Any(
+                name => member.Name.EndsWith(name, StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -183,22 +167,22 @@ public sealed class ApiSurfaceEmitSetTests
     }
 
     [Fact]
-    public void IncludeAllExtract_StillKeepsExplicitInterfaceAccessorsAsMethods()
+    public void IncludeAllExtract_ComposesExplicitInterfaceAccessorsIntoTheirRecords()
     {
         ApiType type = IncludeAllType();
 
-        Assert.Contains(
+        Assert.DoesNotContain(
             type.Members,
-            member => member.Kind == "explicit-interface-implementation"
-                && member.Name.EndsWith(
-                    $".get_{nameof(IEmitSetContract.ExplicitValue)}",
-                    StringComparison.Ordinal));
-        Assert.Contains(
+            member => member.Name.EndsWith(
+                $".get_{nameof(IEmitSetContract.ExplicitValue)}",
+                StringComparison.Ordinal));
+        ApiMember property = Assert.Single(
             type.Members,
             member => member.Kind == "property"
                 && member.Name.EndsWith(
                     $".{nameof(IEmitSetContract.ExplicitValue)}",
                     StringComparison.Ordinal));
+        Assert.Null(property.Accessibility);
         Assert.Contains(
             type.Members,
             member => member.Kind == "method"
