@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+
+using Inspector.Graph.Consumer;
 
 namespace Inspector.Graph.Tests;
 
@@ -47,15 +50,8 @@ public sealed class GraphDependencyBoundaryTests
     [Fact]
     public void CompiledGraphReferencesOnlyRuntimeAssemblies()
     {
-        HashSet<string> runtimeAssemblies = ((string?)
-                AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")
-                ?? throw new InvalidOperationException(
-                    "The runtime did not publish its trusted platform assemblies."))
-            .Split(Path.PathSeparator)
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(static name => name is not null)
-            .Select(static name => name!)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> runtimeAssemblies =
+            RuntimeAssemblyNames();
         Assembly graph = typeof(GraphDocument<
             Subject,
             Relationship,
@@ -64,6 +60,9 @@ public sealed class GraphDependencyBoundaryTests
             Limit,
             Failure>).Assembly;
 
+        Assert.DoesNotContain(
+            typeof(GraphDirectConsumer).Assembly.GetName().Name!,
+            runtimeAssemblies);
         string[] nonRuntimeReferences =
         [
             .. graph.GetReferencedAssemblies()
@@ -75,6 +74,36 @@ public sealed class GraphDependencyBoundaryTests
         ];
 
         Assert.Empty(nonRuntimeReferences);
+    }
+
+    private static HashSet<string> RuntimeAssemblyNames()
+    {
+        string runtimeDirectory = Path.GetFullPath(
+            RuntimeEnvironment.GetRuntimeDirectory());
+        string runtimePrefix = runtimeDirectory.EndsWith(
+            Path.DirectorySeparatorChar)
+            ? runtimeDirectory
+            : runtimeDirectory + Path.DirectorySeparatorChar;
+        StringComparison pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        string trustedAssemblies =
+            AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string
+            ?? throw new InvalidOperationException(
+                "The runtime did not publish its trusted platform assemblies.");
+
+        return trustedAssemblies
+            .Split(
+                Path.PathSeparator,
+                StringSplitOptions.RemoveEmptyEntries)
+            .Select(Path.GetFullPath)
+            .Where(path => path.StartsWith(
+                runtimePrefix,
+                pathComparison))
+            .Select(Path.GetFileNameWithoutExtension)
+            .Where(static name => name is not null)
+            .Select(static name => name!)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     private static IReadOnlySet<string> ProjectReferenceClosure(
