@@ -231,10 +231,12 @@ public static class InspectionGraphFocusProjection
                 InspectionGraphRelationshipDescriptor>(
                 request.Relationships,
                 request.Direction,
-                source.Nodes.Select(node =>
+                [
+                    .. source.Nodes.Select(node =>
                     new GraphNodeScope(
                         node.Id,
                         Membership(node.Subject, membership))),
+                ],
                 origins,
                 reachability:
                     source.ModeRequest.Mode

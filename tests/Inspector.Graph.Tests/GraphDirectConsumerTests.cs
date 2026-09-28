@@ -5,7 +5,7 @@ namespace Inspector.Graph.Tests;
 public sealed class GraphDirectConsumerTests
 {
     [Fact]
-    public void OrdinaryApplicationPayloadsRemainTypedAndSnapshotted()
+    public void GraphExecutionDirectConsumerRuns()
     {
         GraphConsumerObservation observation =
             GraphDirectConsumer.Execute();

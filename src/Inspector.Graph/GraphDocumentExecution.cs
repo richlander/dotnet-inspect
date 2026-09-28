@@ -60,12 +60,12 @@ public sealed class GraphNeighborhoodPlan<TRelationship>
     where TRelationship : notnull
 {
     public GraphNeighborhoodPlan(
-        IEnumerable<TRelationship> relationships,
+        IReadOnlyList<TRelationship> relationships,
         GraphTraversalDirection direction,
         int maxDepth,
-        IEnumerable<int> rootNodeIds,
-        IEnumerable<GraphTraversalEntry> entries,
-        IEnumerable<int>? anchorNodeIds = null)
+        IReadOnlyList<int> rootNodeIds,
+        IReadOnlyList<GraphTraversalEntry> entries,
+        IReadOnlyList<int>? anchorNodeIds = null)
     {
         GraphCollections.RequireDefined(direction, nameof(direction));
         ArgumentOutOfRangeException.ThrowIfNegative(maxDepth);
@@ -104,10 +104,10 @@ public sealed class GraphFocusPlan<TRelationship>
     where TRelationship : notnull
 {
     public GraphFocusPlan(
-        IEnumerable<TRelationship> relationships,
+        IReadOnlyList<TRelationship> relationships,
         GraphTraversalDirection direction,
-        IEnumerable<GraphNodeScope> nodeScopes,
-        IEnumerable<int> originNodeIds,
+        IReadOnlyList<GraphNodeScope> nodeScopes,
+        IReadOnlyList<int> originNodeIds,
         GraphFocusReachability reachability)
     {
         GraphCollections.RequireDefined(direction, nameof(direction));
@@ -448,11 +448,7 @@ public static class GraphDocumentExecution
                 work,
                 buildOutgoing,
                 buildIncoming,
-                edge =>
-                    memberships[edge.FromNodeId]
-                        == GraphScopeMembership.Inside
-                    && memberships[edge.ToNodeId]
-                        == GraphScopeMembership.Inside);
+                memberships);
         IReadOnlyDictionary<int, ImmutableArray<int>> outgoingPaths =
             plan.Reachability
                 == GraphFocusReachability.EntireInsideScope
@@ -763,7 +759,7 @@ public static class GraphDocumentExecution
             GraphExecutionWork work,
             bool includeOutgoing,
             bool includeIncoming,
-            Predicate<GraphEdge<TRelationship>>? include = null)
+            GraphScopeMembership[]? memberships = null)
         {
             var relationshipSet = new HashSet<TRelationship>(
                 relationships,
@@ -784,8 +780,11 @@ public static class GraphDocumentExecution
             {
                 work.CanonicalEdgesExamined++;
                 if (!relationshipSet.Contains(edge.Relationship)
-                    || include is not null
-                    && !include(edge))
+                    || memberships is not null
+                    && (memberships[edge.FromNodeId]
+                            != GraphScopeMembership.Inside
+                        || memberships[edge.ToNodeId]
+                            != GraphScopeMembership.Inside))
                 {
                     continue;
                 }
@@ -877,19 +876,23 @@ public static class GraphDocumentExecution
 static class GraphExecutionCollections
 {
     internal static ImmutableArray<T> SnapshotValues<T>(
-        IEnumerable<T> values,
+        IReadOnlyList<T> values,
         string parameterName)
         where T : notnull
     {
-        ImmutableArray<T> snapshot =
-            GraphCollections.Snapshot(values, parameterName);
-        if (snapshot.Any(static value => value is null))
-            throw new ArgumentNullException(parameterName);
-        return snapshot;
+        ArgumentNullException.ThrowIfNull(values, parameterName);
+        var snapshot = ImmutableArray.CreateBuilder<T>(values.Count);
+        for (int index = 0; index < values.Count; index++)
+        {
+            T value = values[index]
+                ?? throw new ArgumentNullException(parameterName);
+            snapshot.Add(value);
+        }
+        return snapshot.MoveToImmutable();
     }
 
     internal static ImmutableArray<T> SnapshotDistinct<T>(
-        IEnumerable<T> values,
+        IReadOnlyList<T> values,
         IEqualityComparer<T> comparer,
         string parameterName)
         where T : notnull
@@ -908,7 +911,7 @@ static class GraphExecutionCollections
     }
 
     internal static ImmutableArray<int> SnapshotDistinctIds(
-        IEnumerable<int> values,
+        IReadOnlyList<int> values,
         string parameterName)
     {
         ImmutableArray<int> snapshot =
@@ -926,7 +929,7 @@ static class GraphExecutionCollections
 
     internal static ImmutableArray<GraphNodeScope>
         SnapshotDistinctNodeScopes(
-        IEnumerable<GraphNodeScope> values,
+        IReadOnlyList<GraphNodeScope> values,
         string parameterName)
     {
         ImmutableArray<GraphNodeScope> snapshot =

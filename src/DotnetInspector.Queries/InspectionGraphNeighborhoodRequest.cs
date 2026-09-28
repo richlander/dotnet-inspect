@@ -228,12 +228,15 @@ internal static class InspectionGraphNeighborhoodProjection
                     request.Direction,
                     request.MaxDepth,
                     rootNodeIds: [],
-                    entries,
-                    anchorNodeIds: sourceSeeds
+                    [.. entries],
+                    anchorNodeIds:
+                    [
+                        .. sourceSeeds
                         .Where(seed =>
                             seed.Target.Kind
                                 == InspectionGraphTargetKind.Node)
-                        .Select(static seed => seed.Target.Id)));
+                        .Select(static seed => seed.Target.Id),
+                    ]));
         retainedNodeIds.UnionWith(execution.NodeIds);
         var retainedEdgeIds = execution.EdgeIds.ToHashSet();
 

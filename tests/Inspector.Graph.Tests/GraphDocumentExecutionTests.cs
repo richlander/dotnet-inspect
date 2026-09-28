@@ -463,11 +463,11 @@ public sealed class GraphDocumentExecutionTests
     }
 
     static GraphNeighborhoodPlan<Relationship> Neighborhood(
-        IEnumerable<Relationship> relationships,
+        IReadOnlyList<Relationship> relationships,
         GraphTraversalDirection direction =
             GraphTraversalDirection.Outgoing,
         int maxDepth = 1,
-        IEnumerable<int>? roots = null) =>
+        IReadOnlyList<int>? roots = null) =>
         new(
             relationships,
             direction,
@@ -476,10 +476,10 @@ public sealed class GraphDocumentExecutionTests
             entries: []);
 
     static GraphFocusPlan<Relationship> Focus(
-        IEnumerable<Relationship> relationships,
+        IReadOnlyList<Relationship> relationships,
         GraphTraversalDirection direction,
-        IEnumerable<GraphNodeScope> scopes,
-        IEnumerable<int> origins,
+        IReadOnlyList<GraphNodeScope> scopes,
+        IReadOnlyList<int> origins,
         bool retainEntireInsideScope = false) =>
         new(
             relationships,
