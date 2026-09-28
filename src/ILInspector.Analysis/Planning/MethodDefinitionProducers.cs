@@ -35,18 +35,15 @@ public enum MethodDefinitionLayers
     /// <summary>Tier 1: in-place comparison of the method's and its type's names.</summary>
     NameComparison = 16,
 
-    /// <summary>Tier 1: in-place match of the method's custom attribute types.</summary>
-    AttributeTypeMatch = 32,
-
     /// <summary>Tier 1: a memoized yes/no walk of the method's signature shape.</summary>
-    SignatureShape = 64,
+    SignatureShape = 32,
 
     /// <summary>
     /// Tier 2: identity text (declaring type, signature, anchor, return type,
     /// module) through the gate's budgeted identity decoder, as <c>InertString</c>.
     /// Declaring it arms the gate's identity budget.
     /// </summary>
-    IdentityText = 128,
+    IdentityText = 64,
 }
 
 /// <summary>
@@ -371,14 +368,6 @@ public readonly ref struct MethodDefinitionView
     {
         Require(MethodDefinitionLayers.NameComparison);
         return _unit.Gate.DeclaringTypeNameStartsWith(prefix);
-    }
-
-    /// <summary>Tier 1: whether a custom attribute on the method has the target type, matched in place.</summary>
-    public bool HasAttributeOfType(MetadataTypeNameTarget target)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        Require(MethodDefinitionLayers.AttributeTypeMatch);
-        return _unit.Gate.HasAttributeOfType(target);
     }
 
     /// <summary>Tier 1: whether the method's return or a parameter type contains a pointer.</summary>

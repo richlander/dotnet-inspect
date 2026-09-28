@@ -23,7 +23,6 @@ public abstract class MethodRowClassifier
     const MethodDefinitionLayers Tier1 =
         MethodDefinitionLayers.Flags
         | MethodDefinitionLayers.NameComparison
-        | MethodDefinitionLayers.AttributeTypeMatch
         | MethodDefinitionLayers.SignatureShape;
 
     private protected MethodRowClassifier(string identity, MethodDefinitionLayers fields)
@@ -136,13 +135,10 @@ internal sealed class MethodRowGate
     internal const string Owner = "MethodRowGate";
     internal const string SignatureShapeCap = "SignatureShapeCap";
     internal const string TypeSpecificationGuard = "TypeSpecificationGuard";
-    internal const string AttributeTypeChain = "AttributeTypeChain";
     internal const string IdentityWork = "IdentityWork";
     internal const string IdentityDecodeFailures = "IdentityDecodeFailures";
 
     readonly SignatureShapeWalker _signatures;
-    readonly Dictionary<(EntityHandle Constructor, MetadataTypeNameTarget Target), bool> _attributeTypes = [];
-    readonly Dictionary<(TypeSpecificationHandle Handle, MetadataTypeNameTarget Target), bool> _specificationTypes = [];
     readonly Dictionary<MethodRowClassifier, ClassifierCache> _classifiers = [];
 
     // The identity budget: legacy's per-scan budgets, per execution.
@@ -289,92 +285,6 @@ internal sealed class MethodRowGate
 
     internal bool DeclaringTypeNameStartsWith(string prefix) =>
         Reader.StringComparer.StartsWith(_typeDefinition.Name, prefix);
-
-    /// <summary>
-    /// Whether one of the row's custom attributes has the target type,
-    /// checked in attribute order and stopping at the first match, as
-    /// <c>AttributeReader.HasAttribute</c> does. Each constructor's answer is
-    /// memoized for the execution.
-    /// </summary>
-    internal bool HasAttributeOfType(MetadataTypeNameTarget target)
-    {
-        foreach (CustomAttributeHandle handle in _methodDefinition.GetCustomAttributes())
-        {
-            EntityHandle constructor = Reader.GetCustomAttribute(handle).Constructor;
-            if (!_attributeTypes.TryGetValue((constructor, target), out bool matches))
-            {
-                matches = ConstructorTypeMatches(constructor, target);
-                _attributeTypes[(constructor, target)] = matches;
-            }
-
-            if (matches)
-                return true;
-        }
-
-        return false;
-    }
-
-    bool ConstructorTypeMatches(EntityHandle constructor, MetadataTypeNameTarget target) =>
-        constructor.Kind switch
-        {
-            HandleKind.MemberReference => TypeMatches(
-                Reader.GetMemberReference((MemberReferenceHandle)constructor).Parent,
-                target),
-            HandleKind.MethodDefinition => TypeMatches(
-                Reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
-                target),
-            _ => false,
-        };
-
-    bool TypeMatches(EntityHandle type, MetadataTypeNameTarget target)
-    {
-        if (type.IsNil)
-            return false;
-        if (type.Kind == HandleKind.TypeSpecification)
-            return SpecificationTypeMatches((TypeSpecificationHandle)type, target);
-        if (type.Kind is not (HandleKind.TypeReference or HandleKind.TypeDefinition))
-            return false;
-
-        return MetadataTypeNameMatch.Matches(Reader, type, target) switch
-        {
-            MetadataTypeNameMatchResult.Match => true,
-            MetadataTypeNameMatchResult.NoMatch => false,
-            MetadataTypeNameMatchResult.Malformed => throw new BadImageFormatException(
-                "An attribute type's name could not be read."),
-            _ => AbortChain(),
-        };
-    }
-
-    bool AbortChain()
-    {
-        Abort(
-            AttributeTypeChain,
-            "An attribute type's nested chain repeats a handle or exceeds "
-            + $"{MetadataSafetyPolicy.MaxRelationshipNodes} nodes.");
-        return false;
-    }
-
-    /// <summary>
-    /// A generic instantiation never spells a non-generic name, so it is
-    /// answered without decoding. Any other TypeSpec parent is compared as
-    /// <c>AttributeReader.HasAttribute</c> compares it, once per handle.
-    /// </summary>
-    bool SpecificationTypeMatches(TypeSpecificationHandle handle, MetadataTypeNameTarget target)
-    {
-        if (_specificationTypes.TryGetValue((handle, target), out bool matches))
-            return matches;
-
-        BlobReader blob = Reader.GetBlobReader(Reader.GetTypeSpecification(handle).Signature);
-        const byte GenericInstantiation = 0x15;
-        matches = blob.Length > 0
-            && blob.ReadByte() != GenericInstantiation
-            && string.Equals(
-                TypeResolver.GetTypeName(Reader, handle),
-                target.FullName,
-                StringComparison.Ordinal);
-        _specificationTypes[(handle, target)] = matches;
-        return matches;
-    }
 
     internal bool SignatureHasPointer() => _signatures.MethodHasPointer(_methodDefinition);
 

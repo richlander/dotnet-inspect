@@ -19,9 +19,6 @@ namespace ILInspector.Analysis.Tests;
 /// </summary>
 public sealed class MethodRowGateTests
 {
-    static readonly MetadataTypeNameTarget AsyncStateMachine =
-        new("System.Runtime.CompilerServices.AsyncStateMachineAttribute");
-
     // ---- Field demand ----
 
     [Fact]
@@ -74,16 +71,16 @@ public sealed class MethodRowGateTests
     {
         ImmutableArray<byte> image = Ordinary().Build();
         var pointer = new GateProducer<PointerPredicate>("Pointer", MethodDefinitionLayers.SignatureShape);
-        var async = new GateProducer<AsyncAttributePredicate>("Async", MethodDefinitionLayers.AttributeTypeMatch);
+        var names = new GateProducer<NameAPredicate>("NamesA", MethodDefinitionLayers.NameComparison);
 
         MethodDefinitionExecution execution = Run(
             image,
-            Plan(new ProducerRequest(pointer, terminal), new ProducerRequest(async, terminal)));
+            Plan(new ProducerRequest(pointer, terminal), new ProducerRequest(names, terminal)));
 
         Assert.False(execution.Receipt.IdentityBudgetArmed);
         Assert.Equal(0, execution.Receipt.IdentityWorkCharged);
         Assert.True(execution.ResultOf(pointer).HasValue);
-        Assert.True(execution.ResultOf(async).HasValue);
+        Assert.True(execution.ResultOf(names).HasValue);
     }
 
     [Fact]
@@ -440,117 +437,6 @@ public sealed class MethodRowGateTests
         Assert.Equal(OrdinaryPublicMethods, execution.ResultOf(guarded).Value);
     }
 
-    // ---- Attribute type match ----
-
-    [Fact]
-    public void AttributeTypeMatch_EqualsTheMaterializedComparison()
-    {
-        GateFixtureImage builder = Ordinary();
-        TypeReferenceHandle referenced = builder.TypeRef(
-            "System.Runtime.CompilerServices", "AsyncStateMachineAttribute");
-        TypeReferenceHandle splitNamespace = builder.TypeRef(
-            "System.Runtime", "CompilerServices.AsyncStateMachineAttribute");
-        TypeReferenceHandle outer = builder.TypeRef("System.Runtime", "CompilerServices");
-        TypeReferenceHandle nested = builder.TypeRef("", "AsyncStateMachineAttribute", outer);
-        TypeReferenceHandle other = builder.TypeRef(
-            "System.Runtime.CompilerServices", "IteratorStateMachineAttribute");
-        TypeReferenceHandle generic = builder.TypeRef("System.Runtime.CompilerServices", "AsyncStateMachineAttribute`1");
-        var genericSpec = new BlobBuilder();
-        genericSpec.WriteByte(0x15);
-        genericSpec.WriteByte(0x12);
-        genericSpec.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
-        genericSpec.WriteCompressedInteger(1);
-        genericSpec.WriteByte(0x08);
-        TypeSpecificationHandle genericParent = builder.TypeSpec(genericSpec);
-        var classSpec = new BlobBuilder();
-        classSpec.WriteByte(0x12);
-        classSpec.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(referenced));
-        TypeSpecificationHandle classParent = builder.TypeSpec(classSpec);
-
-        GateFixtureImage.FixtureType defined = builder.Type("System.Runtime.CompilerServices", "AsyncStateMachineAttribute");
-        defined.Method("Marker");
-        GateFixtureImage.FixtureType definedOuter = builder.Type("System.Runtime", "CompilerServices");
-        GateFixtureImage.FixtureType definedNested = builder.Type("", "AsyncStateMachineAttribute", definedOuter);
-        definedNested.Method("NestedMarker");
-
-        GateFixtureImage.FixtureType subjects = builder.Type("N", "Subjects");
-        subjects
-            .Method("Referenced", attributeConstructors: [builder.AttributeConstructor(referenced)])
-            .Method("SplitNamespace", attributeConstructors: [builder.AttributeConstructor(splitNamespace)])
-            .Method("Nested", attributeConstructors: [builder.AttributeConstructor(nested)])
-            .Method("Other", attributeConstructors: [builder.AttributeConstructor(other)])
-            .Method("GenericParent", attributeConstructors: [builder.AttributeConstructor(genericParent)])
-            .Method("ClassSpecParent", attributeConstructors: [builder.AttributeConstructor(classParent)])
-            .Method("OtherThenReferenced", attributeConstructors:
-                [builder.AttributeConstructor(other), builder.AttributeConstructor(referenced)])
-            .Method("None");
-        ImmutableArray<byte> image = builder.Build();
-
-        // Defined-type constructors are MethodDefs on the defined types.
-        using var peReader = new PEReader(image);
-        MetadataReader reader = peReader.GetMetadataReader();
-        var expected = new Dictionary<string, bool>();
-        foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
-        {
-            foreach (MethodDefinitionHandle methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
-            {
-                MethodDefinition method = reader.GetMethodDefinition(methodHandle);
-                expected[reader.GetString(method.Name)] = AttributeReader.HasAttribute(
-                    reader,
-                    method.GetCustomAttributes(),
-                    AsyncStateMachine.FullName);
-            }
-        }
-
-        Assert.True(expected["Referenced"]);
-        Assert.True(expected["SplitNamespace"]);
-        Assert.True(expected["Nested"]);
-        Assert.False(expected["Other"]);
-        Assert.False(expected["GenericParent"]);
-        Assert.True(expected["ClassSpecParent"]);
-        Assert.True(expected["OtherThenReferenced"]);
-
-        var names = new GateProducer<AsyncAttributeNamePredicate>(
-            "Names", MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.IdentityText);
-        AsyncAttributeNamePredicate.Seen.Clear();
-        Run(image, Plan(new ProducerRequest(names)));
-        foreach ((string name, bool matches) in expected)
-            Assert.Equal(matches, AsyncAttributeNamePredicate.Seen[name]);
-    }
-
-    [Fact]
-    public void AttributeTypeMatch_DefinedAttributeTypesMatchThroughMethodDefConstructors()
-    {
-        GateFixtureImage builder = Ordinary();
-        GateFixtureImage.FixtureType attribute = builder.Type(
-            "System.Runtime.CompilerServices", "AsyncStateMachineAttribute");
-        attribute.Method(".ctor", attributes: MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
-        ImmutableArray<byte> scratch = builder.Build();
-        using var scratchReader = new PEReader(scratch);
-        MetadataReader reader = scratchReader.GetMetadataReader();
-        MethodDefinitionHandle constructor = default;
-        foreach (MethodDefinitionHandle method in reader.MethodDefinitions)
-        {
-            if (reader.StringComparer.Equals(reader.GetMethodDefinition(method).Name, ".ctor"))
-                constructor = method;
-        }
-
-        // Rebuild with a subject carrying the MethodDef constructor.
-        GateFixtureImage withSubject = Ordinary();
-        GateFixtureImage.FixtureType attributeType = withSubject.Type(
-            "System.Runtime.CompilerServices", "AsyncStateMachineAttribute");
-        attributeType.Method(".ctor", attributes: MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
-        withSubject.Type("N", "Subject").Method("UsesDefined", attributeConstructors: [constructor]);
-        ImmutableArray<byte> image = withSubject.Build();
-
-        var names = new GateProducer<AsyncAttributeNamePredicate>(
-            "Names", MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.IdentityText);
-        AsyncAttributeNamePredicate.Seen.Clear();
-        Run(image, Plan(new ProducerRequest(names)));
-
-        Assert.True(AsyncAttributeNamePredicate.Seen["UsesDefined"]);
-    }
-
     // ---- Fixtures ----
 
     // N.Sample's public methods: Alpha, Apex, Beta, Pointer; plus a private one.
@@ -698,11 +584,6 @@ public sealed class MethodRowGateTests
         public readonly bool Test(scoped MethodDefinitionView view) => view.SignatureHasPointer;
     }
 
-    struct AsyncAttributePredicate : IMethodDefinitionPredicate
-    {
-        public readonly bool Test(scoped MethodDefinitionView view) => view.HasAttributeOfType(AsyncStateMachine);
-    }
-
     struct IdentityPredicate : IMethodDefinitionPredicate
     {
         public readonly bool Test(scoped MethodDefinitionView view) => view.Identity.Signature.ToString().Length > 0;
@@ -728,18 +609,6 @@ public sealed class MethodRowGateTests
             bool hasPointer = view.SignatureHasPointer;
             Seen[view.Identity.MethodName.ToString()] = hasPointer;
             return hasPointer;
-        }
-    }
-
-    struct AsyncAttributeNamePredicate : IMethodDefinitionPredicate
-    {
-        public static readonly Dictionary<string, bool> Seen = [];
-
-        public readonly bool Test(scoped MethodDefinitionView view)
-        {
-            bool matches = view.HasAttributeOfType(AsyncStateMachine);
-            Seen[view.Identity.MethodName.ToString()] = matches;
-            return matches;
         }
     }
 }
