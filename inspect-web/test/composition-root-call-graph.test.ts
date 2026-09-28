@@ -992,12 +992,10 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     renderMember,
     /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;/);
+  assert.doesNotMatch(renderMember, /implementation-profiles/);
   assert.match(
     renderMember,
-    /state\.memberSection === "implementation-profiles"[\s\S]*?`\$\{member\.overloads\.length} overloads`/);
-  assert.match(
-    renderMember,
-    /`\$\{overloadIndex \+ 1} of \$\{member\.overloads\.length}`/);
+    /· \$\{overloadIndex \+ 1} of \$\{member\.overloads\.length}<\/span>/);
   assert.match(
     memberOverview,
     /class="learn-section member-overview-intro">\s*<section class="signature-panel"[\s\S]*?class="member-documentation"[\s\S]*?class="member-identity"/);

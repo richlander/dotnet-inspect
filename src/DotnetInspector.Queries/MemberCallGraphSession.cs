@@ -86,16 +86,6 @@ public sealed record MemberCallGraphView(
         [];
 
     /// <summary>
-    /// Compact ownership evidence retained from the same focused results that
-    /// produced this graph layer.
-    /// </summary>
-    public ImmutableArray<Analysis.ArrayPoolOwnershipMethodEvidence>
-        OwnershipEvidence { get; init; } = [];
-
-    /// <summary>Whether ownership-flow production was requested.</summary>
-    public bool OwnershipFlowAvailable { get; init; }
-
-    /// <summary>
     /// Generic Resource Ownership summaries retained from the same focused
     /// results that produced this graph layer.
     /// </summary>
@@ -144,11 +134,6 @@ public sealed record MemberCallGraphOptions
             throw new ArgumentException(
                 "Progressive call graphs require method evidence.");
         }
-        if ((Features & Analysis.LibraryBodyAnalysisFeatures.LeakTriage) != 0)
-        {
-            throw new ArgumentException(
-                "Progressive call graphs do not support Leak Triage because their first tier is body-scoped.");
-        }
     }
 }
 
@@ -169,13 +154,6 @@ public sealed record MemberCallGraphCalleeNeighborhoodRequest
 
     public int MaxDepth { get; }
     public int MaxNodes { get; }
-}
-
-internal enum MemberCallGraphExternalFocusMembership
-{
-    Unknown,
-    Hub,
-    External,
 }
 
 /// <summary>
@@ -303,7 +281,7 @@ public sealed class MemberCallGraphSession : IDisposable
     internal InspectionGraphDocument
         CrossLibraryCalleeNeighborhoodWithCancellation(
         MemberCallGraphCalleeNeighborhoodRequest request,
-        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>
+        Func<CallGraphNode, InspectionGraphScopeMembership>
             classify,
         CancellationToken cancellationToken)
     {
@@ -441,7 +419,7 @@ public sealed class MemberCallGraphSession : IDisposable
     InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
         MemberCallGraphCalleeNeighborhoodRequest request,
         CancellationToken cancellationToken,
-        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>?
+        Func<CallGraphNode, InspectionGraphScopeMembership>?
             classify)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -459,82 +437,28 @@ public sealed class MemberCallGraphSession : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         CallGraphProjection source =
             CallGraphProjection.FromCallees(calleeRoot);
-        ExternalFocusedCallGraphProjection externalFocused =
-            classify is null
-                ? CreateExternalFocusedProjection(
-                    source,
-                    root.ImageIdentity)
-                : CreateExternalFocusedProjection(source, classify);
         cancellationToken.ThrowIfCancellationRequested();
         return CallGraphInspectionGraphAdapter
             .CreateExternalFocusedOutgoingNeighborhood(
-                externalFocused,
+                source,
+                classify ?? (node =>
+                {
+                    if (!TryGetDefinitionImage(
+                            node,
+                            out AssemblyImageIdentity image))
+                    {
+                        return InspectionGraphScopeMembership.Unknown;
+                    }
+
+                    return image == root.ImageIdentity
+                        ? InspectionGraphScopeMembership.Inside
+                        : _fullAnalysesByImage.ContainsKey(image)
+                            ? InspectionGraphScopeMembership.Outside
+                            : InspectionGraphScopeMembership.Unknown;
+                }),
                 request.MaxDepth,
                 request.MaxNodes,
                 _catalogScope!.Diagnostics);
-    }
-
-    ExternalFocusedCallGraphProjection CreateExternalFocusedProjection(
-        CallGraphProjection source,
-        AssemblyImageIdentity rootImage)
-        => CreateExternalFocusedProjection(
-            source,
-            node =>
-            {
-                if (!TryGetDefinitionImage(
-                        node,
-                        out AssemblyImageIdentity image))
-                {
-                    return MemberCallGraphExternalFocusMembership.Unknown;
-                }
-
-                return image == rootImage
-                    ? MemberCallGraphExternalFocusMembership.Hub
-                    : _fullAnalysesByImage.ContainsKey(image)
-                        ? MemberCallGraphExternalFocusMembership.External
-                        : MemberCallGraphExternalFocusMembership.Unknown;
-            });
-
-    static ExternalFocusedCallGraphProjection
-        CreateExternalFocusedProjection(
-        CallGraphProjection source,
-        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>
-            classify)
-    {
-        var hubNodeIds = new List<int>();
-        var externalNodeIds = new List<int>();
-        foreach (CallGraphNode node in source.Nodes)
-        {
-            switch (classify(node))
-            {
-                case MemberCallGraphExternalFocusMembership.Hub:
-                    hubNodeIds.Add(node.Id);
-                    break;
-                case MemberCallGraphExternalFocusMembership.External:
-                    externalNodeIds.Add(node.Id);
-                    break;
-                case MemberCallGraphExternalFocusMembership.Unknown:
-                    break;
-                default:
-                    throw new InvalidOperationException(
-                        "The external-focus classifier returned an unsupported membership.");
-            }
-        }
-
-        if (!hubNodeIds.Contains(source.Focus.Id))
-        {
-            throw new InspectionQueryException(
-                "The call-graph focus could not be joined to the external-focus hub.");
-        }
-
-        return ExternalFocusedCallGraphProjection.Create(
-            source,
-            new ExternalFocusedCallGraphRequest(
-                hubNodeIds,
-                externalNodeIds,
-                ExternalFocusedCallGraphDirection.Outgoing,
-                ExternalFocusedCallGraphMode.SeededConnectors,
-                [source.Focus.Id]));
     }
 
     static bool TryGetDefinitionImage(
@@ -599,16 +523,6 @@ public sealed class MemberCallGraphSession : IDisposable
                     .OrderBy(call => call.ILOffset)
                     .ThenBy(call => call.OperandToken),
             ],
-            OwnershipEvidence =
-            [
-                .. evidenceSources
-                    .SelectMany(item =>
-                        item.CallGraph.OwnershipEvidence),
-            ],
-            OwnershipFlowAvailable =
-                (_options.Features
-                    & Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow)
-                != 0,
             ResourceOwnershipSummaries =
             [
                 .. evidenceSources

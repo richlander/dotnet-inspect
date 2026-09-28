@@ -78,7 +78,8 @@ root README remains current without cataloging every focused capability.
 
 | Concern | Entry point |
 | --- | --- |
-| Layering and project families | [Inspection Layers](design/inspection-layers.md) and [Library Family Boundaries](design/library-family-boundaries.md) |
+| Layering and project families | [Inspection Layers](design/inspection-layers.md), [Library Family Boundaries](design/library-family-boundaries.md), and [Inspection Operation Kernels](design/inspection-operation-kernels.md) |
+| Graph structure and execution | [Inspector.Graph Library Boundary](design/inspector-graph-library-boundary.md) and [Inspector.Graph Execution](design/inspector-graph-execution.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
 | Query library, resumable execution, composition, operation registration, portable intent, and payload | [QuerySpace Library Boundary](design/query-space-library.md), [QueryOverflow](design/query-overflow.md), [Query Space Composition](design/query-space-composition.md), [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
 | Installed capability composition, search, discovery, and exact explanation | [Inspection Capability Composition](design/inspection-capability-composition.md), [Capability Catalog Search](design/capability-catalog-search.md), [Schema Query](design/schema-query.md), [Resource Explanation](design/resource-explanation.md), and [Product Vocabulary](design/vocabulary.md) |
@@ -94,7 +95,7 @@ root README remains current without cataloging every focused capability.
 | How much of a package a command reads by range: surface or implementation, a folder at a time | [Package read demand](design/package-read-demand.md) |
 | What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
-| Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
+| Source, decoded documents, and PDB composition | [SourceHouse](design/source-house.md), [Decoded text document](design/decoded-text-document.md), and [PDB Acquisition](pdb-acquisition.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |
 | Decompiler architecture and correctness | [Decompiler Architecture](decompiler-architecture.md) and [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) |
 | Browser host | [Inspect Web](../inspect-web/README.md) |

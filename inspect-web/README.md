@@ -653,10 +653,11 @@ and `AddHttpClient` signals. The same network-backed case opens
 `System.Text.Json@10.0.0/net10.0` through the ordinary Worker transport as its
 large-package baseline and `Aspire.Hosting@13.5.4/net8.0` as the pathological
 package that crosses both former transport bounds. These coordinates use the
-live Gallery CDN; the lifecycle and malformed-implementation cases use
-deterministic local archive responses. Run the gate after building the frontend
-and publishing `DotnetInspect.Web.csproj` in Release to
-`artifacts/inspect-web-publish`.
+live Gallery CDN. The retained Workspace two-host journey, lifecycle cases, and
+malformed-implementation cases use deterministic local archive responses; the
+packaged CLI smoke gate independently exercises live NuGet acquisition. Run the
+gate after building the frontend and publishing `DotnetInspect.Web.csproj` in
+Release to `artifacts/inspect-web-publish`.
 
 ## Supported
 
@@ -2772,11 +2773,13 @@ fingerprinted `dotnet.js`, and that the import map precedes the Vite module
 entry. That configuration serves `/` and `/index.html` with `Cache-Control:
 no-cache, no-store, must-revalidate`, so an Azure edge cannot retain an old
 browser boot graph after its fingerprinted Wasm assets rotate.
-`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
-gates the header contract and publish wiring. The staging publish step embeds
-the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
-timestamp. The shared Home and workbench data bar shows that version, links the
-short commit to GitHub, and discloses the concise UTC build date.
+`entry-routes.test.ts` gates the entry-route and no-cache configuration
+contract. The publish and deployment workflows verify the generated site
+artifact, including `staticwebapp.config.json`, and
+`verify-site-artifact.ts` checks the transformed site. The staging publish
+step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
+build timestamp. The shared Home and workbench data bar shows that version,
+links the short commit to GitHub, and discloses the concise UTC build date.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `data bar shows versioned linked build provenance` gate the engine and UI
 halves.

@@ -51,6 +51,32 @@ test("Cancel and Escape return to Add, and Tab stays in the picker", async ({ pa
   await expect(page.locator("[data-workspace-activate]")).toHaveCount(1);
 });
 
+test("retained Add package backdrop tabs through current controls after refresh", async ({ page }) => {
+  await page.goto("/browser/workspace-add-package.html");
+  await page.getByRole("button", { name: "Add package", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add package", exact: true });
+  const input = dialog.getByRole("combobox", { name: "Add package", exact: true });
+  await input.fill("Beta");
+  const result = dialog.getByRole("option", { name: /Beta/ });
+  await result.focus();
+  const resultHandle = await result.elementHandle();
+  expect(resultHandle).not.toBeNull();
+
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("workspace-add-rerender")));
+
+  await expect(result).toBeFocused();
+  expect(await resultHandle.evaluate(element =>
+    document.querySelector('[data-sl-pkg-load="Beta"]') === element))
+    .toBe(true);
+  const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
+  await cancel.focus();
+  await cancel.press("Tab");
+  await expect(input).toBeFocused();
+  await input.press("Shift+Tab");
+  await expect(cancel).toBeFocused();
+});
+
 test("source failure is visible and editing the query recovers", async ({ page }) => {
   await page.goto("/browser/workspace-add-package.html");
   await page.getByRole("button", { name: "Add package", exact: true }).click();

@@ -52,6 +52,20 @@ internal interface IMethodCallResolver
 /// </summary>
 internal static partial class MethodCallAnalysis
 {
+    internal static void CollectDirectCalls(
+        MethodBodyAnalysisContext context,
+        IMethodCallResolver resolver,
+        ImmutableArray<DirectCall>.Builder calls) =>
+        CollectCore(
+            context,
+            resolver,
+            multiplicityAt: null,
+            calls,
+            unsafeEvidence: null,
+            includeIndirectOpcodes: false,
+            includeCallValueFlow: false,
+            includeNonInvocationSites: false);
+
     /// <summary>
     /// Appends results incrementally so calls and safety evidence emitted before
     /// a later recoverable metadata failure remain visible to the method-level
@@ -65,6 +79,41 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
         bool includeIndirectOpcodes,
         bool includeCallValueFlow = true,
+        IDictionary<int, CallReceiverSource>? privateReceiverSources = null,
+        ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
+        ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
+        ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null,
+        ImmutableArray<int>.Builder? currentInstanceMutations = null,
+        ImmutableArray<MethodReturnFlow>.Builder? returnFlows = null,
+        ImmutableArray<LocalThrowSite>.Builder? localThrows = null,
+        Func<TypeRef, ExceptionTypeQualification>? qualifyExceptionType = null)
+        => CollectCore(
+            context,
+            resolver,
+            multiplicityAt,
+            calls,
+            unsafeEvidence,
+            includeIndirectOpcodes,
+            includeCallValueFlow,
+            includeNonInvocationSites: true,
+            privateReceiverSources,
+            resultSinks,
+            fieldStores,
+            fieldLoads,
+            currentInstanceMutations,
+            returnFlows,
+            localThrows,
+            qualifyExceptionType);
+
+    static void CollectCore(
+        MethodBodyAnalysisContext context,
+        IMethodCallResolver resolver,
+        Func<int, AllocationMultiplicity>? multiplicityAt,
+        ImmutableArray<DirectCall>.Builder calls,
+        ImmutableArray<UnsafeEvidence>.Builder? unsafeEvidence,
+        bool includeIndirectOpcodes,
+        bool includeCallValueFlow,
+        bool includeNonInvocationSites,
         IDictionary<int, CallReceiverSource>? privateReceiverSources = null,
         ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
         ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
@@ -90,8 +139,10 @@ internal static partial class MethodCallAnalysis
                 case ILOpCode.Call:
                 case ILOpCode.Callvirt:
                 case ILOpCode.Newobj:
-                case ILOpCode.Ldftn:
-                case ILOpCode.Ldvirtftn:
+                case ILOpCode.Ldftn
+                    when includeNonInvocationSites:
+                case ILOpCode.Ldvirtftn
+                    when includeNonInvocationSites:
                 {
                     int token =
                         MethodInstructionFacts.OperandInt32(instruction);
@@ -118,13 +169,16 @@ internal static partial class MethodCallAnalysis
                     {
                         Opcode = FormatCallOpcode(opcode),
                         ReturnAddress = instruction.NextOffset,
-                        Multiplicity = multiplicityAt(offset),
+                        Multiplicity =
+                            multiplicityAt?.Invoke(offset)
+                            ?? AllocationMultiplicity.Unknown,
                         ResultUse = resultUse.Use,
                         ResultConsumerOffset = resultUse.ConsumerOffset,
                         IsReachable =
                             IsReachableAt(context, reachability, offset),
                     });
-                    if (MethodSafetyAnalysis.InspectCall(
+                    if (unsafeEvidence is not null
+                        && MethodSafetyAnalysis.InspectCall(
                             caller,
                             callee,
                             kind,
@@ -138,6 +192,8 @@ internal static partial class MethodCallAnalysis
                 }
                 case ILOpCode.Calli:
                 {
+                    if (!includeNonInvocationSites)
+                        break;
                     int token =
                         MethodInstructionFacts.OperandInt32(instruction);
                     calls.Add(new DirectCall(
@@ -151,11 +207,13 @@ internal static partial class MethodCallAnalysis
                     {
                         Opcode = FormatCallOpcode(opcode),
                         ReturnAddress = instruction.NextOffset,
-                        Multiplicity = multiplicityAt(offset),
+                        Multiplicity =
+                            multiplicityAt?.Invoke(offset)
+                            ?? AllocationMultiplicity.Unknown,
                         IsReachable =
                             IsReachableAt(context, reachability, offset),
                     });
-                    unsafeEvidence.Add(
+                    unsafeEvidence?.Add(
                         MethodSafetyAnalysis.CallIndirect(
                             caller,
                             offset,
@@ -163,7 +221,8 @@ internal static partial class MethodCallAnalysis
                     break;
                 }
                 default:
-                    if (MethodSafetyAnalysis.InspectOperation(
+                    if (unsafeEvidence is not null
+                        && MethodSafetyAnalysis.InspectOperation(
                             caller,
                             opcode,
                             offset,

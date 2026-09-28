@@ -85,6 +85,12 @@ namespace DotnetInspector.Sections;
     typeof(LibraryEnablement.Unavailable),
     TypeInfoPropertyName = "LibraryEnablementUnavailable")]
 [JsonSerializable(
+    typeof(LibraryTextFact.Present),
+    TypeInfoPropertyName = "LibraryTextFactPresent")]
+[JsonSerializable(
+    typeof(LibraryTextFact.Unavailable),
+    TypeInfoPropertyName = "LibraryTextFactUnavailable")]
+[JsonSerializable(
     typeof(InspectionShare.NonProjectable),
     TypeInfoPropertyName = "InspectionShareNonProjectable")]
 public partial class LibraryInspectionJsonContext : JsonSerializerContext

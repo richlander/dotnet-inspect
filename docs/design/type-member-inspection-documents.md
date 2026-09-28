@@ -116,7 +116,7 @@ static class System.Text.Json.JsonSerializer
 │  └─ System.Object
 ├─ Properties (1)
 │  └─ bool IsReflectionEnabledByDefault { get; }
-└─ Methods (10 logical, 107 overloads)
+└─ Methods (107)
    ├─ Deserialize (40 overloads)
    ├─ DeserializeAsync (10 overloads)
    ├─ DeserializeAsyncEnumerable (8 overloads)
@@ -590,6 +590,67 @@ The parent population binding and each child population binding remain
 explicit. An aggregate such as "107 overloads" states which returned
 Member-group rows it covers and does not substitute for any child's Count.
 
+### Composition Count
+
+A `TypeDocument` request may ask for its composition: a set of exact Counts of
+declarations (actual members, so each overload counts). A composition reports
+no Member-group Count. An intent's declaration Count is the total of the
+nested exact-overload Counts across its completely drained Member-group Rows,
+with a single-declaration row counting 1. The request's
+[spelling](api-population-scope.md#spelling-within-api-visibility-scope)
+decides what one declaration is: a composed C# declaration, or one metadata
+record. Rows and every Count of one request use the same spelling. Under
+metadata spelling, Member-group rows group records by their metadata name, so
+an accessor method such as `get_Current` forms its own row.
+
+- **Accessibility Counts** cover every bucket, whatever `accessibility` or
+  `receiver` term the request itself carries. The picker therefore stays
+  truthful after the reader selects another bucket. Each bucket's Count is
+  the declaration Count of `accessibility = <bucket>` under the request's
+  hidden admission: hidden
+  declarations are counted only when the request admits them, as `--all`
+  does. A bucket with no declarations is published as 0.
+- **Receiver Counts** cover the declarations the request's own `accessibility`
+  term admits, one per `receiver` form (`static`, `this`, and `extension`),
+  with an empty form published as 0. Each is the declaration Count of that
+  intent plus the `receiver` value.
+
+For example, System.Text.Json 10.0.0 `JsonDocument` has:
+
+| Projection | Declarations |
+| --- | ---: |
+| `accessibility = public` | 16 |
+| `accessibility = protected` | 0 |
+| `accessibility = internal` | 44 |
+| `accessibility = private` | 27 |
+
+Each Count is an ordinary Count request with its own population binding. The
+producer computes the whole composition in one pass over compact metadata,
+like nested Count. It must not run one Rows or Count operation per projection
+value, or construct rows to count them.
+
+Accessibility Counts partition the population: `JsonDocument`'s 87
+declarations are 16 + 0 + 44 + 27. A family whose declarations span buckets,
+such as `Parse`, contributes to each of those buckets' Counts.
+
+The two spellings count the same Type differently. System.Text.Json 10.0.0
+`JsonElement.ArrayEnumerator` has:
+
+| Projection | C# spelling | Metadata spelling |
+| --- | ---: | ---: |
+| `accessibility = public` | 8 | 6 |
+| `accessibility = protected` | 0 | 0 |
+| `accessibility = internal` | 1 | 1 |
+| `accessibility = private` | 3 | 7 |
+| every bucket | 12 | 14 |
+
+Under C# spelling, the explicit `IEnumerator.Current` is one `public`
+declaration, and the explicit `IEnumerable.GetEnumerator` implementations are
+`public`. Under metadata spelling, the private `IEnumerator.Current` property
+record, its private `IEnumerator.get_Current` method, and the two private
+`GetEnumerator` implementations count in `private`, while the public
+`get_Current` accessor of `Current` is its own `public` record.
+
 ## Type Members row space
 
 `TypeDocument` may expose several declared Member-group row sets, such as
@@ -623,6 +684,21 @@ The same Member-group identity may therefore appear under several selected
 row intents with different child-population bindings and nested Counts.
 Unqualified `JsonSerializer.Deserialize` has 40 overloads;
 `receiver = extension` has 15, and `receiver != extension` has 25.
+
+The Type query binds `accessibility` the same way: as a membership projection
+over exact child declarations before Member-group formation. The owner-issued
+bucket of each declaration is defined in
+[API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope).
+The default projection is `accessibility = public`. For example, in
+System.Text.Json 10.0.0:
+
+- `JsonDocument.Parse` has 5 overloads under `accessibility = public` and 2
+  under `accessibility = private`;
+- the family has 7 overloads with every bucket selected; and
+- it is one Member-group row under each of those intents.
+
+A family whose declarations fall in several buckets is therefore a row in
+each of those buckets.
 
 Other distinctions needed for exact drill-down remain in the owner-issued
 Member-group key. A renderer may visually group distinct Member-group rows
@@ -1062,7 +1138,8 @@ owns the revised counted path:
    exact-row DocumentationHouse attachments.
 6. Compose exact Member SourceHouse attachments.
 7. Add the compact Type Member-group population and terminal-specific
-   QuerySpace execution, including nested exact-overload Count.
+   QuerySpace execution, including nested exact-overload Count, the
+   `accessibility` projection, and Composition Count.
 8. Implement `TypeDocument` over that population without the eager rich
    exact-Type/API-surface path.
 9. Bind the native Type Tree and section inventories to the shared route in
@@ -1105,6 +1182,31 @@ The implementation sequence must add Release gates proving:
 - `receiver = static | this | extension` is exhaustive for exact-overload rows,
   and source-applicable receiver predicates affect producer work before
   Member-group formation or row materialization;
+- `JsonDocument`'s Composition Count reports 16, 0, 44, and 27 declarations
+  for `public`, `protected`, `internal`, and `private`, whatever bucket the
+  request selects. Each Count equals the total of nested exact-overload
+  Counts across the completely drained Member-group Rows of the same intent
+  (8 public rows totaling 16). One metadata pass
+  produces the whole composition without constructing rows;
+- the private bucket includes ordinary private fields such as `s_nullLiteral`,
+  which a name heuristic must not exclude;
+- `JsonElement.ArrayEnumerator` reports 8, 0, 1, and 3 declarations under C#
+  spelling and 6, 0, 1, and 7 records under metadata spelling. Under C#
+  spelling, `IEnumerator.Current` is one `public` row in every view, never also
+  a `private` row;
+- `Utf8JsonWriter.BytesPending` is one `public` declaration under C# spelling.
+  Its `private set` accessor appears only in views that select both `public`
+  and `private`, such as every bucket, and never counts as a separate member;
+- `JsonConverter.RequiresReadAhead { internal get; private protected set; }`
+  and the eight other System.Text.Json 10.0.0 properties with that shape count
+  in `internal` under C# spelling, and their property records count in
+  `internal` under metadata spelling;
+- `JsonSerializerContext`'s explicit implementation of the internal
+  `IBuiltInJsonTypeInfoResolver.IsCompatibleWithOptions` counts in `internal`
+  under C# spelling, never in `public`, while explicit implementations of
+  public interfaces such as `IEnumerator.Current` count in `public`;
+- `JsonDocument.Parse` is one Member-group row under `accessibility = public`
+  with 5 overloads and one under `accessibility = private` with 2;
 - Type-subject documentation can complete without Member-group-row
   documentation;
 - Count and default views invoke neither DocumentationHouse nor SourceHouse;

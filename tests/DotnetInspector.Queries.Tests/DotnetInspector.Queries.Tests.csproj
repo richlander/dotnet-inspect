@@ -55,7 +55,9 @@
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries.Consumer\DotnetInspector.Queries.Consumer.csproj" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
+    <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures\DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AsyncSiblingRepositoryFixture\ILInspector.Analysis.AsyncSiblingRepositoryFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
@@ -124,6 +126,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
           Link="RealAssets/DocumentationQuery/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/11.0.0-preview.7.26381.103/lib/netstandard2.0/System.Text.Json.dll"
+          Link="RealAssets/IntrinsicCoreLibrary/System.Text.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/lib/net9.0/System.Text.Json.dll"
           Link="RealAssets/BodySignalComparison/9.0.0/System.Text.Json.dll"

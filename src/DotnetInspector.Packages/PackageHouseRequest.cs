@@ -25,6 +25,13 @@ public enum PackageHouseLibraryHandoffMode
     SelectedLibraries,
 }
 
+/// <summary>Optional package-local content needed by selected Library consumers.</summary>
+public enum PackageHouseLibraryCompanionDemand
+{
+    None,
+    ImplementationPortablePdb,
+}
+
 /// <summary>Additional package-authored evidence one realization reads.</summary>
 public enum PackageHouseEvidenceDemand
 {
@@ -273,7 +280,9 @@ public sealed class PackageHouseRequest
         IEnumerable<string>? implementationNames = null,
         PackageDocumentDemand? documentDemand = null,
         PackageHouseEvidenceDemand evidenceDemand =
-            PackageHouseEvidenceDemand.None)
+            PackageHouseEvidenceDemand.None,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+            PackageHouseLibraryCompanionDemand.None)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -285,6 +294,11 @@ public sealed class PackageHouseRequest
             throw new ArgumentOutOfRangeException(nameof(assetDemand));
         if (!Enum.IsDefined(evidenceDemand))
             throw new ArgumentOutOfRangeException(nameof(evidenceDemand));
+        if (!Enum.IsDefined(libraryCompanionDemand))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(libraryCompanionDemand));
+        }
 
         bool realizes =
             operation.Profile == PackageHouseOperationProfile.Realize;
@@ -335,6 +349,20 @@ public sealed class PackageHouseRequest
                 "Framework-reference evidence requires a compile Realize operation.",
                 nameof(evidenceDemand));
         }
+        if (libraryCompanionDemand
+                != PackageHouseLibraryCompanionDemand.None
+            && (!realizes
+                || assetSelection
+                    != PackageHouseAssetSelectionKind.Compile
+                || libraryHandoff
+                    != PackageHouseLibraryHandoffMode.SelectedLibraries
+                || assetDemand
+                    != PackageAssetDemand.SurfaceAndImplementation))
+        {
+            throw new ArgumentException(
+                "Library companion demand requires a compile Realize operation with selected Library handoffs and implementation assets.",
+                nameof(libraryCompanionDemand));
+        }
 
         Demand = demand;
         Operation = operation;
@@ -345,6 +373,7 @@ public sealed class PackageHouseRequest
         AssetDemand = assetDemand;
         DocumentDemand = documentDemand;
         EvidenceDemand = evidenceDemand;
+        LibraryCompanionDemand = libraryCompanionDemand;
         ImplementationNames = implementationNames is null
             ? null
             : PackageImplementationNames.Create(
@@ -394,4 +423,9 @@ public sealed class PackageHouseRequest
     /// compile entries.
     /// </summary>
     public PackageHouseEvidenceDemand EvidenceDemand { get; }
+
+    /// <summary>
+    /// Optional package-local content retained for selected Library handoffs.
+    /// </summary>
+    public PackageHouseLibraryCompanionDemand LibraryCompanionDemand { get; }
 }
