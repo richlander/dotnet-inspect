@@ -596,7 +596,12 @@ A `TypeDocument` request may ask for its composition: a set of exact Counts of
 declarations (actual members, so each overload counts). A composition reports
 no Member-group Count. An intent's declaration Count is the total of the
 nested exact-overload Counts across its completely drained Member-group Rows,
-with a single-declaration row counting 1.
+with a single-declaration row counting 1. The request's
+[spelling](api-population-scope.md#spelling-within-api-visibility-scope)
+decides what one declaration is: a composed C# declaration, or one metadata
+record. Rows and every Count of one request use the same spelling. Under
+metadata spelling, Member-group rows group records by their metadata name, so
+an accessor method such as `get_Current` forms its own row.
 
 - **Accessibility Counts** cover every bucket, whatever `accessibility` or
   `receiver` term the request itself carries. The picker therefore stays
@@ -627,6 +632,24 @@ value, or construct rows to count them.
 Accessibility Counts partition the population: `JsonDocument`'s 87
 declarations are 16 + 0 + 44 + 27. A family whose declarations span buckets,
 such as `Parse`, contributes to each of those buckets' Counts.
+
+The two spellings count the same Type differently. System.Text.Json 10.0.0
+`JsonElement.ArrayEnumerator` has:
+
+| Projection | C# spelling | Metadata spelling |
+| --- | ---: | ---: |
+| `accessibility = public` | 8 | 6 |
+| `accessibility = protected` | 0 | 0 |
+| `accessibility = internal` | 1 | 1 |
+| `accessibility = private` | 3 | 7 |
+| every bucket | 12 | 14 |
+
+Under C# spelling, the explicit `IEnumerator.Current` is one `public`
+declaration, and the explicit `IEnumerable.GetEnumerator` implementations are
+`public`. Under metadata spelling, the private `IEnumerator.Current` property
+record, its private `IEnumerator.get_Current` method, and the two private
+`GetEnumerator` implementations count in `private`, while the public
+`get_Current` accessor of `Current` is its own `public` record.
 
 ## Type Members row space
 
@@ -1157,6 +1180,13 @@ The implementation sequence must add Release gates proving:
   produces the whole composition without constructing rows;
 - the private bucket includes ordinary private fields such as `s_nullLiteral`,
   which a name heuristic must not exclude;
+- `JsonElement.ArrayEnumerator` reports 8, 0, 1, and 3 declarations under C#
+  spelling and 6, 0, 1, and 7 records under metadata spelling. Under C#
+  spelling, `IEnumerator.Current` is one `public` row in every view, never also
+  a `private` row;
+- `Utf8JsonWriter.BytesPending` is one `public` declaration under C# spelling.
+  Its `private set` accessor appears only in views that select both `public`
+  and `private`, such as every bucket, and never counts as a separate member;
 - `JsonDocument.Parse` is one Member-group row under `accessibility = public`
   with 5 overloads and one under `accessibility = private` with 2;
 - Type-subject documentation can complete without Member-group-row

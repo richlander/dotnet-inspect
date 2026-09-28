@@ -191,7 +191,8 @@ Each filtering surface provides one compact `Filters` disclosure button. The
 button expands or collapses the text filter and complete selector region
 together:
 
-- member text, kind, accessibility, and trait filters expand together; and
+- member text, kind, accessibility, trait, and spelling filters expand
+  together; and
 - type text, namespace, kind, and accessibility filters expand together; and
 - collapsing the region never clears or changes a selection.
 
@@ -208,7 +209,9 @@ as a user preference across browser sessions.
 #### Collapsed summary
 
 Hidden controls must not create hidden state. A member-filter disclosure shows
-`All members` when no restriction is active. A type-filter disclosure shows
+`All members` when no restriction is active. Metadata spelling is not a
+restriction, but it changes every row, so the collapsed member summary names
+it whenever it is selected. A type-filter disclosure shows
 `All types` only when no text, namespace, kind, or accessibility restriction is
 active. When non-public types are available, the default public-access scope is
 an active restriction and remains visible in the collapsed summary. Otherwise
