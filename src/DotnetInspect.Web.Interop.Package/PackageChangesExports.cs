@@ -16,18 +16,22 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageChangesOperations
 {
-    internal const int PackageSetCatalogVersion = 1;
+    internal const int EcosystemCatalogVersion = 1;
 
-    internal static BrowserPackageChangesPackageSetCatalog PackageSets() =>
+    internal static BrowserPackageChangesEcosystemCatalog Ecosystems() =>
         new(
-            PackageSetCatalogVersion,
+            EcosystemCatalogVersion,
             [
-                .. PackageSetCatalog.Discover().Select(packageSet =>
-                    new BrowserPackageChangesPackageSetDescriptor(
-                        packageSet.Id.Value,
-                        packageSet.Title,
-                        packageSet.Summary,
-                        packageSet.Order)),
+                .. EcosystemPackCatalog.DiscoverPackageActivity().Select(pack =>
+                    new BrowserPackageChangesEcosystemDescriptor(
+                        pack.Id.Value,
+                        pack.Title,
+                        pack.Summary,
+                        pack.Order,
+                        [
+                            .. EcosystemPackCatalog.SelectPackageActivity(pack)!
+                                .Prefixes.Select(prefix => prefix.Prefix),
+                        ])),
             ]);
 
     internal static EcosystemChangeReportPlan ResolvePlan(
@@ -35,24 +39,29 @@ internal static class BrowserPackageChangesOperations
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!PackageSetId.TryCreate(request.PackageSetId, out PackageSetId? id))
+        if (!EcosystemPackId.TryCreate(request.EcosystemId, out EcosystemPackId? id))
         {
             throw new ArgumentException(
-                "A canonical package-set identity is required.",
+                "A canonical Ecosystem identity is required.",
                 nameof(request));
         }
 
-        PackageSetDescriptor descriptor =
-            PackageSetCatalog.Lookup(id) switch
+        EcosystemPackDescriptor descriptor =
+            EcosystemPackCatalog.Lookup(id) switch
             {
-                PackageSetLookupResult.Known known => known.Descriptor,
-                PackageSetLookupResult.Unknown =>
+                EcosystemPackLookupResult.Known known => known.Descriptor,
+                EcosystemPackLookupResult.Unknown =>
                     throw new ArgumentException(
-                        "The package-set identity is not registered.",
+                        "The Ecosystem identity is not registered.",
                         nameof(request)),
                 _ => throw new InvalidOperationException(
-                    "Package-set lookup returned an unknown result."),
+                    "Ecosystem lookup returned an unknown result."),
             };
+        EcosystemChangePackageSelection.PackagePrefix selection =
+            EcosystemPackCatalog.SelectPackageActivity(descriptor)
+            ?? throw new ArgumentException(
+                "The Ecosystem records no package prefix for package activity.",
+                nameof(request));
         if ((request.FromExclusive is null) !=
             (request.ThroughInclusive is null))
         {
@@ -67,9 +76,7 @@ internal static class BrowserPackageChangesOperations
                 ParseTimestamp(request.FromExclusive, nameof(request)),
                 ParseTimestamp(request.ThroughInclusive!, nameof(request)));
         var queryRequest = new EcosystemChangeReportRequest(
-            new EcosystemChangePackageSelection.PackageSet(
-                descriptor.Id.Value,
-                descriptor.Members),
+            selection,
             interval,
             request.SecurityOnly
                 ? EcosystemChangeSecuritySelection.SecurityRelevant
@@ -224,8 +231,7 @@ internal static class BrowserPackageChangesWireProjection
                 new(
                     value.Request.PackageScope.Kind.ToString(),
                     value.Request.PackageScope.SelectionId,
-                    value.Request.PackageScope.Prefix,
-                    [.. value.Request.PackageScope.PackageIds]),
+                    [.. value.Request.PackageScope.Prefixes]),
                 value.Request.SecuritySelection.ToString(),
                 value.Request.MaximumRows,
                 value.Request.MaximumCandidateEvents,
@@ -390,11 +396,11 @@ public static partial class PackageExports
         new();
 
     [JSExport]
-    public static string ListPackageActivityPackageSets() =>
+    public static string ListPackageActivityEcosystems() =>
         JsonSerializer.Serialize(
-            BrowserPackageChangesOperations.PackageSets(),
+            BrowserPackageChangesOperations.Ecosystems(),
             BrowserPackageJsonContext.Default
-                .BrowserPackageChangesPackageSetCatalog);
+                .BrowserPackageChangesEcosystemCatalog);
 
     [JSExport]
     public static string CancelPackageActivity(

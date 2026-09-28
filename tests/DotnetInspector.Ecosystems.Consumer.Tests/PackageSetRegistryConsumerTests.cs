@@ -55,7 +55,7 @@ public sealed class PackageSetRegistryConsumerTests
         EcosystemPackDescriptor[] packs = [.. EcosystemPackCatalog.Discover()];
         EcosystemDemoDescriptor[] demos = [.. EcosystemPackCatalog.DiscoverDemos()];
 
-        Assert.Equal(8, packs.Length);
+        Assert.Equal(7, packs.Length);
         Assert.Equal(10, demos.Length);
         Assert.Equal(ProductDemoIds.StjSerializer, demos[0].ScenarioId);
         Assert.Equal(ProductDemoIds.AspireRedisCallGraph, demos[^1].ScenarioId);
@@ -79,19 +79,12 @@ public sealed class PackageSetRegistryConsumerTests
             descriptor,
             EcosystemPackCatalog.Discover().Single(pack => pack.Id == descriptor.Id));
         Assert.Equal(["Microsoft.Extensions"], roots);
-        Assert.Equal(
-            [
-                "Microsoft.Extensions.DependencyInjection.Abstractions",
-                "Microsoft.Extensions.Configuration.Abstractions",
-                "Microsoft.Extensions.Logging.Abstractions",
-            ],
-            core.Select(package => package.PackageId));
+        Assert.Empty(core);
         Assert.Equal(PackageSetIds.MicrosoftExtensions, descriptor.PackageSet);
         PackageSetDescriptor curated = Assert.IsType<PackageSetLookupResult.Known>(
             PackageSetCatalog.Lookup(descriptor.PackageSet!)).Descriptor;
         Assert.Equal(44, curated.Members.Length);
         Assert.Contains(curated.Members, member => member.PackageId == "Microsoft.Extensions.Http.Resilience");
-        Assert.DoesNotContain(core, member => member.PackageId == "Microsoft.Extensions.Http.Resilience");
         Assert.DoesNotContain(
             curated.Members,
             member => member.PackageId == "Microsoft.Extensions.DependencyInjection.Abstractions");
@@ -110,7 +103,6 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.Equal(
             [
                 "Microsoft.Extensions.AI",
-                "Microsoft.Extensions.VectorData",
                 "Microsoft.Agents.AI",
                 "ModelContextProtocol",
             ],
@@ -119,9 +111,11 @@ public sealed class PackageSetRegistryConsumerTests
             [
                 "Microsoft.Extensions.AI",
                 "Microsoft.Extensions.AI.Abstractions",
-                "Microsoft.Extensions.VectorData.Abstractions",
-                "Microsoft.Agents.AI",
+                "OpenAI",
+                "Anthropic",
+                "Google.GenAI",
                 "ModelContextProtocol",
+                "Microsoft.Agents.AI",
             ],
             ai.CorePackages.Select(package => package.PackageId));
         Assert.Null(ai.PackageSet);
@@ -130,34 +124,6 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.Contains(
             curated.Members,
             member => member.PackageId == "Microsoft.Extensions.AI");
-
-        EcosystemPackDescriptor azure = Assert.IsType<EcosystemPackLookupResult.Known>(
-            EcosystemPackCatalog.Lookup(EcosystemPackIds.Azure)).Descriptor;
-        Assert.Equal(
-            [
-                "Azure",
-                "Microsoft.Extensions.Azure",
-            ],
-            azure.NamespaceRoots);
-        Assert.Equal(
-            [
-                "Microsoft.Extensions.Azure",
-                "Azure.AI.OpenAI",
-                "Microsoft.Azure.SignalR",
-                "Aspire.Azure.AI.OpenAI",
-                "Aspire.Hosting.Azure.SignalR",
-                "Azure.Identity",
-                "Azure.Security.KeyVault.Secrets",
-                "Azure.Storage.Blobs",
-                "Azure.Messaging.ServiceBus",
-            ],
-            azure.CorePackages.Select(package => package.PackageId));
-        Assert.Null(azure.PackageSet);
-        Assert.False(azure.HasScanner);
-        Assert.Empty(azure.Demos);
-        Assert.DoesNotContain(
-            curated.Members,
-            member => member.PackageId == "Microsoft.Extensions.Azure");
 
         EcosystemPackDescriptor blazor = Assert.IsType<EcosystemPackLookupResult.Known>(
             EcosystemPackCatalog.Lookup(EcosystemPackIds.Blazor)).Descriptor;
@@ -227,7 +193,9 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.Same(aspire, EcosystemPackCatalog.Discover().Single(
             pack => pack.Id == EcosystemPackIds.Aspire));
         Assert.Equal(new PackageCoordinate("Aspire.Cli"), Assert.Single(tools));
-        Assert.Equal(new PackageCoordinate("Aspire.Hosting"), Assert.Single(aspire.CorePackages));
+        Assert.Equal(
+            [new PackageCoordinate("Aspire.Hosting"), new PackageCoordinate("Aspire.Hosting.Testing")],
+            aspire.CorePackages);
         Assert.Equal(PackageSetIds.Aspire, aspire.PackageSet);
         PackageSetDescriptor curated = Assert.IsType<PackageSetLookupResult.Known>(
             PackageSetCatalog.Lookup(aspire.PackageSet!)).Descriptor;

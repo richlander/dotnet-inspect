@@ -23,7 +23,7 @@ import type {
   BrowserVocabularyDocument,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserPackageChangesPackageSetCatalog,
+  BrowserPackageChangesEcosystemCatalog,
   BrowserPackageQueryCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
 import {
@@ -71,13 +71,14 @@ const catalog: BrowserPackageQueryCatalog = {
     multiline: false,
   }],
 };
-const packageSets: BrowserPackageChangesPackageSetCatalog = {
+const ecosystems: BrowserPackageChangesEcosystemCatalog = {
   version: 1,
-  packageSets: [{
-    id: "package-set.example",
-    title: "Example packages",
-    summary: "Example product-issued package set.",
+  ecosystems: [{
+    id: "ecosystem.example",
+    title: "Example",
+    summary: "Example product-issued Ecosystem.",
     order: 10,
+    prefixes: ["Example."],
   }],
 };
 const cases = [
@@ -90,11 +91,11 @@ const cases = [
   { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "presets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
   {
-    operation: engineStartupOperations.listPackageActivityPackageSets,
-    expected: packageSets,
-    field: "packageSets",
+    operation: engineStartupOperations.listPackageActivityEcosystems,
+    expected: ecosystems,
+    field: "ecosystems",
     read: (client: EngineStartupClient) =>
-      client.package.listPackageActivityPackageSets(),
+      client.package.listPackageActivityEcosystems(),
   },
 ];
 
@@ -119,9 +120,9 @@ function fixture(options: {
     async listVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
     async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
-    async listPackageActivityPackageSets() {
-      calls.push("package-sets");
-      return packageSets;
+    async listPackageActivityEcosystems() {
+      calls.push("ecosystems");
+      return ecosystems;
     },
     ...options.reads,
   });
@@ -169,7 +170,7 @@ test("all five cold reads share readiness and preserve full generated-shaped res
   assert.deepEqual(await results, cases.map(item => item.expected));
   assert.deepEqual(
     state.calls,
-    ["identity", "vocabulary", "demos", "catalog", "package-sets"]);
+    ["identity", "vocabulary", "demos", "catalog", "ecosystems"]);
   assert.deepEqual(await Promise.all(cases.map(item => item.read(state.client))), cases.map(item => item.expected));
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);

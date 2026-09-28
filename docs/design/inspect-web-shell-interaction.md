@@ -358,7 +358,7 @@ modal.
 Home, Workspace, Type Explorer, Package query, Package Activity, and
 Diagnostics are routed full-bleed surfaces rather than dialogs. Navigation
 places focus on their visible level-one heading or, for Package query, its
-prefix input, and for Package Activity, its package-set selector under that
+prefix input, and for Package Activity, its Ecosystem selector under that
 heading. Type Explorer's entry, exact-Type route state, return, and restoration
 effects are separately owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) and its
@@ -385,7 +385,8 @@ Spotlight as the one search experience for:
 - Libraries;
 - Types;
 - Members;
-- platform inputs; and
+- platform inputs;
+- installed capabilities; and
 - commands.
 
 The row-one Search control uses the expanded label
@@ -412,6 +413,35 @@ the `Libraries` group, with `.NET` or `ASP.NET Core` source disclosure. Their
 selection may use Platform-owned realization internally, but neither that
 provenance nor the existence of a resident runtime pack creates a user-facing
 Platform result.
+
+Capability search participates only in Spotlight's `All` scope. It adds no
+persistent scope chip or shell control. Matching installed resources appear in
+one transient `Capabilities` group; a capability such as `library-literal` is
+a result named `Library literal`, not a `Literals` category. Each row presents
+the owner-issued resource name with its resource kind, owning route, and first
+canonical key as secondary metadata.
+
+The result identity is the capability search result's canonical Resource Path.
+The shell does not reconstruct identity from the displayed name, metadata, or
+array position. Activation follows the typed available Browser binding. The
+first production binding opens Package Query without executing it; selecting a
+Query Facet also opens that exact owner-issued term's editor. An example-value
+match such as `https://` preserves the entered text as the draft value;
+conceptual matches such as `literal` open an empty editor. The typed match
+provenance, not Browser-authored syntax recognition, selects that behavior.
+Capability search remains local and resource-free and runs independently of
+the network-backed package search.
+
+This is deliberately host-specific interactive rendering over the generated
+Browser capability-search transport. Capability Catalog Search continues to
+own result construction and ranking; Spotlight owns grouping, row lowering,
+selection, and destination activation. A completed empty capability result
+contributes no `Capabilities` group to the blended result list, matching the
+group's transient nature rather than adding a persistent empty-state row.
+Because this lookup is local, bounded, and normally completes within one
+Worker turn, Spotlight does not add a second loading hint beside the
+network-backed NuGet status. A complete empty result therefore requires no
+completion render; matches, diagnostics, and failures remain visible.
 
 Spotlight's
 [destination-activation
@@ -721,7 +751,7 @@ outcomes.
 10. Repeat with text that is not a valid package-ID prefix and confirm that the
     query surface starts with an empty prefix.
 11. Activate the visible `Package Activity` action and confirm that Spotlight
-    closes, `/activity` is pushed, and the package-set selector receives focus.
+    closes, `/activity` is pushed, and the Ecosystem selector receives focus.
     Use Back and Forward and confirm the prior Search focus and Activity
     destination are restored.
 12. Open general and command-scoped Spotlight at the narrow supported width and
@@ -792,7 +822,7 @@ outcomes.
    level-one heading, no coordinate/subject command, and a persistent
    `dotnet-inspect` control that opens Workspace. Confirm that Type Explorer
    focuses its heading, Package query places initial focus on its prefix input,
-   and Package Activity focuses its package-set selector under its heading.
+   and Package Activity focuses its Ecosystem selector under its heading.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.

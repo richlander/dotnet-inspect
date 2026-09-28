@@ -17,6 +17,8 @@ import type {
   BrowserPackageLoadResult as PackageLoadResult,
   BrowserPackageSurface as PackageSurface,
   BrowserPackageVersions as PackageVersions,
+  BrowserPlatformForwarderResult,
+  BrowserPlatformForwarderView,
   BrowserWorkspacePackageOccurrence as OccurrenceRow,
   BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView as OccurrenceView,
@@ -554,6 +556,14 @@ declare global {
         platformPack: string,
         documentationId: string,
       ): Promise<CompiledDocumentationOutcome>;
+      openPlatformForwarderView(
+        framework: string,
+        version: string,
+        assembly: string,
+        pack: string,
+      ): Promise<BrowserPlatformForwarderResult>;
+      activatePlatformForwarder(action: string): Promise<BrowserPlatformForwarderResult>;
+      closePlatformForwarderView(view: string): Promise<boolean>;
       dispose(): void;
     };
     __queryResponsiveness?: {
@@ -636,6 +646,13 @@ async function boot(page: Page): Promise<void> {
         platformPack,
         documentationId,
       ),
+      openPlatformForwarderView: (framework, platformVersion, assembly, pack) =>
+        client.package.openPlatformForwarderView(
+          framework, platformVersion, assembly, pack),
+      activatePlatformForwarder: action =>
+        client.package.activatePlatformForwarder(action),
+      closePlatformForwarderView: view =>
+        client.package.closePlatformForwarderView(view),
       dispose: () => production.dispose(),
     };
   }, workerClientUrl);
@@ -933,6 +950,43 @@ test("product navigation discloses startup-dependent destinations", async ({
     await expect(item).toBeFocused();
     expect(await page.evaluate(() => history.length)).toBe(historyLength);
   }
+});
+
+test.describe("Capability Spotlight search over real Wasm", () => {
+  test.describe.configure({ timeout: 180_000 });
+
+  test("discovers library literal and opens its Package Query facet", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("https://");
+
+    const result = page.locator(
+      '[data-sl-capability="package-query/query/facets/library-literal"]',
+    );
+    await expect(result).toBeVisible();
+    await expect(result).toContainText("Library literal");
+    await expect(result)
+      .toContainText("Query facet · Package Query · library-literal");
+    await expect(page.locator(".spotlight-group").filter({
+      hasText: "Capabilities",
+    })).toBeVisible();
+
+    await result.click();
+
+    await expect(page).toHaveURL(/\/query$/);
+    const literalEditor = page.locator("[data-query-term-draft-value]");
+    await expect(literalEditor).toBeVisible();
+    await expect(literalEditor).toBeFocused();
+    await expect(literalEditor).toHaveValue("https://");
+    await expect(
+      page.locator('[data-query-term-form="draft"]'),
+    ).toHaveAttribute("aria-label", "library literal");
+  });
 });
 
 test.describe("Package Query website over real Wasm", () => {
@@ -1664,9 +1718,12 @@ test.describe("Package Activity website over real Wasm", () => {
     await homeSearch.fill("activity");
     // Package-search completion replaces the result list, so settle it before clicking
     // the built-in Activity route.
-    await expect(page.locator(".spotlight-hint"))
-      .toHaveText("Searching nuget.org…");
-    await expect(page.locator(".spotlight-hint")).toHaveCount(0);
+    const packageSearchHint = page.getByText(
+      "Searching nuget.org…",
+      { exact: true },
+    );
+    await expect(packageSearchHint).toBeVisible();
+    await expect(packageSearchHint).toHaveCount(0);
     await page.locator('[data-sl-package-activity="1"]').click();
     await expect(page).toHaveURL(/\/activity$/);
     await page.goBack();
@@ -1680,11 +1737,16 @@ test.describe("Package Activity website over real Wasm", () => {
     await expect(page.locator("#package-changes-heading"))
       .toHaveText("Package Activity", { timeout: 120_000 });
     await expect(page).toHaveTitle("Package Activity · dotnet-inspect");
-    const packageSet = page.locator("#package-changes-package-set");
-    await expect(packageSet).toBeVisible();
-    expect(await packageSet.locator("option").count()).toBeGreaterThan(0);
-    await expect(page.locator(".package-changes-package-set-summary"))
+    const ecosystem = page.locator("#package-changes-ecosystem");
+    await expect(ecosystem).toBeVisible();
+    expect(await ecosystem.locator("option").count()).toBeGreaterThan(0);
+    await expect(page.locator(".package-changes-ecosystem-summary"))
       .not.toHaveText("");
+    // Ecosystems arrive in product order (Runtime first); the fixture activity
+    // is Microsoft.Extensions.AI, so select the Microsoft.Extensions prefix.
+    await ecosystem.selectOption("ecosystem.microsoft-extensions");
+    await expect(page.locator(".package-changes-ecosystem-prefixes"))
+      .toHaveText("Microsoft.Extensions.*");
 
     const maximumRows = page.locator("#package-changes-limit");
     await maximumRows.fill("");
@@ -3111,6 +3173,109 @@ test.describe("deterministic two-host Workspace demo", () => {
 
 test.describe("bounded network-backed Worker smoke", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("opens each real XML forwarding occurrence through the production Worker", async ({
+    page,
+  }) => {
+    await boot(page);
+    const platformVersion = "11.0.0-rc.1.26425.128";
+    const requireView = (
+      result: BrowserPlatformForwarderResult,
+      assembly: string,
+    ): BrowserPlatformForwarderView => {
+      expect(result.status, result.message ?? "Forwarder result").toBe("opened");
+      if (result.view === null) {
+        throw new Error("Opened forwarding result omitted its Library view.");
+      }
+      expect(result.view.assembly).toBe(assembly);
+      expect(result.view.framework).toBe("net11.0");
+      expect(result.view.version).toBe(platformVersion);
+      return result.view;
+    };
+    const xmlReader = (view: BrowserPlatformForwarderView) => {
+      const row = view.forwarders.find(
+        candidate => candidate.id === `${view.assembly}:System.Xml.XmlReader`,
+      );
+      if (row === undefined) {
+        throw new Error(`${view.assembly} omitted its XmlReader forwarder.`);
+      }
+      expect(row.action.length).toBeGreaterThan(0);
+      return row;
+    };
+    try {
+      const initial = requireView(
+        await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
+          "net11.0", ver, "System.Xml.dll", "netcore.app",
+        ), platformVersion),
+        "System.Xml",
+      );
+      const first = xmlReader(initial);
+      expect(first.targetAssembly).toBe("System.Xml.ReaderWriter");
+
+      const intermediateResult = await page.evaluate(
+        action => window.__adoption!.activatePlatformForwarder(action),
+        first.action,
+      );
+      const intermediate = requireView(intermediateResult, "System.Xml.ReaderWriter");
+      expect(intermediate.selectedTypeId)
+        .toBe("System.Xml.ReaderWriter:System.Xml.XmlReader");
+      expect(intermediateResult.hops).toEqual([
+        { sourceAssembly: "System.Xml", targetAssembly: "System.Xml.ReaderWriter" },
+        { sourceAssembly: "System.Xml.ReaderWriter", targetAssembly: "System.Private.Xml" },
+      ]);
+      const stale = await page.evaluate(
+        action => window.__adoption!.activatePlatformForwarder(action),
+        first.action,
+      );
+      expect(stale.status).toBe("stale");
+      expect(stale.view).toBeNull();
+      expect(stale.message).toBeTruthy();
+      expect(await page.evaluate(
+        view => window.__adoption!.closePlatformForwarderView(view),
+        initial.id,
+      )).toBe(false);
+
+      const second = xmlReader(intermediate);
+      expect(second.action).not.toBe(first.action);
+      expect(second.targetAssembly).toBe("System.Private.Xml");
+      const terminal = requireView(
+        await page.evaluate(
+          action => window.__adoption!.activatePlatformForwarder(action),
+          second.action,
+        ),
+        "System.Private.Xml",
+      );
+      expect(terminal.selectedTypeId).toBe("System.Private.Xml:System.Xml.XmlReader");
+      const definition = terminal.surface.types.find(
+        type => type.id === terminal.selectedTypeId,
+      );
+      expect(definition?.api.length).toBeGreaterThan(0);
+      expect(terminal.forwarders.some(row => row.id === terminal.selectedTypeId)).toBe(false);
+      expect(await page.evaluate(
+        view => window.__adoption!.closePlatformForwarderView(view),
+        terminal.id,
+      )).toBe(true);
+      expect((await page.evaluate(
+        action => window.__adoption!.activatePlatformForwarder(action),
+        second.action,
+      )).status).toBe("stale");
+
+      const returning = requireView(
+        await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
+          "net11.0", ver, "System.Xml.dll", "netcore.app",
+        ), platformVersion),
+        "System.Xml",
+      );
+      expect(returning.id).not.toBe(initial.id);
+      expect(xmlReader(returning).action).not.toBe(first.action);
+      expect(await page.evaluate(
+        view => window.__adoption!.closePlatformForwarderView(view),
+        returning.id,
+      )).toBe(true);
+    } finally {
+      await page.evaluate(() => window.__adoption!.dispose());
+    }
+  });
 
   test("opens an unlisted package through visible exact-coordinate search", async ({
     page,

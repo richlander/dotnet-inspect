@@ -1069,10 +1069,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                     evidence);
             bool hasUnsafeLocals =
                 localSafety.HasUnsafeLocals;
-            // Discover allocation occurrences once. The main allocation output
-            // needs escape classification, while Performance Triage's
-            // optimization-opportunity pass reuses the same discovered
-            // occurrences.
+            // Discover and classify allocation occurrences once. Performance
+            // Triage consumes the allocation owner's lifetime verdict rather
+            // than running a parallel escape analysis.
             if (includeAllocations)
                 allocationFacts.Collect(methodAnalysisResolver);
             result.Allocations =

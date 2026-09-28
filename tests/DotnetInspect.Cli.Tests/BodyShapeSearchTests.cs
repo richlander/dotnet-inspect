@@ -268,7 +268,7 @@ public sealed class BodyShapeSearchTests
     }
 
     [Fact]
-    public void Search_PrefersExplicitAccessorIdentity_AndFormatsGenericTypeName()
+    public void Search_NamesExplicitAccessorByItsProperty_AndFormatsGenericTypeName()
     {
         using var source = MetadataSource.Open(FixturePath);
 
@@ -281,18 +281,36 @@ public sealed class BodyShapeSearchTests
         var explicitProperty = typeof(BodyShapeFixture).GetProperty(
             $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Value)}",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
+        // An explicit accessor composes into its property row, so its body is
+        // named by the property's anchor and accessor ordinal, as an ordinary
+        // accessor's is.
         var explicitMatch = Assert.Single(result.Matches, match =>
             match.MethodToken == explicitProperty.GetMethod!.MetadataToken);
-        Assert.Contains(".explicit:", explicitMatch.Member, StringComparison.Ordinal);
-        Assert.Contains(".get_Value~", explicitMatch.Member, StringComparison.Ordinal);
+        Assert.Contains(
+            $".{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Value)}~",
+            explicitMatch.Member,
+            StringComparison.Ordinal);
+        Assert.EndsWith(":1", explicitMatch.Member, StringComparison.Ordinal);
+
+        // A public search still reaches the visible explicit accessor body.
+        var publicResult = BodyShapeSearch.Search(
+            source,
+            "ObjectCreationExpression",
+            includeAll: false,
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains(publicResult.Matches, match =>
+            match.MethodToken == explicitProperty.GetMethod!.MetadataToken);
 
         var explicitEvent = typeof(BodyShapeFixture).GetEvent(
             $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Changed)}",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
         var eventMatch = Assert.Single(result.Matches, match =>
             match.MethodToken == explicitEvent.AddMethod!.MetadataToken);
-        Assert.Contains(".explicit:", eventMatch.Member, StringComparison.Ordinal);
-        Assert.Contains(".add_Changed~", eventMatch.Member, StringComparison.Ordinal);
+        Assert.Contains(
+            $".{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Changed)}~",
+            eventMatch.Member,
+            StringComparison.Ordinal);
+        Assert.EndsWith(":1", eventMatch.Member, StringComparison.Ordinal);
 
         var genericMatch = Assert.Single(result.Matches, match =>
             match.MethodToken == typeof(GenericBodyShapeFixture<>)

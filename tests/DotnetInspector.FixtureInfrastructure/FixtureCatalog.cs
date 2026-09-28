@@ -70,6 +70,8 @@ public static class FixtureIds
         "metadata.methodimpl.fixtures";
     public const string MetadataPublicMethodRoots =
         "metadata.public-method-roots";
+    public const string MetadataVbInterfaceImplementations =
+        "metadata.vb-interface-implementations";
     public const string MetadataTypeDependencyConsumer =
         "metadata.type-dependency.consumer";
     public const string MetadataTypeDependencyReference =
@@ -130,6 +132,8 @@ public static class FixtureIds
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
     public const string AnalysisSpoofSystemRuntime = "analysis.spoof.system-runtime";
     public const string AnalysisStringLiterals = "analysis.string-literals";
+    public const string AnalysisAllocationLifetime =
+        "analysis.allocation-lifetime";
     public const string AnalysisStringMaterialization =
         "analysis.string-materialization";
 
@@ -239,6 +243,14 @@ public static class FixtureCatalog
             "ILInspector.Metadata.PublicMethodRootFixtures.dll",
             Boundaries(FixtureBoundary.AssemblyIdentity),
             "metadata", "public-method-roots");
+
+    public static readonly FixtureDefinition MetadataVbInterfaceImplementations =
+        Fixture(
+            FixtureIds.MetadataVbInterfaceImplementations,
+            "ILInspector.Metadata.VbInterfaceImplementations",
+            "ILInspector.Metadata.VbInterfaceImplementations.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "metadata", "vb", "interface-implementation");
 
     public static readonly FixtureDefinition MetadataTypeDependencyConsumer =
         Fixture(
@@ -662,6 +674,14 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "string-literals");
+
+    public static readonly FixtureDefinition
+        AnalysisAllocationLifetime = Fixture(
+            FixtureIds.AnalysisAllocationLifetime,
+            "ILInspector.Analysis.AllocationLifetimeFixtures",
+            "ILInspector.Analysis.AllocationLifetimeFixtures.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "analysis", "allocation-lifetime");
 
     public static readonly FixtureDefinition
         AnalysisStringMaterialization = Fixture(
@@ -1098,6 +1118,7 @@ public static class FixtureCatalog
         MetadataMethodImplContracts,
         MetadataMethodImplFixtures,
         MetadataPublicMethodRoots,
+        MetadataVbInterfaceImplementations,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
         InspectWebCloneTransport,
@@ -1142,6 +1163,7 @@ public static class FixtureCatalog
         AnalysisOverloadFamilyLens,
         AnalysisLocalThrows,
         AnalysisStringLiterals,
+        AnalysisAllocationLifetime,
         AnalysisStringMaterialization,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
@@ -1232,6 +1254,7 @@ public static class FixtureCatalog
             AnalysisCallGenericScope,
             AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
+            AnalysisAllocationLifetime,
             AnalysisStringMaterialization,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
@@ -1529,6 +1552,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.MethodImplFixtures",
             "ILInspector.Metadata.PublicMethodRootFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures",
+            "ILInspector.Metadata.VbInterfaceImplementations" =>
+                "fixtures/metadata/ILInspector.Metadata.VbInterfaceImplementations",
             "ILInspector.Metadata.TypeDependencyConsumer" =>
                 "fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer",
             "ILInspector.Metadata.TypeDependencyReference" =>
@@ -1576,6 +1601,7 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.InterfaceBase" => "fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase",
             "DotnetInspector.Services.RouteLearning.Middle" => "fixtures/services/DotnetInspector.Services.RouteLearning.Middle",
             "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
+            "ILInspector.Analysis.AllocationLifetimeFixtures" => "fixtures/analysis/ILInspector.Analysis.AllocationLifetimeFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",
             "ILInspector.Analysis.AsyncSiblingRepositoryFixture" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture",

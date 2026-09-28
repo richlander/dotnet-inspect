@@ -72,6 +72,10 @@ import {
   type SpotlightPackageSearchResultState,
 } from "../src/spotlight-package-search.ts";
 import {
+  normalizeSpotlightCapabilitySearchSnapshot,
+  type SpotlightCapabilitySearchResultState,
+} from "../src/spotlight-capability-search.ts";
+import {
   normalizeSourceResultSnapshot,
   type SourceResultState,
 } from "../src/source-inspection.ts";
@@ -356,6 +360,9 @@ function harness() {
     spotlightPackageSearch: {
       status: "idle",
     } as SpotlightPackageSearchResultState,
+    spotlightCapabilitySearch: {
+      status: "idle",
+    } as SpotlightCapabilitySearchResultState,
     history: [],
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
@@ -561,6 +568,7 @@ function harness() {
       value.status !== "closed",
     documentViewerIsOpen,
     normalizeDocumentViewerSnapshot,
+    normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
     normalizeSourceResultSnapshot,
     retainedWorkspaces: {
@@ -1019,6 +1027,28 @@ test("capture settles Spotlight package loading to cache or idle", () => {
     assert.deepEqual(snapshotState.spotlightPackageSearch, expected, name);
     assert.equal(h.state.spotlightPackageSearch, loading, name);
   }
+});
+
+test("capture settles Spotlight capability loading to idle", () => {
+  const h = harness();
+  const loading = { status: "loading" as const, query: "literal" };
+  h.state.spotlightCapabilitySearch = loading;
+
+  const snapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(snapshot !== null && typeof snapshot === "object"
+    && "state" in snapshot);
+  const snapshotState = snapshot.state;
+  assert.ok(snapshotState !== null && typeof snapshotState === "object"
+    && "spotlightCapabilitySearch" in snapshotState);
+
+  assert.deepEqual(
+    snapshotState.spotlightCapabilitySearch,
+    { status: "idle" },
+  );
+  assert.equal(h.state.spotlightCapabilitySearch, loading);
 });
 
 test("retained Workspace snapshots make cancelled Platform work retryable", () => {

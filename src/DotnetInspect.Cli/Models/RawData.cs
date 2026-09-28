@@ -13,7 +13,9 @@ public enum TypeFindMatchKind
     Glob,
     Partial,
     NotFound,
-    Namespace
+    Namespace,
+    Prefix,
+    Substring
 }
 
 /// <summary>

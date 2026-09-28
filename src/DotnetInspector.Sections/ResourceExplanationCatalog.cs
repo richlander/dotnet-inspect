@@ -579,6 +579,7 @@ public sealed class ResourceExplanationCatalog
                             PortableQueryModel.TextOf),
                         term.ValueKind,
                         term.Values,
+                        term.Examples,
                         term.Effects.Select(static effect =>
                             $"{effect.Kind}: {effect.Identity}")));
             }

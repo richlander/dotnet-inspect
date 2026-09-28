@@ -7,7 +7,8 @@ namespace DotnetInspector.Queries;
 public static class CallGraphInspectionGraphCatalog
 {
     private static InspectionGraphOccurrenceIdentityProjection
-        CallOccurrenceIdentity { get; } =
+        CallOccurrenceIdentity
+    { get; } =
         new CallOccurrenceIdentityProjection();
 
     public static InspectionGraphEvidenceDescriptor LogicalEdgeEvidence { get; } =
@@ -40,7 +41,8 @@ public static class CallGraphInspectionGraphCatalog
             [CallSiteEvidence, LogicalEdgeEvidence]);
 
     public static InspectionGraphCharacteristicDescriptor
-        OccurrenceCallKind { get; } =
+        OccurrenceCallKind
+    { get; } =
         new(
             "call.occurrence.kind",
             InspectionGraphOwner.Analysis,
@@ -51,7 +53,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.None);
 
     public static InspectionGraphCharacteristicDescriptor
-        OccurrenceILOffset { get; } =
+        OccurrenceILOffset
+    { get; } =
         new(
             "call.occurrence.il-offset",
             InspectionGraphOwner.Analysis,
@@ -62,7 +65,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.None);
 
     public static InspectionGraphCharacteristicDescriptor
-        OccurrenceOperandToken { get; } =
+        OccurrenceOperandToken
+    { get; } =
         new(
             "call.occurrence.operand-token",
             InspectionGraphOwner.Analysis,
@@ -73,7 +77,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.None);
 
     public static InspectionGraphCharacteristicDescriptor
-        OccurrenceInLoop { get; } =
+        OccurrenceInLoop
+    { get; } =
         new(
             "call.occurrence.in-loop",
             InspectionGraphOwner.Analysis,
@@ -84,7 +89,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.None);
 
     public static InspectionGraphCharacteristicDescriptor
-        OccurrenceDispatchKind { get; } =
+        OccurrenceDispatchKind
+    { get; } =
         new(
             "call.occurrence.dispatch-kind",
             InspectionGraphOwner.CallGraph,
@@ -95,7 +101,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.None);
 
     public static InspectionGraphCharacteristicDescriptor
-        EdgeCallSiteMultiplicity { get; } =
+        EdgeCallSiteMultiplicity
+    { get; } =
         new(
             "call.edge.call-site-count",
             InspectionGraphOwner.CallGraph,
@@ -106,7 +113,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.DistinctOccurrenceCount);
 
     public static InspectionGraphCharacteristicDescriptor
-        EdgeAnyInLoop { get; } =
+        EdgeAnyInLoop
+    { get; } =
         new(
             "call.edge.any-in-loop",
             InspectionGraphOwner.CallGraph,
@@ -117,7 +125,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.Any);
 
     public static InspectionGraphCharacteristicDescriptor
-        EdgeCallKinds { get; } =
+        EdgeCallKinds
+    { get; } =
         new(
             "call.edge.call-kinds",
             InspectionGraphOwner.CallGraph,
@@ -128,7 +137,8 @@ public static class CallGraphInspectionGraphCatalog
             InspectionGraphAggregationPolicy.OrderedDistinctSet);
 
     public static InspectionGraphCharacteristicDescriptor
-        EdgeDispatchKinds { get; } =
+        EdgeDispatchKinds
+    { get; } =
         new(
             "call.edge.dispatch-kinds",
             InspectionGraphOwner.CallGraph,
@@ -142,7 +152,8 @@ public static class CallGraphInspectionGraphCatalog
         new("call.traversal-incomplete", InspectionGraphOwner.CallGraph);
 
     public static InspectionGraphEvidenceDescriptor
-        TraversalNodeBoundEvidence { get; } =
+        TraversalNodeBoundEvidence
+    { get; } =
         new("call.traversal-node-bound", InspectionGraphOwner.CallGraph);
 
     public static InspectionGraphLimitDescriptor TraversalNodeBound { get; } =
@@ -152,20 +163,23 @@ public static class CallGraphInspectionGraphCatalog
             [TraversalNodeBoundEvidence]);
 
     public static InspectionGraphEvidenceDescriptor
-        CorrespondenceIncompleteEvidence { get; } =
+        CorrespondenceIncompleteEvidence
+    { get; } =
         new(
             "call.correspondence-incomplete",
             InspectionGraphOwner.CallGraph);
 
     public static InspectionGraphLimitDescriptor
-        CorrespondenceIncomplete { get; } =
+        CorrespondenceIncomplete
+    { get; } =
         new(
             "call.correspondence-incomplete",
             InspectionGraphOwner.CallGraph,
             [CorrespondenceIncompleteEvidence]);
 
     public static InspectionGraphLimitDescriptor
-        PhysicalOccurrencesUnavailable { get; } =
+        PhysicalOccurrencesUnavailable
+    { get; } =
         new(
             "call.physical-occurrences-unavailable",
             InspectionGraphOwner.CallGraph);
@@ -298,13 +312,14 @@ public static class CallGraphInspectionGraphAdapter
                 ?
                 [
                     new(
-                        CallGraphInspectionGraphCatalog
-                            .CorrespondenceIncomplete,
-                        InspectionGraphTarget.Node(projection.Focus.Id),
-                        new CallGraphCorrespondenceIncompleteEvidence(
-                            diagnostics.IncompleteNodeCount,
-                            diagnostics.IncompleteEdgeCount,
-                            diagnostics.BindingIdentityConflictCount)),
+                        new InspectionGraphLimitPayload(
+                            CallGraphInspectionGraphCatalog
+                                .CorrespondenceIncomplete,
+                            new CallGraphCorrespondenceIncompleteEvidence(
+                                diagnostics.IncompleteNodeCount,
+                                diagnostics.IncompleteEdgeCount,
+                                diagnostics.BindingIdentityConflictCount)),
+                        InspectionGraphTarget.Node(projection.Focus.Id)),
                 ]
                 : [];
         return Create(
@@ -341,16 +356,16 @@ public static class CallGraphInspectionGraphAdapter
             InspectionGraphNeighborhoodRequest.PeerSeeds(
                 roots,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth);
         InspectionGraphDocument source = Create(
             projection,
             request.ModeRequest,
             [
                 new InspectionGraphLimit(
-                    CallGraphInspectionGraphCatalog.TraversalNodeBound,
-                    Evidence:
-                        new CallGraphTraversalNodeBoundEvidence(maxNodes)),
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog.TraversalNodeBound,
+                        new CallGraphTraversalNodeBoundEvidence(maxNodes))),
             ]);
         return InspectionGraphNeighborhoodProjection.Project(
             source,
@@ -360,7 +375,7 @@ public static class CallGraphInspectionGraphAdapter
     internal static InspectionGraphDocument
         CreateExternalFocusedOutgoingNeighborhood(
         CallGraphProjection projection,
-        Func<CallGraphNode, InspectionGraphScopeMembership> classify,
+        Func<CallGraphNode, GraphScopeMembership> classify,
         int maxDepth,
         int maxNodes,
         CatalogCallGraphDiagnostics diagnostics)
@@ -376,32 +391,35 @@ public static class CallGraphInspectionGraphAdapter
             InspectionGraphNeighborhoodRequest.SingleSeed(
                 seed,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth);
         var limits = new List<InspectionGraphLimit>
         {
             new(
-                CallGraphInspectionGraphCatalog.TraversalNodeBound,
-                InspectionGraphTarget.Node(projection.Focus.Id),
-                new CallGraphTraversalNodeBoundEvidence(maxNodes)),
+                new InspectionGraphLimitPayload(
+                    CallGraphInspectionGraphCatalog.TraversalNodeBound,
+                    new CallGraphTraversalNodeBoundEvidence(maxNodes)),
+                InspectionGraphTarget.Node(projection.Focus.Id)),
             new(
-                InspectionGraphNeighborhoodCatalog.DepthBound,
-                InspectionGraphTarget.Node(projection.Focus.Id),
-                new InspectionGraphNeighborhoodDepthBoundEvidence(
-                    maxDepth)),
+                new InspectionGraphLimitPayload(
+                    InspectionGraphNeighborhoodCatalog.DepthBound,
+                    new InspectionGraphNeighborhoodDepthBoundEvidence(
+                        maxDepth)),
+                InspectionGraphTarget.Node(projection.Focus.Id)),
         };
         if (diagnostics.IsIncomplete)
         {
             limits.Add(
                 new InspectionGraphLimit(
-                    CallGraphInspectionGraphCatalog
-                        .CorrespondenceIncomplete,
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .CorrespondenceIncomplete,
+                        new CallGraphCorrespondenceIncompleteEvidence(
+                            diagnostics.IncompleteNodeCount,
+                            diagnostics.IncompleteEdgeCount,
+                            diagnostics.BindingIdentityConflictCount)),
                     InspectionGraphTarget.Node(
-                        projection.Focus.Id),
-                    new CallGraphCorrespondenceIncompleteEvidence(
-                        diagnostics.IncompleteNodeCount,
-                        diagnostics.IncompleteEdgeCount,
-                        diagnostics.BindingIdentityConflictCount)));
+                        projection.Focus.Id)));
         }
 
         InspectionGraphDocument source = Create(
@@ -420,7 +438,7 @@ public static class CallGraphInspectionGraphAdapter
             InspectionGraphFocusRequest.ExitFrontier(
                 source.ModeRequest,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 scopeDecisions);
         return InspectionGraphFocusProjection.Project(source, focus);
     }
@@ -468,8 +486,9 @@ public static class CallGraphInspectionGraphAdapter
         {
             limits.Add(
                 new InspectionGraphLimit(
-                    CallGraphInspectionGraphCatalog
-                        .TraversalIncomplete));
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .TraversalIncomplete)));
         }
 
         for (var index = 0; index < projection.Rows.Length; index++)
@@ -547,8 +566,9 @@ public static class CallGraphInspectionGraphAdapter
             {
                 limits.Add(
                     new InspectionGraphLimit(
-                        CallGraphInspectionGraphCatalog
-                            .PhysicalOccurrencesUnavailable,
+                        new InspectionGraphLimitPayload(
+                            CallGraphInspectionGraphCatalog
+                                .PhysicalOccurrencesUnavailable),
                         InspectionGraphTarget.Edge(index)));
             }
 
@@ -565,8 +585,9 @@ public static class CallGraphInspectionGraphAdapter
                 ?
                 [
                     new InspectionGraphFailure(
-                        CallGraphInspectionGraphCatalog
-                            .AnalysisIncomplete),
+                        new InspectionGraphFailurePayload(
+                            CallGraphInspectionGraphCatalog
+                                .AnalysisIncomplete)),
                 ]
                 : [];
         limits.AddRange(additionalLimits);
@@ -629,36 +650,42 @@ public static class CallGraphInspectionGraphAdapter
             []);
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog.OccurrenceCallKind,
                 target,
-                new InspectionGraphValue.Token(CallKindToken(call.Kind)),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog.OccurrenceCallKind,
+                    new InspectionGraphValue.Token(
+                        CallKindToken(call.Kind))),
                 direct));
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog.OccurrenceILOffset,
                 target,
-                new InspectionGraphValue.Integer(call.ILOffset),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog.OccurrenceILOffset,
+                    new InspectionGraphValue.Integer(call.ILOffset)),
                 direct));
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog.OccurrenceOperandToken,
                 target,
-                new InspectionGraphValue.Token(
-                    $"0x{call.OperandToken:X8}"),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog.OccurrenceOperandToken,
+                    new InspectionGraphValue.Token(
+                        $"0x{call.OperandToken:X8}")),
                 direct));
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog.OccurrenceInLoop,
                 target,
-                new InspectionGraphValue.Boolean(call.InLoop),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog.OccurrenceInLoop,
+                    new InspectionGraphValue.Boolean(call.InLoop)),
                 direct));
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog
-                    .OccurrenceDispatchKind,
                 target,
-                new InspectionGraphValue.Token(
-                    DispatchKindToken(dispatchKind)),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog
+                        .OccurrenceDispatchKind,
+                    new InspectionGraphValue.Token(
+                        DispatchKindToken(dispatchKind))),
                 new InspectionGraphCharacteristicDerivation(
                     InspectionGraphCharacteristicDerivationKind.Derived,
                     [target])));
@@ -684,36 +711,40 @@ public static class CallGraphInspectionGraphAdapter
                 sources);
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog
-                    .EdgeCallSiteMultiplicity,
                 target,
-                new InspectionGraphValue.Integer(sites.Length),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog
+                        .EdgeCallSiteMultiplicity,
+                    new InspectionGraphValue.Integer(sites.Length)),
                 aggregated));
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog.EdgeAnyInLoop,
                 target,
-                new InspectionGraphValue.Boolean(
-                    sites.Any(site => site.Call.InLoop)),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog.EdgeAnyInLoop,
+                    new InspectionGraphValue.Boolean(
+                        sites.Any(site => site.Call.InLoop))),
                 aggregated));
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog.EdgeCallKinds,
                 target,
-                new InspectionGraphValue.TokenSet(
-                    sites.Select(site =>
-                            CallKindToken(site.Call.Kind))
-                        .Distinct(StringComparer.Ordinal)),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog.EdgeCallKinds,
+                    new InspectionGraphValue.TokenSet(
+                        sites.Select(site =>
+                                CallKindToken(site.Call.Kind))
+                            .Distinct(StringComparer.Ordinal))),
                 aggregated));
         characteristics.Add(
             new InspectionGraphCharacteristic(
-                CallGraphInspectionGraphCatalog.EdgeDispatchKinds,
                 target,
-                new InspectionGraphValue.TokenSet(
-                    sites.Select(site =>
-                            DispatchKindToken(
-                                site.DispatchKind))
-                        .Distinct(StringComparer.Ordinal)),
+                new InspectionGraphCharacteristicPayload(
+                    CallGraphInspectionGraphCatalog.EdgeDispatchKinds,
+                    new InspectionGraphValue.TokenSet(
+                        sites.Select(site =>
+                                DispatchKindToken(
+                                    site.DispatchKind))
+                            .Distinct(StringComparer.Ordinal))),
                 aggregated));
     }
 

@@ -21,11 +21,26 @@ public class FindResultView
     [MarkoutIgnore] [MarkoutSkipNull] public string? Description => DescriptionText?.ToString();
     [MarkoutIgnore] public int Matches { get; set; }
 
+    /// <summary>
+    /// Member rows from the broadened tier. They precede Type rows because a
+    /// direct member name outranks a substring or similar Type name.
+    /// </summary>
+    [MarkoutSection(Name = "Members")]
+    [MarkoutIgnoreColumnWhen(nameof(MemberPatternIsUniform), "Pattern")]
+    [MarkoutIgnoreColumnWhen(nameof(MemberSignatureIsEmpty), "Signature")]
+    public List<FindMemberRow>? Members { get; set; }
+
     [MarkoutSection(Name = "Results")]
     [MarkoutIgnoreColumnWhen(nameof(PatternIsUniform), "Pattern")]
     [MarkoutIgnoreColumnWhen(nameof(MatchIsUniform), "Match")]
     [MarkoutIgnoreColumnWhen(nameof(SimIsUniform), "Sim")]
     public List<FindRow>? Results { get; set; }
+
+    public static bool MemberPatternIsUniform(List<FindMemberRow>? rows)
+        => FindMembersResultView.PatternIsUniform(rows);
+
+    public static bool MemberSignatureIsEmpty(List<FindMemberRow>? rows)
+        => FindMembersResultView.SignatureIsEmpty(rows);
 
     public static bool PatternIsUniform(List<FindRow>? rows)
         => rows?.Select(r => r.Pattern).Distinct().Count() <= 1;

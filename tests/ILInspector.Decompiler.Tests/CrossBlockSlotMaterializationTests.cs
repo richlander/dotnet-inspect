@@ -74,6 +74,38 @@ public class CrossBlockSlotMaterializationTests
             "Microsoft.CodeAnalysis.CSharp.Binder", "FoldNeverOverflowBinaryOperators");
     }
 
+    [Fact]
+    public void RealRoslynReusedBooleanCarrierSplitsBeforeMaterialization()
+    {
+        using var source = MetadataSource.Open(typeof(Microsoft.CodeAnalysis.SyntaxTree).Assembly.Location);
+        var function = RaiseToMaterialization(
+            source,
+            "Microsoft.CodeAnalysis.FlowAnalysis.ControlFlowGraphBuilder",
+            "VisitConditionalAccess");
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function),
+            decision => decision.Slot == 1);
+        Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
+        Assert.Equal(Boolean, decision.Type);
+
+        var stores = CoercionSinks.ScopeNodes(function.Body)
+            .OfType<StoreStackSlot>()
+            .Where(store => store.Slot == decision.Slot)
+            .ToArray();
+        Assert.Equal(3, stores.Length);
+        Assert.All(stores, store => Assert.Equal(Boolean, store.Value.ResultType));
+        Assert.Equal(2, stores.Count(store =>
+            store.Value is Constant { Value: bool }));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(CoercionSinks.ScopeNodes(function.Body),
+            node => node is StoreStackSlot store && store.Slot == decision.Slot
+                || node is LoadStackSlot load && load.Slot == decision.Slot);
+        Assert.Contains(Boolean, function.Locals);
+        function.CheckInvariant();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

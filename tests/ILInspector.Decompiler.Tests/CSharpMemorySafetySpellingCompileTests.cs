@@ -252,18 +252,22 @@ public sealed class CSharpMemorySafetySpellingCompileTests
         ApiType original = ExtractType(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
             ExplicitAccessorFixtureType);
+        // The explicit getter composes into its property row, so the
+        // property is the declaration the printer refuses as a whole.
+        Assert.DoesNotContain(
+            original.Members,
+            member => member.MethodSemantics == ApiMethodSemanticsKind.PropertyGetter);
         ApiMember accessor = Assert.Single(
             original.Members,
-            member => member.Kind == "explicit-interface-implementation");
+            member => member.Kind == "property"
+                && member.SignatureModel?.Accessors.Any(value =>
+                    value.IsExplicitInterfaceImplementation == true) == true);
 
-        Assert.Equal(
-            ApiMethodSemanticsKind.PropertyGetter,
-            accessor.MethodSemantics);
         var outcome = Assert.IsType<CSharpTypePrintOutcome.NotRendered>(
             new CSharpTypePrinter().Print(
                 new CSharpTypePrintRequest(
                     original,
-                    CSharpBodyPolicy.Stub,
+                    CSharpBodyPolicy.Skeleton,
                     [accessor]),
                 new CSharpTypePrintOptions
                 {

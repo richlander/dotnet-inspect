@@ -108,7 +108,7 @@ Each Tier 1 test must equal the legacy test on every input:
     a typed `Failed` outcome that names the method.
   - The index's global `BudgetExceeded` aborts the execution.
   - The index builds once per reader, a fixed cost that the async analyzer
-    pays even for Count. Measured builds on the postcard assemblies were
+    pays even for Count. Measured builds on the performance scorecard assemblies were
     0.26 ms (Mono.Cecil) to 7.5 ms (Roslyn C#), against legacy per-method
     matching of 0.14 to 6.0 ms. Sharing one index across executions is
     assembly-session lifetime,
@@ -116,9 +116,16 @@ Each Tier 1 test must equal the legacy test on every input:
 
   This departs from legacy only for malformed or untrusted state-machine
   attributes, which legacy counted as async. On the repository's pinned
-  packages and the eight postcard assemblies, both classifications agree
-  method for method. On the state-machine fixtures they agree except for
-  `MalformedAsyncSourceFixture::AnalyzeAsync`, which the index rejects.
+  packages and the eight performance scorecard assemblies, both classifications agree
+  method for method. Across the repository's built fixtures they agree
+  except for three methods with malformed or untrusted attributes:
+
+  | Fixture | Method | Outcome |
+  | --- | --- | --- |
+  | `analysis.async-sibling.friend` | `MalformedAsyncSourceFixture::AnalyzeAsync` | fails the async analyzer (rejected) |
+  | `analysis.lookalike` | the lookalike method with `[AsyncStateMachine(null)]` | fails the async analyzer (rejected) |
+  | `analysis.spoof.system-runtime` | `AsyncAttributeSpoofer::Analyze` | not async |
+
   The gate's attribute type match remains available for other producers. It
   compares namespace and name handles in place, walking a nested type's
   declaring or resolution-scope chain segment by segment. Its answer is
@@ -209,14 +216,18 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
 - **Request identity.** Each analyzer has exactly one producer declaration.
   Closing and row order are request parameters, not declaration parameters.
   So several consumers asking the same analyzer never create conflicting
-  declarations. In one execution, requests for the same analyzer compose as
-  follows:
-  - If any consumer asks for Rows, Rows runs once, and every Count and
-    Exists for that analyzer is derived from it. They take its outcome,
-    including an abort.
-  - Otherwise, Count and Exists run alone, with no `IdentityText` declared.
-  - Each requested row order is applied by the query to the one set of folded
-    rows.
+  declarations. Requests are not merged at this level. Per
+  [Requests are QuerySpace requests, never merged here](producer-planning.md#requests-are-queryspace-requests-never-merged-here),
+  each consumer's request runs its own closing:
+  - Rows, Count, and Exists for the same analyzer are separate requests. Count
+    and Exists never declare `IdentityText`, even when Rows is also requested.
+  - Nothing derives Count or Exists from Rows, and no ranking of closings
+    exists in the queries or the planner.
+  - Collapsing several requests for one resource into one pass belongs to
+    QuerySpace, [#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
+    Until it lands, a section's Rows and a summary's Count for the same
+    analyzer cost one extra pass, and the Count pass decodes no identity
+    text.
 - **Rows order is a typed request parameter,** not a host sort. A query
   offers exactly the orders today's outputs use:
 
@@ -232,8 +243,8 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   A host names the order it shows, and the query returns rows in that order.
   No host sorts or projects rows itself.
 - **One combined request** runs every requested analyzer and closing in one
-  execution, with each consumer's own closing, composed by the request
-  identity rule above. Rows are requested only by the Finding and the row
+  execution, with each consumer's own closing and no merging between
+  them. Rows are requested only by the Finding and the row
   sections. The merged rows, in legacy order, and the Finding inspection built
   from them come only when the Finding is requested. Signals and LibraryInfo
   counts get Count closings, matching what each shows today:
@@ -307,10 +318,10 @@ work, tracked in #8733, and not part of this change.
 
 ## Verification
 
-- **Combined consumers.** One execution with async section Rows and a
-  LibraryInfo async Count runs async Rows once and derives the Count. Signals'
-  pointer Count, with no pointer Rows requested, runs alone. A request
-  with no Rows declares no `IdentityText`.
+- **Combined consumers.** Async section Rows and a LibraryInfo async Count
+  run as separate requests with equal answers, and the Count declares no
+  `IdentityText`. Nothing in the queries or the planner ranks or merges
+  closings.
 - **Malformed pointer signature under Count.** It fails the pointer analyzer
   with a typed `Failed` outcome naming the method, and never publishes a
   silently reduced count.
@@ -339,10 +350,13 @@ work, tracked in #8733, and not part of this change.
 - **In-place attribute match**, for any producer that uses it. It equals the
   materialized comparison on attribute types that are defined, referenced,
   nested, and reached through a generic `TypeSpec` parent.
-- **Async from the index.** On the pinned packages and the eight postcard
-  assemblies, async rows equal legacy. On the state-machine fixtures,
-  `MalformedAsyncSourceFixture::AnalyzeAsync` fails the async analyzer
-  instead of counting as async, and runtime-async fixtures are unchanged.
+- **Async from the index.** On the pinned packages, the eight performance scorecard
+  assemblies, and every built repository fixture, async rows equal legacy
+  except for the three departures above, which the gates enumerate
+  exactly. `MalformedAsyncSourceFixture::AnalyzeAsync` and the lookalike
+  method fail the async analyzer instead of counting as async;
+  `AsyncAttributeSpoofer::Analyze` is not async. Runtime-async fixtures are
+  unchanged.
 - **Count reads no identity text.** On the existing hostile classification
   fixtures, Count, Exists, and classification charge zero identity budget and
   complete. Rows on the same fixtures abort with `CriticalFailure`.
@@ -369,7 +383,7 @@ work, tracked in #8733, and not part of this change.
 - **End to end.** A NativeAOT base/head comparison of the migrated sections,
   per the [evidence contract](../evidence-and-validation.md#nativeaot-beforeafter-for-modernization),
   on every supported terminal: rows, `--count`, `-n`, and `--rows`.
-- **Postcard.** Old, NLinq, and Planner over the async question, against the
+- **Performance scorecard.** Old, LINQ, NLinq, and Planner over the async question, against the
   NLinq fixture of
   [#8745](https://github.com/richlander/dotnet-inspect/issues/8745). The
   recorded 1.19–1.69× came from an experiment that treated async and pointer

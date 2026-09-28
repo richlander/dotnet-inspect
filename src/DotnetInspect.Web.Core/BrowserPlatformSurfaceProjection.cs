@@ -1,6 +1,8 @@
 using System.Runtime.Versioning;
+using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web;
 
@@ -35,6 +37,51 @@ internal abstract record BrowserPlatformSurfaceProjectionResult
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformSurfaceProjection
 {
+    internal static async Task<LibraryDocument> ReadForwardersAsync(
+        BrowserPlatformScope scope,
+        WorkspaceContextMember participant,
+        ICollection<string> cleanupFailures,
+        CancellationToken cancellationToken = default)
+    {
+        AssemblyContextLibraryInspectionRun<InspectionEnvelope<LibraryInspectionOutcome>> run =
+            await AssemblyContextLibraryInspection.ExecuteAsync(
+                scope.UseParticipant(
+                    participant,
+                    (group, selected) =>
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            selected,
+                            AssemblyContextLibraryRole.ApiOnly,
+                            new(
+                                BrowserInspectionScope.MaxRetainedImageBytes,
+                                BrowserInspectionScope.MaxRetainedImageBytes),
+                            cancellationToken)),
+                (reference, owner) =>
+                    owner.IssueOperationLease(reference) is LibraryOperationLeaseIssueOutcome.Issued issued
+                        ? LibraryInspectionOperation.Execute(
+                            new(
+                                reference,
+                                new(
+                                    new(
+                                        LibraryTypeAccessibility.Public,
+                                        count: null,
+                                        new(BrowserApiSurfacePolicy.MaxTypeForwarders),
+                                        LibraryTypeDeclarationSelection.Forwarders),
+                                    BrowserApiSurfacePolicy.ExtractionBounds)),
+                            issued.Lease,
+                            cancellationToken)
+                        : null,
+                cleanupFailures);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (run.Result?.Content is not LibraryInspectionOutcome.Available available)
+        {
+            throw new InvalidOperationException(
+                run.Failure
+                    ?? $"Forwarded Type inventory could not inspect the selected Library ({run.Result?.Content}).");
+        }
+        return available.Document;
+    }
+
     internal static BrowserPackageSurfaceInfo Project(
         CompleteRestorationPlatformInventory inventory)
     {

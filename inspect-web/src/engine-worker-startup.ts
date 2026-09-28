@@ -23,7 +23,7 @@ export interface EngineStartupClient {
   readonly catalog: Pick<EngineClient["catalog"], "listVocabulary" | "listHomeDemos">;
   readonly package: Pick<
     EngineClient["package"],
-    "listPackageActivityPackageSets" | "listPackageQueryCatalog"
+    "listPackageActivityEcosystems" | "listPackageQueryCatalog"
   >;
 }
 
@@ -31,8 +31,8 @@ interface StartupReads {
   readonly buildIdentity: EngineStartupClient["host"]["buildIdentity"];
   readonly listVocabulary: EngineStartupClient["catalog"]["listVocabulary"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
-  readonly listPackageActivityPackageSets:
-    EngineStartupClient["package"]["listPackageActivityPackageSets"];
+  readonly listPackageActivityEcosystems:
+    EngineStartupClient["package"]["listPackageActivityEcosystems"];
   readonly listPackageQueryCatalog: EngineStartupClient["package"]["listPackageQueryCatalog"];
 }
 
@@ -65,8 +65,8 @@ export function registerEngineWorkerStartupOperations(
   register(engineStartupOperations.listVocabulary, reads.listVocabulary);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
   register(
-    engineStartupOperations.listPackageActivityPackageSets,
-    reads.listPackageActivityPackageSets);
+    engineStartupOperations.listPackageActivityEcosystems,
+    reads.listPackageActivityEcosystems);
   register(engineStartupOperations.listPackageQueryCatalog, reads.listPackageQueryCatalog);
 }
 
@@ -121,8 +121,8 @@ export function bindEngineWorkerStartupClient(
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
     },
     package: {
-      listPackageActivityPackageSets:
-        bind(engineStartupOperations.listPackageActivityPackageSets),
+      listPackageActivityEcosystems:
+        bind(engineStartupOperations.listPackageActivityEcosystems),
       listPackageQueryCatalog: bind(engineStartupOperations.listPackageQueryCatalog),
     },
   };

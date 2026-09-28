@@ -81,6 +81,7 @@
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts/ILInspector.Metadata.InterfaceImplContracts.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.InterfaceImplFixtures/ILInspector.Metadata.InterfaceImplFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures/ILInspector.Metadata.PublicMethodRootFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.VbInterfaceImplementations/ILInspector.Metadata.VbInterfaceImplementations.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures/DotnetInspector.SourceLinkVisualBasicFixtures.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
       <Aliases>extensionold</Aliases>

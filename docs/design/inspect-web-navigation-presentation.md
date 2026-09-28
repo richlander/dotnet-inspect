@@ -864,12 +864,90 @@ already carries the kind.
   background tint and from the parent row's heat-status tokens. Its nested rows
   follow
   [Overload rows](inspect-web-implementation-profiles.md#overload-rows).
+- A Member-group row counts the declarations in view: a family row shows
+  `5×`, and a row with one declaration in view keeps its single-member
+  detail. When the request's accessibility, receiver, or hidden admission
+  leaves N of the group's declarations out of view, the row gains a secondary
+  `+N` in a dim token after that count or detail, such as `Parse 5× +2` and
+  `ParseValue(ref Utf8JsonReader) +5` in the `public` view. Name search does
+  not add to N, because search narrows the rows the reader asked to see. N
+  counts declarations, the same unit as the Member heading and the
+  accessibility counts, and comes from product-issued Counts of the group's
+  [exact-overload population](type-member-inspection-documents.md#member-overloads-row-space),
+  not from host arithmetic over rows. The row shows no marker while those
+  Counts are outstanding or when nothing is out of view, and it never shows
+  `+0`. When those Counts fail or are incomplete, the row shows `+?` in the
+  theme error token, so a failure does not read as nothing out of view. The
+  row's accessible description states N in the request's own terms, for
+  example "2 more overloads are outside the public view", or states that the
+  out-of-view count is unavailable.
 - A row without structured detail, such as a graph-only target, keeps its
   kind word. Package and Library navigation may also expose Types where their
 owning lens requires it, but no second Library filter is introduced. Placement
 beside Type and Member working surfaces and replacement by the narrow
 inventory/detail push state are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#responsive-composition).
+
+### Facade and forwarded-Type Overview
+
+Issue #8290 adopts the user-approved facade experience in the Browser Platform
+target. A Library whose source-issued role is Facade explicitly says
+**Facade assembly** in Library Overview, not only in the Platform catalog.
+The role is not inferred from an empty definition inventory or an assembly
+name.
+
+The ordinary Type list includes every admitted forwarded declaration alongside
+definitions. A small **Forwarded** text indication distinguishes these rows;
+the UI does not invent a defining kind, members, or a definition identity.
+Existing inventory bounds still apply, and incomplete or failed inventory
+remains visibly incomplete or failed.
+
+Selecting a forwarded Type opens a Type subject with exactly one inspector,
+**Overview**. It identifies the structured Type, its declaring Library, and
+its immediate destination assembly. The destination assembly is an accessible
+button or chip when the
+[Platform forwarded-Type activation owner](inspect-web-platform-forwarded-type-activation.md)
+supplies an action. It is explanatory text with the applicable reason when no
+action is available. No separate Metadata inspector or chain-explorer UI is
+required.
+
+An activation opens the exact next Library **with the same Type selected**.
+Another forwarder receives the same Overview-only presentation and its own
+action; a definition receives its ordinary supported inspectors. The managed
+consumer realizes the destination from the action owner's exact descriptor.
+TypeScript dispatches its opaque action, never a binding reconstructed from
+the assembly label, and installs only the returned Library/Type destination.
+Non-success remains visible without replacing the current subject.
+[Navigation Consumer](inspect-web-navigation-consumer.md) retains ownership of
+current-authority checks, history, synchronization, and destination focus.
+
+The production scenario is
+`Microsoft.NETCore.App@11.0.0-rc.1.26425.128`:
+
+```text
+System.Xml / System.Xml.XmlReader
+  Overview: Forwarded to [System.Xml.ReaderWriter]
+
+System.Xml.ReaderWriter / System.Xml.XmlReader
+  Overview: Forwarded to [System.Private.Xml]
+
+System.Private.Xml / System.Xml.XmlReader
+  Ordinary defining-Type inspectors
+```
+
+This is Browser Platform presentation, not new Package binding or shared
+Navigation identity. It consumes the existing typed declaration inventory and
+activation contracts. The existing Library/Type UI is the rendering convention:
+typed Browser models lower to escaped HTML and native buttons at the frontend,
+rather than adding a multi-format document renderer for these controls.
+
+The user-approved delivery stages #8290 through a focused backend slice for
+package-backed activation, exact destination realization, and generated
+facade/ordinary Worker transport, followed by the website presentation slice.
+The latter retires the unexplained empty facade Type list. Focused managed,
+transport, rendering, and built-browser gates must cover the real two-hop
+scenario, definition behavior, and visible non-success before this experience
+is claimed as supported.
 
 ## Non-claims
 

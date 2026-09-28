@@ -92,7 +92,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
     static InspectionGraphDocument Project(
         InspectionGraphDocument source,
-        InspectionGraphTraversalDirection direction,
+        GraphTraversalDirection direction,
         string[] inside,
         string[] outside)
     {
@@ -101,11 +101,11 @@ public sealed class InspectionGraphFocusProjectionTests
             .. inside.Select(name =>
                 new InspectionGraphScopeDecision(
                     Node(source, name).Subject,
-                    InspectionGraphScopeMembership.Inside)),
+                    GraphScopeMembership.Inside)),
             .. outside.Select(name =>
                 new InspectionGraphScopeDecision(
                     Node(source, name).Subject,
-                    InspectionGraphScopeMembership.Outside)),
+                    GraphScopeMembership.Outside)),
         ];
         InspectionGraphFocusRequest request =
             InspectionGraphFocusRequest.ExitFrontier(
@@ -147,10 +147,10 @@ public sealed class InspectionGraphFocusProjectionTests
                     document.Characteristics,
                     characteristic =>
                         ReferenceEquals(
-                            characteristic.Descriptor,
+                            characteristic.Payload.Descriptor,
                             InspectionGraphFocusCatalog.Role)
                         && characteristic.Target == target)
-                    .Value)
+                    .Payload.Value)
                 .Values);
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Both,
+            GraphTraversalDirection.Both,
             ["Focus", "Local"],
             ["Incoming", "Outgoing"]);
 
@@ -217,16 +217,16 @@ public sealed class InspectionGraphFocusProjectionTests
             [],
             [
                 new(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
                         new InspectionGraphInducedSubjectBoundEvidence(
-                            explicitSubjects.Length)),
+                            explicitSubjects.Length))),
             ],
             source.Failures);
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus", "Disconnected"],
             ["External"]);
 
@@ -241,13 +241,13 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     InspectionGraphInducedSetCatalog.SubjectBound)
-                && limit.Evidence
+                && limit.Payload.Evidence
                     is InspectionGraphInducedSubjectBoundEvidence
-                    {
-                        SubjectCount: 4,
-                    });
+                {
+                    SubjectCount: 4,
+                });
     }
 
     [Fact]
@@ -273,7 +273,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus", "First", "BoundarySource", "Noise", "NoiseLeaf"],
             ["External"]);
 
@@ -315,7 +315,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Incoming,
+            GraphTraversalDirection.Incoming,
             ["BoundaryTarget", "First", "Focus"],
             ["External"]);
 
@@ -353,7 +353,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus", "First", "Second", "BoundarySource"],
             ["External"]);
 
@@ -375,7 +375,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus", "Connected"],
             ["External"]);
 
@@ -406,7 +406,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus", "Connected", "Disconnected"],
             ["External", "OtherExternal"]);
 
@@ -424,7 +424,7 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     InspectionGraphFocusCatalog
                         .ScopeClassificationIncomplete)
                 && limit.Target
@@ -444,7 +444,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus", "Local"],
             []);
 
@@ -492,7 +492,7 @@ public sealed class InspectionGraphFocusProjectionTests
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus"],
             ["External"]);
 
@@ -516,24 +516,29 @@ public sealed class InspectionGraphFocusProjectionTests
             limits:
             [
                 new(
-                    CallGraphInspectionGraphCatalog.TraversalIncomplete),
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .TraversalIncomplete)),
                 new(
-                    CallGraphInspectionGraphCatalog
-                        .PhysicalOccurrencesUnavailable,
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .PhysicalOccurrencesUnavailable),
                     InspectionGraphTarget.Edge(1)),
             ],
             failures:
             [
                 new(
-                    CallGraphInspectionGraphCatalog.AnalysisIncomplete),
+                    new InspectionGraphFailurePayload(
+                        CallGraphInspectionGraphCatalog.AnalysisIncomplete)),
                 new(
-                    CallGraphInspectionGraphCatalog.AnalysisIncomplete,
+                    new InspectionGraphFailurePayload(
+                        CallGraphInspectionGraphCatalog.AnalysisIncomplete),
                     InspectionGraphTarget.Edge(1)),
             ]);
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus"],
             ["NoiseSource", "NoiseTarget", "External"]);
 
@@ -542,13 +547,13 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog.TraversalIncomplete)
                 && limit.Target is null);
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog
                         .PhysicalOccurrencesUnavailable)
                 && limit.Target
@@ -556,13 +561,13 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Failures,
             failure => ReferenceEquals(
-                    failure.Descriptor,
+                    failure.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog.AnalysisIncomplete)
                 && failure.Target is null);
         Assert.Contains(
             result.Failures,
             failure => ReferenceEquals(
-                    failure.Descriptor,
+                    failure.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog.AnalysisIncomplete)
                 && failure.Target
                     == InspectionGraphTarget.Edge(edge.Id));
@@ -583,20 +588,22 @@ public sealed class InspectionGraphFocusProjectionTests
             limits:
             [
                 new(
-                    CallGraphInspectionGraphCatalog
-                        .TraversalIncomplete,
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .TraversalIncomplete),
                     InspectionGraphTarget.Node(2)),
             ],
             failures:
             [
                 new(
-                    CallGraphInspectionGraphCatalog.AnalysisIncomplete,
+                    new InspectionGraphFailurePayload(
+                        CallGraphInspectionGraphCatalog.AnalysisIncomplete),
                     InspectionGraphTarget.Node(2)),
             ]);
 
         InspectionGraphDocument result = Project(
             source,
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             ["Focus", "Local", "FailedLocal", "Unrelated"],
             []);
 
@@ -635,38 +642,38 @@ public sealed class InspectionGraphFocusProjectionTests
             InspectionGraphFocusRequest.ExitFrontier(
                 source.ModeRequest,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 [
                     new(
                         focus,
-                        InspectionGraphScopeMembership.Inside),
+                        GraphScopeMembership.Inside),
                     new(
                         focus,
-                        InspectionGraphScopeMembership.Outside),
+                        GraphScopeMembership.Outside),
                 ]));
         Assert.Throws<ArgumentException>(() =>
             InspectionGraphFocusRequest.ExitFrontier(
                 source.ModeRequest,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 [
                     new(
                         focus,
-                        InspectionGraphScopeMembership.Unknown),
+                        GraphScopeMembership.Unknown),
                 ]));
 
         InspectionGraphFocusRequest foreign =
             InspectionGraphFocusRequest.ExitFrontier(
                 source.ModeRequest,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 [
                     new(
                         focus,
-                        InspectionGraphScopeMembership.Inside),
+                        GraphScopeMembership.Inside),
                     new(
                         Subject("Foreign"),
-                        InspectionGraphScopeMembership.Outside),
+                        GraphScopeMembership.Outside),
                 ]);
         Assert.Throws<ArgumentException>(() =>
             InspectionGraphFocusProjection.Project(source, foreign));

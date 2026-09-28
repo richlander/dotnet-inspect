@@ -707,6 +707,27 @@ async function installFacades(
           ...(versions[1] === undefined ? {} : { previousVersion: versions[1] }),
         };
       }
+      export function searchCapabilities(text) {
+        return {
+          content: {
+            query: text,
+            similarityThreshold: 0.6,
+            candidateResourceCount: 0,
+            matchCount: 0,
+            returnedCount: 0,
+            isTruncated: false,
+            results: [],
+          },
+          share: {
+            kind: "nonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "capability-catalog-search/share",
+            reason: "No canonical Browser projection is available.",
+          },
+          diagnostics: [],
+        };
+      }
       export async function loadRuntimePack(framework, version) {
         document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
         const surface = surfaceFor("Microsoft.NETCore.App");
@@ -752,17 +773,18 @@ async function installFacades(
           maxWorkspaceRetainedImageBytes: 67108864,
         };
       }
-      export function listPackageActivityPackageSets() {
+      export function listPackageActivityEcosystems() {
         if (packageLoading.activityCatalogFailure) {
           throw new Error("Package Activity catalog offline");
         }
         return {
           version: 1,
-          packageSets: [{
-            id: "package-set.fixture",
-            title: "Fixture packages",
-            summary: "Browser fixture package set.",
+          ecosystems: [{
+            id: "ecosystem.fixture",
+            title: "Fixture",
+            summary: "Browser fixture Ecosystem.",
             order: 10,
+            prefixes: ["Fixture."],
           }],
         };
       }

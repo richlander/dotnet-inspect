@@ -358,11 +358,17 @@ public static class BodyShapeSearch
             {
                 return;
             }
+            // A public view searches public accessors and the visible explicit
+            // implementation accessors that compose into their property or
+            // event row.
             if (accessorOrdinal.HasValue && !includeAll && methodTokens is null)
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                    && !explicitVisibility!.Handles.Contains(methodHandle))
+                {
                     return;
+                }
             }
             var candidate = new SurfaceMethod(
                 value,

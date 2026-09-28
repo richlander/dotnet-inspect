@@ -157,6 +157,7 @@ public static partial class ApiSurfaceExtractor
             null)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+        var interfaceImplementations = GetInterfaceImplementations(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
         bool isEnum = IsEnum(reader, typeDef);
 
@@ -166,8 +167,10 @@ public static partial class ApiSurfaceExtractor
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
             bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
             if (!AdmitsMethodAccess(
-                    methodAccess,
-                    isExplicitImplementation,
+                    MethodEffectiveAccess(
+                        methodAccess,
+                        methodHandle,
+                        interfaceImplementations),
                     includeAll: false))
             {
                 continue;
@@ -176,9 +179,7 @@ public static partial class ApiSurfaceExtractor
             string methodName = reader.GetString(method.Name);
             if (IsFoldedAccessorMethod(
                     accessorMethods,
-                    methodHandle,
-                    isExplicitImplementation,
-                    methodAccess)
+                    methodHandle)
                 || IsExcludedCompilerNamedMember(
                     methodName,
                     includeCompilerGenerated: false))
@@ -251,11 +252,20 @@ public static partial class ApiSurfaceExtractor
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
+            PropertyAccessors propertyAccessors = property.GetAccessors();
             if (!AdmitsMemberAccess(
-                    PropertyAccess(reader, property.GetAccessors())
+                    PropertyAccess(
+                        reader,
+                        propertyAccessors,
+                        interfaceImplementations)
                         == MethodAttributes.Public,
                     includeAll: false)
-                || IsHiddenMember(reader, property.GetCustomAttributes()))
+                || IsHiddenAccessorOwner(
+                    reader,
+                    property.GetCustomAttributes(),
+                    explicitImplementationBodies,
+                    propertyAccessors.Getter,
+                    propertyAccessors.Setter))
             {
                 continue;
             }
@@ -300,11 +310,20 @@ public static partial class ApiSurfaceExtractor
         foreach (var eventHandle in typeDef.GetEvents())
         {
             var evt = reader.GetEventDefinition(eventHandle);
-            if (EventAccess(reader, evt.GetAccessors()) is not { } eventAccess
+            EventAccessors eventAccessors = evt.GetAccessors();
+            if (EventAccess(
+                    reader,
+                    eventAccessors,
+                    interfaceImplementations) is not { } eventAccess
                 || !AdmitsMemberAccess(
                     eventAccess == MethodAttributes.Public,
                     includeAll: false)
-                || IsHiddenMember(reader, evt.GetCustomAttributes()))
+                || IsHiddenAccessorOwner(
+                    reader,
+                    evt.GetCustomAttributes(),
+                    explicitImplementationBodies,
+                    eventAccessors.Adder,
+                    eventAccessors.Remover))
             {
                 continue;
             }

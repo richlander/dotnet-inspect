@@ -6,6 +6,7 @@ import {
   distinctSpotlightResults,
   nextSpotlightScope,
   nextSpotlightSelection,
+  spotlightCapabilityDraftValue,
   spotlightResultIdentity,
 } from "../src/spotlight.ts";
 import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
@@ -42,6 +43,9 @@ interface HarnessOptions {
   pickResult?: (result: SpotlightResult) => void;
   packageSearchError?: () => string;
   packageSearchLoading?: () => boolean;
+  typeSearchLoading?: () => boolean;
+  typeSearchNotice?: () => string;
+  capabilitySearchMessage?: () => string;
 }
 
 // The library owns the real DOM event/element contract; this harness models only the
@@ -88,6 +92,9 @@ function createHarness({
   pickResult = () => {},
   packageSearchError,
   packageSearchLoading = () => false,
+  typeSearchLoading,
+  typeSearchNotice,
+  capabilitySearchMessage,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
     spotlightOpen: false,
@@ -115,6 +122,11 @@ function createHarness({
     resetPackageSearch: () => {},
     packageSearchLoading,
     ...(packageSearchError ? { packageSearchError } : {}),
+    ...(typeSearchLoading ? { typeSearchLoading } : {}),
+    ...(typeSearchNotice ? { typeSearchNotice } : {}),
+    scheduleCapabilitySearch: () => {},
+    resetCapabilitySearch: () => {},
+    ...(capabilitySearchMessage ? { capabilitySearchMessage } : {}),
     packageCount: () => 1,
     render: () => {},
     focusAfterDismiss,
@@ -661,6 +673,51 @@ test("package source errors are escaped, coexist with local results and replace 
   }
 });
 
+test("incomplete Type coverage qualifies empty and nonempty results", () => {
+  const notice = "1 assembly could not be fully evaluated.";
+  const empty = createHarness({
+    scope: "types",
+    query: "Missing",
+    typeSearchNotice: () => notice,
+  });
+  assert.match(empty.spotlight.modalHtml(), /No confirmed matches/);
+  assert.match(empty.spotlight.modalHtml(), /1 assembly could not be fully evaluated/);
+  assert.doesNotMatch(empty.spotlight.modalHtml(), /Nothing matches/);
+
+  const populated = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchNotice: () => notice,
+    searchResults: () => [{
+      kind: "managed-type",
+      identity: "candidate",
+      action: "action",
+      reason: null,
+      name: "JsonSerializer",
+      namespace: "System.Text.Json",
+      library: "System.Text.Json",
+      source: "System.Text.Json@10.0.0",
+      typeKind: "class",
+      ranges: [],
+    }],
+  });
+  const html = populated.spotlight.modalHtml();
+  assert.match(html, /data-sl-managed-type="[^"]*candidate[^"]*"/);
+  assert.match(html, /1 assembly could not be fully evaluated/);
+});
+
+test("pending Types-only search does not report a complete miss", () => {
+  const harness = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchLoading: () => true,
+  });
+
+  const html = harness.spotlight.modalHtml();
+  assert.match(html, /Searching/);
+  assert.doesNotMatch(html, /Nothing matches|No confirmed matches/);
+});
+
 test("Spotlight selection clamps without wrapping and scope cycling wraps", () => {
   assert.equal(nextSpotlightSelection(0, -1, 4), null);
   assert.equal(nextSpotlightSelection(2, 1, 4), 3);
@@ -723,6 +780,87 @@ test("Spotlight renders Package Activity as a routed package action", () => {
   assert.match(html, /Package Activity/);
   assert.match(html, /Review product package changes over time/);
   assert.match(html, /data-sl-package-activity="1"/);
+});
+
+test("Spotlight renders installed resources in one Capabilities group", () => {
+  const capability = {
+    similarity: 1,
+    matchedTerm: "literal",
+    matchSource: "CanonicalKey" as const,
+    isSegment: true,
+    resourceIdentity: {
+      kind: "QueryFacet" as const,
+      identity: "package-query.term.library-literal",
+      parentIdentity: "package-query/query-space/v1",
+    },
+    resourceKind: "QueryFacet" as const,
+    resourceName: "library literal",
+    canonicalKeys: ["library-literal"],
+    resourcePath: "package-query/query/facets/library-literal",
+    owningRoutes: [{
+      identity: "package-query/route/default",
+      name: "Package Query",
+      resourcePath: "package-query/routes/default",
+    }],
+    productionBindings: [{
+      identity: "dotnet-inspect.web/package-query",
+      name: "dotnet-inspect Browser",
+      consumerKind: "Browser" as const,
+      gesture: "Package Query workspace search",
+      resourcePath: "package-query/bindings/browser",
+    }],
+  };
+  const { spotlight } = createHarness({
+    query: "literal",
+    searchResults: () => [{
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [[8, 15]],
+    }],
+  });
+
+  const html = spotlight.modalHtml();
+
+  assert.match(html, /Capabilities/);
+  assert.match(html, /Library literal/);
+  assert.match(html, /Query facet · Package Query · library-literal/);
+  assert.match(
+    html,
+    /data-sl-capability="package-query\/query\/facets\/library-literal"/,
+  );
+  assert.equal(
+    spotlightResultIdentity({
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [],
+    }),
+    '["capability","package-query/query/facets/library-literal"]',
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "https://",
+      capability: {
+        ...capability,
+        matchedTerm: "https://",
+        matchSource: "ExampleValue",
+        isSegment: false,
+      },
+      ranges: [],
+    }),
+    "https://",
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [],
+    }),
+    "",
+  );
 });
 
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {

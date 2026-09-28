@@ -97,7 +97,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryAndPackage_MultiSectionCount_RejectTreePresentation()
+    public async Task LibraryAndPackage_MultiSectionCount_RejectInvalidTreeRequests()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
@@ -113,10 +113,14 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
-            Assert.Contains("exactly one", libraryError);
+            Assert.Contains(
+                $"Section '{SectionNames.LibraryInfo}' is scalar",
+                libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
-            Assert.Contains("exactly one", packageError);
+            Assert.Contains(
+                "--tree requires exactly '-S \"Dependency Hierarchy\"'",
+                packageError);
         }
         finally
         {
@@ -1052,7 +1056,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Assembly_CountWithoutSingleSection_Errors()
+    public async Task Assembly_DefaultScalarSection_RejectsCount()
     {
         var options = new LibraryOptions
         {
@@ -1065,7 +1069,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(CountOutput.SectionRequiredMessage, error);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            error);
     }
 
     [Fact]
@@ -2120,6 +2126,7 @@ public partial class CommandExecutionTests
             "library",
             missingPath,
             "-S",
+            LibraryFixedOverviewSelection,
             "--count",
             "--tips",
             "q");

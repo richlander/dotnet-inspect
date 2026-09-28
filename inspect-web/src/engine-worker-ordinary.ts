@@ -39,10 +39,14 @@ type PackageFacade = typeof PackageFacadeModule;
 type SourceFacade = typeof SourceFacadeModule;
 
 type PackageOperationName =
+  | "activatePlatformForwarder"
+  | "closePlatformForwarderView"
+  | "openPlatformForwarderView"
   | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "matchPackageDependencyCoordinate"
+  | "searchCapabilities"
   | "searchTypes"
   | "activateWorkspacePackageOccurrence"
   | "clearWorkspacePackageOccurrences"
@@ -67,6 +71,7 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
+  | "findTypes"
   | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
@@ -117,6 +122,7 @@ type CatalogOperationName =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
+  | "activateSpotlightDestination"
   | "cancelRetainedWorkspaceActivation"
   | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
@@ -943,6 +949,14 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.package.matchPackageDependencyCoordinate(...args),
     ),
+    searchCapabilities: valueOperation(
+      "ordinary-package-search-capabilities",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["searchCapabilities"]>
+      ) => facades.package.searchCapabilities(...args),
+    ),
     searchTypes: valueOperation(
       "ordinary-package-search-types",
       2,
@@ -1018,6 +1032,24 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["loadRuntimePackAssembly"]>
       ) => facades.package.loadRuntimePackAssembly(...args),
+    ),
+    openPlatformForwarderView: valueOperation(
+      "ordinary-package-open-platform-forwarder-view",
+      4,
+      (facades, ...args: Parameters<PackageFacade["openPlatformForwarderView"]>) =>
+        facades.package.openPlatformForwarderView(...args),
+    ),
+    activatePlatformForwarder: valueOperation(
+      "ordinary-package-activate-platform-forwarder",
+      1,
+      (facades, ...args: Parameters<PackageFacade["activatePlatformForwarder"]>) =>
+        facades.package.activatePlatformForwarder(...args),
+    ),
+    closePlatformForwarderView: valueOperation(
+      "ordinary-package-close-platform-forwarder-view",
+      1,
+      (facades, ...args: Parameters<PackageFacade["closePlatformForwarderView"]>) =>
+        facades.package.closePlatformForwarderView(...args),
     ),
     getPackageDocument: valueOperation(
       "ordinary-package-get-document",
@@ -1112,6 +1144,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
       ) => facades.metadata.cancelLibraryApiDiff(...args),
+    ),
+    findTypes: valueOperation(
+      "ordinary-metadata-find-types",
+      4,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["findTypes"]>
+      ) => facades.metadata.findTypes(...args),
     ),
     queryLibraryApiDiff: valueOperation(
       "ordinary-metadata-query-library-api-diff",
@@ -1491,6 +1531,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args,
       ),
     ),
+    activateSpotlightDestination: valueOperation(
+      "ordinary-catalog-activate-spotlight-destination",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["activateSpotlightDestination"]
+        >
+      ) => facades.catalog.activateSpotlightDestination(...args),
+    ),
     cancelRetainedWorkspaceActivation: valueOperation(
       "ordinary-catalog-cancel-retained-workspace-activation",
       1,
@@ -1780,6 +1830,9 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.package
           .matchPackageDependencyCoordinate,
       ),
+      searchCapabilities: bind(
+        engineWorkerOrdinaryOperations.package.searchCapabilities,
+      ),
       searchTypes: bind(
         engineWorkerOrdinaryOperations.package.searchTypes,
       ),
@@ -1808,6 +1861,15 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       loadRuntimePackAssembly: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePackAssembly,
+      ),
+      openPlatformForwarderView: bind(
+        engineWorkerOrdinaryOperations.package.openPlatformForwarderView,
+      ),
+      activatePlatformForwarder: bind(
+        engineWorkerOrdinaryOperations.package.activatePlatformForwarder,
+      ),
+      closePlatformForwarderView: bind(
+        engineWorkerOrdinaryOperations.package.closePlatformForwarderView,
       ),
       getPackageDocument: bind(
         engineWorkerOrdinaryOperations.package.getPackageDocument,
@@ -1846,6 +1908,9 @@ export function bindEngineWorkerOrdinaryClient(
     metadata: {
       cancelLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
+      ),
+      findTypes: bind(
+        engineWorkerOrdinaryOperations.metadata.findTypes,
       ),
       queryLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
@@ -2007,6 +2072,10 @@ export function bindEngineWorkerOrdinaryClient(
       activateRetainedWorkspaceDefinitionWithCredentials: bind(
         engineWorkerOrdinaryOperations.catalog
           .activateRetainedWorkspaceDefinitionWithCredentials,
+      ),
+      activateSpotlightDestination: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .activateSpotlightDestination,
       ),
       cancelRetainedWorkspaceActivation: bind(
         engineWorkerOrdinaryOperations.catalog

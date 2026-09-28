@@ -22,17 +22,20 @@ type AsyncFacade<
 };
 
 type PackageOperations =
+  | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
   | "classifyPackageGraphIdentities"
   | "clearWorkspacePackageOccurrences"
+  | "closePlatformForwarderView"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
-  | "listPackageActivityPackageSets"
+  | "listPackageActivityEcosystems"
   | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
+  | "openPlatformForwarderView"
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryLibraries"
@@ -48,12 +51,14 @@ type PackageOperations =
   | "resolvePackageDependencyVersion"
   | "runPackageActivity"
   | "runPackageQuery"
+  | "searchCapabilities"
   | "searchTypes";
 
 type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
+  | "findTypes"
   | "queryLibraryApiDiff"
   | "queryMemberDeclaration"
   | "queryPlatformMemberDeclaration"
@@ -105,6 +110,7 @@ type CatalogOperations =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
+  | "activateSpotlightDestination"
   | "cancelRetainedWorkspaceActivation"
   | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
