@@ -357,8 +357,6 @@ internal static class MethodImplementationProfileAnalysis
             ImmutableArray<DirectCall> directCalls,
             MethodDefinitionMap methodMap)
     {
-        var methodsByToken = declaredMethods.ToDictionary(
-            static method => method.MetadataToken);
         var relationships =
             ImmutableArray.CreateBuilder<OverloadCallRelationship>();
         foreach (var call in directCalls)
@@ -368,9 +366,9 @@ internal static class MethodImplementationProfileAnalysis
 
             int calleeToken = methodMap.Resolve(call);
             if (calleeToken == 0
-                || !methodsByToken.TryGetValue(
-                    calleeToken,
-                    out MethodIdentity? callee)
+                || FindDeclaredMethod(
+                    declaredMethods,
+                    calleeToken) is not { } callee
                 || call.Caller.MetadataToken == callee.MetadataToken
                 || call.Caller.Name != callee.Name
                 || !SameDeclaringType(
@@ -397,6 +395,26 @@ internal static class MethodImplementationProfileAnalysis
                 .ThenBy(static relationship =>
                     relationship.Callee.MetadataToken),
         ];
+    }
+
+    static MethodIdentity? FindDeclaredMethod(
+        ImmutableArray<MethodIdentity> declaredMethods,
+        int metadataToken)
+    {
+        int low = 0;
+        int high = declaredMethods.Length - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            MethodIdentity candidate = declaredMethods[middle];
+            if (candidate.MetadataToken == metadataToken)
+                return candidate;
+            if (candidate.MetadataToken < metadataToken)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+        return null;
     }
 
     static bool IsInvocation(CallKind kind)
