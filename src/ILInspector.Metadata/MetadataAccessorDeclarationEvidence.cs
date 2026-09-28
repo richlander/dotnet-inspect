@@ -1023,18 +1023,28 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
             _ => true,
         };
 
-    static bool IsVoid(MetadataTypeIdentity type) =>
-        type is MetadataTypeIdentity.Primitive
+    static bool IsVoid(MetadataTypeIdentity type)
+    {
+        while (type is MetadataTypeIdentity.Modified modified)
+            type = modified.Type;
+
+        return type is MetadataTypeIdentity.Primitive
         {
             Name: { } name,
         }
         && name.ToString() == "void";
+    }
 
-    static bool IsVoid(TypeNode type) =>
-        type is PrimitiveTypeNode
+    static bool IsVoid(TypeNode type)
+    {
+        while (type is ModifiedTypeNode modified)
+            type = modified.Inner;
+
+        return type is PrimitiveTypeNode
         {
             Name: "void",
         };
+    }
 
     void ValidateType(TypeNode node, GenericContext context)
     {
@@ -1081,12 +1091,29 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                     (TypeReferenceHandle)handle,
                     rawTypeKind: 0x12),
             HandleKind.TypeSpecification =>
-                _reader.GetTypeSpecification(
-                    (TypeSpecificationHandle)handle)
-                    .DecodeSignature(provider, context),
+                DecodeTypeSpecification(
+                    (TypeSpecificationHandle)handle,
+                    context,
+                    provider,
+                    site),
             _ => throw new BadImageFormatException(
                 "The declaration type handle is invalid."),
         };
+    }
+
+    TypeNode DecodeTypeSpecification(
+        TypeSpecificationHandle handle,
+        GenericContext context,
+        TypeNodeProvider provider,
+        MetadataAccessorDeclarationSite site)
+    {
+        ValidateSpec(site, _reader, handle);
+        return GuardedProviderDecode.TypeSpec(
+            _reader,
+            handle,
+            provider,
+            context,
+            (TypeNode)new DegradedTypeNode());
     }
 
     TypeNodeProvider Provider(

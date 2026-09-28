@@ -436,6 +436,60 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                     accessor.MemorySafety.SignaturePointer));
     }
 
+    [Fact]
+    public void Mdp007_CompilerProducedInitSetterRetainsModifiedVoid()
+    {
+        Type fixtureType = typeof(MemorySafetyDeclarationFixtures);
+        string path = fixtureType.Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type =
+            (TypeDefinitionHandle)MetadataTokens.EntityHandle(
+                    fixtureType.MetadataToken);
+        PropertyDefinitionHandle property =
+            (PropertyDefinitionHandle)MetadataTokens.EntityHandle(
+                    fixtureType.GetProperty("InitProperty")!
+                        .MetadataToken);
+        var request = new MetadataAccessorDeclarationRequest(
+            MetadataTypeDefinitionAddress.FromHandle(reader, type),
+            MetadataAccessorDeclarationAddress.Create(
+                    reader,
+                    property));
+
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declaration =
+            assembly.CreateDeclarationSession(operation);
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                    declaration.PostAccessorDeclaration(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        MetadataAccessorSemanticsOccurrence setter =
+            Assert.Single(
+                    posted.Evidence.Accessors,
+                    accessor =>
+                        accessor.Role
+                        == MetadataAccessorSemanticsRole.Setter);
+        var modified = Assert.IsType<
+            MetadataTypeIdentity.Modified>(
+                    setter.Method.Signature.ReturnType);
+        Assert.True(modified.IsRequired);
+        Assert.Equal(
+            "void",
+            Assert.IsType<MetadataTypeIdentity.Primitive>(
+                    modified.Type)
+                    .Name.ToString());
+        Assert.Equal(
+            "IsExternalInit",
+            Assert.IsType<MetadataTypeIdentity.Named>(
+                    modified.Modifier)
+                    .Definition.Segments[^1].ToString());
+    }
+
     [Theory]
     [InlineData(
             RootShapeMismatch.GetterReturn,
@@ -542,6 +596,134 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             Assert.Equal(
                 MetadataAccessorDeclarationMechanism.SignatureCorrespondence,
                 rejected.Failure.Mechanism);
+    }
+
+    [Fact]
+    public void Mdp007_EventTypeSpecTrailingDataRejectsRoot()
+    {
+        using var fixture = new Fixture(
+                BuildEventTypeSpecRootImage(
+                    signature =>
+                    {
+                        signature.WriteByte(0x12);
+                        signature.WriteByte(0x05);
+                        signature.WriteByte(0xFF);
+                    }));
+
+        var rejected = Assert.IsType<
+                MetadataAccessorDeclarationResult.Rejected>(
+                    Run(
+                        fixture,
+                        MetadataAccessorDeclarationKind.Event));
+
+        Assert.Equal(
+                MetadataAccessorDeclarationFailureReason.MalformedMetadata,
+                rejected.Failure.Reason);
+        Assert.Equal(
+                MetadataAccessorDeclarationStage.RootDeclaration,
+                rejected.Failure.Stage);
+        Assert.Equal(
+                MetadataAccessorDeclarationMechanism.SignatureDecode,
+                rejected.Failure.Mechanism);
+    }
+
+    [Fact]
+    public void Mdp007_EventTypeSpecChargesRootSignatureBytes()
+    {
+        using var fixture = new Fixture(
+                BuildEventTypeSpecRootImage(
+                    signature =>
+                    {
+                        signature.WriteByte(0x12);
+                        signature.WriteByte(0x05);
+                    }));
+        var policy = new MetadataOperationPolicy(
+                long.MaxValue,
+                maxSignatureBytes: 0);
+
+        var rejected = Assert.IsType<
+                MetadataAccessorDeclarationResult.Rejected>(
+                    Run(
+                        fixture,
+                        MetadataAccessorDeclarationKind.Event,
+                        policy));
+
+        Assert.Equal(
+                MetadataAccessorDeclarationFailureReason.BudgetExceeded,
+                rejected.Failure.Reason);
+        Assert.Equal(
+                MetadataOperationDimension.SignatureBytes,
+                rejected.Failure.BudgetDimension);
+        Assert.Equal(0, rejected.Failure.BudgetLimit);
+    }
+
+    [Fact]
+    public void Mdp007_EventTypeSpecDepthRejectsRoot()
+    {
+        using var fixture = new Fixture(
+                BuildEventTypeSpecRootImage(
+                    signature =>
+                    {
+                        for (int depth = 0; depth < 100; depth++)
+                            signature.WriteByte(0x1D);
+                        signature.WriteByte(0x12);
+                        signature.WriteByte(0x05);
+                    }));
+
+        var rejected = Assert.IsType<
+                MetadataAccessorDeclarationResult.Rejected>(
+                    Run(
+                        fixture,
+                        MetadataAccessorDeclarationKind.Event));
+
+        Assert.Equal(
+                MetadataAccessorDeclarationFailureReason.BudgetExceeded,
+                rejected.Failure.Reason);
+        Assert.Equal(
+                MetadataAccessorDeclarationStage.RootDeclaration,
+                rejected.Failure.Stage);
+    }
+
+    [Fact]
+    public void Mdp007_GenericEventTypeSpecPostsWithMatchingAccessors()
+    {
+        using var fixture = new Fixture(
+                BuildEventTypeSpecRootImage(
+                    signature =>
+                    {
+                        signature.WriteByte(0x15);
+                        signature.WriteByte(0x12);
+                        signature.WriteByte(0x05);
+                        signature.WriteByte(0x01);
+                        signature.WriteByte(0x08);
+                    },
+                    includeAccessors: true));
+
+        var posted = Assert.IsType<
+                MetadataAccessorDeclarationResult.Posted>(
+                    Run(
+                        fixture,
+                        MetadataAccessorDeclarationKind.Event));
+
+        var root = Assert.IsType<
+                MetadataAccessorRootDeclarationEvidence.Event>(
+                    posted.Evidence.Root);
+        var eventType = Assert.IsType<
+                MetadataTypeIdentity.GenericInstance>(
+                    root.EventType);
+        Assert.Equal("Action`1", eventType.Definition.Segments[^1].ToString());
+        Assert.Equal(
+                "int",
+                Assert.IsType<MetadataTypeIdentity.Primitive>(
+                    Assert.Single(eventType.Arguments))
+                    .Name.ToString());
+        Assert.All(
+                posted.Evidence.Accessors,
+                accessor =>
+                    Assert.Equal(
+                        root.EventType,
+                        Assert.Single(
+                            accessor.Method.Signature.ParameterTypes)));
     }
 
     [Fact]
@@ -1211,6 +1393,99 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                 @event,
                 MethodSemanticsAttributes.Raiser,
                 fire);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildEventTypeSpecRootImage(
+        Action<BlobBuilder> writeSignature,
+        bool includeAccessors = false)
+    {
+        var metadata = CreateMetadata();
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("mscorlib"),
+                new Version(4, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle eventTypeDefinition =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString(
+                    includeAccessors
+                        ? "Action`1"
+                        : "EventHandler"));
+        var signature = new BlobBuilder();
+        writeSignature(signature);
+        TypeSpecificationHandle eventType =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        MethodDefinitionHandle add = default;
+        MethodDefinitionHandle remove = default;
+        if (includeAccessors)
+        {
+            add = AddMethod(
+                metadata,
+                "add_Value",
+                AccessorAttributes,
+                isInstance: true,
+                1,
+                returnType => returnType.Void(),
+                parameters =>
+                    parameters.AddParameter()
+                        .Type()
+                        .GenericInstantiation(
+                            eventTypeDefinition,
+                            genericArgumentCount: 1,
+                            isValueType: false)
+                        .AddArgument()
+                        .Int32());
+            remove = AddMethod(
+                metadata,
+                "remove_Value",
+                AccessorAttributes,
+                isInstance: true,
+                1,
+                returnType => returnType.Void(),
+                parameters =>
+                    parameters.AddParameter()
+                        .Type()
+                        .GenericInstantiation(
+                            eventTypeDefinition,
+                            genericArgumentCount: 1,
+                            isValueType: false)
+                        .AddArgument()
+                        .Int32());
+        }
+        MethodDefinitionHandle firstMethod = includeAccessors
+            ? add
+            : MetadataTokens.MethodDefinitionHandle(1);
+        AddModuleType(metadata, firstMethod);
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            firstMethod);
+        EventDefinitionHandle @event = metadata.AddEvent(
+            EventAttributes.SpecialName,
+            metadata.GetOrAddString("Value"),
+            eventType);
+        metadata.AddEventMap(owner, @event);
+        if (includeAccessors)
+        {
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Adder,
+                add);
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Remover,
+                remove);
         }
         return Serialize(metadata);
     }

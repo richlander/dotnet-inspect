@@ -961,6 +961,12 @@ EventDef type. `Other` occurrences remain lossless aggregate facts and do not
 acquire CSharp accessor constraints. Any failed required correspondence rejects
 the aggregate with its validation stage and mechanism.
 
+Custom modifiers remain part of the exact accessor signature. Metadata unwraps
+them only when deciding whether a setter, add, or remove return category is
+`void`; for example, compiler-produced `void modreq(IsExternalInit)` remains a
+valid setter return here even when downstream CSharp policy cannot represent
+the init-only declaration in its current slice.
+
 The post composes the existing Metadata memory-safety owner rather than
 creating a reduced safety model. It retains the module rules, declaring-type
 layout, root declaration caller-contract and pointer evidence, and
