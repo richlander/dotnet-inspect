@@ -161,13 +161,36 @@ internal sealed class SignatureOccurrenceProvider(
             throw new SignatureOccurrenceRejectedException(
                 SignatureOccurrenceRejectionReason.UnsafeSignature);
         }
-        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+        if (!TypeSpecGuard.TryEnterDetailed(
+                reader,
+                handle,
+                out var scope,
+                out TypeSpecGuard.EntryFailure failure))
         {
-            throw new SignatureOccurrenceRejectedException(
-                SignatureOccurrenceRejectionReason.TypeSpecificationBudget,
-                MetadataOperationDimension.SignatureBytes,
-                TypeSpecGuard.MaxCumulativeBytes,
-                TypeSpecGuard.MaxCumulativeBytes + 1L);
+            throw failure.LimitKind switch
+            {
+                TypeSpecGuard.LimitKind.Depth =>
+                    new SignatureOccurrenceRejectedException(
+                        SignatureOccurrenceRejectionReason
+                            .TypeSpecificationBudget,
+                        MetadataOperationDimension.StructuredNodes,
+                        failure.Limit,
+                        failure.AttemptedCharge),
+                TypeSpecGuard.LimitKind.CumulativeBytes =>
+                    new SignatureOccurrenceRejectedException(
+                        SignatureOccurrenceRejectionReason
+                            .TypeSpecificationBudget,
+                        MetadataOperationDimension.SignatureBytes,
+                        failure.Limit,
+                        failure.AttemptedCharge),
+                _ => new SignatureOccurrenceRejectedException(
+                    failure.RejectionKind
+                        == SignatureDecodeRejectionKind.UnsafeStructure
+                            ? SignatureOccurrenceRejectionReason
+                                .UnsafeSignature
+                            : SignatureOccurrenceRejectionReason
+                                .TypeSpecificationBudget),
+            };
         }
         using (scope)
         {

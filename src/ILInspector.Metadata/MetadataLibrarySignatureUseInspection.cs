@@ -181,6 +181,7 @@ internal static class MetadataLibrarySignatureUseInspection
         private readonly MetadataLibraryTypeClassification[]
             _inheritanceClassification;
         private readonly bool[] _inheritanceSettled;
+        private readonly bool[] _baseSiteExamined;
         private readonly int[] _inheritanceVisitGeneration;
         private readonly List<TypeDefinitionHandle> _inheritancePath = [];
         private readonly List<TypeEntry> _types = [];
@@ -221,6 +222,7 @@ internal static class MetadataLibrarySignatureUseInspection
             _inheritanceClassification =
                 new MetadataLibraryTypeClassification[typeRowCapacity];
             _inheritanceSettled = new bool[typeRowCapacity];
+            _baseSiteExamined = new bool[typeRowCapacity];
             _inheritanceVisitGeneration = new int[typeRowCapacity];
         }
 
@@ -228,6 +230,7 @@ internal static class MetadataLibrarySignatureUseInspection
         {
             BuildTypeInventory();
             ScanSites();
+            ClassifyInheritance();
             int considered = _limited
                 ? CountSites()
                 : _considered;
@@ -322,9 +325,13 @@ internal static class MetadataLibrarySignatureUseInspection
                 _typesByRow[row] = entry;
                 _types.Add(entry);
             }
+        }
 
+        private void ClassifyInheritance()
+        {
             foreach (TypeEntry entry in _types)
             {
+                _cancellationToken.ThrowIfCancellationRequested();
                 entry.Classification |=
                     SafeInheritanceClassification(entry);
             }
@@ -403,6 +410,12 @@ internal static class MetadataLibrarySignatureUseInspection
                         currentEntry.Classification & inheritedFlags;
                     if (result != MetadataLibraryTypeClassification.None)
                         break;
+                }
+
+                if (!_baseSiteExamined[row])
+                {
+                    result = MetadataLibraryTypeClassification.None;
+                    break;
                 }
 
                 EntityHandle baseType =
@@ -613,11 +626,14 @@ internal static class MetadataLibrarySignatureUseInspection
                     _reader.GetTypeDefinition(source.Handle);
                 if (!definition.BaseType.IsNil)
                 {
+                    int examinedBefore = _examined;
                     ScanEntitySite(
                         source,
                         definition.BaseType,
                         MetadataLibrarySignatureUseSiteKind.BaseType,
                         MetadataTokens.GetToken(source.Handle));
+                    _baseSiteExamined[TypeRow(source.Handle)] =
+                        _examined != examinedBefore;
                 }
 
                 foreach (InterfaceImplementationHandle implementationHandle

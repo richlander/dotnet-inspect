@@ -450,6 +450,48 @@ public sealed class MetadataLibrarySignatureUseTests
     }
 
     [Fact]
+    public void MalformedConstructedBaseArgumentPreventsPositiveClassification()
+    {
+        byte[] image = BuildMalformedConstructedBaseImage();
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(
+            new(
+                considered: 3,
+                examined: 2,
+                unavailable: 1,
+                limited: 0),
+            result.Coverage);
+        Assert.True(
+            Assert.Single(
+                result.Types,
+                static type =>
+                    type.Name.Segments is ["GenericException`1"])
+                .Classification.HasFlag(
+                    MetadataLibraryTypeClassification.Exception));
+        Assert.Equal(
+            MetadataLibraryTypeClassification.None,
+            Assert.Single(
+                result.Types,
+                static type => type.Name.Segments is ["Owner"])
+                .Classification);
+        Assert.Equal(
+            MetadataLibrarySignatureUseSiteKind.FieldType,
+            Assert.Single(result.Occurrences).SiteKind);
+    }
+
+    [Fact]
     public void TypeNameBoundProducesTypedLimitedSite()
     {
         byte[] image = BuildLocallyBoundedFieldImage(
@@ -489,6 +531,29 @@ public sealed class MetadataLibrarySignatureUseTests
             result,
             MetadataOperationDimension.StructuredNodes,
             SignatureBlobGuard.DefaultMaxDepth);
+    }
+
+    [Fact]
+    public void TypeSpecificationDepthProducesTypedLimitedSite()
+    {
+        byte[] image = BuildTypeSpecificationDepthImage();
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        AssertLocalLimit(
+            result,
+            MetadataOperationDimension.StructuredNodes,
+            TypeSpecGuard.MaxDepth);
+        Assert.True(
+            result.Receipt.Counters.SignatureBytes
+                < TypeSpecGuard.MaxCumulativeBytes);
     }
 
     [Fact]
@@ -692,6 +757,11 @@ public sealed class MetadataLibrarySignatureUseTests
         Assert.Equal(
             MetadataLibrarySignatureUseDisposition.Partial,
             result.Disposition);
+        MetadataLibrarySignatureUseDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            MetadataLibrarySignatureUseDiagnosticKind.Limit,
+            diagnostic.Kind);
         Assert.Equal(
             new(
                 considered: 2,
@@ -702,11 +772,6 @@ public sealed class MetadataLibrarySignatureUseTests
         Assert.Equal(
             MetadataLibrarySignatureUseSiteKind.FieldType,
             Assert.Single(result.Occurrences).SiteKind);
-        MetadataLibrarySignatureUseDiagnostic diagnostic =
-            Assert.Single(result.Diagnostics);
-        Assert.Equal(
-            MetadataLibrarySignatureUseDiagnosticKind.Limit,
-            diagnostic.Kind);
         Assert.Equal(dimension, diagnostic.BudgetDimension);
         Assert.Equal(limit, diagnostic.BudgetLimit);
         Assert.Equal(limit + 1, diagnostic.AttemptedCharge);
@@ -1042,6 +1107,127 @@ public sealed class MetadataLibrarySignatureUseTests
             FieldAttributes.Public,
             metadata.GetOrAddString("Bounded"),
             metadata.GetOrAddBlob(signature));
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildMalformedConstructedBaseImage()
+    {
+        var metadata = CreateMetadata("MalformedConstructedBase");
+        AddModuleType(metadata);
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Convert.FromHexString("7CEC85D7BEA7798E")),
+                default,
+                default);
+        TypeReferenceHandle exception =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Exception"));
+        TypeDefinitionHandle genericException =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("GenericException`1"),
+                exception,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            genericException,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+
+        var baseSignature = new BlobBuilder();
+        baseSignature.WriteByte(0x15);
+        baseSignature.WriteByte(0x12);
+        baseSignature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(genericException));
+        baseSignature.WriteCompressedInteger(1);
+        baseSignature.WriteByte(0x12);
+        baseSignature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(
+                MetadataTokens.TypeDefinitionHandle(99)));
+        TypeSpecificationHandle constructedBase =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(baseSignature));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            constructedBase,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AddTypeField(metadata, "Healthy", target);
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildTypeSpecificationDepthImage()
+    {
+        var metadata = CreateMetadata("TypeSpecificationDepth");
+        AddModuleType(metadata);
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        for (int row = 1; row <= TypeSpecGuard.MaxDepth; row++)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x1F);
+            signature.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(
+                    MetadataTokens.TypeSpecificationHandle(row + 1)));
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(target));
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        }
+        var terminal = new BlobBuilder();
+        terminal.WriteByte(0x12);
+        terminal.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(target));
+        metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(terminal));
+
+        var bounded = new BlobBuilder();
+        bounded.WriteByte(0x06);
+        bounded.WriteByte(0x1F);
+        bounded.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(
+                MetadataTokens.TypeSpecificationHandle(1)));
+        bounded.WriteByte(0x12);
+        bounded.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(target));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Bounded"),
+            metadata.GetOrAddBlob(bounded));
+        AddTypeField(metadata, "Healthy", target);
         return Serialize(metadata);
     }
 
