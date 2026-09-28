@@ -8,9 +8,10 @@ delivery slice under
 [#8319](https://github.com/richlander/dotnet-inspect/issues/8319).
 
 `Inspector.Text` implements the immutable document, exact line, bounded pull,
-source-local position, and line-limit failure contracts. The existing Source
-view projection is the first adopter: it now uses this substrate for its
-complete line inventory instead of maintaining a second line parser.
+allocation-conscious forward cursor, source-local position, and line-limit
+failure contracts. The existing Source view projection is the first adopter:
+it now uses this substrate for its complete line inventory instead of
+maintaining a second line parser.
 
 The Source owner now selects a House-only adaptive Complete/Cold Pull model in
 [Source view cardinality](source-document-cardinality.md). Demand-aware Source
@@ -23,14 +24,17 @@ README adoption remain unverified under
 **Decoded text document** owns this exact claim:
 
 > One immutable decoded .NET string can be projected as an exact ordered line
-> population through restartable bounded pulls without first constructing the
-> complete line inventory. Every accepted pull partition reconstructs the same
-> decoded string, line coordinates, terminators, and exact terminal Count.
+> population through restartable bounded pulls or allocation-conscious forward
+> traversal without first constructing the complete line inventory. Both forms
+> reconstruct the same decoded string, line coordinates, terminators, and exact
+> terminal Count.
 
 The owner defines:
 
 - the decoded line and terminator model;
 - source-local positions within one immutable document instance;
+- a document-bound value cursor and borrowed line slice for forward execution
+  without per-line heap objects;
 - positive hard maxima for candidate rows, UTF-16 row text, and
   JSON-encoded UTF-8 row text;
 - batches that satisfy every maximum;
@@ -107,6 +111,12 @@ crosses a pull boundary. The position is source-local and repeatable; the
 outer operation supplies one-shot or expiring host receipt behavior when
 needed.
 
+The forward cursor follows the value-reader precedent of
+`System.Reflection.Metadata.BlobReader`: one caller-owned value advances over
+immutable retained memory without iterator or row-object allocation. Unlike a
+metadata blob offset, the cursor remains bound to its issuing document and
+advances only through the document owner's exact line grammar.
+
 ## Immutable document and source position
 
 Construction accepts one already-decoded immutable `string`. Acquisition and
@@ -129,6 +139,26 @@ The position is not:
 
 An adopting operation retains the document, source position, resolved query,
 and any execution state under its own lifetime and compatibility rules.
+
+## Forward cursor and borrowed line slice
+
+The document also issues one value cursor for allocation-conscious forward
+execution. `TryReadLine` advances that caller-owned cursor and returns one
+value slice over the document's retained string. It uses the same line grammar
+as bounded `Pull`; it does not construct a line object, batch, immutable array,
+or next-position object for each candidate.
+
+The cursor is document-bound and exposes exact Count only after it reaches the
+final coordinate line. A copied cursor is an independent in-process value, not
+a portable checkpoint or host continuation. End of document returns `false`
+without changing the completed cursor.
+
+The slice exposes line coordinates, borrowed content, exact terminator, total
+UTF-16 row-text length, and the JSON-encoded UTF-8 row-text measure. Computing
+the JSON measure remains explicit: consumers that only need line coordinates
+or predicate text do not pay that work. The adopting owner applies its own
+aggregate bounds and terminal closure; the cursor does not interpret Source
+segments, QuerySpace selection, delivery credit, cancellation, or disposal.
 
 ## Exact line model
 
@@ -251,6 +281,9 @@ The pure substrate additionally gates:
 | `NormalPullsRespectEveryMaximum` | Every successful batch satisfies all three caller maxima. | Verified in Release by `Inspector.Text.Tests`. |
 | `LineExceedingPullLimitsFailsVisibly` | A line exceeding either content maximum reports a typed failure with measured and allowed sizes. | Verified in Release by `Inspector.Text.Tests`. |
 | `PullPositionIsBoundToOneDocument` | A source position cannot resume a different document. | Verified in Release by `Inspector.Text.Tests`. |
+| `ForwardCursorMatchesBoundedPull` | Forward traversal preserves the bounded-pull line values, order, completion, and exact Count. | Verified in Release by `Inspector.Text.Tests`. |
+| `ForwardCursorIsBoundToOneDocument` | A value cursor cannot advance through a different document. | Verified in Release by `Inspector.Text.Tests`. |
+| `ForwardCursorAllocatesNoPerLineObjects` | After warmup, draining through the forward primitive allocates no managed bytes per line. | Verified in Release by `Inspector.Text.Tests`. |
 | `SourceViewLinesReconstructExactDecodedText` | The first Source adopter preserves its existing exact line contract through the shared substrate. | Verified in Release by `DotnetInspector.Queries.Tests`. |
 
 All correctness gates run in Release. Production continuation and

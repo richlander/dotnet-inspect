@@ -106,12 +106,40 @@ public sealed class DecodedTextPosition
         ReferenceEquals(_documentIdentity, documentIdentity);
 }
 
-public sealed class DecodedTextLine
+public readonly struct DecodedTextCursor
+{
+    private readonly object? _documentIdentity;
+
+    internal DecodedTextCursor(
+        object documentIdentity,
+        int utf16Offset,
+        int nextLineNumber,
+        int? exactLineCount = null)
+    {
+        _documentIdentity = documentIdentity;
+        Utf16Offset = utf16Offset;
+        NextLineNumber = nextLineNumber;
+        ExactLineCount = exactLineCount;
+    }
+
+    public bool IsComplete => ExactLineCount is not null;
+
+    public int? ExactLineCount { get; }
+
+    internal int Utf16Offset { get; }
+
+    internal int NextLineNumber { get; }
+
+    internal bool Matches(object documentIdentity) =>
+        ReferenceEquals(_documentIdentity, documentIdentity);
+}
+
+public readonly struct DecodedTextLineSlice
 {
     private readonly ReadOnlyMemory<char> _rowText;
     private readonly int _contentLength;
 
-    internal DecodedTextLine(
+    internal DecodedTextLineSlice(
         int number,
         int start,
         ReadOnlyMemory<char> rowText,
@@ -123,8 +151,42 @@ public sealed class DecodedTextLine
         _rowText = rowText;
         _contentLength = contentLength;
         Terminator = terminator;
+    }
+
+    public int Number { get; }
+
+    public int Start { get; }
+
+    public ReadOnlyMemory<char> Content =>
+        _rowText[.._contentLength];
+
+    public DecodedTextLineTerminator Terminator { get; }
+
+    public string TerminatorText =>
+        DecodedTextTerminators.Text(Terminator);
+
+    public int Utf16CodeUnits => _rowText.Length;
+
+    public int JsonEncodedUtf8Bytes =>
+        DecodedTextEncoding.JsonEncodedUtf8Length(_rowText.Span);
+
+    internal ReadOnlyMemory<char> RowText => _rowText;
+}
+
+public sealed class DecodedTextLine
+{
+    private readonly ReadOnlyMemory<char> _rowText;
+    private readonly int _contentLength;
+
+    internal DecodedTextLine(DecodedTextLineSlice slice)
+    {
+        Number = slice.Number;
+        Start = slice.Start;
+        _rowText = slice.RowText;
+        _contentLength = slice.Content.Length;
+        Terminator = slice.Terminator;
         JsonEncodedUtf8Bytes =
-            DecodedTextEncoding.JsonEncodedUtf8Length(rowText.Span);
+            DecodedTextEncoding.JsonEncodedUtf8Length(_rowText.Span);
     }
 
     public int Number { get; }
@@ -191,6 +253,31 @@ public sealed class DecodedTextDocument
 
     public DecodedTextPosition Start =>
         new(_identity, utf16Offset: 0, nextLineNumber: 1);
+
+    public DecodedTextCursor StartCursor =>
+        new(_identity, utf16Offset: 0, nextLineNumber: 1);
+
+    public bool TryReadLine(
+        ref DecodedTextCursor cursor,
+        out DecodedTextLineSlice line)
+    {
+        if (!cursor.Matches(_identity))
+        {
+            throw new ArgumentException(
+                "The cursor belongs to a different decoded document.",
+                nameof(cursor));
+        }
+
+        if (cursor.IsComplete)
+        {
+            line = default;
+            return false;
+        }
+
+        line = ReadLine(cursor, out DecodedTextCursor next);
+        cursor = next;
+        return true;
+    }
 
     public DecodedTextBatch Pull(
         DecodedTextPosition position,
@@ -271,12 +358,33 @@ public sealed class DecodedTextDocument
     private (DecodedTextLine Line, DecodedTextPosition? Next)
         ReadLine(DecodedTextPosition position)
     {
-        int lineStart = position.Utf16Offset;
+        var cursor = new DecodedTextCursor(
+            _identity,
+            position.Utf16Offset,
+            position.NextLineNumber);
+        DecodedTextLineSlice slice =
+            ReadLine(cursor, out DecodedTextCursor next);
+        var line = new DecodedTextLine(slice);
+        DecodedTextPosition? nextPosition =
+            next.IsComplete
+                ? null
+                : new DecodedTextPosition(
+                    _identity,
+                    next.Utf16Offset,
+                    next.NextLineNumber);
+        return (line, nextPosition);
+    }
+
+    private DecodedTextLineSlice ReadLine(
+        DecodedTextCursor cursor,
+        out DecodedTextCursor next)
+    {
+        int lineStart = cursor.Utf16Offset;
         if (lineStart < 0 || lineStart > _text.Length)
         {
             throw new ArgumentException(
-                "The decoded-text position is outside the document.",
-                nameof(position));
+                "The decoded-text cursor is outside the document.",
+                nameof(cursor));
         }
 
         int relativeTerminator =
@@ -292,22 +400,26 @@ public sealed class DecodedTextDocument
 
         int terminatorLength =
             DecodedTextTerminators.Utf16Length(terminator);
-        var line = new DecodedTextLine(
-            position.NextLineNumber,
+        var line = new DecodedTextLineSlice(
+            cursor.NextLineNumber,
             lineStart,
             _text.AsMemory(
                 lineStart,
                 index - lineStart + terminatorLength),
             index - lineStart,
             terminator);
-        DecodedTextPosition? next =
+        next =
             terminator == DecodedTextLineTerminator.None
-                ? null
-                : new DecodedTextPosition(
+                ? new DecodedTextCursor(
+                    _identity,
+                    utf16Offset: _text.Length,
+                    cursor.NextLineNumber,
+                    exactLineCount: cursor.NextLineNumber)
+                : new DecodedTextCursor(
                     _identity,
                     index + terminatorLength,
-                    checked(position.NextLineNumber + 1));
-        return (line, next);
+                    checked(cursor.NextLineNumber + 1));
+        return line;
     }
 
     private static DecodedTextBatch CreateBatch(

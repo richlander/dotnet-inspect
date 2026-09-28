@@ -272,6 +272,162 @@ public sealed class DecodedTextDocumentTests
         Assert.Equal(expected, line.JsonEncodedUtf8Bytes);
     }
 
+    [Fact]
+    public void ForwardCursorMatchesBoundedPull()
+    {
+        const string text =
+            "A\r\n😀B\rC\nD\u0085E\u2028F\u2029G";
+        var document = new DecodedTextDocument(text);
+        IReadOnlyList<DecodedTextLine> expected =
+            Drain(
+                document,
+                DecodedTextPullLimits.ForCandidateRows(2),
+                out int expectedCount);
+        var actual = new List<(
+            int Number,
+            int Start,
+            string Content,
+            DecodedTextLineTerminator Terminator,
+            int Utf16CodeUnits,
+            int JsonEncodedUtf8Bytes)>();
+        DecodedTextCursor cursor = document.StartCursor;
+
+        while (document.TryReadLine(
+            ref cursor,
+            out DecodedTextLineSlice line))
+        {
+            actual.Add(
+                (
+                    line.Number,
+                    line.Start,
+                    line.Content.ToString(),
+                    line.Terminator,
+                    line.Utf16CodeUnits,
+                    line.JsonEncodedUtf8Bytes));
+        }
+
+        Assert.True(cursor.IsComplete);
+        Assert.Equal(expectedCount, cursor.ExactLineCount);
+        Assert.Equal(
+            expected.Select(
+                line => (
+                    line.Number,
+                    line.Start,
+                    line.Content.ToString(),
+                    line.Terminator,
+                    line.Utf16CodeUnits,
+                    line.JsonEncodedUtf8Bytes)),
+            actual);
+    }
+
+    [Theory]
+    [InlineData("", 1)]
+    [InlineData("\n", 2)]
+    [InlineData("A\n", 2)]
+    [InlineData("A", 1)]
+    public void ForwardCursorDisclosesCountOnlyAtCompletion(
+        string text,
+        int expectedLineCount)
+    {
+        var document = new DecodedTextDocument(text);
+        DecodedTextCursor cursor = document.StartCursor;
+
+        Assert.False(cursor.IsComplete);
+        Assert.Null(cursor.ExactLineCount);
+
+        int observed = 0;
+        while (document.TryReadLine(
+            ref cursor,
+            out DecodedTextLineSlice line))
+        {
+            observed++;
+            Assert.Equal(observed, line.Number);
+        }
+
+        Assert.Equal(expectedLineCount, observed);
+        Assert.True(cursor.IsComplete);
+        Assert.Equal(expectedLineCount, cursor.ExactLineCount);
+        Assert.False(
+            document.TryReadLine(
+                ref cursor,
+                out DecodedTextLineSlice completedLine));
+        Assert.Equal(default, completedLine);
+    }
+
+    [Fact]
+    public void ForwardCursorIsBoundToOneDocument()
+    {
+        var first = new DecodedTextDocument("first");
+        var second = new DecodedTextDocument("second");
+        DecodedTextCursor cursor = first.StartCursor;
+
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => second.TryReadLine(
+                    ref cursor,
+                    out DecodedTextLineSlice _));
+
+        Assert.Contains(
+            "different decoded document",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.False(cursor.IsComplete);
+        Assert.True(
+            first.TryReadLine(
+                ref cursor,
+                out DecodedTextLineSlice line));
+        Assert.Equal("first", line.Content.ToString());
+    }
+
+    [Fact]
+    public void ForwardCursorCopiesAdvanceIndependently()
+    {
+        var document = new DecodedTextDocument("first\nsecond");
+        DecodedTextCursor first = document.StartCursor;
+        DecodedTextCursor second = first;
+
+        Assert.True(
+            document.TryReadLine(
+                ref first,
+                out DecodedTextLineSlice firstLine));
+        Assert.True(
+            document.TryReadLine(
+                ref second,
+                out DecodedTextLineSlice repeatedLine));
+
+        Assert.Equal(firstLine.Number, repeatedLine.Number);
+        Assert.Equal(
+            firstLine.Content.ToString(),
+            repeatedLine.Content.ToString());
+        Assert.True(
+            document.TryReadLine(
+                ref first,
+                out DecodedTextLineSlice nextLine));
+        Assert.Equal("second", nextLine.Content.ToString());
+        Assert.True(first.IsComplete);
+        Assert.False(second.IsComplete);
+    }
+
+    [Fact]
+    public void ForwardCursorAllocatesNoPerLineObjects()
+    {
+        string text = string.Concat(
+            Enumerable.Repeat("content\r\n", 1_024));
+        var document = new DecodedTextDocument(text);
+        long expectedChecksum = DrainCursor(document);
+        DecodedTextCursor cursor = document.StartCursor;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        long checksum = DrainCursor(document, ref cursor);
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        GC.KeepAlive(document);
+        Assert.Equal(expectedChecksum, checksum);
+        Assert.Equal(1_025, cursor.ExactLineCount);
+        Assert.Equal(0, allocated);
+    }
+
     private static IReadOnlyList<DecodedTextLine> Drain(
         DecodedTextDocument document,
         DecodedTextPullLimits limits,
@@ -293,6 +449,33 @@ public sealed class DecodedTextDocumentTests
             ?? throw new InvalidOperationException(
                 "A completed drain did not disclose exact Count.");
         return lines;
+    }
+
+    private static long DrainCursor(
+        DecodedTextDocument document)
+    {
+        DecodedTextCursor cursor = document.StartCursor;
+        return DrainCursor(document, ref cursor);
+    }
+
+    private static long DrainCursor(
+        DecodedTextDocument document,
+        ref DecodedTextCursor cursor)
+    {
+        long checksum = 0;
+        while (document.TryReadLine(
+            ref cursor,
+            out DecodedTextLineSlice line))
+        {
+            checksum = checked(
+                checksum
+                + line.Number
+                + line.Start
+                + line.Content.Length
+                + line.Utf16CodeUnits);
+        }
+
+        return checksum;
     }
 
     private static string Reconstruct(
