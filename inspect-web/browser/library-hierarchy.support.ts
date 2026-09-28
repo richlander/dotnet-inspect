@@ -1737,7 +1737,36 @@ async function installFacades(
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
       }
-      export function describeWorkspacePackageSources() {
+      export function describeWorkspacePackageSources(packet) {
+        if (workspaceSources.length === 0) {
+          let state;
+          try {
+            state = JSON.parse(atob(packet));
+          } catch (error) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "InvalidPacket",
+                path: "packet",
+                message: error instanceof Error
+                  ? error.message
+                  : "The Workspace packet is invalid.",
+              },
+            };
+          }
+          if (![2, 3, 4, 5].includes(state.f)) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedVersion",
+                path: "packet",
+                message: "Complete Workspace restoration does not support this packet format.",
+              },
+            };
+          }
+        }
         return { succeeded: true, sources: workspaceSources, failure: null };
       }`,
   };
