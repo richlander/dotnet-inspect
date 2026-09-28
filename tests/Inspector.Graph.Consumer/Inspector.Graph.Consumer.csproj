@@ -7,14 +7,8 @@
     <LangVersion>preview</LangVersion>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <Authors>Richard Lander</Authors>
-    <Description>Synchronous resumable execution for QuerySpace row plans</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-  </PropertyGroup>
-
   <ItemGroup>
-    <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
+    <ProjectReference Include="../../src/Inspector.Graph/Inspector.Graph.csproj" />
   </ItemGroup>
 
 </Project>

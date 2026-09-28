@@ -1372,7 +1372,7 @@ public sealed partial class CSharpPrinter
         if (value is Constant { Value: null })
             return IsReferenceLike(target);
         if (value is Conditional conditional)
-            return CanRenderConditionalForTarget(conditional, target)
+            return CanRenderValueConditionalForTarget(conditional, target)
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
         if (value is Constant { Value: int or long } constant
             && target.DeclaredValueTypeHint == ValueTypeHint.ValueType

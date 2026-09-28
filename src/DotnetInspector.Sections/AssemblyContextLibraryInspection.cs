@@ -32,9 +32,14 @@ public static class AssemblyContextLibraryInspection
     /// call. The adapter captures its group snapshot before its first await,
     /// so a host may start it inside a scoped group callback and await it here.
     /// </param>
+    /// <param name="cleanupFailureSink">
+    /// Receives every retirement failure, including when <paramref name="inspect"/>
+    /// throws and no run is returned.
+    /// </param>
     public static async Task<AssemblyContextLibraryInspectionRun<T>> ExecuteAsync<T>(
         ValueTask<AssemblyContextLibraryAdapterResult> materialization,
-        Func<LibraryReference, LibraryContentOwner, T?> inspect)
+        Func<LibraryReference, LibraryContentOwner, T?> inspect,
+        ICollection<string>? cleanupFailureSink = null)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(inspect);
@@ -71,6 +76,11 @@ public static class AssemblyContextLibraryInspection
         {
             if (completed is not null)
                 await RetireAsync(completed, cleanupFailures).ConfigureAwait(false);
+            if (cleanupFailureSink is not null)
+            {
+                foreach (string cleanupFailure in cleanupFailures)
+                    cleanupFailureSink.Add(cleanupFailure);
+            }
         }
 
         primaryFailure?.Throw();

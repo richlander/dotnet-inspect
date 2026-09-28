@@ -12,6 +12,8 @@ public enum ResourceExplanationOwner
     InspectionCapabilityComposition,
     QuerySpace,
     Consumer,
+    AnalysisRequests,
+    Findings,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationResourceKind>))]
@@ -27,6 +29,7 @@ public enum ResourceExplanationResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationNavigationCollectionKind>))]
@@ -55,6 +58,8 @@ public enum ResourceExplanationRelationshipKind
     Exposes,
     ExposedBy,
     RequiredContext,
+    Participates,
+    Issues,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationCompleteness>))]
@@ -197,6 +202,12 @@ public sealed class ResourcePathJsonConverter : JsonConverter<ResourcePath>
 [JsonDerivedType(
     typeof(ResourceExplanationIdentity.Capability),
     "capability")]
+[JsonDerivedType(
+    typeof(ResourceExplanationIdentity.OperationSurface),
+    "operationSurface")]
+[JsonDerivedType(
+    typeof(ResourceExplanationIdentity.IssuedFinding),
+    "issuedFinding")]
 public abstract record ResourceExplanationIdentity
 {
     private ResourceExplanationIdentity()
@@ -336,9 +347,64 @@ public abstract record ResourceExplanationIdentity
                     ResourceExplanationOwner.QuerySpace,
                 InspectionCapabilityResourceKind.ConsumerBinding =>
                     ResourceExplanationOwner.Consumer,
+                InspectionCapabilityResourceKind.Analysis =>
+                    ResourceExplanationOwner.AnalysisRequests,
+                InspectionCapabilityResourceKind.AnalysisCollection =>
+                    ResourceExplanationOwner.ResourceExplanation,
                 _ => throw new InvalidOperationException(
                     "Unknown inspection capability resource kind."),
             };
+    }
+
+    /// <summary>
+    /// One operation and report surface an analysis takes part in. It is a
+    /// typed relationship target, not a navigable resource.
+    /// </summary>
+    public sealed record OperationSurface : ResourceExplanationIdentity
+    {
+        public OperationSurface(string operation, string surface)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+            ArgumentException.ThrowIfNullOrWhiteSpace(surface);
+            Operation = operation;
+            Surface = surface;
+        }
+
+        public string Operation { get; }
+
+        public string Surface { get; }
+
+        public override ResourceExplanationOwner Owner =>
+            ResourceExplanationOwner.AnalysisRequests;
+    }
+
+    /// <summary>
+    /// One Finding descriptor an analysis issues at one operation and report
+    /// surface. It is a typed relationship target, not a navigable resource.
+    /// </summary>
+    public sealed record IssuedFinding : ResourceExplanationIdentity
+    {
+        public IssuedFinding(
+            string operation,
+            string surface,
+            string descriptor)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+            ArgumentException.ThrowIfNullOrWhiteSpace(surface);
+            ArgumentException.ThrowIfNullOrWhiteSpace(descriptor);
+            Operation = operation;
+            Surface = surface;
+            Descriptor = descriptor;
+        }
+
+        public string Operation { get; }
+
+        public string Surface { get; }
+
+        public string Descriptor { get; }
+
+        public override ResourceExplanationOwner Owner =>
+            ResourceExplanationOwner.Findings;
     }
 }
 
@@ -367,6 +433,8 @@ public enum InspectionCapabilityResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
+    AnalysisCollection,
 }
 
 public sealed record InspectionCapabilityResourceIdentity
@@ -448,6 +516,9 @@ public sealed record InspectionCapabilityResourcePathRegistration
 [JsonDerivedType(
     typeof(ResourceExplanationDetail.ConsumerBindingDetails),
     "consumerBinding")]
+[JsonDerivedType(
+    typeof(ResourceExplanationDetail.AnalysisDetails),
+    "analysis")]
 public abstract record ResourceExplanationDetail
 {
     private ResourceExplanationDetail()
@@ -735,6 +806,38 @@ public abstract record ResourceExplanationDetail
         public int ExposedFacetCount { get; }
     }
 
+    /// <summary>Descriptive facts issued by one analysis descriptor.</summary>
+    public sealed record AnalysisDetails : ResourceExplanationDetail
+    {
+        public AnalysisDetails(
+            string identity,
+            int revision,
+            string cost,
+            IEnumerable<string> participations)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(revision);
+            ArgumentException.ThrowIfNullOrWhiteSpace(cost);
+            Identity = identity;
+            Revision = revision;
+            Cost = cost;
+            Participations = NormalizeValues(
+                participations,
+                nameof(participations));
+        }
+
+        public string Identity { get; }
+
+        public override string Name => Identity;
+
+        public int Revision { get; }
+
+        public string Cost { get; }
+
+        /// <summary>One entry per operation and report surface.</summary>
+        public ImmutableArray<string> Participations { get; }
+    }
+
     private static ImmutableArray<DiscoveryOutputMode> NormalizeOutputModes(
         ImmutableArray<DiscoveryOutputMode> outputModes)
     {
@@ -877,6 +980,22 @@ public sealed record ResourceExplanationResource
                 },
                 ResourceExplanationResourceKind.ConsumerBinding,
                 ResourceExplanationDetail.ConsumerBindingDetails) => true,
+            (
+                ResourceExplanationIdentity.Capability
+                {
+                    Resource.Kind:
+                        InspectionCapabilityResourceKind.Analysis,
+                },
+                ResourceExplanationResourceKind.Analysis,
+                ResourceExplanationDetail.AnalysisDetails) => true,
+            (
+                ResourceExplanationIdentity.Capability
+                {
+                    Resource.Kind:
+                        InspectionCapabilityResourceKind.AnalysisCollection,
+                },
+                ResourceExplanationResourceKind.NavigationCollection,
+                ResourceExplanationDetail.NavigationCollectionDetails) => true,
             _ => false,
         };
         if (!valid)

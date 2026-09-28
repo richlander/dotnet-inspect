@@ -957,8 +957,8 @@ comparison, implementation comparison, and PDB-source target indexing remain
 named compatibility consumers. Diff History Analysis uses shared PackageHouse
 cell inspection and the method-body session path.
 Separate `diff` phases may retain distinct executions and capability policies;
-`diff --finding analysis.*` still delegates path-backed acquisition to
-`ResearchDiff` until its focused migration.
+`diff --analysis` body analyses still delegate path-backed acquisition to
+`ResearchDiff` until their focused migration.
 
 ## Acceptance tests for the architecture
 
