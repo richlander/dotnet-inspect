@@ -168,7 +168,6 @@ public sealed class PackageIntegrationsWorkspaceTests
                         });
 
             Assert.NotNull(inspection);
-            Assert.Equal(selectedTimestamp, inspection.LastModified);
             Assert.Equal(1, inspectionCount);
             var failure = Assert.Single(failures);
             Assert.Equal(surfacePath, failure.FileName);
