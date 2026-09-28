@@ -22,17 +22,20 @@ type AsyncFacade<
 };
 
 type PackageOperations =
+  | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
   | "classifyPackageGraphIdentities"
   | "clearWorkspacePackageOccurrences"
+  | "closePlatformForwarderView"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
-  | "listPackageActivityPackageSets"
+  | "listPackageActivityEcosystems"
   | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
+  | "openPlatformForwarderView"
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryLibraries"

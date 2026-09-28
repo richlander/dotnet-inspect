@@ -136,7 +136,7 @@ sources, PDB Source, categories or additional sections, row/field/column
 projection, and alternate formats remain outside this complete transport.
 Share is `NonProjectable` at `comparison/endpoints`.
 
-Package Activity registers `ecosystem-change-report` at schema version `1`.
+Package Activity registers `ecosystem-change-report` at schema version `2`.
 Unprojected `--json` and `--envelope.content` share the owner-issued
 `EcosystemChangeReportDocument` serializer. Report scope, interval, security
 selection, and semantic result limit remain service inputs. Projection, Count,

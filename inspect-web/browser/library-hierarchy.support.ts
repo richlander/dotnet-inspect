@@ -773,17 +773,18 @@ async function installFacades(
           maxWorkspaceRetainedImageBytes: 67108864,
         };
       }
-      export function listPackageActivityPackageSets() {
+      export function listPackageActivityEcosystems() {
         if (packageLoading.activityCatalogFailure) {
           throw new Error("Package Activity catalog offline");
         }
         return {
           version: 1,
-          packageSets: [{
-            id: "package-set.fixture",
-            title: "Fixture packages",
-            summary: "Browser fixture package set.",
+          ecosystems: [{
+            id: "ecosystem.fixture",
+            title: "Fixture",
+            summary: "Browser fixture Ecosystem.",
             order: 10,
+            prefixes: ["Fixture."],
           }],
         };
       }

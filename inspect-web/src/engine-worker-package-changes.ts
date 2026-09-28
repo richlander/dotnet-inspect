@@ -332,17 +332,16 @@ const summarySchema = record({
 });
 
 const documentSchema = record({
-  schemaVersion: integer(1),
+  schemaVersion: integer(2),
   request: record({
     referenceTime: timestamp(),
     fromExclusive: timestamp(),
     throughInclusive: timestamp(),
     usedDefaultInterval: { kind: "boolean" },
     packageScope: record({
-      kind: text(16, ["PackageSet"]),
+      kind: text(16, ["PackagePrefix"]),
       selectionId: nullable(text(80)),
-      prefix: nullable(text(256)),
-      packageIds: array(text(256), 1_000),
+      prefixes: array(text(256), 16),
     }),
     securitySelection: text(32, ["AllActivity", "SecurityRelevant"]),
     maximumRows: integer(1_000),
@@ -389,7 +388,7 @@ const eventSchema = record({
 });
 
 const requestSchema = record({
-  packageSetId: text(80),
+  ecosystemId: text(80),
   fromExclusive: nullable(timestamp()),
   throughInclusive: nullable(timestamp()),
   securityOnly: { kind: "boolean" },
@@ -564,11 +563,11 @@ BoundedPayloadDecoder<BrowserPackageChangesRequest> = {
     try {
       assertRequest(value);
       const request = value;
-      if (!/^package-set\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(
-        request.packageSetId,
+      if (!/^ecosystem\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(
+        request.ecosystemId,
       )) {
         throw new PackageChangesPayloadError(
-          "Package Activity requires a canonical package-set identity.");
+          "Package Activity requires a canonical Ecosystem identity.");
       }
       if ((request.fromExclusive === null)
         !== (request.throughInclusive === null)) {
@@ -787,7 +786,7 @@ BoundedPayloadDecoder<BrowserPackageChangesInspection> = {
     try {
       assertInspection(value);
       const inspection = value;
-      if (inspection.content.schemaVersion !== 1) {
+      if (inspection.content.schemaVersion !== 2) {
         throw new PackageChangesPayloadError(
           "Package Activity Document schema version is unsupported.");
       }
