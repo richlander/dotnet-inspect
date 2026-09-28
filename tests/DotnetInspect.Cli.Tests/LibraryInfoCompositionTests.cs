@@ -120,6 +120,27 @@ public sealed class LibraryInfoCompositionTests
         }
     }
 
+    [Fact]
+    public async Task ManifestlessModule_KeepsItsLegacyRowsWithoutAnError()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"manifestless-{Guid.NewGuid():N}.netmodule");
+        await File.WriteAllBytesAsync(path, BuildManifestlessModuleImage(), TestContext.Current.CancellationToken);
+        try
+        {
+            (int exit, string output, string error) = await RunAsync("library", path, "-S", "Library Info");
+
+            Assert.True(exit == 0, error);
+            Assert.Contains("| Compilation | CoreCLR |", output, StringComparison.Ordinal);
+            Assert.Contains("| Architecture | AnyCPU |", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Library Document", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("not a managed assembly", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData("/cache/pkg/1.0.0/lib/net8.0/Pkg.dll", "Pkg", false, AssemblyContextLibraryRole.Implementation)]
     [InlineData("/cache/pkg/1.0.0/runtimes/linux-x64/lib/net8.0/Pkg.dll", "Pkg", false, AssemblyContextLibraryRole.Implementation)]
@@ -153,6 +174,30 @@ public sealed class LibraryInfoCompositionTests
             args = CommandLineBuilder.PreprocessArgs(args, root);
             return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
         });
+
+    /// <summary>
+    /// A managed module with no Assembly table row, the shape <c>csc -target:module</c> emits.
+    /// </summary>
+    private static byte[] BuildManifestlessModuleImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(0, metadata.GetOrAddString("Manifestless.netmodule"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+                new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll),
+                new MetadataRootBuilder(metadata),
+                new BlobBuilder())
+            .Serialize(image);
+        return image.ToArray();
+    }
 
     /// <summary>
     /// A minimal assembly whose AssemblyCompanyAttribute string claims more

@@ -496,7 +496,10 @@ internal static class LibraryMetadataService
                     typeFilter: options.TypeFilter);
             }
 
-            if (readLibraryDocument)
+            // A managed module without an assembly manifest keeps the legacy
+            // reading (docs/design/library-info-composition.md#scope-of-input).
+            if (readLibraryDocument
+                && inspection.AssemblyInfo?.AssemblyName is not null)
             {
                 await ReadLibraryDocumentAsync(
                         inspection,
@@ -874,15 +877,16 @@ internal static class LibraryMetadataService
 
     /// <summary>
     /// Whether the request renders the Library document's scalar fields: the
-    /// Library Info section, or the <c>-v:q</c> context line. Other requests
-    /// skip the second image read.
+    /// Library Info section, or the <c>-v:q</c> context line. Other requests,
+    /// including the legacy <c>--json</c> model dump, skip the second image read.
     /// </summary>
     internal static bool WantsLibraryDocument(
         SectionQueryPlan sectionPlan,
         LibraryOptions options) =>
-        OutputFormatter.ShouldRenderLibraryContext(options)
-        || sectionPlan.Demands.Any(
-            static demand => demand.Section == SectionNames.LibraryInfo);
+        !options.JsonOutput
+        && (OutputFormatter.ShouldRenderLibraryContext(options)
+            || sectionPlan.Demands.Any(
+                static demand => demand.Section == SectionNames.LibraryInfo));
 
     /// <summary>
     /// The adapter role the host selected: package and Platform images outside a
