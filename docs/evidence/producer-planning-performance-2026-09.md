@@ -45,9 +45,9 @@ Ratios divide by the oracle measured by the same binary in the same run.
 Every variant's answer was compared on every assembly. Variants of the same
 question agreed in every cell. The one disagreement is between contracts: on
 Roslyn C#, unsafe presence (the original loop and every planned variant)
-stops at an unreadable method body before it finds evidence and reports
-`incomplete`, while the legacy rows path contains that failure per method and
-answers `true`.
+exhausts its same-image correspondence budget, a metadata-bomb containment
+limit, before it finds evidence, and reports `incomplete`. The legacy rows
+path contains that failure per method and answers `true`.
 
 **Layout control.** The padding experiment is run `presence-layout-padding` in
 the data, with variants `pad40` and `pad97`.
@@ -94,8 +94,8 @@ variants `rows` and `head`:
 | Roslyn C# | 1695.21 | 22.70, `incomplete` | not comparable |
 | CoreLib | 1760.57 | 2.79 | 631.9× |
 
-On Roslyn C#, Exists stops at an unreadable method body and reports the
-failure, while the rows path contains it and answers `true`. The two
+On Roslyn C#, Exists exhausts its same-image correspondence budget and
+reports the failure, while the rows path contains it and answers `true`. The two
 executions answer different questions, so no speedup is claimed.
 
 ## Unsafe presence: the reference executor and its changes
