@@ -102,7 +102,7 @@ internal static class GuardedProviderDecode
         => SignatureBlobGuard.IsSafeToDecode(
                 reader,
                 property.Signature,
-                SignatureBlobGuard.Kind.Method)
+                SignatureBlobGuard.Kind.Property)
             ? new DecodeResult<MethodSignature<T>>(
                 property.DecodeSignature(provider, context),
                 IsDegraded: false)
