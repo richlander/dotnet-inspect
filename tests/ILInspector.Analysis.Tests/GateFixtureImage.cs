@@ -80,6 +80,7 @@ internal sealed class GateFixtureImage
     public ImmutableArray<byte> Build()
     {
         int nextMethod = 1;
+        int nextParameter = 1;
         var typeHandles = new Dictionary<FixtureType, TypeDefinitionHandle>();
         foreach (FixtureType type in _types)
         {
@@ -106,8 +107,16 @@ internal sealed class GateFixtureImage
                     _metadata.GetOrAddString(method.Name),
                     _metadata.GetOrAddBlob(method.Signature),
                     -1,
-                    default);
+                    MetadataTokens.ParameterHandle(nextParameter));
                 nextMethod++;
+                for (int p = 0; p < method.ParameterNames.Length; p++)
+                {
+                    _metadata.AddParameter(
+                        ParameterAttributes.None,
+                        _metadata.GetOrAddString(method.ParameterNames[p]),
+                        p + 1);
+                    nextParameter++;
+                }
                 if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0)
                 {
                     _metadata.AddMethodImport(
@@ -179,6 +188,7 @@ internal sealed class GateFixtureImage
             MethodAttributes attributes = MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes implAttributes = MethodImplAttributes.IL,
             string? moduleName = null,
+            string[]? parameterNames = null,
             params EntityHandle[] attributeConstructors)
         {
             Methods.Add(new FixtureMethod(
@@ -187,7 +197,8 @@ internal sealed class GateFixtureImage
                 attributes,
                 implAttributes,
                 attributeConstructors,
-                moduleName));
+                moduleName,
+                parameterNames ?? []));
             return this;
         }
     }
@@ -198,5 +209,9 @@ internal sealed class GateFixtureImage
         MethodAttributes Attributes,
         MethodImplAttributes ImplAttributes,
         EntityHandle[] AttributeConstructors,
-        string? ModuleName = null);
+        string? ModuleName = null,
+        string[]? ParameterNames = null)
+    {
+        public string[] ParameterNames { get; init; } = ParameterNames ?? [];
+    }
 }

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -154,8 +155,14 @@ internal sealed class MethodRowGate
     bool _identityRead;
     MethodRowIdentity? _identity;
 
-    internal MethodRowGate(MetadataReader reader, bool identityBudgetArmed)
+    readonly PEReader _peReader;
+    MetadataReader? _identityReader;
+    BudgetedStringDecoder? _identityDecoder;
+    bool _identityExhausted;
+
+    internal MethodRowGate(PEReader peReader, MetadataReader reader, bool identityBudgetArmed)
     {
+        _peReader = peReader;
         Reader = reader;
         IdentityBudgetArmed = identityBudgetArmed;
         _signatures = new SignatureShapeWalker(this);
@@ -301,26 +308,107 @@ internal sealed class MethodRowGate
     /// gets the legacy fallback signature, and the failure counts against the
     /// decode-failure budget. Exhausting either budget aborts.
     /// </summary>
+    /// <summary>
+    /// A second reader over the same metadata whose string decoder charges
+    /// every handle-to-text conversion to the identity budget before it
+    /// allocates. Every identity-text path reads through it: method, type,
+    /// namespace, parameter, generic-parameter, and module names, and the type
+    /// names inside anchors and display signatures.
+    /// </summary>
+    MetadataReader IdentityReader
+    {
+        get
+        {
+            if (_identityReader is null)
+            {
+                _identityDecoder = new BudgetedStringDecoder(this);
+                _identityReader = _peReader.GetMetadataReader(
+                    MetadataReaderOptions.Default,
+                    _identityDecoder);
+            }
+
+            return _identityReader;
+        }
+    }
+
+    /// <summary>
+    /// Charges <paramref name="amount"/> of identity text before it is
+    /// materialized. Exhaustion is recorded, so it aborts even when a
+    /// formatter's catch-all swallows the signal.
+    /// </summary>
+    void ChargeIdentityText(int amount)
+    {
+        if (_identityExhausted || amount >= _identityWorkRemaining)
+        {
+            _identityWorkRemaining = 0;
+            _identityExhausted = true;
+            throw new IdentityBudgetExhaustedException();
+        }
+
+        _identityWorkRemaining -= amount;
+    }
+
+    /// <summary>Aborts if any identity-text read exhausted the budget.</summary>
+    void AbortIfIdentityExhausted()
+    {
+        if (_identityExhausted)
+            Abort(IdentityWork, "The identity work budget is exhausted.");
+    }
+
+    /// <summary>
+    /// The row's identity text, decoded once per row through the identity
+    /// budget. A row whose identity cannot be decoded keeps its name and
+    /// gets the legacy fallback signature, and the failure counts against the
+    /// decode-failure budget. Exhausting either budget aborts.
+    /// </summary>
     internal MethodRowIdentity Identity()
     {
         if (_identityRead)
             return _identity!;
 
-        MethodAnchorInfo? anchor;
-        int workBefore = _identityWorkRemaining;
+        MetadataReader reader = IdentityReader;
+        MethodDefinition method = reader.GetMethodDefinition(_methodHandle);
+        TypeDefinition type = reader.GetTypeDefinition(_typeHandle);
+        MethodAnchorInfo? anchor = null;
+        string? methodName = null;
+        string? signature = null;
+        string? declaringType = null;
+        string? @namespace = null;
         try
         {
             anchor = MethodRowProjection.TryCreateMethodIdentity(
-                Reader,
+                reader,
                 _typeHandle,
-                _methodDefinition,
+                method,
                 ref _identityDecodeFailures,
                 ref _identityWorkRemaining);
+            AbortIfIdentityExhausted();
+            methodName = reader.GetString(method.Name);
+            signature = MethodRowProjection.FormatSignatureOrFallback(
+                reader,
+                type,
+                method,
+                methodName,
+                anchor);
+            AbortIfIdentityExhausted();
+
+            // The display signature is composed from parts the decoder
+            // charged; composing it is identity work too.
+            ChargeIdentityText(signature.Length);
+            declaringType = MethodRowProjection.FormatDeclaringTypeName(reader, _typeHandle);
+            AbortIfIdentityExhausted();
+            @namespace = reader.GetString(type.Namespace);
+        }
+        catch (Exception) when (_identityExhausted)
+        {
+            // The decoder's signal, or whatever a Metadata formatter turned it
+            // into: exhaustion is recorded, so it always aborts.
+            AbortIfIdentityExhausted();
         }
         catch (BadImageFormatException)
         {
-            // MethodRowProjection throws only when a budget is exhausted.
-            _ = workBefore;
+            // MethodRowProjection throws BadImageFormatException only when a
+            // legacy budget is exhausted.
             bool failures = _identityDecodeFailures
                 >= MetadataSafetyPolicy.MaxClassificationIdentityDecodeFailures;
             Abort(
@@ -328,25 +416,16 @@ internal sealed class MethodRowGate
                 failures
                     ? "The identity decode-failure budget is exhausted."
                     : "The identity work budget is exhausted.");
-            return null!;
         }
 
-        string methodName = Reader.GetString(_methodDefinition.Name);
-        string signature = MethodRowProjection.FormatSignatureOrFallback(
-            Reader,
-            _typeDefinition,
-            _methodDefinition,
-            methodName,
-            anchor);
+        AbortIfIdentityExhausted();
         _identity = new MethodRowIdentity(
-            new InertString(TextPolicy.Field, methodName),
-            new InertString(
-                TextPolicy.Field,
-                MethodRowProjection.FormatDeclaringTypeName(Reader, _typeHandle)),
-            new InertString(TextPolicy.Field, Reader.GetString(_typeDefinition.Namespace)),
-            new InertString(TextPolicy.Field, signature),
+            Inert(methodName!),
+            Inert(declaringType!),
+            Inert(@namespace!),
+            Inert(signature!),
             anchor?.Anchor,
-            anchor is null ? null : new InertString(TextPolicy.Field, anchor.ReturnType));
+            anchor is null ? null : Inert(anchor.ReturnType));
         _identityRead = true;
         return _identity;
     }
@@ -355,35 +434,67 @@ internal sealed class MethodRowGate
 
     /// <summary>
     /// The row's P/Invoke import module, or null when it has none. Its text is
-    /// identity text: decoding it is charged to the identity budget once per
-    /// string handle, and exhausting the budget aborts.
+    /// identity text, read through the identity reader, so its length is
+    /// charged before it is allocated; each string handle is decoded once.
     /// </summary>
     internal InertString? PInvokeModuleName()
     {
-        ModuleReferenceHandle module = _methodDefinition.GetImport().Module;
+        MetadataReader reader = IdentityReader;
+        ModuleReferenceHandle module = reader.GetMethodDefinition(_methodHandle).GetImport().Module;
         if (module.IsNil)
             return null;
 
-        StringHandle name = Reader.GetModuleReference(module).Name;
+        StringHandle name = reader.GetModuleReference(module).Name;
         if (_moduleNames.TryGetValue(name, out InertString known))
             return known;
 
-        string text = Reader.GetString(name);
-        ChargeIdentityWork(text.Length);
-        var inert = new InertString(TextPolicy.Field, text);
+        string text;
+        try
+        {
+            text = reader.GetString(name);
+        }
+        catch (Exception) when (_identityExhausted)
+        {
+            AbortIfIdentityExhausted();
+            throw;
+        }
+
+        InertString inert = Inert(text);
         _moduleNames[name] = inert;
         return inert;
     }
 
-    void ChargeIdentityWork(int amount)
+    /// <summary>Spells identity text inert, charging the spelled copy before it is built.</summary>
+    InertString Inert(string text)
     {
-        if (amount >= _identityWorkRemaining)
+        try
         {
-            _identityWorkRemaining = 0;
-            Abort(IdentityWork, "The identity work budget is exhausted.");
+            ChargeIdentityText(text.Length);
+        }
+        catch (IdentityBudgetExhaustedException)
+        {
+            AbortIfIdentityExhausted();
         }
 
-        _identityWorkRemaining -= amount;
+        return new InertString(TextPolicy.Field, text);
+    }
+
+    /// <summary>The signal the budgeted decoder raises; the gate turns it into the abort.</summary>
+    sealed class IdentityBudgetExhaustedException()
+        : Exception("The identity work budget is exhausted.");
+
+    /// <summary>
+    /// Charges each string's encoded length to the identity budget before
+    /// SRM decodes it.
+    /// </summary>
+    sealed class BudgetedStringDecoder(MethodRowGate gate)
+        : MetadataStringDecoder(System.Text.Encoding.UTF8)
+    {
+        public override unsafe string GetString(byte* bytes, int byteCount)
+        {
+            gate.ChargeIdentityText(byteCount);
+            return base.GetString(bytes, byteCount);
+        }
     }
 
     /// <summary>

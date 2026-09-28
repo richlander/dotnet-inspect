@@ -87,6 +87,7 @@ public sealed class MethodDefinitionExecution
         // when the plan declares identity text, so a plan of counts and
         // existence checks spends none.
         var gate = new MethodRowGate(
+            peReader,
             reader,
             (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0);
 

@@ -445,6 +445,60 @@ public sealed class MethodRowGateTests
     }
 
     [Fact]
+    public void IdentityBudget_ParameterNamesInDisplaySignaturesAreCharged()
+    {
+        // 256 P/Invoke methods, each with a 65,536-character parameter name:
+        // the display signature decoded 16.8M characters with 135,532 charged.
+        GateFixtureImage builder = Ordinary();
+        GateFixtureImage.FixtureType type = builder.Type("N", "Named");
+        for (int i = 0; i < 256; i++)
+        {
+            type.Method(
+                $"Import{i}",
+                GateFixtureImage.VoidSignature(static t => t.Int32()),
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl,
+                MethodImplAttributes.PreserveSig,
+                parameterNames: [new string((char)('a' + (i % 26)), 65_531) + i.ToString("D5")]);
+        }
+
+        ImmutableArray<byte> image = builder.Build();
+        var rows = new GateProducer<IdentityPredicate>("Rows", MethodDefinitionLayers.IdentityText);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(rows)));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        ProducerResult<int> result = execution.ResultOf(rows);
+        Assert.Equal(ProducerOutcome.Aborted, result.Outcome);
+        Assert.Equal(MethodRowGate.IdentityWork, result.Critical!.Budget);
+        Assert.True(allocated < 48 * 1024 * 1024, $"Allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void IdentityBudget_OneOversizedModuleNameAbortsBeforeAllocating()
+    {
+        // One 16.7M-character module name: it must be charged, and refused,
+        // before SRM allocates its text.
+        GateFixtureImage builder = Ordinary();
+        builder.Type("N", "Import").Method(
+            "Huge",
+            attributes: MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl,
+            implAttributes: MethodImplAttributes.PreserveSig,
+            moduleName: new string('m', 16_700_000));
+        ImmutableArray<byte> image = builder.Build();
+        var rows = new GateProducer<ModulePredicate>("ModuleRows", MethodDefinitionLayers.IdentityText);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(rows)));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        ProducerResult<int> result = execution.ResultOf(rows);
+        Assert.Equal(ProducerOutcome.Aborted, result.Outcome);
+        Assert.Equal(MethodRowGate.IdentityWork, result.Critical!.Budget);
+        Assert.True(allocated < 8 * 1024 * 1024, $"Allocated {allocated:N0} bytes before aborting.");
+    }
+
+    [Fact]
     public void Abort_FailureIsBuiltFromContentFreeCoordinates()
     {
         // A 32,768-character method name on an over-cap row: raising the abort
