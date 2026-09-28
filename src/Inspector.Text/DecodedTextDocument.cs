@@ -170,6 +170,23 @@ public readonly struct DecodedTextLineSlice
     public int JsonEncodedUtf8Bytes =>
         DecodedTextEncoding.JsonEncodedUtf8Length(_rowText.Span);
 
+    public void EnsureWithin(DecodedTextPullLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        int jsonEncodedUtf8Bytes = JsonEncodedUtf8Bytes;
+        if (Utf16CodeUnits > limits.MaximumUtf16CodeUnits
+            || jsonEncodedUtf8Bytes
+                > limits.MaximumJsonEncodedUtf8Bytes)
+        {
+            throw new DecodedTextLineLimitException(
+                Number,
+                Utf16CodeUnits,
+                limits.MaximumUtf16CodeUnits,
+                jsonEncodedUtf8Bytes,
+                limits.MaximumJsonEncodedUtf8Bytes);
+        }
+    }
+
     internal ReadOnlyMemory<char> RowText => _rowText;
 }
 

@@ -156,9 +156,11 @@ without changing the completed cursor.
 The slice exposes line coordinates, borrowed content, exact terminator, total
 UTF-16 row-text length, and the JSON-encoded UTF-8 row-text measure. Computing
 the JSON measure remains explicit: consumers that only need line coordinates
-or predicate text do not pay that work. The adopting owner applies its own
-aggregate bounds and terminal closure; the cursor does not interpret Source
-segments, QuerySpace selection, delivery credit, cancellation, or disposal.
+or predicate text do not pay that work. A consumer can apply the owner's typed
+per-line limit failure to a slice before committing its copied cursor. The
+adopting owner applies its own aggregate bounds and terminal closure; the
+cursor does not interpret Source segments, QuerySpace selection, delivery
+credit, cancellation, or disposal.
 
 ## Exact line model
 
@@ -283,6 +285,7 @@ The pure substrate additionally gates:
 | `PullPositionIsBoundToOneDocument` | A source position cannot resume a different document. | Verified in Release by `Inspector.Text.Tests`. |
 | `ForwardCursorMatchesBoundedPull` | Forward traversal preserves the bounded-pull line values, order, completion, and exact Count. | Verified in Release by `Inspector.Text.Tests`. |
 | `ForwardCursorIsBoundToOneDocument` | A value cursor cannot advance through a different document. | Verified in Release by `Inspector.Text.Tests`. |
+| `ForwardSliceEnforcesLineLimits` | Borrowed slices report the same typed UTF-16 and JSON line-limit failure for an individually over-bound row. | Verified in Release by `Inspector.Text.Tests`. |
 | `ForwardCursorAllocatesNoPerLineObjects` | After warmup, draining through the forward primitive allocates no managed bytes per line. | Verified in Release by `Inspector.Text.Tests`. |
 | `SourceViewLinesReconstructExactDecodedText` | The first Source adopter preserves its existing exact line contract through the shared substrate. | Verified in Release by `DotnetInspector.Queries.Tests`. |
 

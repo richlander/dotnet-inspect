@@ -408,6 +408,46 @@ public sealed class DecodedTextDocumentTests
         Assert.False(second.IsComplete);
     }
 
+    [Theory]
+    [InlineData("abcdef", 5, 100, 6, 6)]
+    [InlineData("<", 10, 5, 1, 6)]
+    public void ForwardSliceEnforcesLineLimits(
+        string text,
+        int maximumUtf16CodeUnits,
+        int maximumJsonEncodedUtf8Bytes,
+        int expectedUtf16CodeUnits,
+        int expectedJsonEncodedUtf8Bytes)
+    {
+        var document = new DecodedTextDocument(text);
+        DecodedTextCursor cursor = document.StartCursor;
+        Assert.True(
+            document.TryReadLine(
+                ref cursor,
+                out DecodedTextLineSlice line));
+        var limits = new DecodedTextPullLimits(
+            maximumCandidateRows: 1,
+            maximumUtf16CodeUnits,
+            maximumJsonEncodedUtf8Bytes);
+
+        DecodedTextLineLimitException exception =
+            Assert.Throws<DecodedTextLineLimitException>(
+                () => line.EnsureWithin(limits));
+
+        Assert.Equal(1, exception.LineNumber);
+        Assert.Equal(
+            expectedUtf16CodeUnits,
+            exception.Utf16CodeUnits);
+        Assert.Equal(
+            maximumUtf16CodeUnits,
+            exception.MaximumUtf16CodeUnits);
+        Assert.Equal(
+            expectedJsonEncodedUtf8Bytes,
+            exception.JsonEncodedUtf8Bytes);
+        Assert.Equal(
+            maximumJsonEncodedUtf8Bytes,
+            exception.MaximumJsonEncodedUtf8Bytes);
+    }
+
     [Fact]
     public void ForwardCursorAllocatesNoPerLineObjects()
     {
