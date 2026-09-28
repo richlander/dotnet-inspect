@@ -60,7 +60,9 @@ public sealed class PostcardTests
         PostcardAsset<PEReader>[] assets = [new("System.Reflection.Metadata", large), new("tests", small)];
         PostcardColumn<PEReader, MethodTextRow> oracle = PublicMethods.NLinqColumn(shape);
 
-        Assert.Empty(Postcard.Check(assets, oracle, [oracle, PublicMethods.LinqColumn(shape)], PublicMethods.RowText));
+        PostcardCheck check = Postcard.Check(assets, oracle, [oracle, PublicMethods.LinqColumn(shape)], PublicMethods.RowText);
+        Assert.Empty(check.Mismatches);
+        Assert.Equal(["tests"], check.WindowFailures);
         Assert.Equal(11, oracle.Answer(PostcardClosing.Window, large).Rows!.Count);
         Assert.True(oracle.Answer(PostcardClosing.Window, small).WindowFailed);
     }
@@ -78,7 +80,7 @@ public sealed class PostcardTests
                 : Answer(closing, input));
 
         IReadOnlyList<PostcardMismatch> mismatches =
-            Postcard.Check(assets, oracle, [oracle, agrees, truncates], Text);
+            Postcard.Check(assets, oracle, [oracle, agrees, truncates], Text).Mismatches;
 
         // A truncated window is not the oracle's strict failure.
         Assert.Equal(
@@ -87,6 +89,93 @@ public sealed class PostcardTests
                 new PostcardMismatch("empty", PostcardClosing.Window, "Truncating", Postcard.Describe(PostcardAnswer<int>.OfRows([]), Text), "fail"),
             ],
             mismatches);
+    }
+
+    [Fact]
+    public void Check_ComparesRowsNotTheirDisplayHash()
+    {
+        // Two different one-row answers that collide under the 32-bit FNV-1a
+        // display hash: the check must still report the mismatch.
+        IReadOnlyList<int> left = [40189];
+        IReadOnlyList<int> right = [797186];
+        Assert.Equal(
+            Postcard.Describe(PostcardAnswer<int>.OfRows(left), Text),
+            Postcard.Describe(PostcardAnswer<int>.OfRows(right), Text));
+
+        PostcardAsset<int[]>[] assets = [new("collision", [1])];
+        var oracle = new PostcardColumn<int[], int>("NLinq", (closing, _) => PostcardAnswer<int>.OfRows(left));
+        var other = new PostcardColumn<int[], int>("After", (closing, _) => PostcardAnswer<int>.OfRows(right));
+
+        PostcardCheck check = Postcard.Check(assets, oracle, [oracle, other], Text);
+
+        Assert.Equal(Postcard.Closings.Count, check.Mismatches.Count);
+        Assert.False(check.Agrees);
+    }
+
+    [Fact]
+    public void Check_RecordsStrictWindowFailuresAndRequiresEveryColumnToFail()
+    {
+        PostcardAsset<int[]>[] assets = [new("short", [1, 2]), new("long", [1, 2, 3, 4, 5])];
+        var oracle = new PostcardColumn<int[], int>("NLinq", Answer);
+        var agrees = new PostcardColumn<int[], int>("After", Answer);
+
+        PostcardCheck agreeing = Postcard.Check(assets, oracle, [oracle, agrees], Text);
+        Assert.True(agreeing.Agrees);
+        Assert.Equal(["short"], agreeing.WindowFailures);
+
+        // A column that succeeds where the oracle's window fails is a mismatch.
+        var succeeds = new PostcardColumn<int[], int>(
+            "Lenient",
+            (closing, input) => closing == PostcardClosing.Window && input.Length < Shape.WindowLast
+                ? PostcardAnswer<int>.OfRows([.. input.Skip(Shape.WindowSkip)])
+                : Answer(closing, input));
+        PostcardCheck disagreeing = Postcard.Check(assets, oracle, [oracle, succeeds], Text);
+        PostcardMismatch mismatch = Assert.Single(disagreeing.Mismatches);
+        Assert.Equal(("short", PostcardClosing.Window, "fail"), (mismatch.Asset, mismatch.Closing, mismatch.OracleAnswer));
+    }
+
+    [Fact]
+    public void Measure_NeverTimesAFailedStrictWindow_AndSummaryExcludesIt()
+    {
+        PostcardAsset<int[]>[] assets = [new("short", [1, 2]), new("long", [1, 2, 3, 4, 5])];
+        PostcardColumn<int[], int>[] columns = [new("NLinq", Answer), new("After", Answer)];
+
+        IReadOnlyList<PostcardCell> cells = Postcard.Measure(
+            assets,
+            columns,
+            new PostcardTiming(Rounds: 2, Warmup: 1, BudgetMilliseconds: 1, MinSamples: 2, MaxSamples: 4));
+
+        PostcardCell failed = cells.Single(c => c.Asset == "short" && c.Closing == PostcardClosing.Window && c.Column == "After");
+        Assert.True(failed.WindowFailed);
+        Assert.Empty(failed.RoundMedians);
+        Assert.Throws<InvalidOperationException>(() => failed.Median);
+
+        PostcardSummary window = Postcard.Summarize(cells, "NLinq").Single(s => s.Closing == PostcardClosing.Window && s.Column == "After");
+        Assert.Equal((1, 1), (window.Assets, window.FailedExcluded));
+
+        string report = Postcard.Report(cells, "NLinq", Shape);
+        Assert.Contains("| Rows(2..4) | 1 (1 failed, excluded) |", report);
+        Assert.Contains("| short | Rows(2..4) | fail | fail |", report);
+    }
+
+    [Fact]
+    public void Report_LabelsClosingsWithTheirParametersAndShowsAbsoluteMedians()
+    {
+        PostcardCell[] cells =
+        [
+            .. Postcard.Closings.SelectMany(closing => (PostcardCell[])
+            [
+                new("a", closing, "NLinq", [10]),
+                new("a", closing, "After", [5]),
+            ]),
+        ];
+
+        string report = Postcard.Report(cells, "NLinq", new PostcardShape(N: 6, WindowFirst: 100, WindowLast: 110));
+
+        Assert.Contains("| Head(6) | 1 | 1.00× | 0.50× (0.50–0.50) |", report);
+        Assert.Contains("| Tail(6) |", report);
+        Assert.Contains("| Rows(100..110) |", report);
+        Assert.Contains("| a | Count | 10.0 | 5.0 |", report);
     }
 
     [Fact]
@@ -125,7 +214,7 @@ public sealed class PostcardTests
     [Fact]
     public void Measure_TimesEveryCellOncePerRound()
     {
-        PostcardAsset<int[]>[] assets = [new("small", [1, 2, 3])];
+        PostcardAsset<int[]>[] assets = [new("small", [1, 2, 3, 4])];
         PostcardColumn<int[], int>[] columns = [new("NLinq", Answer), new("After", Answer)];
 
         IReadOnlyList<PostcardCell> cells = Postcard.Measure(
