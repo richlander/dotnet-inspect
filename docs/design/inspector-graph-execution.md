@@ -267,7 +267,7 @@ A terminal declares what the caller requires from that operation. Initial
 terminal categories are:
 
 - **Exists:** whether any admitted structural match exists;
-- **Exact Count:** the cardinality of a named population;
+- **Count:** the exact cardinality of a named population;
 - **Rows:** typed structural values in deterministic order;
 - **Document:** a retained graph document containing the admitted topology; and
 - **Path:** an owner-defined path result for an operation that defines path
@@ -280,7 +280,7 @@ Graph Count.
 Terminals are peers, not projections that must be implemented through Rows:
 
 - Exists stops before the next read once a positive answer is settled.
-- Exact Count does not allocate row or document payloads merely to count them.
+- Count does not allocate row or document payloads merely to count them.
 - Rows materializes only its declared row population.
 - Document preserves the topology and evidence required by its contract.
 - Path materializes only the path result selected by its operation.
@@ -313,7 +313,7 @@ Terminal publication follows these rules:
 | --- | --- |
 | Positive Exists or a found path | The retained positive structural evidence is valid even when unrelated work is incomplete |
 | Negative Exists or no path | Exact over the document when structural execution completes; a domain absence claim also requires applicable population completion |
-| Exact Count | Exact for the represented topology when structural execution completes; an exact domain count also requires applicable population completion |
+| Count | Exact for the represented topology when structural execution completes; an exact domain count also requires applicable population completion |
 | Rows or Document | May retain healthy partial evidence, with every applicable limit and failure visible |
 | Direct membership in a closed document | Exact as a statement about that document; a domain absence claim additionally requires applicable population completion |
 
@@ -447,7 +447,7 @@ Contract tests include:
 - an empty incomplete batch;
 - a provider failure after healthy positive evidence;
 - node, edge, and depth bounds reached exactly before and after settlement;
-- negative Exists and exact Count under incomplete population;
+- negative Exists and Count under incomplete population;
 - deterministic ties independent of hash iteration order; and
 - a derived view presented with the wrong source document or generation.
 
@@ -462,7 +462,7 @@ partial-completion cases.
 | `GraphExecutionReferenceCoversEveryPlan` | Every admitted plan has reference behavior; unsupported plans fail before work |
 | `GraphExecutionDirectConsumerRuns` | An independently compiled consumer uses ordinary application payloads to execute a closed-document structural question without a dotnet-inspect dependency |
 | `GraphDerivedViewsMatchCanonicalScan` | Every selected outgoing, incoming, relationship, and distinct-neighbor view matches a canonical edge scan |
-| `GraphTerminalResultsAreEquivalent` | Exists, exact Count, Rows, Document, and each admitted Path terminal agree on values, ordering, failures, limits, completion, and receipts where their contracts overlap |
+| `GraphTerminalResultsAreEquivalent` | Exists, Count, Rows, Document, and each admitted Path terminal agree on values, ordering, failures, limits, completion, and receipts where their contracts overlap |
 | `GraphCompletionAxesRemainDistinct` | Structural exhaustion cannot manufacture domain completion, and provider completion cannot erase a Graph bound |
 | `GraphPositiveEvidenceSurvivesUnrelatedFailure` | Applicable qualification is scoped and healthy evidence remains visible |
 | `GraphProviderExpansionIsBatchableAndBounded` | Frontier batches, work bounds, settlement, and empty/partial/failed completion follow the provider contract |
