@@ -42,14 +42,10 @@ static class FixturePostcard
 
         // The experiment's postcard sizes; the fixture's shape must match.
         var shape = new PostcardShape(Exp.Postcard.N, Exp.Postcard.WindowFirst, Exp.Postcard.WindowLast);
+        IReadOnlyList<PostcardAsset<PEReader>> assets = PublicMethods.LoadAssets(paths);
         var pathOf = new Dictionary<PEReader, string>(ReferenceEqualityComparer.Instance);
-        var assets = new List<PostcardAsset<PEReader>>();
-        foreach (string path in paths)
-        {
-            var pe = new PEReader(ImmutableArray.Create(File.ReadAllBytes(path)));
-            pathOf[pe] = path;
-            assets.Add(new(Path.GetFileNameWithoutExtension(path), pe));
-        }
+        for (int i = 0; i < assets.Count; i++)
+            pathOf[assets[i].Asset] = paths[i];
 
         PostcardColumn<PEReader, Row> oracle = PublicMethods.NLinqColumn(shape);
         PostcardColumn<PEReader, Row>[] columns =

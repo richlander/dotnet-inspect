@@ -20,8 +20,10 @@ namespace DotnetInspector.PerformanceOracles;
 /// <see cref="TryTakeExactly{TEnum,T}"/>: fewer than the requested elements is
 /// a failure, never a shorter success, whether the source ran out while
 /// skipping or while taking.
-/// <see cref="TakeLast{TEnum,T}"/> is a ring fold that keeps the last
-/// elements in source order.
+/// <see cref="TakeLast{TEnum,T}"/> keeps the last elements in a ring, in
+/// source order. Every operator pulls with <c>TryGetNext</c>, so each acts only
+/// on the elements that remain; none relies on the pinned NLinq's folds, which
+/// restart collection sources from the first element.
 /// </para>
 /// </remarks>
 public static class OracleOperators
@@ -65,14 +67,28 @@ public static class OracleOperators
         return true;
     }
 
-    /// <summary>The last <paramref name="count"/> elements, in source order.</summary>
+    /// <summary>
+    /// The last <paramref name="count"/> elements that remain in the source,
+    /// in source order. It pulls with <c>TryGetNext</c> rather than folding,
+    /// because the pinned NLinq's collection folds restart from the first
+    /// element regardless of what was already pulled.
+    /// </summary>
     public static List<T> TakeLast<TEnum, T>(this TEnum source, int count)
         where TEnum : IEnumerator<TEnum, T>, allows ref struct
     {
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         if (count == 0)
             return [];
-        Ring<T> ring = TEnum.Fold(ref source, new Ring<T>(count), new KeepLast<T>());
+        var ring = new Ring<T>(count);
+        var keep = new KeepLast<T>();
+        while (true)
+        {
+            T item = source.TryGetNext(out bool hasMore);
+            if (!hasMore)
+                break;
+            ring = keep.Invoke(ring, item);
+        }
+
         int kept = (int)Math.Min(ring.Seen, count);
         var rows = new List<T>(kept);
         for (long i = ring.Seen - kept; i < ring.Seen; i++)
