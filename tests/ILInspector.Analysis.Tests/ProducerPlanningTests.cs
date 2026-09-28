@@ -305,6 +305,132 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
+    public void ScopeGuard_VisitsOnlyUnitsInTheAcceptedClasses()
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"),
+            Method.Safe("C"),
+            Method.Safe("D"));
+        var parity = new RowParityProducer("Parity");
+        var even = new GuardedRowsProducer("EvenRows", parity, acceptedClasses: 1UL << 0);
+        var odd = new GuardedRowsProducer("OddRows", parity, acceptedClasses: 1UL << 1);
+
+        MethodDefinitionExecution execution =
+            Run(image, Plan(new ProducerRequest(even), new ProducerRequest(odd)));
+
+        Assert.Equal("2,4", execution.ResultOf(even).Value);
+        Assert.Equal("1,3", execution.ResultOf(odd).Value);
+        // A unit outside the guard is out of scope, not attempted or failed.
+        ProducerParticipation evenParticipation = execution.Receipt.For(even);
+        Assert.Equal(ProducerOutcome.Complete, evenParticipation.Outcome);
+        Assert.Equal(2, evenParticipation.UnitsAttempted);
+        Assert.Equal(0, evenParticipation.UnitsFailed);
+        Assert.Equal(4, execution.Receipt.For(parity).UnitsAttempted);
+    }
+
+    [Theory]
+    [InlineData("Sample", "1,2,3", 0b11UL)]
+    [InlineData("Other", "", 0b11UL)]
+    [InlineData("Sample", "1,2,3", ProducerDependency.AllUnitClasses)]
+    [InlineData("Other", "", ProducerDependency.AllUnitClasses)]
+    public void TypeScope_ExcludesWholeTypesForTheProducerAndEveryProducerItGuards(
+        string scopedType,
+        string expectedRows,
+        ulong acceptedClasses)
+    {
+        ImmutableArray<byte> image = BuildImage(
+            Method.Safe("A"),
+            Method.Safe("B"),
+            Method.Safe("C"));
+        var classifier = new TypeScopedParityProducer("Parity", scopedType);
+        var guarded = new GuardedRowsProducer("Rows", classifier, acceptedClasses);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(expectedRows, execution.ResultOf(guarded).Value);
+        int inScope = expectedRows.Length == 0 ? 0 : 3;
+        Assert.Equal(inScope, execution.Receipt.For(classifier).UnitsAttempted);
+        Assert.Equal(inScope, execution.Receipt.For(guarded).UnitsAttempted);
+        Assert.Equal(ProducerOutcome.Complete, execution.Receipt.For(guarded).Outcome);
+    }
+
+    [Fact]
+    public void TypeScope_AGuardExcludedTypeIsNotTestedByTheDependent()
+    {
+        // The dependent's own type predicate fails on every type, but its
+        // guard excludes the only type with methods first, so the predicate
+        // is never asked and the dependent completes with nothing in scope.
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new TypeScopedParityProducer("Parity", "Other");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: 0b11,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(guarded).Outcome);
+        Assert.Equal("", execution.ResultOf(guarded).Value);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsAttempted);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsFailed);
+    }
+
+    [Fact]
+    public void TypeScope_AFailedTypePredicateIsContainedAsTheProducersFailure()
+    {
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new TypeScopedParityProducer("Parity", "Sample");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: 0b11,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        ProducerResult<string> result = execution.ResultOf(guarded);
+        Assert.Equal(ProducerOutcome.Failed, result.Outcome);
+        Assert.Equal("(type scope)", result.Failure!.Unit);
+        Assert.Equal(0, execution.Receipt.For(guarded).UnitsAttempted);
+    }
+
+    [Fact]
+    public void TypeScope_AFailedTypePredicateFailsSamePassDependentsAsAPrerequisite()
+    {
+        // Both type predicates fail on the same type, and the dependency is
+        // an ordinary same-pass visit dependency, not a guard. The dependency
+        // is decided first, so the dependent reports its failed prerequisite
+        // rather than a failure of its own.
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"), Method.Safe("B"));
+        var classifier = new FailingTypeScopeParityProducer("Parity");
+        var guarded = new GuardedRowsProducer(
+            "Rows",
+            classifier,
+            acceptedClasses: null,
+            failingTypeScope: true);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(guarded)));
+
+        Assert.Equal(ProducerOutcome.Failed, execution.Receipt.For(classifier).Outcome);
+        ProducerResult<string> result = execution.ResultOf(guarded);
+        Assert.Equal(ProducerOutcome.PrerequisiteFailed, result.Outcome);
+        Assert.Equal("Parity", result.FailedPrerequisite);
+    }
+
+    [Fact]
+    public void ScopeGuard_OnAProducerThatDoesNotClassifyIsAContractViolation()
+    {
+        ImmutableArray<byte> image = BuildImage(Method.Safe("A"));
+        var rows = new RowProducer("Rows");
+        var guarded = new GuardedRowsProducer("Guarded", rows, acceptedClasses: 1UL);
+
+        Assert.Throws<ProducerContractException>(() =>
+            Run(image, Plan(new ProducerRequest(guarded))));
+    }
+
+    [Fact]
     public void FailureContainment_CompletionFailureIsContained()
     {
         ImmutableArray<byte> image = BuildImage(
@@ -332,6 +458,34 @@ public sealed class ProducerPlanningTests
         Assert.Equal(ProducerOutcome.PrerequisiteFailed, blocked.Outcome);
         Assert.Equal("FailsInCompletion", blocked.FailedPrerequisite);
         Assert.Equal(3, execution.Receipt.Producers.Length);
+    }
+
+    [Fact]
+    public void Planner_RetainsUnitFactsOnlyAsLongAsTheirReadersNeedThem()
+    {
+        var rows = new RowProducer("Rows");
+        var guard = new CountingProducer("Guard");
+        var samePass = new GuardedRowsProducer("SamePass", new RowParityProducer("Parity"), acceptedClasses: 0b11);
+        var laterPass = new RowAfterGuardProducer("LaterPass", rows, guard);
+
+        WorkDescription description = Plan(
+            new ProducerRequest(samePass),
+            new ProducerRequest(laterPass));
+
+        // Read only by a reader in a later pass: every unit's fact is kept.
+        Assert.Equal(UnitFactRetention.AllUnits, RetentionOf(description, rows));
+        // Read only by a reader in its own pass: the current unit's fact.
+        Assert.Equal(
+            UnitFactRetention.CurrentUnit,
+            RetentionOf(description, samePass.Dependencies[0].Producer));
+        // Read by no one: nothing is kept.
+        Assert.Equal(UnitFactRetention.None, RetentionOf(description, guard));
+        Assert.Equal(UnitFactRetention.None, RetentionOf(description, laterPass));
+
+        static UnitFactRetention RetentionOf(WorkDescription description, ProducerDeclaration producer) =>
+            description.TryGetIndex(producer, out int index)
+                ? description.FactRetention[index]
+                : throw new InvalidOperationException($"{producer} is not planned.");
     }
 
     [Fact]
@@ -507,7 +661,7 @@ public sealed class ProducerPlanningTests
         Func<IReadOnlyList<ProducerDependency>>? dependencies = null,
         string? parameters = null,
         int failAtUnit = 0)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier,
@@ -522,10 +676,15 @@ public sealed class ProducerPlanningTests
             return 1;
         }
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Sum();
+            accumulator;
     }
 
     /// <summary>Reads another producer's completed result during its visits.</summary>
@@ -533,7 +692,7 @@ public sealed class ProducerPlanningTests
         string identity,
         CountingProducer source,
         bool declare)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -545,15 +704,20 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.ResultOf(source).Value;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Sum();
+            accumulator;
     }
 
     /// <summary>Publishes each unit's MethodDef row number.</summary>
     sealed class RowProducer(string identity)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -562,10 +726,15 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Token & 0x00FF_FFFF;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Count;
+            accumulator;
     }
 
     /// <summary>
@@ -576,7 +745,7 @@ public sealed class ProducerPlanningTests
         string identity,
         RowProducer rows,
         CountingProducer guard)
-        : MethodDefinitionProducer<int, string>(
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -590,15 +759,146 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.FactOf(rows);
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
-            string.Join(",", facts);
+            string.Join(",", accumulator);
+    }
+
+    /// <summary>Classifies each unit by MethodDef row parity: class 0 even, class 1 odd.</summary>
+    sealed class RowParityProducer(string identity)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+    }
+
+    /// <summary>Classifies by row parity, with a type scope naming the one type in scope.</summary>
+    sealed class TypeScopedParityProducer(string identity, string scopedType)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            reader.StringComparer.Equals(type.Name, scopedType);
+    }
+
+    /// <summary>Classifies units by parity, but its type predicate always fails.</summary>
+    sealed class FailingTypeScopeParityProducer(string identity)
+        : MethodDefinitionProducer<int, int, int>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration)
+    {
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact & 1;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            throw new BadImageFormatException("Guard type scope fixture failure.");
+    }
+
+    /// <summary>Publishes the rows of the units its scope guard accepts.</summary>
+    sealed class GuardedRowsProducer(
+        string identity,
+        ProducerDeclaration guard,
+        ulong? acceptedClasses,
+        bool failingTypeScope = false)
+        : MethodDefinitionProducer<int, List<int>, string>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            () => [new ProducerDependency(guard, ProducerDependencyKind.VisitNeedsVisit, acceptedClasses)])
+    {
+        internal override bool HasTypeScope => failingTypeScope;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            throw new BadImageFormatException("Type scope fixture failure.");
+
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token & 0x00FF_FFFF;
+
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
+        internal override string Complete(
+            List<int> accumulator,
+            MethodDefinitionCompletionView completion) =>
+            string.Join(",", accumulator);
     }
 
     /// <summary>Visits normally, then fails recoverably in its completion.</summary>
     sealed class CompletionFailingProducer(string identity)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -606,8 +906,13 @@ public sealed class ProducerPlanningTests
     {
         internal override int Visit(scoped MethodDefinitionView view) => 1;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
             throw new BadImageFormatException("injected completion failure");
     }
@@ -616,7 +921,7 @@ public sealed class ProducerPlanningTests
     sealed class SettlingProducer(
         string identity,
         Func<IReadOnlyList<ProducerDependency>> dependencies)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -625,10 +930,15 @@ public sealed class ProducerPlanningTests
     {
         internal override int Visit(scoped MethodDefinitionView view) => 1;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Sum();
+            accumulator;
 
         internal override bool Settles(int fact) => true;
     }
@@ -637,8 +947,8 @@ public sealed class ProducerPlanningTests
     sealed class RowReadingProducer(
         string identity,
         Func<IReadOnlyList<ProducerDependency>> dependencies,
-        Func<MethodDefinitionProducer<int, string>> source)
-        : MethodDefinitionProducer<int, string>(
+        Func<MethodDefinitionProducer<int, List<int>, string>> source)
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -648,10 +958,18 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.FactOf(source());
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
-            string.Join(",", facts);
+            string.Join(",", accumulator);
     }
 
     /// <summary>
@@ -662,7 +980,7 @@ public sealed class ProducerPlanningTests
         string identity,
         Func<IReadOnlyList<ProducerDependency>> dependencies,
         RowReadingProducer reader)
-        : MethodDefinitionProducer<int, string>(
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -672,15 +990,23 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Token & 0x00FF_FFFF;
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
-            $"rows={facts.Count};second={completion.ResultOf(reader).Value}";
+            $"rows={accumulator.Count};second={completion.ResultOf(reader).Value}";
     }
 
     /// <summary>Publishes row numbers per unit, then fails recoverably in its completion.</summary>
     sealed class CompletionFailingRowProducer(string identity)
-        : MethodDefinitionProducer<int, string>(
+        : MethodDefinitionProducer<int, List<int>, string>(
             identity,
             version: 1,
             tier: 0,
@@ -689,8 +1015,16 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Token & 0x00FF_FFFF;
 
+        internal override List<int> Seed() => [];
+
+        internal override List<int> Accumulate(List<int> accumulator, int fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
         internal override string Complete(
-            IReadOnlyList<int> facts,
+            List<int> accumulator,
             MethodDefinitionCompletionView completion) =>
             throw new BadImageFormatException("injected completion failure");
     }
@@ -699,7 +1033,7 @@ public sealed class ProducerPlanningTests
     sealed class ResultConsumingProducer(
         string identity,
         RowReadingProducer source)
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             identity,
             version: 1,
             tier: 0,
@@ -708,15 +1042,20 @@ public sealed class ProducerPlanningTests
     {
         internal override int Visit(scoped MethodDefinitionView view) => 0;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
             completion.ResultOf(source).Value?.Length ?? -1;
     }
 
     /// <summary>Declares only the declaration layer, then asks for the module lookup.</summary>
     sealed class LookupReadingProducer()
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             "LookupReader",
             version: 1,
             tier: 0,
@@ -725,15 +1064,20 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.Lookup is null ? 0 : 1;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Count;
+            accumulator;
     }
 
     /// <summary>Declares only the declaration layer, then asks for the body.</summary>
     sealed class BodyReadingProducer()
-        : MethodDefinitionProducer<int, int>(
+        : MethodDefinitionProducer<int, int, int>(
             "BodyReader",
             version: 1,
             tier: 0,
@@ -742,10 +1086,15 @@ public sealed class ProducerPlanningTests
         internal override int Visit(scoped MethodDefinitionView view) =>
             view.GetBody().Size;
 
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + 1;
+
         internal override int Complete(
-            IReadOnlyList<int> facts,
+            int accumulator,
             MethodDefinitionCompletionView completion) =>
-            facts.Count;
+            accumulator;
     }
 
     sealed record Method(

@@ -128,8 +128,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     r.Calls,
                     methodMap,
                     methodsByToken);
-            if (!r.UnsafeEvidence.IsDefaultOrEmpty
-                || !normalizedCalls.IsDefaultOrEmpty)
+            if (_includeMethodEvidence
+                && (!r.UnsafeEvidence.IsDefaultOrEmpty
+                    || !normalizedCalls.IsDefaultOrEmpty))
             {
                 unsafeEvidence.AddRange(
                     ReconcileCallSafetyEvidence(
