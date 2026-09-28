@@ -572,6 +572,24 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
+    public void Planner_DependencyRequestedWithExistsIsAContractError()
+    {
+        // A dependent needs its dependency Complete; a request for Exists on
+        // the same producer is a second closing, never silently widened.
+        var prerequisite = new SettlingProducer("Prerequisite", static () => []);
+        var dependent = new SettlingProducer(
+            "Dependent",
+            () => [new ProducerDependency(prerequisite, ProducerDependencyKind.CompletionNeedsResult)]);
+
+        ProducerContractException error = Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
+        [
+            new ProducerRequest(prerequisite, ProducerTerminal.Exists),
+            new ProducerRequest(dependent),
+        ]));
+        Assert.Contains("Prerequisite", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FailureContainment_StoppedDependentStillNeedsItsCompletionPrerequisite()
     {
         ImmutableArray<byte> image = BuildImage(
