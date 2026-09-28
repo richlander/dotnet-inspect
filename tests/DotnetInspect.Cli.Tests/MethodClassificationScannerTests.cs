@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.PortableExecutable;
@@ -189,13 +188,15 @@ public class MethodClassificationScannerTests
             assemblyLength > LargeAssemblyThresholdBytes,
             $"Expected the MTP test assembly to exceed 8 MiB; actual size was {assemblyLength:N0} bytes.");
 
+        // P/Invoke and pointer rows over the large assembly stay within the
+        // identity budget. Async is not asked: this assembly carries a spoofed
+        // state-machine attribute, and adversarial async outcomes belong to
+        // the StateMachineRelationshipIndex tests.
         using var peReader = new PEReader(File.OpenRead(assemblyPath));
         ClassificationQuestion pinvoke = new(MethodClassificationAnalyzer.PInvoke, ClassificationClosing.Rows);
         ClassificationQuestion pointer = new(MethodClassificationAnalyzer.PointerSignature, ClassificationClosing.Rows);
-        ClassificationQuestion async = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows);
-        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [pinvoke, pointer, async]);
+        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [pinvoke, pointer]);
 
-        // Every rows closing completes within the identity budget.
         Assert.Null(result.Critical);
         Assert.Contains(
             Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(pinvoke)).Methods,
@@ -203,20 +204,6 @@ public class MethodClassificationScannerTests
         Assert.Contains(
             Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(pointer)).Methods,
             method => method.MethodName.ToString() == nameof(SampleUnsafeClass.UnsafePointerMethod));
-
-        // Legacy's outcome: the attributed method counts as async. Under the
-        // #8793 index path it is a pinned departure that fails the analyzer;
-        // slice 2b's fast path restores legacy, and this slice lands after it.
-        ImmutableArray<ClassifiedMethodRow> asyncRows =
-            Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(async)).Methods;
-        Assert.Contains(
-            asyncRows,
-            method => method.MethodName.ToString() == nameof(SampleAsyncClass.RealAsyncMethod)
-                && method.DeclaringType.ToString() == "DotnetInspect.Cli.Tests.SampleAsyncClass");
-        Assert.Contains(
-            asyncRows,
-            method => method.MethodName.ToString() == nameof(SampleStateMachineAsyncClass.AttributedStateMachineAsync)
-                && method.Classification == MethodClassification.StateMachineAsync);
     }
 
     [Fact]
