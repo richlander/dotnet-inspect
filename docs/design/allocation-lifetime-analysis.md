@@ -111,6 +111,7 @@ Contract gates cover:
 
 - a compiled local `char[4]` consumed by the trusted string-copy constructor;
 - a neighboring returned array;
+- a genuine primitive element beside a same-named user-defined reference type;
 - incomplete reaching definitions;
 - reused local slots containing one local and one escaping allocation; and
 - the pinned Jurassic 3.2.9

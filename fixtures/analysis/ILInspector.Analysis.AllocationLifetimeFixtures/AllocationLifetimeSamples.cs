@@ -23,6 +23,12 @@ public static class AllocationLifetimeSamples
         return chars;
     }
 
+    public static int GenuinePrimitiveStaysLocal()
+        => new uint[2].Length;
+
+    public static int PrimitiveLookalikeStaysLocal()
+        => new global::System.UIntPtr[2].Length;
+
     public static int AllocateInsideLoop(int count)
     {
         int sum = 0;

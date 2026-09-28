@@ -690,11 +690,14 @@ internal static partial class OptimizationOpportunityAnalysis
     // type's layout/base, so they are conservatively excluded (kept as small-array).
     static bool IsStackallocEligibleElement(TypeRef element)
         => element.Kind == TypeRefKind.Definition
-           && element.Namespace == "System"
            && element.Name is "Boolean" or "Byte" or "SByte" or "Char"
                or "Int16" or "UInt16" or "Int32" or "UInt32"
                or "Int64" or "UInt64" or "Single" or "Double"
-               or "IntPtr" or "UIntPtr";
+               or "IntPtr" or "UIntPtr"
+           && FrameworkIdentity.IsCoreLibraryType(
+               element,
+               "System",
+               element.Name);
 
     static bool IsBitConverterGetBytes(MemberRef member)
         => member.Kind != MemberKind.Unsupported

@@ -59,6 +59,45 @@ public sealed class AllocationLifetimeAnalysisTests
     }
 
     [Fact]
+    public void CompiledFixture_RequiresCoreLibraryPrimitiveIdentity()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisAllocationLifetime
+                .AssemblyPath());
+
+        AllocationOccurrence primitive = Allocation(
+            index,
+            "GenuinePrimitiveStaysLocal");
+        AllocationOccurrence lookalike = Allocation(
+            index,
+            "PrimitiveLookalikeStaysLocal");
+
+        Assert.Equal(AllocationEscape.LocalOnly, primitive.Escape);
+        Assert.Equal(AllocationEscape.LocalOnly, lookalike.Escape);
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            candidate =>
+                candidate.Method.Name
+                    == "GenuinePrimitiveStaysLocal"
+                && candidate.Shape
+                    == "stackalloc-candidate"
+                && candidate.ILOffset
+                    == primitive.ILOffset);
+        OptimizationOpportunity rejected = Assert.Single(
+            index.OptimizationOpportunities,
+            candidate =>
+                candidate.Method.Name
+                    == "PrimitiveLookalikeStaysLocal"
+                && candidate.ILOffset
+                    == lookalike.ILOffset);
+        Assert.Equal("small-array", rejected.Shape);
+        Assert.Contains(
+            "element type",
+            rejected.Caveat,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void Jurassic_LocalSurrogateArrayBecomesStackallocCandidate()
     {
