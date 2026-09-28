@@ -931,41 +931,19 @@ a bounded MethodDef handle, the Property/Event association, and observed
 association ordering; malformed layout, coded-index values, or row bounds
 produce typed mechanical rejection.
 
-Metadata then owns the semantic census for the requested property or event.
-Each row must contain exactly one legal role for its association kind and
-target a method on the aggregate's declaring type. Nonmonotonic association
-ordering rejects the census as malformed Metadata, while the same physical
-ordering with the sorted bit clear is rejected earlier by SRM reader
-construction. Duplicate getter, setter, add, remove, or raise roles are rejected
-rather than collapsed by last-write-wins projection. Only the validated bounded
-rows may construct the typed accessor aggregate.
+The direct PropertyDef/EventDef construction, signature grammar, validity,
+correspondence, and failure contract is owned by
+[Metadata accessor aggregate validity](metadata-accessor-aggregate-validity.md).
+This planning document owns the stage ordering only.
 
-The completed aggregate also owns the exact root declaration shape. A property
-retains its inert PropertyDef name, raw attributes, raw signature header,
-generic and required-parameter counts, value type, and ordered index-parameter
-types. An event retains its inert EventDef name, raw attributes, and exact
-event type. These identities use the same bounded structural type projection
-and reader-scoped local-TypeDef index as MethodDef declaration evidence.
-
-Conventional accessor consistency is a Metadata validity fact, not a CSharp
-inference. Getter return and index parameters must equal the PropertyDef value
-and index parameters. A setter returns `void`, preserves the index-parameter
-prefix, and accepts the non-void PropertyDef value type last. Add and remove
-methods return `void` and accept exactly the EventDef type. Each conventional
-method's static flag agrees with its callable-signature instance bit; property
-accessors also agree with the PropertyDef instance bit. Conventional accessors
-share static, virtual, abstract, new-slot, and final shape. A raise method
-retains its own complete ordinary method signature because it describes event
-invocation, not add/remove handler correspondence; it is not compared with the
-EventDef type. `Other` occurrences remain lossless aggregate facts and do not
-acquire CSharp accessor constraints. Any failed required correspondence rejects
-the aggregate with its validation stage and mechanism.
-
-Custom modifiers remain part of the exact accessor signature. Metadata unwraps
-them only when deciding whether a setter, add, or remove return category is
-`void`; for example, compiler-produced `void modreq(IsExternalInit)` remains a
-valid setter return here even when downstream CSharp policy cannot represent
-the init-only declaration in its current slice.
+The completed aggregate retains the exact root declaration shape and every
+physical MethodSemantics occurrence. Metadata distinguishes malformed owned
+rows and signatures from valid non-CLS correspondence and unavailable external
+type-category evidence. In particular, accessor accessibility and virtual,
+abstract, new-slot, or final differences remain exact per-MethodDef facts; they
+are not aggregate-wide Metadata validity requirements. CSharp consumes
+affirmative correspondence and exact flags under its own representability
+policy.
 
 The post composes the existing Metadata memory-safety owner rather than
 creating a reduced safety model. It retains the module rules, declaring-type
