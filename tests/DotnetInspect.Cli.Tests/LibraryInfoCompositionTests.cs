@@ -103,6 +103,26 @@ public sealed class LibraryInfoCompositionTests
         Assert.DoesNotContain("\"Modified\",\"value\"", output, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    public async Task EnabledValueProjection_AgreesAcrossJsonFormats(string format)
+    {
+        (int exit, string output, string error) = await RunAsync(
+            "library",
+            Asset("runtime", "System.Net.Sockets.dll"),
+            "-S",
+            "Library Info",
+            "--value",
+            "--fields",
+            "Enabled",
+            format);
+
+        Assert.True(exit == 0, error);
+        // JSON escapes the separator as \u00B7.
+        Assert.Contains("\"value\":\"AOT \\u00B7 Runtime Async\"", output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task UndecodableCompany_RendersUnavailableWithItsReason()
     {

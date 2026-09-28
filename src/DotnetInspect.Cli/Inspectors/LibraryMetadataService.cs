@@ -883,10 +883,24 @@ internal static class LibraryMetadataService
     internal static bool WantsLibraryDocument(
         SectionQueryPlan sectionPlan,
         LibraryOptions options) =>
-        !options.JsonOutput
+        !WritesLegacyModelDump(options)
         && (OutputFormatter.ShouldRenderLibraryContext(options)
             || sectionPlan.Demands.Any(
                 static demand => demand.Section == SectionNames.LibraryInfo));
+
+    /// <summary>
+    /// Whether the request's output is the legacy <c>LibraryInspection</c> JSON
+    /// model dump, which never renders the view. <c>--json</c> combined with a
+    /// projection (<c>--value</c>, <c>--urls</c>, <c>--paths</c>, <c>--print</c>)
+    /// or <c>--count</c> renders view fields instead.
+    /// </summary>
+    internal static bool WritesLegacyModelDump(LibraryOptions options) =>
+        options.JsonOutput
+        && !options.Count
+        && !options.Print
+        && !options.Value
+        && !options.Urls
+        && !options.Paths;
 
     /// <summary>
     /// The adapter role the host selected: package and Platform images outside a
