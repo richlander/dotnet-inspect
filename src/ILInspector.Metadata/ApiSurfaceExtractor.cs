@@ -343,7 +343,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
-                    typeDef,
+                    typeDefHandle,
                     apiType,
                     surface,
                     isExtensionClass,
@@ -492,7 +492,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
-                    typeDef,
+                    typeDefHandle,
                     apiType: null,
                     surface,
                     isExtensionClass,
