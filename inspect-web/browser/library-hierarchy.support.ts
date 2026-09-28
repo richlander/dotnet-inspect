@@ -941,6 +941,68 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      function memberGroupDocument(surface, typeIdentity, memberName) {
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const overloads = type?.api.filter(member =>
+          member.kind === "method"
+          && member.name === memberName
+          && !member.graphOnly) ?? [];
+        if (!type || overloads.length === 0) {
+          return {
+            outcome: "Rejected",
+            detail: "The exact ordinary method group was not found.",
+            document: null,
+            diagnostics: [],
+          };
+        }
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity: type.queryId,
+            memberName,
+            count: overloads.length,
+            rows: overloads.map((member, index) => ({
+              metadataToken: member.metadataToken ?? 0,
+              baselineOrdinal: index + 1,
+              displaySignature: member.signature,
+              canonicalSignature: member.canonicalSignature,
+              fingerprint: member.anchorDigest,
+              accessibility: member.accessibility,
+              receiver: member.isExtension
+                ? "Extension"
+                : member.isStatic ? "Static" : "This",
+            })),
+          },
+          diagnostics: [],
+        };
+      }
+      export async function queryMemberGroupDocument(
+        id, version, framework, assembly, typeIdentity, memberName) {
+        document.documentElement.dataset.memberGroupDocumentRequest =
+          JSON.stringify([id, version, framework, assembly, typeIdentity, memberName]);
+        return memberGroupDocument(
+          surfaceFor(id, version, framework), typeIdentity, memberName);
+      }
+      export async function queryPlatformMemberGroupDocument(
+        framework, version, assembly, pack, typeIdentity, memberName) {
+        document.documentElement.dataset.platformMemberGroupDocumentRequest =
+          JSON.stringify([framework, version, assembly, pack, typeIdentity, memberName]);
+        return memberGroupDocument(
+          surfaceFor("Microsoft.NETCore.App", version, framework),
+          typeIdentity,
+          memberName);
+      }
+      export async function queryUploadedLibraryMemberGroupDocument(
+        declaredName, content, typeIdentity, memberName) {
+        document.documentElement.dataset.uploadedLibraryMemberGroupDocumentRequest =
+          JSON.stringify([declaredName, content.length, typeIdentity, memberName]);
+        return memberGroupDocument(
+          surfaces[0],
+          typeIdentity,
+          memberName);
+      }
       export async function queryPlatformMetadata(tfm, version, file, pack) {
         document.documentElement.dataset.platformMetadataRequest = JSON.stringify([tfm, version, file, pack]);
         return {
@@ -1961,10 +2023,11 @@ async function installLibraryUploadFacades(
   page: Page,
   libraryUpload: LibraryUploadFixture,
   packageLoading: PackageLoadingFixture = {},
+  model: BrowserPackageSurface = surface,
 ) {
   await installFacades(
     page,
-    surface,
+    model,
     [],
     "ready",
     "ready",

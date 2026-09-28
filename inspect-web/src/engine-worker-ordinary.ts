@@ -75,7 +75,9 @@ type MetadataOperationName =
   | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
+  | "queryMemberGroupDocument"
   | "queryPlatformMemberDeclaration"
+  | "queryPlatformMemberGroupDocument"
   | "queryPackageMetadataTable"
   | "queryPlatformMetadataTable"
   | "queryPackageHeapEntries"
@@ -83,6 +85,10 @@ type MetadataOperationName =
   | "queryPackageMetadata"
   | "queryPlatformMetadata"
   | "queryGraphMemberSurface";
+
+type MetadataFacadeOperationName =
+  | MetadataOperationName
+  | "queryUploadedLibraryMemberGroupDocument";
 
 type AnalysisOperationName =
   | "queryCloneCandidates"
@@ -159,10 +165,21 @@ type SourceWorkerClient =
     ) => Promise<BrowserSourceComparisonResult>;
   };
 
+type MetadataWorkerClient =
+  AsyncFacadeGroup<MetadataFacade, MetadataOperationName> & {
+    readonly queryUploadedLibraryMemberGroupDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      memberName: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
+    >>>;
+  };
+
 export interface EngineWorkerOrdinaryFacades {
   readonly package: Pick<PackageFacade, PackageOperationName>;
   readonly library: Pick<LibraryFacade, LibraryOperationName>;
-  readonly metadata: Pick<MetadataFacade, MetadataOperationName>;
+  readonly metadata: Pick<MetadataFacade, MetadataFacadeOperationName>;
   readonly analysis: Pick<AnalysisFacade, AnalysisOperationName>;
   readonly source: Pick<SourceFacade, SourceOperationName>;
   readonly callGraph: Pick<CallGraphFacade, CallGraphOperationName>;
@@ -172,12 +189,42 @@ export interface EngineWorkerOrdinaryFacades {
 export interface EngineWorkerOrdinaryClient {
   readonly package: AsyncFacadeGroup<PackageFacade, PackageOperationName>;
   readonly library: AsyncFacadeGroup<LibraryFacade, LibraryOperationName>;
-  readonly metadata: AsyncFacadeGroup<MetadataFacade, MetadataOperationName>;
+  readonly metadata: MetadataWorkerClient;
   readonly analysis: AsyncFacadeGroup<AnalysisFacade, AnalysisOperationName>;
   readonly source: SourceWorkerClient;
   readonly callGraph: AsyncFacadeGroup<CallGraphFacade, CallGraphOperationName>;
   readonly catalog: AsyncFacadeGroup<CatalogFacade, CatalogOperationName>;
   readonly activity: EngineWorkerOrdinaryActivity;
+}
+
+interface RetainedUploadedLibrary {
+  readonly identity: string;
+  readonly declaredName: string;
+  readonly content: number[];
+}
+
+const retainedUploadedLibraries =
+  new WeakMap<EngineWorkerOrdinaryFacades, RetainedUploadedLibrary>();
+
+async function openUploadedLibrary(
+  facades: EngineWorkerOrdinaryFacades,
+  ...args: Parameters<LibraryFacade["openUploadedLibrary"]>
+): Promise<Awaited<ReturnType<LibraryFacade["openUploadedLibrary"]>>> {
+  const inspection = await facades.library.openUploadedLibrary(...args);
+  if (inspection.content.outcome === "Available") {
+    const identity = inspection.content.provenance?.digest;
+    if (!identity) {
+      throw new Error(
+        "The available uploaded Library has no retained content identity.",
+      );
+    }
+    retainedUploadedLibraries.set(facades, {
+      identity,
+      declaredName: args[0],
+      content: args[1],
+    });
+  }
+  return inspection;
 }
 
 /**
@@ -906,7 +953,7 @@ export const engineWorkerOrdinaryOperations = {
       (
         facades,
         ...args: Parameters<LibraryFacade["openUploadedLibrary"]>
-      ) => facades.library.openUploadedLibrary(...args),
+      ) => openUploadedLibrary(facades, ...args),
       undefined,
       uploadedLibraryInputTransport,
     ),
@@ -1168,6 +1215,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryMemberDeclaration"]>
       ) => facades.metadata.queryMemberDeclaration(...args),
     ),
+    queryMemberGroupDocument: valueOperation(
+      "ordinary-metadata-query-member-group-document",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryMemberGroupDocument"]
+        >
+      ) => facades.metadata.queryMemberGroupDocument(...args),
+    ),
     queryPlatformMemberDeclaration: valueOperation(
       "ordinary-metadata-query-platform-member-declaration",
       8,
@@ -1177,6 +1234,45 @@ export const engineWorkerOrdinaryOperations = {
           MetadataFacade["queryPlatformMemberDeclaration"]
         >
       ) => facades.metadata.queryPlatformMemberDeclaration(...args),
+    ),
+    queryPlatformMemberGroupDocument: valueOperation(
+      "ordinary-metadata-query-platform-member-group-document",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPlatformMemberGroupDocument"]
+        >
+      ) => facades.metadata.queryPlatformMemberGroupDocument(...args),
+    ),
+    queryUploadedLibraryMemberGroupDocument: valueOperation(
+      "ordinary-metadata-query-uploaded-library-member-group-document",
+      3,
+      (
+        facades,
+        libraryIdentity: string,
+        typeIdentity: string,
+        memberName: string,
+      ) => {
+        const retained = retainedUploadedLibraries.get(facades);
+        if (!retained) {
+          throw new Error(
+            "No uploaded Library image is retained in this Worker epoch.",
+          );
+        }
+        if (retained.identity !== libraryIdentity) {
+          throw new Error(
+            "The requested uploaded Library is not the image retained "
+              + "in this Worker epoch.",
+          );
+        }
+        return facades.metadata.queryUploadedLibraryMemberGroupDocument(
+          retained.declaredName,
+          retained.content,
+          typeIdentity,
+          memberName,
+        );
+      },
     ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
@@ -1905,9 +2001,20 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
       ),
+      queryMemberGroupDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryMemberGroupDocument,
+      ),
       queryPlatformMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformMemberDeclaration,
+      ),
+      queryPlatformMemberGroupDocument: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPlatformMemberGroupDocument,
+      ),
+      queryUploadedLibraryMemberGroupDocument: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryUploadedLibraryMemberGroupDocument,
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,

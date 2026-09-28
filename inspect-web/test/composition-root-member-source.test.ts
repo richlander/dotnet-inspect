@@ -340,7 +340,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /Promise\.all\(\[\s*loadSelectedMemberFacts\(\),\s*loadSelectedMemberAnnotatedSource\(\),\s*\]\)/);
   assert.equal(
     [...appSource.matchAll(/loadSelectedMemberFactsSurface\(\)/g)].length,
-    4);
+    3);
   assert.match(
     annotatedAction,
     /case "source-select":[\s\S]*?const next = selectAnnotatedNode\(session, node\.id\);\s*setSession\(next\);\s*syncFindingSelectionFromAnnotatedSession\(next\)/);
@@ -668,7 +668,7 @@ test("moving between members keeps sections sticky without section-driven profil
     /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
   assert.match(
     openMemberGroupBody,
-    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(!preserveSection\) \{\s*state\.memberSection = "overview"/);
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
   assert.match(
     openMemberGroupBody,
     /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
