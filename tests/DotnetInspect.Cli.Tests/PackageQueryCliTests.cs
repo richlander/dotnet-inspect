@@ -20,6 +20,12 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class PackageQueryCliTests
 {
+    // In-process invocation skips Program's cache setup. Payload admission
+    // (for example library-literal) needs the persistent cache, so initialize it
+    // here instead of relying on an earlier test in the process to have done so.
+    public PackageQueryCliTests() =>
+        NuGetCache.Initialize("dotnet-inspect-test");
+
     internal static PackageQueryMatch ContainmentMatch(string text)
     {
         using var source = Source(out _);
