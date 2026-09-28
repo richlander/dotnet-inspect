@@ -185,6 +185,14 @@ internal static partial class MetadataRelationInspection
                     targetSelection.Type,
                     out directFailure);
             }
+            else if (target.Kind == HandleKind.TypeSpecification)
+            {
+                directMatch = PrefilterTypeSpecification(
+                    reader,
+                    (TypeSpecificationHandle)target,
+                    targetSelection.Type,
+                    out directFailure);
+            }
             else
             {
                 directMatch = null;
@@ -297,5 +305,57 @@ internal static partial class MetadataRelationInspection
                     .Identity,
                 occurrenceToken
                     ?? MetadataTokens.GetToken(target)));
+    }
+
+    static MetadataTypeDefinitionNameMatchResult?
+        PrefilterTypeSpecification(
+            MetadataReader reader,
+            TypeSpecificationHandle handle,
+            MetadataTypeDefinitionName target,
+            out MetadataTypeNameFailure? failure)
+    {
+        failure = null;
+        try
+        {
+            BlobReader signature =
+                reader.GetBlobReader(
+                    reader.GetTypeSpecification(handle).Signature);
+            if (signature.ReadSignatureTypeCode()
+                != SignatureTypeCode.GenericTypeInstance)
+            {
+                return null;
+            }
+
+            if (signature.ReadSignatureTypeCode()
+                != SignatureTypeCode.TypeHandle)
+            {
+                return null;
+            }
+            EntityHandle definition = signature.ReadTypeHandle();
+            return definition.Kind switch
+            {
+                HandleKind.TypeDefinition =>
+                    MetadataTypeDefinitionName.Matches(
+                        reader,
+                        (TypeDefinitionHandle)definition,
+                        target,
+                        out failure),
+                HandleKind.TypeReference =>
+                    MetadataTypeDefinitionName.Matches(
+                        reader,
+                        (TypeReferenceHandle)definition,
+                        target,
+                        out failure),
+                _ => null,
+            };
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 }

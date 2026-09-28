@@ -561,6 +561,82 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void HierarchyTargetSelectionRetainsMatchingGenericTypeSpecifications()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: new(
+                            TypeName(
+                                "System.Collections.Generic",
+                                "IEnumerable`1"),
+                            MetadataHierarchyRelationKind.Interface)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            available.Result.Hierarchy.Disposition);
+        Assert.NotEmpty(available.Result.Hierarchy.Evidence);
+        Assert.All(
+            available.Result.Hierarchy.Evidence,
+            relation =>
+            {
+                Assert.Equal(
+                    MetadataHierarchyRelationKind.Interface,
+                    relation.Kind);
+                var target =
+                    Assert.IsType<MetadataTypeIdentity.GenericInstance>(
+                        relation.Target);
+                Assert.Equal(
+                    "System.Collections.Generic",
+                    target.Definition.Namespace.ToString());
+                Assert.Equal(
+                    ["IEnumerable`1"],
+                    target.Definition.Segments.Select(
+                        static segment => segment.ToString()));
+            });
+    }
+
+    [Fact]
+    public void HierarchyTargetSelectionReportsMalformedGenericTypeSpecifications()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    BuildMalformedHierarchyTypeSpecificationImage(),
+                    writable: false));
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        hierarchyTarget: new(
+                            TypeName("Sample", "ITarget`1"),
+                            MetadataHierarchyRelationKind.Interface)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(available.Result.Hierarchy.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Hierarchy.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.UnsupportedShape,
+            diagnostic.Kind);
+        Assert.NotEmpty(diagnostic.Detail);
+    }
+
+    [Fact]
     public void SimpleTypeNameSearchMaterializesOnlyMatchingDefinitions()
     {
         string path = Path.Combine(
@@ -852,6 +928,62 @@ public sealed class MetadataRelationInspectionTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    private static byte[] BuildMalformedHierarchyTypeSpecificationImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedHierarchy.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedHierarchy"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle source = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Source"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeReferenceHandle unrelated = metadata.AddTypeReference(
+            MetadataTokens.EntityHandle(0x00000001),
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Unrelated`1"));
+        var signature = new BlobBuilder();
+        signature.WriteByte((byte)SignatureTypeCode.GenericTypeInstance);
+        signature.WriteByte((byte)SignatureTypeCode.Int32);
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(unrelated) << 2) | 1);
+        TypeSpecificationHandle malformed =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        metadata.AddInterfaceImplementation(source, malformed);
 
         var image = new BlobBuilder();
         new ManagedPEBuilder(
