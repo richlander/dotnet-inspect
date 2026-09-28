@@ -48,25 +48,36 @@ test("retained Workspace clone projects every callable AppState field", () => {
 
     assert.deepEqual(actual, callableStateFields);
 
-    const clone = functionSource(
+    const projection = structuredCloneProjectionTypes(
       session,
       appSource,
       text,
       "cloneCanonicalWorkspaceSnapshotForRetention",
     );
-    const projection = clone.match(
-      /const cloned = structuredClone\(\{([\s\S]*?)\n  \}\);/,
-    )?.[1];
-    assert.ok(projection !== undefined);
+    const projectedTypes = callableStateFields.map(field => {
+      const type = projection.get(field);
+      assert.ok(type !== undefined, `missing clone projection for '${field}'`);
+      return { field, type };
+    });
+    const unsafeTypes = callableReachableTypes(
+      session,
+      projectedTypes.map(entry => entry.type),
+    );
     for (const field of callableStateFields) {
-      assert.match(projection, new RegExp(`\\b${field}:`));
+      const projected = projectedTypes.find(entry => entry.field === field);
+      assert.ok(projected !== undefined);
+      assert.equal(
+        unsafeTypes.has(projected.type.handle),
+        false,
+        `clone projection for '${field}' remains function-bearing`,
+      );
     }
   } finally {
     session.dispose();
   }
 });
 
-test("constructor-only state values are function-bearing", () => {
+test("constructor-only and copied-through values remain function-bearing", () => {
   const fixtureRoot = mkdtempSync(
     join(tmpdir(), "retained-workspace-cloneability-"),
   );
@@ -84,8 +95,17 @@ class ConstructorOnly {}
 type SyntheticState = {
   direct: typeof ConstructorOnly;
   nested: { constructorValue: typeof ConstructorOnly };
+  callback: () => boolean;
   plain: { value: string };
 };
+function cloneSyntheticState(state: SyntheticState) {
+  return structuredClone({
+    ...state,
+    direct: state.direct,
+    nested: { constructorValue: null },
+    callback: state.callback,
+  });
+}
 `);
 
     const opened = openTypeScriptSemanticFacts(
@@ -106,7 +126,26 @@ type SyntheticState = {
       );
       assert.deepEqual(
         propertiesContainingCallables(session, state),
-        ["direct", "nested"],
+        ["callback", "direct", "nested"],
+      );
+      const projection = structuredCloneProjectionTypes(
+        session,
+        source,
+        text,
+        "cloneSyntheticState",
+      );
+      const projectionEntries = [...projection]
+        .filter(([name]) => name !== "plain");
+      const unsafeTypes = callableReachableTypes(
+        session,
+        projectionEntries.map(([, type]) => type),
+      );
+      assert.deepEqual(
+        projectionEntries
+          .filter(([, type]) => unsafeTypes.has(type.handle))
+          .map(([name]) => name)
+          .sort(),
+        ["callback", "direct"],
       );
     } finally {
       session.dispose();
@@ -263,21 +302,57 @@ function declaredTypeAlias(
   return resolved(session.getDeclaredType(symbol.handle));
 }
 
-function functionSource(
+function structuredCloneProjectionTypes(
   session: TypeScriptSemanticFactsSession,
   source: SourceFileFact,
   text: string,
   name: string,
-): string {
-  const declaration = resolved(session.getNodes(source.handle)).find(node =>
+): ReadonlyMap<string, TypeFact> {
+  const nodes = resolved(session.getNodes(source.handle));
+  const declaration = nodes.find(node =>
     node.kind === NodeKind.FunctionDeclaration
     && text.slice(node.location.start, node.location.start + node.location.length)
       .startsWith(`function ${name}(`));
   assert.ok(declaration !== undefined);
-  return text.slice(
-    declaration.location.start,
-    declaration.location.start + declaration.location.length,
-  );
+  const declarationEnd = declaration.location.start
+    + declaration.location.length;
+  const calls = nodes.filter(node =>
+    node.kind === NodeKind.CallExpression
+    && node.location.start >= declaration.location.start
+    && node.location.start + node.location.length <= declarationEnd
+    && text.slice(node.location.start, node.location.start + node.location.length)
+      .startsWith("structuredClone({"));
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.ok(call !== undefined);
+  const objectLiteral = call.children
+    .map(handle => resolved(session.getNode(handle)))
+    .find(node =>
+      text.slice(node.location.start, node.location.start + node.location.length)
+        .startsWith("{"));
+  assert.ok(objectLiteral !== undefined);
+
+  const projections = new Map<string, TypeFact>();
+  for (const handle of objectLiteral.children) {
+    const assignment = resolved(session.getNode(handle));
+    const children = assignment.children.map(child =>
+      resolved(session.getNode(child)));
+    const property = children[0];
+    const initializer = children.at(-1);
+    if (
+      property?.kind !== NodeKind.Identifier
+      || property.spelling === undefined
+      || initializer === undefined
+      || initializer.handle === property.handle
+    ) {
+      continue;
+    }
+    projections.set(
+      property.spelling,
+      resolved(session.getTypeAtNode(initializer.handle)),
+    );
+  }
+  return projections;
 }
 
 function sourceByPath(
