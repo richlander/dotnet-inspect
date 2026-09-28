@@ -444,9 +444,31 @@ public sealed class LibraryBodyAnalysisExecution
                 : MethodImplementationProfileAnalysis
                     .CollectOverloadRelationships(
                         callGraph.DeclaredMethods,
-                        callGraph.DirectCalls,
+                        SelectMetricDirectCalls(
+                            bodies,
+                            callGraph.DirectCalls),
                         callGraph.DeclaredMethodMap),
             relationshipDiagnostics.ToImmutable());
+    }
+
+    static ImmutableArray<DirectCall> SelectMetricDirectCalls(
+        ImmutableArray<MethodImplementationMetricEvidence> bodies,
+        ImmutableArray<DirectCall> directCalls)
+    {
+        if (bodies.IsEmpty || directCalls.IsEmpty)
+            return [];
+
+        HashSet<int> evidenceTokens =
+        [
+            .. bodies.Select(static body =>
+                body.EvidenceMethod.MetadataToken),
+        ];
+        return
+        [
+            .. directCalls.Where(call =>
+                evidenceTokens.Contains(
+                    call.EvidenceMethod.MetadataToken)),
+        ];
     }
 
     static ImmutableArray<ImplementationMetricStageParticipation>
