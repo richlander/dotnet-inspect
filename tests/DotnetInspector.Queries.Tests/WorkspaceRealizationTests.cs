@@ -126,6 +126,56 @@ public sealed class WorkspaceRealizationTests
     }
 
     [Fact]
+    public async Task
+        ConditionalCutover_RejectsChangedPredecessorWithoutPublishingCandidate()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        WorkspaceRealizationCandidate firstCandidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        WorkspaceRealization first =
+            await WorkspaceRealizationConsumer.ActivateAsync(
+                coordinator,
+                firstCandidate);
+        WorkspaceRealizationCandidate replacement =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        _ = Assert.IsType<
+            WorkspaceRealizationCandidateCompletionResult.Ready>(
+                await coordinator.CompleteCandidateAsync(
+                    replacement,
+                    TestContext.Current.CancellationToken));
+
+        await using var otherCoordinator =
+            new WorkspaceReplacementCoordinator();
+        WorkspaceRealizationCandidate otherCandidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                otherCoordinator,
+                WorkspacePlan.Empty);
+        WorkspaceRealization other =
+            await WorkspaceRealizationConsumer.ActivateAsync(
+                otherCoordinator,
+                otherCandidate);
+
+        var rejected = Assert.IsType<
+            WorkspaceRealizationCutoverResult.Rejected>(
+                coordinator.CutOver(
+                    replacement,
+                    other.Identity));
+
+        Assert.Equal(
+            WorkspaceRealizationCandidateRejection.PredecessorChanged,
+            rejected.Reason);
+        Assert.Same(first, coordinator.Current);
+        var retiring = Assert.IsType<
+            WorkspaceRealizationCandidateRetirementResult.Retiring>(
+                coordinator.AbandonCandidate(replacement));
+        Assert.True((await retiring.Retirement.Completion).Succeeded);
+    }
+
+    [Fact]
     public async Task SupersedeCandidate_RetiresWithoutStartingReplacement()
     {
         await using var coordinator = new WorkspaceReplacementCoordinator();

@@ -197,6 +197,7 @@ public abstract record WorkspaceRealizationCandidateStartResult
 public enum WorkspaceRealizationCandidateRejection
 {
     StaleCandidate,
+    PredecessorChanged,
     CompletionInProgress,
     AlreadyReady,
     NotReady,
@@ -688,7 +689,30 @@ public sealed class WorkspaceReplacementCoordinator : IAsyncDisposable
     }
 
     public WorkspaceRealizationCutoverResult CutOver(
-        WorkspaceRealizationCandidate candidate)
+        WorkspaceRealizationCandidate candidate) =>
+        CutOverCore(
+            candidate,
+            expectedPredecessor: null,
+            requireExpectedPredecessor: false);
+
+    /// <summary>
+    /// Atomically cuts over only while the expected predecessor remains active.
+    /// </summary>
+    public WorkspaceRealizationCutoverResult CutOver(
+        WorkspaceRealizationCandidate candidate,
+        InspectionWorkspaceIdentity expectedPredecessor)
+    {
+        ArgumentNullException.ThrowIfNull(expectedPredecessor);
+        return CutOverCore(
+            candidate,
+            expectedPredecessor,
+            requireExpectedPredecessor: true);
+    }
+
+    WorkspaceRealizationCutoverResult CutOverCore(
+        WorkspaceRealizationCandidate candidate,
+        InspectionWorkspaceIdentity? expectedPredecessor,
+        bool requireExpectedPredecessor)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         WorkspaceRealizationRetirement? predecessor = null;
@@ -715,6 +739,15 @@ public sealed class WorkspaceReplacementCoordinator : IAsyncDisposable
             {
                 return new WorkspaceRealizationCutoverResult.Rejected(
                     WorkspaceRealizationCandidateRejection.NotReady);
+            }
+            if (requireExpectedPredecessor
+                && !ReferenceEquals(
+                    _active?.Identity,
+                    expectedPredecessor))
+            {
+                return new WorkspaceRealizationCutoverResult.Rejected(
+                    WorkspaceRealizationCandidateRejection
+                        .PredecessorChanged);
             }
 
             RealizationState successor = candidate.State;
