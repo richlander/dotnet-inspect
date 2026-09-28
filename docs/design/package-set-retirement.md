@@ -70,9 +70,13 @@ The Ecosystem set changes:
   | `ModelContextProtocol` | 2.2.0 | `modelcontextprotocol/csharp-sdk` |
   | `Microsoft.Agents.AI` | 1.22.0 | `microsoft/agent-framework` |
 
+  The AI Ecosystem's scenario is `IChatClient`-style model consumption.
+  Vector stores are a separate scenario and are not mixed in:
   `Microsoft.Extensions.VectorData.Abstractions` leaves the core and its
-  prefix is removed; it is reached only through traversal from a root that
-  depends on it. Community-published
+  prefix is removed. That prefix matched only the abstractions and a
+  conformance-test package; vector-store providers live under
+  `Microsoft.SemanticKernel.Connectors.*` and would need their own
+  Ecosystem. Community-published
   `Anthropic.SDK` and `Mistral.SDK` are not lab-published SDKs and are not
   included.
 
