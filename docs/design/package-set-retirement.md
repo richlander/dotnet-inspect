@@ -170,7 +170,7 @@ and remain bounded by their own candidate limits and source page limits
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends` once each command has a working replacement (see slice 6) |
 | [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
-| [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | A new Ecosystem-membership selection arm: core packages exactly plus every recorded prefix, the membership `PackageQueryEcosystemMembershipDeclaration` already models. The existing `PackagePrefix` arm holds one prefix and cannot express roots or several prefixes, so this changes the change-report selection contract; `package activity --ecosystem` and the Browser picker adopt the new arm |
+| [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | A new Ecosystem-membership selection arm: core packages exactly plus every recorded prefix, the membership `PackageQueryEcosystemMembershipDeclaration` already models. The existing `PackagePrefix` arm holds one prefix and cannot express roots or several prefixes, so this changes the change-report selection contract. The new arm replaces `EcosystemChangePackageSelection.PackageSet` and its `PackageSet` output scope kind with an Ecosystem-membership scope kind; `package activity --ecosystem` and the Browser picker adopt it, and the Browser package-set catalog export, its contract, and the `package-list-changes-package-sets` Worker startup kind are replaced by an Ecosystem catalog |
 | [Platform library population declaration](platform-library-population-declaration.md) | Assembly-name selection within a platform family, so `Microsoft.Extensions*` assemblies partition out of both shared frameworks |
 | [Package-backed platform realization](package-backed-platform-realization.md) | Realization honors the selection for CLI and Browser |
 | [Ecosystem dependency recognition](ecosystem-dependency-recognition.md) | AI associations become `Microsoft.Extensions.AI` plus exact package and assembly associations for the seven roots, so community `Anthropic.SDK` stays unrecognized; Azure associations removed |
@@ -199,11 +199,18 @@ amends its owner's document with its code.
    `Microsoft.Extensions.VectorData.*`, `Microsoft.Agents.AI.*`, and
    `ModelContextProtocol.*` families other than the roots themselves. When
    AI is registered, those packages also stop classifying as supply-chain
-   baseline; the baseline owner's contract is unchanged, only its data.
-4. **Package activity.** Add the Ecosystem-membership selection arm (core
-   packages exactly plus every recorded prefix) to the change report; CLI
-   `package activity --ecosystem` and the Browser picker adopt it, and the
-   picker lists Ecosystems instead of package sets.
+   baseline, and the new roots `OpenAI`, `Anthropic`, and `Google.GenAI`
+   start classifying as baseline because baseline matches registered core
+   packages exactly; the baseline owner's contract is unchanged, only its
+   data.
+4. **Package activity.** Replace the change report's `PackageSet` selection
+   arm and output scope kind with an Ecosystem-membership arm (core packages
+   exactly plus every recorded prefix) and scope kind; this changes the
+   change-report JSON output. CLI `package activity --ecosystem` and the
+   Browser picker adopt it: the Browser package-set catalog export
+   (`PackageChangesExports`), its `BrowserPackageChangesPackageSetCatalog`
+   contract, and the `package-list-changes-package-sets` Worker startup kind
+   become an Ecosystem catalog, and the picker lists Ecosystems.
 5. **Partitioned platform populations.** Assembly-name selection in platform
    populations, honored by realization and carried by the share packet and
    definition JSON, adopted by Runtime, ASP.NET Core, and
@@ -223,7 +230,7 @@ amends its owner's document with its code.
    does that for `find`; the other three adopt it in their own slices. The
    `skills/relationships/SKILL.md` update goes to the release tracker.
 7. **Deletion.** Remove `PackageSet` from pack descriptors, the registry and
-   its types, both literal membership copies in tests, the `ecosystem` Info
+   its types, any change-report package-set remnant slice 4 leaves, both literal membership copies in tests, the `ecosystem` Info
    "Package Set" row, and the Extensions-set workspace-budget census script
    and its pinned data. Registry deletion waits for slice 6 on every
    command, because the flags read set membership until they are removed.
