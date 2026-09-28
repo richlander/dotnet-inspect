@@ -16,6 +16,7 @@ import {
   openTypeScriptSemanticFacts,
   semanticFactsTestSeam,
   type DeclarationHandle,
+  type IndexInfoFact,
   type QueryResult,
   type SourceFileFact,
   type SymbolFact,
@@ -109,6 +110,8 @@ import type {
 } from "./builtins";
 class ConstructorOnly {}
 type Map<T> = { callback: () => boolean; payload: T };
+type EmptyAlias = {};
+type NestedEmptyAlias = EmptyAlias;
 type SyntheticState = {
   direct: typeof ConstructorOnly;
   nested: { constructorValue: typeof ConstructorOnly };
@@ -117,6 +120,8 @@ type SyntheticState = {
   opaqueAny: any;
   opaqueObject: object;
   emptyObject: {};
+  emptyAlias: EmptyAlias;
+  nestedEmptyAlias: NestedEmptyAlias;
   shadowedMap: Map<string>;
   safeStandardMap: SafeStandardMap;
   callbackStandardMap: CallbackStandardMap;
@@ -132,6 +137,8 @@ function cloneSyntheticState(state: SyntheticState) {
     opaqueAny: state.opaqueAny,
     opaqueObject: state.opaqueObject,
     emptyObject: state.emptyObject,
+    emptyAlias: state.emptyAlias,
+    nestedEmptyAlias: state.nestedEmptyAlias,
     shadowedMap: state.shadowedMap,
     safeStandardMap: state.safeStandardMap,
     callbackStandardMap: state.callbackStandardMap,
@@ -161,8 +168,10 @@ function cloneSyntheticState(state: SyntheticState) {
           "callback",
           "callbackStandardMap",
           "direct",
+          "emptyAlias",
           "emptyObject",
           "nested",
+          "nestedEmptyAlias",
           "opaqueAny",
           "opaqueObject",
           "opaqueUnknown",
@@ -190,7 +199,9 @@ function cloneSyntheticState(state: SyntheticState) {
           "callback",
           "callbackStandardMap",
           "direct",
+          "emptyAlias",
           "emptyObject",
+          "nestedEmptyAlias",
           "opaqueAny",
           "opaqueObject",
           "opaqueUnknown",
@@ -271,10 +282,18 @@ function projectionRequiredTypes(
     if (visited.has(type.handle)) continue;
     visited.add(type.handle);
 
+    const callSignatures = applicable(session.getCallSignatures(type.handle));
+    const constructSignatures = applicable(
+      session.getConstructSignatures(type.handle),
+    );
+    const baseTypes = applicable(session.getBaseTypes(type.handle));
+    const indexInfos = applicable(session.getIndexInfos(type.handle));
+    const properties = applicable(session.getProperties(type.handle));
+
     if (
-      isOpaqueFunctionCarrier(type)
-      || applicable(session.getCallSignatures(type.handle)).length > 0
-      || applicable(session.getConstructSignatures(type.handle)).length > 0
+      isOpaqueFunctionCarrier(type, properties, indexInfos, baseTypes)
+      || callSignatures.length > 0
+      || constructSignatures.length > 0
     ) {
       direct.add(type.handle);
     }
@@ -282,13 +301,13 @@ function projectionRequiredTypes(
     const children = [
       ...applicable(session.getUnionConstituents(type.handle)),
       ...applicable(session.getIntersectionConstituents(type.handle)),
-      ...applicable(session.getBaseTypes(type.handle)),
+      ...baseTypes,
       ...applicable(session.getTypeArguments(type.handle)),
-      ...applicable(session.getIndexInfos(type.handle))
+      ...indexInfos
         .map(index => resolved(session.getType(index.valueType))),
     ];
 
-    for (const property of applicable(session.getProperties(type.handle))) {
+    for (const property of properties) {
       // Default-library methods are prototype APIs, not stored state values.
       if (!hasInspectableDeclaration(session, property.declarations)) {
         continue;
@@ -319,14 +338,26 @@ function projectionRequiredTypes(
   return reachable;
 }
 
-function isOpaqueFunctionCarrier(type: TypeFact): boolean {
+function isOpaqueFunctionCarrier(
+  type: TypeFact,
+  properties: readonly SymbolFact[],
+  indexInfos: readonly IndexInfoFact[],
+  baseTypes: readonly TypeFact[],
+): boolean {
   // These types can accept a function while exposing no signatures of their own.
   return type.category === TypeCategory.Any
     || type.category === TypeCategory.Unknown
     || type.category === TypeCategory.NonPrimitive
     || type.category === TypeCategory.TypeParameter
     || (type.category === TypeCategory.Object
-      && (type.display === "{}" || type.display === "Object"));
+      && (
+        type.display === "Object"
+        || (
+          properties.length === 0
+          && indexInfos.length === 0
+          && baseTypes.length === 0
+        )
+      ));
 }
 
 function symbolType(
