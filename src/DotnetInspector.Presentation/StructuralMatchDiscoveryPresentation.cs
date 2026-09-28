@@ -1,63 +1,37 @@
 using System.Collections.Immutable;
-using DotnetInspect.Cli.Output;
+using CSharpText;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Analysis;
-using ILInspector.CSharp;
-using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using InertText;
 using Markout;
 
-namespace DotnetInspect.Cli.Views;
+namespace DotnetInspector.Presentation;
 
 /// <summary>
 /// The request shape <c>match --similar</c> presents back to the caller, so the rendered output
 /// states exactly what was searched and under which limits (issue #4740).
 /// </summary>
-internal sealed record MatchDiscoveryRequest(
+public sealed record StructuralMatchDiscoveryPresentationRequest(
     string Seed,
     string Scope,
     string? CandidateAssembly,
     StructuralCloneRetrievalLimits Limits,
-    string? CandidatePackage = null,
-    string? CandidateTfm = null,
-    string? ReplayLibrary = null,
-    PackageReplaySources? ReplaySources = null,
-    bool IncludeAll = false);
+    string Disclosure);
 
 /// <summary>
 /// Token-to-display names for one candidate assembly, projected from the already-extracted
-/// <see cref="ApiSurface"/>. Retrieval addresses candidates by MethodDef token; this only supplies
-/// a readable label and never participates in selection or ranking.
+/// API surface. Retrieval addresses candidates by MethodDef token; this only
+/// supplies a readable label and never participates in selection or ranking.
 /// </summary>
-internal sealed class MatchDiscoveryNames
+public sealed class StructuralMatchDiscoveryNames
 {
     readonly Dictionary<int, string> names;
 
-    MatchDiscoveryNames(Dictionary<int, string> names) => this.names = names;
-
-    /// <summary>
-    /// Builds the token-to-name projection for one image, keeping only the types that image
-    /// actually defines. An <see cref="ApiSurface"/> also describes the types the image forwards,
-    /// whose tokens index the defining assembly; admitting them lets a forwarded type shadow a
-    /// local row and label it with a name from another image.
-    /// </summary>
-    internal static MatchDiscoveryNames Build(ApiSurface api, string image)
-    {
-        var names = new Dictionary<int, string>();
-        foreach (ApiType type in api.Types)
-        {
-            if (!Commands.MatchCommand.DefinesOwnRows(type, image))
-                continue;
-
-            foreach (ApiMember member in type.Members)
-            {
-                foreach (int token in Commands.MatchDiscovery.MemberTokens(member))
-                    names.TryAdd(token, $"{type.FullName}.{member.Name}");
-            }
-        }
-
-        return new MatchDiscoveryNames(names);
-    }
+    public StructuralMatchDiscoveryNames(
+        IEnumerable<KeyValuePair<int, string>> names)
+        => this.names = names.ToDictionary();
 
     /// <summary>
     /// The member's display name, or its token when the extracted surface does not name it (a
@@ -66,10 +40,13 @@ internal sealed class MatchDiscoveryNames
     /// the token still identifies the row within its own image, but it is not addressable by
     /// pairwise <c>match</c>, which compares two methods inside one retained assembly.
     /// </summary>
-    internal string Display(MetadataMethodAddress address)
+    public string Display(MetadataMethodAddress address)
         => names.TryGetValue(address.Token, out string? name)
-            ? CSharpIdentifier.ContainRenderedText(name)
+            ? Inert(name)
             : $"MethodDef 0x{address.Token:X8}";
+
+    static string Inert(string value) =>
+        new InertString(TextPolicy.Field, value).ToString();
 }
 
 [MarkoutSerializable(
@@ -343,17 +320,17 @@ public sealed record MatchDiscoveryFailureDocument
     public required string Detail { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
 }
 
-internal static class MatchDiscoveryFormatter
+public static class StructuralMatchDiscoveryPresentation
 {
-    internal const string RejectedDisposition = "Rejected";
-    internal const string UnresolvedDisposition = "Unresolved";
+    public const string RejectedDisposition = "Rejected";
+    public const string UnresolvedDisposition = "Unresolved";
 
     /// <summary>
     /// The one table shape that <c>--table</c>, <c>--tsv</c>, and <c>--jsonl</c> may emit. A run
     /// that ranked nothing yields an empty table; its blockers and disposition reach the reader
     /// through <see cref="TabularContext"/> and the exit code.
     /// </summary>
-    internal static MatchDiscoveryCandidateTableView CandidateTable(MatchDiscoveryView view)
+    public static MatchDiscoveryCandidateTableView CandidateTable(MatchDiscoveryView view)
         => new() { Candidates = view.Candidates ?? [] };
 
     /// <summary>
@@ -361,7 +338,7 @@ internal static class MatchDiscoveryFormatter
     /// notes so a failed or blocked retrieval stays visible without adding a second row schema to
     /// the parsed stream.
     /// </summary>
-    internal static IEnumerable<string> TabularContext(MatchDiscoveryView view)
+    public static IEnumerable<string> TabularContext(MatchDiscoveryView view)
     {
         yield return $"Seed: {view.Seed}";
         yield return $"Scope: {view.Scope}";
@@ -382,103 +359,22 @@ internal static class MatchDiscoveryFormatter
             yield return $"Blocker {blocker.Kind}: {blocker.Detail}";
     }
 
-    /// <summary>
-    /// Retrieval ranks structural candidates. It is a selection step, not a verdict. A ranked row
-    /// is addressable by pairwise <c>match</c>, which is what the printed token promises — but a
-    /// MethodDef token is a row index in one image, so the promise is only good against the image
-    /// that owns the row. When type forwarding puts the population in the assembly that defines
-    /// it rather than the facade the caller opened, the disclosure names that assembly, because
-    /// telling the reader to run pairwise <c>match</c> without saying which <c>--library</c> to
-    /// pass would name a transition their next command cannot perform.
-    /// </summary>
-    internal const string DisclosurePrefix =
-        "Ranks structural candidates only. A rank does not establish Exact, Near, or Different, "
-            + "nor semantic equivalence, authorship, copying intent, or vulnerability. ";
-
-    internal const string Disclosure =
-        DisclosurePrefix + "Run pairwise `match` on a candidate to obtain a checked relation.";
-
-    /// <summary>
-    /// A run that carries a candidate assembly is exactly the run whose ranked tokens index an
-    /// image other than the one the caller named, because discovery leaves the candidate assembly
-    /// null when the population lives in the caller's own image.
-    /// <para>
-    /// The address must be one the caller can still use after this process exits. A package is
-    /// extracted to a temporary directory that the command deletes, so a package-sourced run
-    /// discloses the package and the library inside it rather than the extraction path, including
-    /// when that package image is also the image the caller named.
-    /// </para>
-    /// </summary>
-    internal static string DisclosureFor(MatchDiscoveryRequest request)
-        => request.CandidateAssembly is string candidateAssembly
-            ? DisclosurePrefix
-                + "Ranked tokens index "
-                + Path.GetFileName(candidateAssembly)
-                + ", which defines them rather than the assembly named on the command line; run "
-                + "pairwise `match` in "
-                + ShellCommandText.CurrentDialectName
-                + " on a candidate with `"
-                + ReplayOptions(request, candidateAssembly)
-                + "` to obtain a checked relation."
-            : request.CandidatePackage is string
-                && request.ReplayLibrary is string replayLibrary
-                    ? DisclosurePrefix
-                        + "Ranked tokens index the package image selected for this run; run "
-                        + "pairwise `match` in "
-                        + ShellCommandText.CurrentDialectName
-                        + " on a candidate with `"
-                        + ReplayOptions(request, replayLibrary)
-                        + "` to obtain a checked relation against that same image."
-                    : request.ReplayLibrary is string directLibrary
-                        ? DisclosurePrefix
-                            + "Ranked tokens index the directly selected image; run pairwise "
-                            + "`match` in "
-                            + ShellCommandText.CurrentDialectName
-                            + " on a candidate with `"
-                            + ReplayOptions(request, directLibrary)
-                            + "` to obtain a checked relation against that same image."
-                        : Disclosure;
-
-    static string ReplayOptions(MatchDiscoveryRequest request, string library)
-    {
-        var options = new List<string>();
-        if (request.CandidatePackage is string candidatePackage)
-        {
-            options.Add("--package " + ShellCommandText.Quote(candidatePackage));
-            options.Add("--library " + ShellCommandText.Quote(library));
-            if (request.CandidateTfm is string candidateTfm)
-                options.Add("--tfm " + ShellCommandText.Quote(candidateTfm));
-
-            if (request.ReplaySources is { } sources)
-            {
-                options.Add(PackageReplaySourceArguments.Format(sources));
-            }
-        }
-        else
-        {
-            options.Add("--library " + ShellCommandText.Quote(library));
-        }
-
-        if (request.IncludeAll)
-            options.Add("--all");
-
-        return string.Join(' ', options);
-    }
-
-    internal static (MatchDiscoveryView View, MatchDiscoveryDocument Document) BuildView(
-        MatchDiscoveryRequest request,
-        AssemblyContextStructuralCloneRetrievalResult result,
-        MatchDiscoveryNames names,
+    public static (MatchDiscoveryView View, MatchDiscoveryDocument Document) Create(
+        StructuralMatchDiscoveryPresentationRequest request,
+        StructuralMatchDiscoveryInspectionResult result,
+        StructuralMatchDiscoveryNames names,
         IReadOnlyList<StructuralCloneRetrievalCandidate> selectedCandidates)
         => result switch
         {
-            AssemblyContextStructuralCloneRetrievalResult.Available available =>
+            StructuralMatchDiscoveryInspectionResult.Available available =>
                 BuildAvailable(
                     request,
                     available,
                     names,
                     selectedCandidates),
-            AssemblyContextStructuralCloneRetrievalResult.Rejected rejected =>
+            StructuralMatchDiscoveryInspectionResult.LimitReached limited =>
+                BuildLimitReached(request, limited),
+            StructuralMatchDiscoveryInspectionResult.Rejected rejected =>
                 BuildTerminal(
                     request,
                     RejectedDisposition,
@@ -488,14 +384,14 @@ internal static class MatchDiscoveryFormatter
                         Role = rejected.Role.ToString(),
                         Detail = rejected.Failure.ToString() ?? "",
                     }),
-            AssemblyContextStructuralCloneRetrievalResult.Failed failed =>
+            StructuralMatchDiscoveryInspectionResult.Failed failed =>
                 BuildTerminal(
                     request,
                     UnresolvedDisposition,
                     new MatchDiscoveryFailureDocument
                     {
                         Kind = failed.Failure.Kind.ToString(),
-                        Role = failed.Failure.Role.ToString(),
+                        Role = failed.Role.ToString(),
                         Detail = failed.Failure.Detail,
                     }),
             _ => throw new InvalidOperationException(
@@ -503,7 +399,7 @@ internal static class MatchDiscoveryFormatter
         };
 
     static (MatchDiscoveryView, MatchDiscoveryDocument) BuildTerminal(
-        MatchDiscoveryRequest request,
+        StructuralMatchDiscoveryPresentationRequest request,
         string disposition,
         MatchDiscoveryFailureDocument failure)
     {
@@ -521,7 +417,7 @@ internal static class MatchDiscoveryFormatter
             Scope = request.Scope,
             CandidateAssembly = request.CandidateAssembly,
             Disposition = disposition,
-            Disclosure = DisclosureFor(request),
+            Disclosure = request.Disclosure,
             Limits = LimitsOf(request),
             RowSelection = new(0, 0),
             Failure = failure,
@@ -529,17 +425,75 @@ internal static class MatchDiscoveryFormatter
         return (view, document);
     }
 
+    static (MatchDiscoveryView, MatchDiscoveryDocument) BuildLimitReached(
+        StructuralMatchDiscoveryPresentationRequest request,
+        StructuralMatchDiscoveryInspectionResult.LimitReached limited)
+    {
+        const string disposition =
+            nameof(StructuralCloneRetrievalDisposition.LimitReached);
+        string detail =
+            $"Method population {limited.InputMethods} exceeds "
+                + $"{request.Limits.MaximumMethods}.";
+        var blocker =
+            new MatchDiscoveryBlockerDocument
+            {
+                Kind =
+                    StructuralCloneRetrievalBlockerKind.MethodLimit.ToString(),
+                Detail = detail,
+            };
+        var view = NewView(request, disposition);
+        view.SeedBody = disposition;
+        view.Receipt =
+            $"0 eligible of 0 processed ({limited.InputMethods} input); "
+                + "0 ranked, 0 returned "
+                + "(0 unsupported, 0 limit-reached, 0 failed)";
+        view.Blockers =
+        [
+            new MatchDiscoveryBlockerRow(blocker.Kind, blocker.Detail),
+        ];
+
+        var document = new MatchDiscoveryDocument
+        {
+            Seed = request.Seed,
+            Scope = request.Scope,
+            CandidateAssembly = request.CandidateAssembly,
+            Disposition = disposition,
+            Disclosure = request.Disclosure,
+            Limits = LimitsOf(request),
+            RowSelection = new(0, 0),
+            SeedOutcome = new MatchDiscoverySeedDocument
+            {
+                Member = request.Seed,
+                Token = $"0x{limited.Seed.Token:X8}",
+                Disposition = disposition,
+            },
+            Receipt = new MatchDiscoveryReceiptDocument(
+                limited.InputMethods,
+                ProcessedMethods: 0,
+                limited.SuppressedCandidates,
+                EligibleMethods: 0,
+                UnsupportedMethods: 0,
+                LimitReachedMethods: 0,
+                FailedMethods: 0,
+                RankedCandidates: 0,
+                ReturnedCandidates: 0,
+                BodyProductions: 0),
+            Blockers = [blocker],
+        };
+        return (view, document);
+    }
+
     static (MatchDiscoveryView, MatchDiscoveryDocument) BuildAvailable(
-        MatchDiscoveryRequest request,
-        AssemblyContextStructuralCloneRetrievalResult.Available available,
-        MatchDiscoveryNames names,
+        StructuralMatchDiscoveryPresentationRequest request,
+        StructuralMatchDiscoveryInspectionResult.Available available,
+        StructuralMatchDiscoveryNames names,
         IReadOnlyList<StructuralCloneRetrievalCandidate> selectedCandidates)
     {
         StructuralCloneRetrievalResult retrieval = available.Retrieval;
         var view = NewView(request, retrieval.Disposition.ToString());
 
         view.SeedBody = retrieval.Seed.Disposition.ToString();
-        StructuralCloneRetrievalReceipt receipt = retrieval.Receipt;
+        StructuralCloneRetrievalReceipt receipt = available.Receipt;
 
         // Input and processed are different numbers and the difference is the honest part: a
         // limit rejects the population atomically, so nothing is scanned even though the input
@@ -559,7 +513,8 @@ internal static class MatchDiscoveryFormatter
                 .ToList();
         }
 
-        ImmutableArray<StructuralCloneRetrievalCandidate> candidates = retrieval.Candidates;
+        ImmutableArray<StructuralCloneRetrievalCandidate> candidates =
+            available.Candidates;
         if (selectedCandidates.Count > 0)
         {
             view.Candidates = selectedCandidates
@@ -587,7 +542,7 @@ internal static class MatchDiscoveryFormatter
             Scope = request.Scope,
             CandidateAssembly = request.CandidateAssembly,
             Disposition = retrieval.Disposition.ToString(),
-            Disclosure = DisclosureFor(request),
+            Disclosure = request.Disclosure,
             Limits = LimitsOf(request),
             RowSelection = new(
                 candidates.Length,
@@ -642,11 +597,13 @@ internal static class MatchDiscoveryFormatter
         return (view, document);
     }
 
-    static MatchDiscoveryView NewView(MatchDiscoveryRequest request, string disposition)
+    static MatchDiscoveryView NewView(
+        StructuralMatchDiscoveryPresentationRequest request,
+        string disposition)
         => new()
         {
             Title = $"Similar to: {CSharpIdentifier.ContainRenderedText(request.Seed)}",
-            Description = DisclosureFor(request),
+            Description = request.Disclosure,
             Seed = CSharpIdentifier.ContainRenderedText(request.Seed),
             Scope = CSharpIdentifier.ContainRenderedText(request.Scope),
             CandidateAssembly = request.CandidateAssembly is null
@@ -658,7 +615,8 @@ internal static class MatchDiscoveryFormatter
                     + $"max-results {request.Limits.MaximumResults}",
         };
 
-    static MatchDiscoveryLimitsDocument LimitsOf(MatchDiscoveryRequest request)
+    static MatchDiscoveryLimitsDocument LimitsOf(
+        StructuralMatchDiscoveryPresentationRequest request)
         => new(
             request.Limits.MaximumMethods,
             request.Limits.MaximumResults);

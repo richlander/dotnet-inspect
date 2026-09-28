@@ -25,7 +25,7 @@ public record MatchOptions : ApiOptions
     /// Switch <c>match</c> from pairwise comparison to seeded discovery: rank the candidate
     /// population by structural similarity to the seed named by <see cref="LeftSelector"/>
     /// (issue #4740). This is a thin consumer of
-    /// <see cref="DotnetInspector.Queries.AssemblyContextStructuralCloneRetrievalQuery"/>.
+    /// <see cref="StructuralMatchDiscoveryInspection"/>.
     /// </summary>
     public bool Similar { get; init; }
 
