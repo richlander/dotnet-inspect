@@ -1720,11 +1720,16 @@ test.describe("Package Activity website over real Wasm", () => {
     await expect(page.locator("#package-changes-heading"))
       .toHaveText("Package Activity", { timeout: 120_000 });
     await expect(page).toHaveTitle("Package Activity · dotnet-inspect");
-    const packageSet = page.locator("#package-changes-package-set");
-    await expect(packageSet).toBeVisible();
-    expect(await packageSet.locator("option").count()).toBeGreaterThan(0);
-    await expect(page.locator(".package-changes-package-set-summary"))
+    const ecosystem = page.locator("#package-changes-ecosystem");
+    await expect(ecosystem).toBeVisible();
+    expect(await ecosystem.locator("option").count()).toBeGreaterThan(0);
+    await expect(page.locator(".package-changes-ecosystem-summary"))
       .not.toHaveText("");
+    // Ecosystems arrive in product order (Runtime first); the fixture activity
+    // is Microsoft.Extensions.AI, so select the Microsoft.Extensions prefix.
+    await ecosystem.selectOption("ecosystem.microsoft-extensions");
+    await expect(page.locator(".package-changes-ecosystem-prefixes"))
+      .toHaveText("Microsoft.Extensions.*");
 
     const maximumRows = page.locator("#package-changes-limit");
     await maximumRows.fill("");

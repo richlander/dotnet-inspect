@@ -28,7 +28,7 @@ type PackageOperations =
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
-  | "listPackageActivityPackageSets"
+  | "listPackageActivityEcosystems"
   | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"

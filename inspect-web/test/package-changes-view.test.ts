@@ -17,27 +17,31 @@ const escapeHtml = (value: unknown) => String(value)
   .replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
 
-const packageSets = [{
-  id: "package-set.product-issued",
-  title: "Product-issued set",
-  summary: "Package membership remains product-owned.",
+const ecosystems = [{
+  id: "ecosystem.product-issued",
+  title: "Product-issued ecosystem",
+  summary: "Package prefixes remain product-owned.",
   order: 10,
+  prefixes: ["Product.", "Product.Issued."],
 }];
 
 test("view renders the routed Package Activity product catalog", () => {
   const html = renderPackageChangesView({
     state: initialPackageChangesState(),
-    packageSets,
+    ecosystems,
     escapeHtml,
   });
 
   assert.doesNotMatch(html, /role="tablist"/);
   assert.doesNotMatch(html, /data-query-mode/);
   assert.match(html, />Package Activity<\/h1>/);
-  assert.match(html, /value="package-set\.product-issued"/);
-  assert.match(html, /Product-issued set/);
-  assert.match(html, /Package membership remains product-owned/);
-  assert.doesNotMatch(html, /package-set\.microsoft-extensions/);
+  assert.match(html, /<label for="package-changes-ecosystem">Ecosystem<\/label>/);
+  assert.match(html, /value="ecosystem\.product-issued"/);
+  assert.match(html, /Product-issued ecosystem/);
+  assert.match(html, /Package prefixes remain product-owned/);
+  assert.match(html, /class="package-changes-ecosystem-prefixes">Product\.\*, Product\.Issued\.\*</);
+  assert.doesNotMatch(html, /ecosystem\.microsoft-extensions/);
+  assert.doesNotMatch(html, /package-set/);
 });
 
 test("current advisory context never manufactures a security-release label", () => {
@@ -50,7 +54,7 @@ test("current advisory context never manufactures a security-release label", () 
   };
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     escapeHtml,
   });
 
@@ -67,7 +71,7 @@ test("positive security release, evidence availability, failures, and coverage u
     currentAvailability: "Partial",
     fixedAvailability: "Complete",
   });
-  state.request = createPackageChangesRequest("package-set.product-issued");
+  state.request = createPackageChangesRequest("ecosystem.product-issued");
   state.rows = [positive];
   state.failures = [failure];
   state.settlement = {
@@ -76,7 +80,7 @@ test("positive security release, evidence availability, failures, and coverage u
   };
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     escapeHtml,
   });
 
@@ -86,6 +90,7 @@ test("positive security release, evidence availability, failures, and coverage u
   assert.match(html, /Advisory provider/);
   assert.match(html, /source unavailable/);
   assert.match(html, /Completion and coverage/);
+  assert.match(html, /ecosystem\.example · Example\.\* · 1 prefix</);
   assert.match(html, /1 in interval · 1 matching · 1 retained/);
   assert.match(html, /0 current-context · 0 security-release/);
   assert.match(html, /Package Activity reports are not shareable yet/);
@@ -114,7 +119,7 @@ test("checked-empty, partial-empty, and unavailable evidence remain distinct", (
   };
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     escapeHtml,
   });
 
@@ -132,7 +137,7 @@ test("a 1000-row report mounts no more than 30 rows while retaining total accoun
   state.settlement = { kind: "running" };
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     viewport: {
       scrollTop: 500 * 300,
       clientHeight: 800,
@@ -165,7 +170,7 @@ test("row window uses measured variable extents for spacer accounting", () => {
     (_, index) => index % 2 === 0 ? 200 : 600);
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     viewport: {
       scrollTop: 10_000,
       clientHeight: 800,
@@ -192,7 +197,7 @@ test("row window preserves measured card extents above the estimation ceiling", 
   state.settlement = { kind: "running" };
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     viewport: {
       scrollTop: 44_000,
       clientHeight: 800,
@@ -229,7 +234,7 @@ test("repeated coordinates retain distinct Catalog event identities", () => {
   };
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     escapeHtml,
   });
 
@@ -250,7 +255,7 @@ test("artifact advisory URLs are inert unless they are HTTPS", () => {
   };
   const html = renderPackageChangesView({
     state,
-    packageSets,
+    ecosystems,
     escapeHtml,
   });
 
