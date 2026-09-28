@@ -310,11 +310,15 @@ internal sealed class SignatureOccurrenceProvider(
         if (rejected.Failure.RelationshipKind
             == RelationshipTraversalRejectionKind.NameBudget)
         {
+            MetadataTypeNameBudgetFailure? budget =
+                rejected.Failure.Budget;
             throw new SignatureOccurrenceRejectedException(
                 SignatureOccurrenceRejectionReason.TypeNameBudget,
-                MetadataOperationDimension.RetainedText,
-                MetadataSafetyPolicy.MaxTypeNameCharacters,
-                MetadataSafetyPolicy.MaxTypeNameCharacters + 1L);
+                budget is null
+                    ? null
+                    : MetadataOperationDimension.RetainedText,
+                budget?.Limit,
+                budget?.AttemptedCharge);
         }
         if (rejected.Failure.RelationshipKind
             == RelationshipTraversalRejectionKind.NodeBudget)

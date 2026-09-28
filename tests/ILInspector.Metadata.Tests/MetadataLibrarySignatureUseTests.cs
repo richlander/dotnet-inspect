@@ -495,7 +495,7 @@ public sealed class MetadataLibrarySignatureUseTests
     public void TypeNameBoundProducesTypedLimitedSite()
     {
         byte[] image = BuildLocallyBoundedFieldImage(
-            longTypeName: true);
+            longTypeNameLength: 5_000);
         using var stream = new MemoryStream(image);
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(stream);
@@ -509,14 +509,37 @@ public sealed class MetadataLibrarySignatureUseTests
         AssertLocalLimit(
             result,
             MetadataOperationDimension.RetainedText,
-            MetadataSafetyPolicy.MaxTypeNameCharacters);
+            MetadataSafetyPolicy.MaxTypeNameCharacters,
+            attemptedCharge: 5_001);
+    }
+
+    [Fact]
+    public void EncodedTypeNameBoundProducesActualTypedLimit()
+    {
+        byte[] image = BuildLocallyBoundedFieldImage(
+            longTypeNameLength: 13_000);
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        AssertLocalLimit(
+            result,
+            MetadataOperationDimension.RetainedText,
+            MetadataTypeNameBudget.MaxEncodedBytes,
+            attemptedCharge: 13_001);
     }
 
     [Fact]
     public void StructuralDepthBoundProducesTypedLimitedSite()
     {
         byte[] image = BuildLocallyBoundedFieldImage(
-            longTypeName: false);
+            longTypeNameLength: null);
         using var stream = new MemoryStream(image);
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(stream);
@@ -752,7 +775,8 @@ public sealed class MetadataLibrarySignatureUseTests
     private static void AssertLocalLimit(
         MetadataLibrarySignatureUseResult result,
         MetadataOperationDimension dimension,
-        long limit)
+        long limit,
+        long? attemptedCharge = null)
     {
         Assert.Equal(
             MetadataLibrarySignatureUseDisposition.Partial,
@@ -774,7 +798,9 @@ public sealed class MetadataLibrarySignatureUseTests
             Assert.Single(result.Occurrences).SiteKind);
         Assert.Equal(dimension, diagnostic.BudgetDimension);
         Assert.Equal(limit, diagnostic.BudgetLimit);
-        Assert.Equal(limit + 1, diagnostic.AttemptedCharge);
+        Assert.Equal(
+            attemptedCharge ?? limit + 1,
+            diagnostic.AttemptedCharge);
     }
 
     private static byte[] BuildMalformedSignatureImage()
@@ -1049,7 +1075,7 @@ public sealed class MetadataLibrarySignatureUseTests
     }
 
     private static byte[] BuildLocallyBoundedFieldImage(
-        bool longTypeName)
+        int? longTypeNameLength)
     {
         var metadata = CreateMetadata("LocallyBoundedField");
         AddModuleType(metadata);
@@ -1072,7 +1098,7 @@ public sealed class MetadataLibrarySignatureUseTests
 
         var signature = new BlobBuilder();
         signature.WriteByte(0x06);
-        if (longTypeName)
+        if (longTypeNameLength is { } nameLength)
         {
             AssemblyReferenceHandle dependency =
                 metadata.AddAssemblyReference(
@@ -1086,7 +1112,8 @@ public sealed class MetadataLibrarySignatureUseTests
                 metadata.AddTypeReference(
                     dependency,
                     default,
-                    metadata.GetOrAddString(new string('N', 5_000)));
+                    metadata.GetOrAddString(
+                        new string('N', nameLength)));
             signature.WriteByte(0x12);
             signature.WriteCompressedInteger(
                 CodedIndex.TypeDefOrRefOrSpec(longName));
