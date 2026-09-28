@@ -1301,7 +1301,7 @@ query route, rows, and request intact.
 Package Activity is the routed `/activity` working surface beside `/query`. It
 has no package tab, peer-mode selector, or active inspection coordinate.
 [The Package Activity experience](package-activity-experience.md) owns its
-product-issued package-set scope, interval, progressive rows, cancellation,
+product-issued Ecosystem prefix scope, interval, progressive rows, cancellation,
 typed completion, bounded DOM, and session-local state.
 
 The page header contains the brand-triggered product-navigation control and
@@ -1911,7 +1911,7 @@ with the absence of a synthesized `Default feed` control.
 ### Package Activity route
 
 1. Open Package Activity and confirm that `/activity` renders one level-one
-   `Package Activity` heading, the product-issued package-set selector, the
+   `Package Activity` heading, the product-issued Ecosystem selector, the
    interval and result-bound controls, and `Run report`.
 2. Confirm that neither `/activity` nor `/query` renders the retired
    `Packages | Activity` peer selector.

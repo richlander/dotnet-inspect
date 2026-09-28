@@ -30,8 +30,34 @@ internal sealed class SameImageSignatureComparer(
 
     internal bool Matches(TypeRef left, TypeRef right)
     {
-        if (!TypeRef.ExactSignatureEquals(left, right))
+        return Matches(
+            left,
+            right,
+            allowUnspecifiedLeftRawTypeKind: false);
+    }
+
+    internal bool TokenMatchesSignature(
+        TypeRef tokenType,
+        TypeRef signatureType) =>
+        Matches(
+            tokenType,
+            signatureType,
+            allowUnspecifiedLeftRawTypeKind: true);
+
+    bool Matches(
+        TypeRef left,
+        TypeRef right,
+        bool allowUnspecifiedLeftRawTypeKind)
+    {
+        if (!(allowUnspecifiedLeftRawTypeKind
+                ? TypeRef
+                    .ExactSignatureEqualsWithUnspecifiedLeftRawTypeKind(
+                        left,
+                        right)
+                : TypeRef.ExactSignatureEquals(left, right)))
+        {
             return false;
+        }
 
         var pending = new Stack<(TypeRef Left, TypeRef Right)>();
         var visited = new HashSet<(TypeRef Left, TypeRef Right)>(
