@@ -63,6 +63,38 @@ public sealed class DotnetHostRootTests : IDisposable
     }
 
     [Fact]
+    public void TreatsAnEmptyPathEntryAsTheCurrentDirectory()
+    {
+        string current = Directory.CreateDirectory(
+            Path.Combine(_root, "current")).FullName;
+        string later = Directory.CreateDirectory(
+            Path.Combine(_root, "later")).FullName;
+        CreateHost(current);
+        CreateHost(later);
+
+        Assert.Equal(
+            Path.GetFullPath(current),
+            DotnetHostRoot.FindOnPath(
+                string.Concat(Path.PathSeparator, later),
+                current));
+    }
+
+    [Fact]
+    public void PreservesWhitespaceInPathEntries()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return;
+
+        string spaced = Directory.CreateDirectory(
+            Path.Combine(_root, " spaced ")).FullName;
+        CreateHost(spaced);
+
+        Assert.Equal(
+            Path.GetFullPath(spaced),
+            DotnetHostRoot.FindOnPath(spaced));
+    }
+
+    [Fact]
     public void SkipsANonExecutableHostOnPath()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))

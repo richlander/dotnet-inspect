@@ -22,9 +22,16 @@ public static class DotnetHostRoot
     /// or <see langword="null"/> when none is found.
     /// </summary>
     public static string? FindOnPath() =>
-        FindOnPath(Environment.GetEnvironmentVariable("PATH"));
+        FindOnPath(
+            Environment.GetEnvironmentVariable("PATH"),
+            Environment.CurrentDirectory);
 
-    internal static string? FindOnPath(string? path)
+    internal static string? FindOnPath(string? path) =>
+        FindOnPath(path, Environment.CurrentDirectory);
+
+    internal static string? FindOnPath(
+        string? path,
+        string currentDirectory)
     {
         if (string.IsNullOrEmpty(path))
             return null;
@@ -32,14 +39,13 @@ public static class DotnetHostRoot
         string hostName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
             ? "dotnet.exe"
             : "dotnet";
-        foreach (string entry in path.Split(
-                     Path.PathSeparator,
-                     StringSplitOptions.RemoveEmptyEntries
-                     | StringSplitOptions.TrimEntries))
+        foreach (string entry in path.Split(Path.PathSeparator))
         {
             try
             {
-                string candidate = Path.Combine(entry, hostName);
+                string candidate = Path.GetFullPath(
+                    Path.Combine(entry, hostName),
+                    currentDirectory);
                 if (!File.Exists(candidate)
                     || !RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
                         && (File.GetUnixFileMode(candidate) & ExecuteBits) == 0)
