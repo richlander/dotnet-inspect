@@ -316,8 +316,8 @@ root `README.md` and the Markdown under `skills/`. Two consumers read them:
 | `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
 | `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
 
-The first row and the last three rows adopt ranged access. The others keep their current
-complete acquisition until they adopt ranged access (see
+The first two rows and the last three rows adopt ranged access. The others keep
+their current complete acquisition until they adopt ranged access (see
 [Adoption](#adoption)).
 
 ## Pathological cases and gates
@@ -347,6 +347,9 @@ All gates run in Release.
 | 19. A named implementation Library requests its listed adjacent Portable PDB | the implementation DLL remains a block anchor, the PDB is retained as an exact entry, and its neighboring entry is not materialized | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandRetainsExactCompanion`, using the real `System.Text.Json` implementation assembly in a boundary archive |
 | 20. The requested adjacent Portable PDB is absent | realization and the selected Library handoff still settle without a PDB entry | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandAllowsAbsentCompanion` |
 | 21. A selected reference Library has no implementation counterpart | companion demand invents neither an implementation asset nor a PDB; the reference-only handoff settles | `PackageRangedRealizationTests.RangedSelectedLibraryPortablePdbDemandDoesNotInventImplementation` |
+| 22. CLI Address selects an exact Library from a pinned or latest configured package | both version policies use PackageHouse and render the same Member context | `ConfiguredPayloadAcquisitionTests.LibraryAddressCommand_ConfiguredPackageUsesHouseSelection` |
+| 23. CLI Address selects an exact Library from a local archive and requests source location | the exact archive is admitted by its embedded identity and the adjacent Portable PDB supplies source evidence | `CommandExecutionTests.LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb` |
+| 24. A local archive lacks embedded package identity | exact-source admission fails visibly before Address inspection | `CommandExecutionTests.LibraryAddressCommand_LocalArchiveRequiresEmbeddedPackageIdentity` |
 
 ## Adoption
 
