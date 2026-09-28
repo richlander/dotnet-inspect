@@ -1,3 +1,4 @@
+fixtures/analysis/ILInspector.Analysis.AllocationLifetimeFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture
@@ -134,7 +135,6 @@ src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
-src/Inspector.Graph
 src/MsdlProxy
 src/TsJsExport.Contracts
 src/mdi
