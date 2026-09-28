@@ -270,7 +270,7 @@ internal static class ReleaseCandidateWorkflowContract
         RequireScalarValue(
             platformTest,
             "timeout-minutes",
-            "240",
+            "120",
             "Deep Inspect platform-test");
         string[] requiredJobs =
         [
