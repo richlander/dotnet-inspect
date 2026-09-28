@@ -1447,10 +1447,59 @@ public sealed class PackageHouse
         // interleaved entries (docs/design/package-read-demand.md).
         IReadOnlyList<string> surfaceEntries = WholeFolders(surface, directory);
         var readWhole = new HashSet<string>(surfaceEntries, StringComparer.Ordinal);
+        IReadOnlyList<PackageCompileAsset> selectedImplementation =
+        [
+            .. compile.ImplementationAssets.Where(
+                asset => names.MatchesPath(asset.Path)),
+        ];
+        IReadOnlyList<string> companionEntries =
+            request.LibraryCompanionDemand
+                == PackageHouseLibraryCompanionDemand
+                    .ImplementationPortablePdb
+                ? ListedPortablePdbCompanions(
+                    selectedImplementation,
+                    directory)
+                : [];
+        IReadOnlyList<string> exactEntries =
+            companionEntries.Count == 0
+                ? surfaceEntries
+                : [.. surfaceEntries.Concat(companionEntries)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)];
         return new(
-            surfaceEntries,
-            [.. Anchors(implementation.Where(names.MatchesPath), directory)
+            exactEntries,
+            [.. Anchors(
+                    selectedImplementation.Select(
+                        static asset => asset.Path),
+                    directory)
                 .Where(anchor => !readWhole.Contains(anchor))]);
+    }
+
+    private static IReadOnlyList<string> ListedPortablePdbCompanions(
+        IReadOnlyList<PackageCompileAsset> implementation,
+        IPackageContent directory)
+    {
+        IReadOnlyList<string> listed =
+            [.. directory.EnumerateEntries()];
+        var companions = new List<string>(implementation.Count);
+        foreach (PackageCompileAsset asset in implementation)
+        {
+            string? path = asset.PortablePdbCompanionPath;
+            string? listedPath = path is null
+                ? null
+                : listed.FirstOrDefault(entry =>
+                    entry.Equals(
+                        path,
+                        StringComparison.OrdinalIgnoreCase));
+            if (listedPath is not null
+                && !companions.Contains(
+                    listedPath,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                companions.Add(listedPath);
+            }
+        }
+
+        return companions;
     }
 
     private static PackageRangedSelection SelectRangedRuntimeEntries(

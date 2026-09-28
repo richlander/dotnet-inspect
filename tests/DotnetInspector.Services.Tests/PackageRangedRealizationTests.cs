@@ -714,7 +714,9 @@ public sealed partial class PackageRangedRealizationTests
             PackageHouseEvidenceDemand evidenceDemand =
                 PackageHouseEvidenceDemand.None,
             PackageHouseLibraryHandoffMode libraryHandoff =
-                PackageHouseLibraryHandoffMode.PackageOnly)
+                PackageHouseLibraryHandoffMode.PackageOnly,
+            PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+                PackageHouseLibraryCompanionDemand.None)
         {
             // The real assets here are small, so the ranged gates set a zero
             // size cut; size first itself is gated separately.
@@ -733,7 +735,8 @@ public sealed partial class PackageRangedRealizationTests
                 selection,
                 libraryHandoff,
                 implementationNames: implementationNames,
-                evidenceDemand: evidenceDemand);
+                evidenceDemand: evidenceDemand,
+                libraryCompanionDemand: libraryCompanionDemand);
             return house.ExecuteAsync(
                 request,
                 Root.IssueOperationLease(
