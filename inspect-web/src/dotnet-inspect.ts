@@ -1841,6 +1841,14 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     queryNoticeRetryAction: null,
     implementationProfiles: { status: "idle" as const },
     typeHeat: { status: "idle" as const },
+    packageIntegrations: null,
+    packageIntegrationsError: "",
+    packageIntegrationsKey: "",
+    packageOpportunities: null,
+    packageOpportunitiesError: "",
+    packageOpportunitiesKey: "",
+    libraryApiDiff: { status: "idle" as const },
+    compareClone: { status: "idle" as const },
   });
   const retainedState: AppState = {
     ...cloned,

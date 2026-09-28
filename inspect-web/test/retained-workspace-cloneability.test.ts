@@ -12,6 +12,7 @@ import test from "node:test";
 import {
   NodeKind,
   SourceFileClassification,
+  TypeCategory,
   openTypeScriptSemanticFacts,
   type DeclarationHandle,
   type QueryResult,
@@ -24,15 +25,19 @@ import {
 
 const inspectWebRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const appSourcePath = join(inspectWebRoot, "src", "dotnet-inspect.ts");
-const callableStateFields = [
+const functionBearingStateFields = [
+  "compareClone",
   "implementationProfiles",
+  "libraryApiDiff",
+  "packageIntegrations",
+  "packageOpportunities",
   "platformIndex",
   "queryNoticeRetryAction",
   "retryAction",
   "typeHeat",
 ] as const;
 
-test("retained Workspace clone projects every callable AppState field", () => {
+test("retained Workspace clone projects function-bearing AppState fields", () => {
   const opened = openTypeScriptSemanticFacts(
     join(inspectWebRoot, "tsconfig.json"),
   );
@@ -44,9 +49,9 @@ test("retained Workspace clone projects every callable AppState field", () => {
     const appSource = sourceByPath(session, "src/dotnet-inspect.ts");
     const text = readFileSync(appSourcePath, "utf8");
     const appState = declaredTypeAlias(session, appSource, text, "AppState");
-    const actual = propertiesContainingCallables(session, appState);
+    const actual = propertiesRequiringCloneProjection(session, appState);
 
-    assert.deepEqual(actual, callableStateFields);
+    assert.deepEqual(actual, functionBearingStateFields);
 
     const projection = structuredCloneProjectionTypes(
       session,
@@ -54,16 +59,16 @@ test("retained Workspace clone projects every callable AppState field", () => {
       text,
       "cloneCanonicalWorkspaceSnapshotForRetention",
     );
-    const projectedTypes = callableStateFields.map(field => {
+    const projectedTypes = functionBearingStateFields.map(field => {
       const type = projection.get(field);
       assert.ok(type !== undefined, `missing clone projection for '${field}'`);
       return { field, type };
     });
-    const unsafeTypes = callableReachableTypes(
+    const unsafeTypes = projectionRequiredTypes(
       session,
       projectedTypes.map(entry => entry.type),
     );
-    for (const field of callableStateFields) {
+    for (const field of functionBearingStateFields) {
       const projected = projectedTypes.find(entry => entry.field === field);
       assert.ok(projected !== undefined);
       assert.equal(
@@ -77,7 +82,7 @@ test("retained Workspace clone projects every callable AppState field", () => {
   }
 });
 
-test("constructor-only and copied-through values remain function-bearing", () => {
+test("constructor-only and opaque copied-through values remain unsafe", () => {
   const fixtureRoot = mkdtempSync(
     join(tmpdir(), "retained-workspace-cloneability-"),
   );
@@ -96,6 +101,10 @@ type SyntheticState = {
   direct: typeof ConstructorOnly;
   nested: { constructorValue: typeof ConstructorOnly };
   callback: () => boolean;
+  opaqueUnknown: unknown;
+  opaqueAny: any;
+  opaqueObject: object;
+  emptyObject: {};
   plain: { value: string };
 };
 function cloneSyntheticState(state: SyntheticState) {
@@ -104,6 +113,10 @@ function cloneSyntheticState(state: SyntheticState) {
     direct: state.direct,
     nested: { constructorValue: null },
     callback: state.callback,
+    opaqueUnknown: state.opaqueUnknown,
+    opaqueAny: state.opaqueAny,
+    opaqueObject: state.opaqueObject,
+    emptyObject: state.emptyObject,
   });
 }
 `);
@@ -125,8 +138,16 @@ function cloneSyntheticState(state: SyntheticState) {
         "SyntheticState",
       );
       assert.deepEqual(
-        propertiesContainingCallables(session, state),
-        ["callback", "direct", "nested"],
+        propertiesRequiringCloneProjection(session, state),
+        [
+          "callback",
+          "direct",
+          "emptyObject",
+          "nested",
+          "opaqueAny",
+          "opaqueObject",
+          "opaqueUnknown",
+        ],
       );
       const projection = structuredCloneProjectionTypes(
         session,
@@ -136,7 +157,7 @@ function cloneSyntheticState(state: SyntheticState) {
       );
       const projectionEntries = [...projection]
         .filter(([name]) => name !== "plain");
-      const unsafeTypes = callableReachableTypes(
+      const unsafeTypes = projectionRequiredTypes(
         session,
         projectionEntries.map(([, type]) => type),
       );
@@ -145,7 +166,14 @@ function cloneSyntheticState(state: SyntheticState) {
           .filter(([, type]) => unsafeTypes.has(type.handle))
           .map(([name]) => name)
           .sort(),
-        ["callback", "direct"],
+        [
+          "callback",
+          "direct",
+          "emptyObject",
+          "opaqueAny",
+          "opaqueObject",
+          "opaqueUnknown",
+        ],
       );
     } finally {
       session.dispose();
@@ -164,7 +192,7 @@ class ConstructorOnlyFixture {
   readonly value = 0;
 }
 
-function propertiesContainingCallables(
+function propertiesRequiringCloneProjection(
   session: TypeScriptSemanticFactsSession,
   objectType: TypeFact,
 ): readonly string[] {
@@ -172,17 +200,17 @@ function propertiesContainingCallables(
     .map(property => ({ property, type: symbolType(session, property) }))
     .filter((entry): entry is { property: SymbolFact; type: TypeFact } =>
       entry.type !== null);
-  const callableTypes = callableReachableTypes(
+  const unsafeTypes = projectionRequiredTypes(
     session,
     properties.map(entry => entry.type),
   );
   return properties
-    .filter(entry => callableTypes.has(entry.type.handle))
+    .filter(entry => unsafeTypes.has(entry.type.handle))
     .map(entry => entry.property.displayName)
     .sort();
 }
 
-function callableReachableTypes(
+function projectionRequiredTypes(
   session: TypeScriptSemanticFactsSession,
   roots: readonly TypeFact[],
 ): ReadonlySet<TypeHandle> {
@@ -198,7 +226,8 @@ function callableReachableTypes(
     visited.add(type.handle);
 
     if (
-      applicable(session.getCallSignatures(type.handle)).length > 0
+      isOpaqueFunctionCarrier(type)
+      || applicable(session.getCallSignatures(type.handle)).length > 0
       || applicable(session.getConstructSignatures(type.handle)).length > 0
     ) {
       direct.add(type.handle);
@@ -244,6 +273,16 @@ function callableReachableTypes(
     }
   }
   return reachable;
+}
+
+function isOpaqueFunctionCarrier(type: TypeFact): boolean {
+  // These types can accept a function while exposing no signatures of their own.
+  return type.category === TypeCategory.Any
+    || type.category === TypeCategory.Unknown
+    || type.category === TypeCategory.NonPrimitive
+    || type.category === TypeCategory.TypeParameter
+    || (type.category === TypeCategory.Object
+      && (type.display === "{}" || type.display === "Object"));
 }
 
 function symbolType(

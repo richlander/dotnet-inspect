@@ -43,7 +43,7 @@ test("retained Workspace clones drop live implementation callbacks", () => {
   );
   assert.match(
     clone,
-    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*implementationProfiles:\s*\{\s*status:\s*"idle" as const\s*\},\s*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
+    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*implementationProfiles:\s*\{\s*status:\s*"idle" as const\s*\},\s*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*packageIntegrations:\s*null,\s*packageIntegrationsError:\s*"",\s*packageIntegrationsKey:\s*"",\s*packageOpportunities:\s*null,\s*packageOpportunitiesError:\s*"",\s*packageOpportunitiesKey:\s*"",\s*libraryApiDiff:\s*\{\s*status:\s*"idle" as const\s*\},\s*compareClone:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
   );
 
   const liveState = {
