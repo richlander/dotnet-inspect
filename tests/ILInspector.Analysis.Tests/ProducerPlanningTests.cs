@@ -161,7 +161,7 @@ public sealed class ProducerPlanningTests
                 () => UnsafeEvidencePresence.HasEvidence(
                     "Fixture.dll",
                     failsFirst));
-        Assert.Contains("MethodDef 0x06000001", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("N.Sample::Broken", exception.Message, StringComparison.Ordinal);
         ProducerResult<int> result = Run(
                 failsFirst,
                 UnsafeEvidencePresence.Description)
@@ -693,7 +693,7 @@ public sealed class ProducerPlanningTests
                 () => UnsafeEvidencePresence.HasEvidence(
                     "Fixture.dll",
                     invalidHeader));
-        Assert.Matches("MethodDef 0x06[0-9A-F]{6}", exception.Message);
+        Assert.Contains("<Module>::M0", exception.Message, StringComparison.Ordinal);
     }
 
     static WorkDescription Plan(params ProducerRequest[] requests) =>

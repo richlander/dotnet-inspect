@@ -568,6 +568,34 @@ public sealed class MethodRowGateTests
     }
 
     [Fact]
+    public void FailureLabel_OversizedNameIsCappedInertAndCheap()
+    {
+        // A presented failure resolves its one method's name with a
+        // length-checked read: a 16.7M-character name shows at most 256
+        // characters and an ellipsis, and costs O(cap).
+        GateFixtureImage builder = Ordinary();
+        builder.Type("N", "Named").Method("\u001B" + new string('n', 16_700_000), Bytes(0x00, 0x01, 0x01));
+        ImmutableArray<byte> image = builder.Build();
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int token = 0;
+        foreach (MethodDefinitionHandle method in reader.MethodDefinitions)
+            token = MetadataTokens.GetToken(method);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        InertText.InertString label = MethodRowProjection.FailureLabel(reader, token);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        string text = label.ToString();
+        Assert.StartsWith("N.Named::", text);
+        Assert.Contains("nnn", text);
+        Assert.EndsWith("\u2026", text);
+        Assert.DoesNotContain('\u001B', text);
+        Assert.True(text.Length <= 2 * MethodRowProjection.MaxFailureLabelPartLength + 16, $"{text.Length} characters.");
+        Assert.True(allocated < 64 * 1024, $"Allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void IdentityText_MalformedMetadataFailsTheReaderOnly()
     {
         // A type whose namespace handle points past the #Strings heap. Budget

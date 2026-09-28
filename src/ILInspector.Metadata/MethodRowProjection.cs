@@ -1,4 +1,7 @@
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+
+using InertText;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -127,5 +130,62 @@ public static class MethodRowProjection
         {
             return methodName + "(...)";
         }
+    }
+
+    /// <summary>The longest part (namespace, type, or method name) a failure label shows.</summary>
+    public const int MaxFailureLabelPartLength = 256;
+
+    /// <summary>
+    /// A presentation label for a failure recorded by <paramref name="methodToken"/>:
+    /// <c>Namespace.Type::Method</c>, each part read with its string-heap length
+    /// checked first and capped at <see cref="MaxFailureLabelPartLength"/>
+    /// characters, with an ellipsis when truncated. It is one bounded decode,
+    /// so a hostile name cannot inflate a diagnostic. An unreadable row
+    /// falls back to the token.
+    /// </summary>
+    public static InertString FailureLabel(MetadataReader reader, int methodToken)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        string token = $"0x{methodToken:X8}";
+        try
+        {
+            if (MetadataTokens.EntityHandle(methodToken) is not { Kind: HandleKind.MethodDefinition } entity)
+                return new InertString(TextPolicy.Field, token);
+
+            var methodHandle = (MethodDefinitionHandle)entity;
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
+            TypeDefinition type = reader.GetTypeDefinition(method.GetDeclaringType());
+            string ns = CappedString(reader, type.Namespace);
+            string typeName = CappedString(reader, type.Name);
+            string methodName = CappedString(reader, method.Name);
+            string fullTypeName = ns.Length == 0 ? typeName : $"{ns}.{typeName}";
+            return new InertString(TextPolicy.Field, $"{fullTypeName}::{methodName}");
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
+        {
+            return new InertString(TextPolicy.Field, token);
+        }
+    }
+
+    /// <summary>
+    /// Reads at most <see cref="MaxFailureLabelPartLength"/> characters of a
+    /// string, checking its encoded length before decoding any of it.
+    /// </summary>
+    static string CappedString(MetadataReader reader, StringHandle handle)
+    {
+        if (handle.IsNil)
+            return "";
+
+        BlobReader blob = reader.GetBlobReader(handle);
+        int maxBytes = MaxFailureLabelPartLength * 4;
+        bool truncated = blob.Length > maxBytes;
+        string text = blob.ReadUTF8(truncated ? maxBytes : blob.Length);
+        if (text.Length > MaxFailureLabelPartLength)
+        {
+            text = text[..MaxFailureLabelPartLength];
+            truncated = true;
+        }
+
+        return truncated ? text + "\u2026" : text;
     }
 }
