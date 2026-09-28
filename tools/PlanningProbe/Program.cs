@@ -7,6 +7,11 @@ using ILInspector.Analysis.Planning.Experiments;
 using NLinq;
 
 // args: <budget-ms> <variant> <dll>...   or   alloc <calls> <variant> <dll>
+if (args[0] == "fixture-postcard")
+{
+    Environment.Exit(FixturePostcard.Run(args));
+}
+
 if (args[0] == "alloc")
 {
     int calls = int.Parse(args[1]);

@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Experiment probe (exp/producer-planning-async-count); NLinq/ is a scratch copy of
-       https://github.com/agocke/NLinq at 229e243 (MIT). Not for main. -->
+  <!-- Experiment probe (exp/producer-planning-async-count). Not for main. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
@@ -17,5 +16,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <!-- The NLinq oracle fixture (tests/NLinq.Oracle, as landed on main) replaces this probe's scratch copy. -->
+    <ProjectReference Include="../../tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
   </ItemGroup>
 </Project>
