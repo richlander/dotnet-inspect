@@ -66,6 +66,7 @@ public sealed class MethodDefinitionExecution
             for (int j = 0; j < runs.Length; j++)
                 runs[j] = execution._states[state.Dependencies[j]].Run;
             state.DependencyRuns = runs;
+            execution.BindScopeGuards(state);
         }
 
         if (!peReader.HasMetadata)
@@ -152,6 +153,43 @@ public sealed class MethodDefinitionExecution
     }
 
     /// <summary>
+    /// Binds a producer's scope guards: same-pass visit dependencies on a
+    /// producer that classifies units.
+    /// </summary>
+    void BindScopeGuards(ProducerState state)
+    {
+        ImmutableArray<ProducerDependency> declared = state.Run.Producer.Dependencies;
+        var runs = new List<IMethodDefinitionProducerRun>();
+        var accepted = new List<ulong>();
+        var guardStates = new List<ProducerState>();
+        for (int j = 0; j < declared.Length; j++)
+        {
+            ProducerDependency dependency = declared[j];
+            if (!dependency.IsScopeGuard)
+                continue;
+            IMethodDefinitionProducerRun guard = state.DependencyRuns[j];
+            if (dependency.Kind != ProducerDependencyKind.VisitNeedsVisit
+                || !guard.ClassifiesUnits
+                || _description.VisitPassOf(dependency.Producer)
+                    != _description.VisitPassOf(state.Run.Producer))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{state.Run.Producer.Identity}' declares a scope guard on "
+                    + $"'{dependency.Producer.Identity}', which must be a same-pass visit "
+                    + "dependency on a producer that classifies units.");
+            }
+
+            runs.Add(guard);
+            accepted.Add(dependency.AcceptedUnitClasses!.Value);
+            guardStates.Add(_states[state.Dependencies[j]]);
+        }
+
+        state.GuardRuns = [.. runs];
+        state.GuardClasses = [.. accepted];
+        state.GuardStates = [.. guardStates];
+    }
+
+    /// <summary>
     /// The same-unit fact of a declared visit dependency, found through the
     /// dependent's own dependency runs.
     /// </summary>
@@ -197,11 +235,44 @@ public sealed class MethodDefinitionExecution
         {
             TypeDefinition typeDefinition =
                 reader.GetTypeDefinition(typeHandle);
+
+            // Type scope: a producer's guards' type scopes, then its own
+            // type predicate, in visit order so guards are decided first. A
+            // type a guard excludes is not tested, so it cannot fail the
+            // producer. When no active producer has the type in scope, its
+            // methods are skipped as a whole; when no producer remains
+            // active, the pass stops before the next untrusted read.
+            bool anyInScope = false;
+            bool anyActiveProducer = false;
+            foreach (ProducerState state in visiting)
+            {
+                // A prerequisite that failed on an earlier producer's type
+                // predicate fails this producer before its own is asked.
+                if (state.HasDependencies)
+                    FailIfPrerequisiteFailed(state);
+                if (!state.IsActive)
+                    continue;
+                bool inScope = true;
+                foreach (ProducerState guard in state.GuardStates)
+                    inScope &= guard.TypeInScopeNow;
+                if (inScope)
+                    inScope = TypeInScope(state, reader, typeHandle, typeDefinition);
+                state.TypeInScopeNow = inScope;
+                anyInScope |= inScope && state.IsActive;
+                anyActiveProducer |= state.IsActive;
+            }
+
+            if (!anyActiveProducer)
+                return visited;
+            if (!anyInScope)
+                continue;
+
             foreach (MethodDefinitionHandle methodHandle
                      in typeDefinition.GetMethods())
             {
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
+                int unitToken = MetadataTokens.GetToken(methodHandle);
                 bool anyActive = false;
                 foreach (ProducerState state in visiting)
                 {
@@ -211,6 +282,16 @@ public sealed class MethodDefinitionExecution
                         FailIfPrerequisiteFailed(state);
                     if (!state.IsActive)
                         continue;
+
+                    // A unit outside the producer's type scope or a declared
+                    // scope guard is not visited.
+                    if (!state.TypeInScopeNow
+                        || (state.GuardRuns.Length != 0 && !InScope(state, unitToken)))
+                    {
+                        anyActive = true;
+                        continue;
+                    }
+
                     VisitUnit(ref unit, state);
                     anyActive |= state.IsActive;
                 }
@@ -226,6 +307,44 @@ public sealed class MethodDefinitionExecution
         }
 
         return visited;
+    }
+
+    static bool TypeInScope(
+        ProducerState state,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition)
+    {
+        if (!state.Run.HasTypeScope)
+            return true;
+        try
+        {
+            return state.Run.TypeInScope(reader, typeDefinition);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                MetadataTokens.GetToken(typeHandle),
+                "(type scope)",
+                $"{ex.GetType().Name}: {ex.Message}");
+            state.IsActive = false;
+            return false;
+        }
+    }
+
+    static bool InScope(ProducerState state, int unitToken)
+    {
+        IMethodDefinitionProducerRun[] guards = state.GuardRuns;
+        ulong[] accepted = state.GuardClasses;
+        for (int i = 0; i < guards.Length; i++)
+        {
+            if (!guards[i].UnitClassIn(unitToken, accepted[i]))
+                return false;
+        }
+
+        return true;
     }
 
     void VisitUnit(ref MethodDefinitionUnit unit, ProducerState state)
@@ -417,6 +536,16 @@ public sealed class MethodDefinitionExecution
 
         /// <summary>The dependencies' runs, aligned with the declared dependencies.</summary>
         public IMethodDefinitionProducerRun[] DependencyRuns { get; set; } = [];
+
+        /// <summary>The scope guards' runs and the unit classes each accepts.</summary>
+        public IMethodDefinitionProducerRun[] GuardRuns { get; set; } = [];
+
+        public ulong[] GuardClasses { get; set; } = [];
+
+        public ProducerState[] GuardStates { get; set; } = [];
+
+        /// <summary>Whether the type being visited is in this producer's scope.</summary>
+        public bool TypeInScopeNow = true;
 
         public bool HasBodyLayer { get; } =
             (declaration.Layers & MethodDefinitionLayers.Body) != 0;
