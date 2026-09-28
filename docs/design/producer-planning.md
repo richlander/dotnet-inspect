@@ -406,9 +406,8 @@ A row the gate cannot read is a recoverable failure, handled as in
 
 **Field demand is declared before work.** A producer declares the fields it
 reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
-`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`,
-`StateMachineRelationship`, and `IdentityText`, beside `Body` and
-`ModuleLookup`. Reading an undeclared field
+`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`, and
+`IdentityText`, beside `Body` and `ModuleLookup`. Reading an undeclared field
 throws `ProducerContractException`, exactly as reading an undeclared layer
 does. That runtime contract is the enforcement gate. From the declarations,
 the planner:
