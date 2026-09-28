@@ -83,7 +83,7 @@ public abstract class ProducerDeclaration
             if (_declaredDependencies.IsDefault)
             {
                 _declaredDependencies = _dependencies?.Invoke() is { } declared
-                    ? [.. declared]
+                    ? Freeze(declared)
                     : [];
             }
 
@@ -96,6 +96,16 @@ public abstract class ProducerDeclaration
     /// identity must carry equal parameters.
     /// </summary>
     public string? Parameters { get; }
+
+    static ImmutableArray<ProducerDependency> Freeze(
+        IReadOnlyList<ProducerDependency> declared)
+    {
+        var dependencies = ImmutableArray.CreateBuilder<ProducerDependency>(
+            declared.Count);
+        for (int i = 0; i < declared.Count; i++)
+            dependencies.Add(declared[i]);
+        return dependencies.MoveToImmutable();
+    }
 
     public override string ToString() => Identity;
 }

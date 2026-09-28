@@ -60,7 +60,82 @@ public sealed class WorkDescription
         _visitPasses = visitPasses;
         _completionPasses = completionPasses;
         _requested = requested;
-        PassCount = completionPasses.Values.DefaultIfEmpty(0).Max();
+
+        int passCount = 0;
+        foreach (ProducerDeclaration producer in completionOrder)
+            passCount = Math.Max(passCount, completionPasses[producer]);
+        PassCount = passCount;
+
+        // The execution tables: everything an executor needs, by producer
+        // index, so no execution re-derives the schedule from the dictionaries.
+        var indices = new Dictionary<ProducerDeclaration, int>(
+            producers.Length,
+            ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < producers.Length; i++)
+            indices[producers[i]] = i;
+
+        var terminalsByIndex = new ProducerTerminal[producers.Length];
+        var dependencies = new ImmutableArray<int>[producers.Length];
+        var unitFactRetention = new UnitFactRetention[producers.Length];
+        for (int i = 0; i < producers.Length; i++)
+        {
+            ProducerDeclaration producer = producers[i];
+            terminalsByIndex[i] = terminals[producer];
+            ImmutableArray<ProducerDependency> declared = producer.Dependencies;
+            var targets = ImmutableArray.CreateBuilder<int>(declared.Length);
+            foreach (ProducerDependency dependency in declared)
+            {
+                int target = indices[dependency.Producer];
+                targets.Add(target);
+                if (dependency.Kind == ProducerDependencyKind.VisitNeedsVisit)
+                {
+                    // A reader in the same pass reads the fact of the unit
+                    // being visited; one in a later pass needs every unit's.
+                    UnitFactRetention needed =
+                        visitPasses[producer] == visitPasses[dependency.Producer]
+                            ? UnitFactRetention.CurrentUnit
+                            : UnitFactRetention.AllUnits;
+                    if (needed > unitFactRetention[target])
+                        unitFactRetention[target] = needed;
+                }
+            }
+
+            dependencies[i] = targets.ToImmutable();
+        }
+
+        var visits = new List<int>[passCount];
+        var completions = new List<int>[passCount];
+        for (int pass = 0; pass < passCount; pass++)
+        {
+            visits[pass] = [];
+            completions[pass] = [];
+        }
+
+        for (int i = 0; i < producers.Length; i++)
+            visits[visitPasses[producers[i]] - 1].Add(i);
+        var completionIndices = ImmutableArray.CreateBuilder<int>(
+            completionOrder.Length);
+        foreach (ProducerDeclaration producer in completionOrder)
+        {
+            int index = indices[producer];
+            completionIndices.Add(index);
+            completions[completionPasses[producer] - 1].Add(index);
+        }
+
+        var passes = ImmutableArray.CreateBuilder<PlannedPass>(passCount);
+        for (int pass = 0; pass < passCount; pass++)
+        {
+            passes.Add(new PlannedPass(
+                [.. visits[pass]],
+                [.. completions[pass]]));
+        }
+
+        _indices = indices;
+        TerminalByIndex = ImmutableArray.Create(terminalsByIndex);
+        DependencyIndices = ImmutableArray.Create(dependencies);
+        FactRetention = ImmutableArray.Create(unitFactRetention);
+        CompletionIndices = completionIndices.ToImmutable();
+        Passes = passes.ToImmutable();
     }
 
     readonly ImmutableDictionary<ProducerDeclaration, ProducerTerminal>
@@ -69,6 +144,29 @@ public sealed class WorkDescription
     readonly ImmutableDictionary<ProducerDeclaration, int>
         _completionPasses;
     readonly ImmutableHashSet<ProducerDeclaration> _requested;
+    readonly Dictionary<ProducerDeclaration, int> _indices;
+
+    /// <summary>Each producer's effective terminal, by index into <see cref="Producers"/>.</summary>
+    internal ImmutableArray<ProducerTerminal> TerminalByIndex { get; }
+
+    /// <summary>Each producer's dependency targets, by index, in declaration order.</summary>
+    internal ImmutableArray<ImmutableArray<int>> DependencyIndices { get; }
+
+    /// <summary>
+    /// How long an execution must retain each producer's per-unit facts for
+    /// the planned producers that read them.
+    /// </summary>
+    internal ImmutableArray<UnitFactRetention> FactRetention { get; }
+
+    /// <summary>The completion order, by index.</summary>
+    internal ImmutableArray<int> CompletionIndices { get; }
+
+    /// <summary>The producers that visit and complete in each pass, by index, in stage order.</summary>
+    internal ImmutableArray<PlannedPass> Passes { get; }
+
+    /// <summary>The index of a planned producer in <see cref="Producers"/>.</summary>
+    internal bool TryGetIndex(ProducerDeclaration producer, out int index) =>
+        _indices.TryGetValue(producer, out index);
 
     /// <summary>
     /// Every planned producer, in visit order: consistent with every
@@ -99,6 +197,24 @@ public sealed class WorkDescription
     public int CompletionPassOf(ProducerDeclaration producer) =>
         _completionPasses[producer];
 }
+
+/// <summary>How long a producer's per-unit facts must outlive the unit's visit.</summary>
+internal enum UnitFactRetention : byte
+{
+    /// <summary>No planned producer reads them.</summary>
+    None,
+
+    /// <summary>Every reader visits in the same pass, after the producer, so only the current unit's fact is read.</summary>
+    CurrentUnit,
+
+    /// <summary>A reader visits in a later pass, so every unit's fact is read.</summary>
+    AllUnits,
+}
+
+/// <summary>One pass of a work description: producer indices in visit order and in completion order.</summary>
+internal readonly record struct PlannedPass(
+    ImmutableArray<int> Visits,
+    ImmutableArray<int> Completions);
 
 public abstract record ProducerPlanResult
 {
@@ -250,9 +366,11 @@ public static class ProducerPlanner
         var order = new List<(ProducerDeclaration Producer, bool Completion)>();
         var state = new Dictionary<(ProducerDeclaration, bool), int>(
             new StageComparer());
-        foreach (ProducerDeclaration producer in closure.OrderBy(
-                     static producer => producer.Identity,
-                     StringComparer.Ordinal))
+        // Identities are unique in an accepted closure, so the sort is total.
+        var roots = new List<ProducerDeclaration>(closure);
+        roots.Sort(static (x, y) =>
+            string.CompareOrdinal(x.Identity, y.Identity));
+        foreach (ProducerDeclaration producer in roots)
         {
             Visit((producer, false));
             Visit((producer, true));
@@ -297,9 +415,14 @@ public static class ProducerPlanner
             }
         }
 
+        var visitOrder = ImmutableArray.CreateBuilder<ProducerDeclaration>(closure.Count);
+        var completionOrder = ImmutableArray.CreateBuilder<ProducerDeclaration>(closure.Count);
+        foreach ((ProducerDeclaration producer, bool completion) in order)
+            (completion ? completionOrder : visitOrder).Add(producer);
+
         return new(
-            [.. order.Where(static node => !node.Completion).Select(static node => node.Producer)],
-            [.. order.Where(static node => node.Completion).Select(static node => node.Producer)],
+            visitOrder.ToImmutable(),
+            completionOrder.ToImmutable(),
             visitPasses,
             completionPasses);
 
@@ -317,10 +440,19 @@ public static class ProducerPlanner
             }
 
             state[node] = 1;
+            List<(ProducerDeclaration Producer, bool Completion)> predecessors =
+                Predecessors(node);
+            predecessors.Sort(static (x, y) =>
+            {
+                int byIdentity = string.CompareOrdinal(
+                    x.Producer.Identity,
+                    y.Producer.Identity);
+                return byIdentity != 0
+                    ? byIdentity
+                    : x.Completion.CompareTo(y.Completion);
+            });
             foreach ((ProducerDeclaration Producer, bool Completion) predecessor
-                     in Predecessors(node)
-                         .OrderBy(static next => next.Producer.Identity, StringComparer.Ordinal)
-                         .ThenBy(static next => next.Completion))
+                     in predecessors)
             {
                 Visit(predecessor);
             }
@@ -329,24 +461,27 @@ public static class ProducerPlanner
             order.Add(node);
         }
 
-        static IEnumerable<(ProducerDeclaration Producer, bool Completion)> Predecessors(
+        static List<(ProducerDeclaration Producer, bool Completion)> Predecessors(
             (ProducerDeclaration Producer, bool Completion) node)
         {
+            var predecessors = new List<(ProducerDeclaration Producer, bool Completion)>();
             if (node.Completion)
-                yield return (node.Producer, false);
+                predecessors.Add((node.Producer, false));
             foreach (ProducerDependency dependency in node.Producer.Dependencies)
             {
                 switch (dependency.Kind)
                 {
                     case ProducerDependencyKind.VisitNeedsVisit when !node.Completion:
-                        yield return (dependency.Producer, false);
+                        predecessors.Add((dependency.Producer, false));
                         break;
                     case ProducerDependencyKind.VisitNeedsResult when !node.Completion:
                     case ProducerDependencyKind.CompletionNeedsResult when node.Completion:
-                        yield return (dependency.Producer, true);
+                        predecessors.Add((dependency.Producer, true));
                         break;
                 }
             }
+
+            return predecessors;
         }
     }
 
@@ -365,13 +500,17 @@ public static class ProducerPlanner
     }
 
     static ImmutableArray<ProducerRejection> Distinct(
-        ImmutableArray<ProducerRejection>.Builder rejections) =>
-        [
-            .. rejections
-                .Distinct()
-                .OrderBy(
-                    static rejection => rejection.Producer,
-                    StringComparer.Ordinal)
-                .ThenBy(static rejection => rejection.Reason),
-        ];
+        ImmutableArray<ProducerRejection>.Builder rejections)
+    {
+        var distinct = new List<ProducerRejection>(
+            new HashSet<ProducerRejection>(rejections));
+        distinct.Sort(static (x, y) =>
+        {
+            int byProducer = string.CompareOrdinal(x.Producer, y.Producer);
+            return byProducer != 0
+                ? byProducer
+                : x.Reason.CompareTo(y.Reason);
+        });
+        return [.. distinct];
+    }
 }

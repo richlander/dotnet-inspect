@@ -181,8 +181,11 @@ level never merges them.
 
 A **unit** is what one visit covers; the first unit kind is one method
 definition. Its layers are its declaration metadata and, when it has a managed
-body, that body at the requested depth. A producer may also declare a **completion**, which runs after every unit
-in its scope has been visited and combines the per-unit facts into the
+body, that body at the requested depth. Each visited unit's fact folds into the
+producer's accumulator as the unit is visited, so a producer retains only what
+its result needs: an Exists or Count producer keeps a flag or a number, never
+the rows. A producer may also declare a **completion**, which runs after every
+unit in its scope has been visited and turns the accumulator into the
 published result. Whole-library facts such as leverage or a local call graph
 are completions, and a completion may depend on other producers' completed
 results.
@@ -252,7 +255,9 @@ producer discovers a new need while it runs; a conditional need is an optional
 request stated in the declaration.
 
 *Lets the lower levels:* compute collapse, cost, read demand, and pushdown
-before the first byte is read.
+before the first byte is read, and acquire only what some producer declared:
+an execution whose producers read only declarations never builds the module
+lookup.
 
 *Lesson:* LLVM's legacy pass manager and Roslyn's runtime callback
 registration show how much a scheduler loses when needs surface only during
