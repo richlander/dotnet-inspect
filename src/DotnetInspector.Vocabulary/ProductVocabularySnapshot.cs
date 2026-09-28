@@ -448,7 +448,10 @@ internal static class ProductVocabularyCompatibility
         new(
             vocabulary.Identity.Value,
             vocabulary.DisplayLabel,
-            vocabulary.Summary,
+            vocabulary.Summary
+                ?? throw new InvalidOperationException(
+                    $"Vocabulary '{vocabulary.Identity}' has no required "
+                    + "Product Vocabulary summary."),
             acceptedBy,
             fields,
             [

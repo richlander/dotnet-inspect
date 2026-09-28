@@ -75,6 +75,84 @@ public sealed class VocabularyMappingsTests
     }
 
     [Fact]
+    public void VocabularySummaryMayBeAbsent()
+    {
+        VocabularyCatalogIdentity catalog = new("test");
+        VocabularyIdentity vocabulary = new(catalog, "values");
+        VocabularySnapshot snapshot = VocabularySnapshot.Create(
+            1,
+            catalog,
+            [
+                new(
+                    vocabulary,
+                    "Values",
+                    summary: null,
+                    maps: [],
+                    [new(new(vocabulary, "value"), "Value", null)]),
+            ]);
+
+        Assert.Null(snapshot.GetVocabulary(vocabulary).Summary);
+        Assert.Equal(snapshot.Identity, VocabularySnapshot.Create(
+            snapshot.FormatVersion,
+            snapshot.Catalog,
+            snapshot.Vocabularies,
+            expectedIdentity: snapshot.Identity).Identity);
+    }
+
+    [Fact]
+    public void ConstructionRejectsIllFormedUtf16BeforeIdentity()
+    {
+        string unpairedSurrogate = "\U0001F680"[..1];
+
+        Assert.Throws<ArgumentException>(
+            () => VocabularyScalarValue.FromText(unpairedSurrogate));
+        Assert.Throws<ArgumentException>(
+            () => new VocabularyCatalogIdentity(unpairedSurrogate));
+
+        VocabularyCatalogIdentity catalog = new("test");
+        VocabularyIdentity vocabulary = new(catalog, "values");
+        VocabularyMapDefinition textMap = ScalarMap(
+            vocabulary,
+            "text",
+            VocabularyScalarKind.Text);
+        Assert.Throws<ArgumentException>(() => new VocabularyDefinition(
+            vocabulary,
+            unpairedSurrogate,
+            summary: null,
+            maps: [],
+            terms: []));
+        Assert.Throws<ArgumentException>(() => new VocabularyDefinition(
+            vocabulary,
+            "Values",
+            unpairedSurrogate,
+            maps: [],
+            terms: []));
+
+        VocabularySnapshot replacementCharacter = VocabularySnapshot.Create(
+            1,
+            catalog,
+            [
+                new(
+                    vocabulary,
+                    "Values",
+                    summary: null,
+                    maps: [textMap],
+                    [
+                        new(
+                            new(vocabulary, "value"),
+                            "Value",
+                            summary: null,
+                            [
+                                new(
+                                    textMap.Identity,
+                                    [Text("\uFFFD")]),
+                            ]),
+                    ]),
+            ]);
+        Assert.NotNull(replacementCharacter.Identity.Value);
+    }
+
+    [Fact]
     public void CompleteOptionalMapDistinguishesEmptyFromOmitted()
     {
         VocabularyCatalogIdentity catalog = new("test");

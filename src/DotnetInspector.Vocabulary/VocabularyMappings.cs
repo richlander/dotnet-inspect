@@ -1,9 +1,43 @@
 using System.Buffers;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace DotnetInspector.Vocabulary;
+
+internal static class VocabularyText
+{
+    public static void ThrowIfNullOrWhiteSpace(
+        string value,
+        string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        ThrowIfIllFormed(value, parameterName);
+    }
+
+    public static void ThrowIfIllFormed(
+        string? value,
+        string parameterName)
+    {
+        ReadOnlySpan<char> remaining = value;
+        while (!remaining.IsEmpty)
+        {
+            OperationStatus status = Rune.DecodeFromUtf16(
+                remaining,
+                out _,
+                out int charsConsumed);
+            if (status != OperationStatus.Done)
+            {
+                throw new ArgumentException(
+                    "Vocabulary text must contain well-formed UTF-16.",
+                    parameterName);
+            }
+
+            remaining = remaining[charsConsumed..];
+        }
+    }
+}
 
 /// <summary>The primitive kind of values in one scalar vocabulary map.</summary>
 public enum VocabularyScalarKind
@@ -34,7 +68,7 @@ public readonly record struct VocabularyCatalogIdentity
 {
     public VocabularyCatalogIdentity(string value)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        VocabularyText.ThrowIfNullOrWhiteSpace(value, nameof(value));
         Value = value;
     }
 
@@ -50,8 +84,10 @@ public readonly record struct VocabularyIdentity
         VocabularyCatalogIdentity catalog,
         string value)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(catalog.Value);
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            catalog.Value,
+            nameof(catalog));
+        VocabularyText.ThrowIfNullOrWhiteSpace(value, nameof(value));
         Catalog = catalog;
         Value = value;
     }
@@ -70,8 +106,10 @@ public readonly record struct VocabularyTermIdentity
         VocabularyIdentity vocabulary,
         string value)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(vocabulary.Value);
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            vocabulary.Value,
+            nameof(vocabulary));
+        VocabularyText.ThrowIfNullOrWhiteSpace(value, nameof(value));
         Vocabulary = vocabulary;
         Value = value;
     }
@@ -90,8 +128,10 @@ public readonly record struct VocabularyMapIdentity
         VocabularyIdentity sourceVocabulary,
         string value)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceVocabulary.Value);
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            sourceVocabulary.Value,
+            nameof(sourceVocabulary));
+        VocabularyText.ThrowIfNullOrWhiteSpace(value, nameof(value));
         SourceVocabulary = sourceVocabulary;
         Value = value;
     }
@@ -154,6 +194,7 @@ public readonly record struct VocabularyScalarValue
     public static VocabularyScalarValue FromText(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
+        VocabularyText.ThrowIfIllFormed(value, nameof(value));
         return new(VocabularyScalarKind.Text, value, 0, false);
     }
 
@@ -219,9 +260,13 @@ public sealed record VocabularyMapDefinition
         VocabularyMapCardinality cardinality,
         VocabularyMapCoverage coverage)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(identity.Value);
-        ArgumentException.ThrowIfNullOrWhiteSpace(displayLabel);
-        ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            identity.Value,
+            nameof(identity));
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            displayLabel,
+            nameof(displayLabel));
+        VocabularyText.ThrowIfNullOrWhiteSpace(summary, nameof(summary));
         Identity = identity;
         DisplayLabel = displayLabel;
         Summary = summary;
@@ -250,7 +295,7 @@ public sealed record VocabularyMapEntry
         VocabularyMapIdentity map,
         IEnumerable<VocabularyMapValue> values)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(map.Value);
+        VocabularyText.ThrowIfNullOrWhiteSpace(map.Value, nameof(map));
         ArgumentNullException.ThrowIfNull(values);
         Map = map;
         Values = [.. values];
@@ -270,8 +315,13 @@ public sealed record VocabularyTerm
         string? summary,
         IEnumerable<VocabularyMapEntry>? mapEntries = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(identity.Value);
-        ArgumentException.ThrowIfNullOrWhiteSpace(displayLabel);
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            identity.Value,
+            nameof(identity));
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            displayLabel,
+            nameof(displayLabel));
+        VocabularyText.ThrowIfIllFormed(summary, nameof(summary));
         Identity = identity;
         DisplayLabel = displayLabel;
         Summary = summary;
@@ -317,13 +367,17 @@ public sealed record VocabularyDefinition
     public VocabularyDefinition(
         VocabularyIdentity identity,
         string displayLabel,
-        string summary,
+        string? summary,
         IEnumerable<VocabularyMapDefinition>? maps,
         IEnumerable<VocabularyTerm> terms)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(identity.Value);
-        ArgumentException.ThrowIfNullOrWhiteSpace(displayLabel);
-        ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            identity.Value,
+            nameof(identity));
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            displayLabel,
+            nameof(displayLabel));
+        VocabularyText.ThrowIfIllFormed(summary, nameof(summary));
         ArgumentNullException.ThrowIfNull(terms);
         Identity = identity;
         DisplayLabel = displayLabel;
@@ -336,7 +390,7 @@ public sealed record VocabularyDefinition
 
     public string DisplayLabel { get; }
 
-    public string Summary { get; }
+    public string? Summary { get; }
 
     public ImmutableArray<VocabularyMapDefinition> Maps { get; }
 
@@ -408,7 +462,9 @@ public sealed class VocabularySnapshot
             throw new ArgumentOutOfRangeException(
                 nameof(formatVersion),
                 "The vocabulary format version must be positive.");
-        ArgumentException.ThrowIfNullOrWhiteSpace(catalog.Value);
+        VocabularyText.ThrowIfNullOrWhiteSpace(
+            catalog.Value,
+            nameof(catalog));
         ArgumentNullException.ThrowIfNull(vocabularies);
 
         ImmutableArray<VocabularyDefinition> declarations = [.. vocabularies];
@@ -777,7 +833,10 @@ public sealed class VocabularySnapshot
                 writer.WriteStartObject();
                 writer.WriteString("identity", vocabulary.Identity.Value);
                 writer.WriteString("displayLabel", vocabulary.DisplayLabel);
-                writer.WriteString("summary", vocabulary.Summary);
+                if (vocabulary.Summary is null)
+                    writer.WriteNull("summary");
+                else
+                    writer.WriteString("summary", vocabulary.Summary);
                 writer.WriteStartArray("maps");
                 foreach (VocabularyMapDefinition map in vocabulary.Maps)
                     WriteMap(writer, map);
