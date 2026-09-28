@@ -241,6 +241,9 @@ public static class PlatformResolver
             yield return Path.Combine(dotnetRoot, "shared");
         }
 
+        if (DotnetHostRoot.FindOnPath() is { } hostRoot)
+            yield return Path.Combine(hostRoot, "shared");
+
         var currentRuntimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
         var currentFrameworkDirectory = string.IsNullOrEmpty(currentRuntimeDirectory)
             ? null
@@ -325,6 +328,9 @@ public static class PlatformResolver
         {
             yield return Path.Combine(dotnetRoot, "packs");
         }
+
+        if (DotnetHostRoot.FindOnPath() is { } hostRoot)
+            yield return Path.Combine(hostRoot, "packs");
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {

@@ -77,11 +77,22 @@ locator, and cleanup failures retain their visible failure presentation.
 
 ## Desktop source composition
 
-The CLI chooses at most one installed dotnet hive. `DOTNET_ROOT` wins when it
-contains a `packs` directory. Otherwise the CLI derives the hive containing
-the current CoreCLR runtime and accepts it only when that hive contains
-`packs`. The installed source receives that exact path and performs no ambient
-root search.
+The CLI chooses at most one installed dotnet hive, taking the first of these
+that contains a `packs` directory:
+
+1. `DOTNET_ROOT`;
+2. the installation that owns the first `dotnet` host on `PATH`, following a
+   symbolic link to the host's real location
+   (`DotnetHostRoot.FindOnPath`); and
+3. the hive containing the current CoreCLR runtime.
+
+The `PATH` host is the signal the user already runs. A NativeAOT build has no
+CoreCLR runtime directory, and installers such as dotnetup place the root
+outside well-known locations, so without it the shipped tool found no hive
+unless `DOTNET_ROOT` was set and fell back to package-backed realization. The
+installed source receives the chosen path and performs no ambient root
+search. The Services platform resolver's legacy pack and shared-framework
+probing consults the same `PATH` host after `DOTNET_ROOT`.
 
 When an installed hive exists, the family-default policy uses:
 

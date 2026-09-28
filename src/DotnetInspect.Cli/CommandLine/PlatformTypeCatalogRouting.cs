@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformHouse.Installed;
 using DotnetInspector.PlatformHouse.Packages;
+using DotnetInspector.Services;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
@@ -297,6 +298,10 @@ internal static class PlatformTypeCatalogRouting
             "DOTNET_ROOT");
         if (HasPacks(configured))
             return Path.GetFullPath(configured!);
+
+        string? host = DotnetHostRoot.FindOnPath();
+        if (HasPacks(host))
+            return host;
 
         string runtimeDirectory =
             RuntimeEnvironment.GetRuntimeDirectory()
