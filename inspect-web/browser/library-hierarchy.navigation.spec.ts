@@ -588,6 +588,10 @@ test("aggregate Library remains active through Spotlight Type and Member results
   await expect(page.locator("html"))
     .toHaveAttribute("data-member-group-document-request", /Run/);
 
+  await page.keyboard.press("1");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(1);
+
   await page.keyboard.press("ArrowRight");
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");

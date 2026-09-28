@@ -284,7 +284,7 @@ test("graph-only members open through the typed member surface", () => {
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     applyMemberSection,
-    /member\s*&& state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex = 0/);
+    /member\s*&& id !== "overview"\s*&& state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex = 0/);
   assert.doesNotMatch(
     applyMemberSection,
     /member\.overloads\.length > 1/);
