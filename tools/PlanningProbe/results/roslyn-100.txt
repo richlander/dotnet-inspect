@@ -1,0 +1,6 @@
+19:41  up 1 day, 21:25, 1 user, load averages: 1.64 1.75 1.76
+scenario	bin	answer	exit	hash	n	median_ms	p95_ms	min_ms
+Roslyn C#	base	incomplete	1	916747cb738a	100	516.2	526.8	496.4
+Roslyn C#	s1	incomplete	1	916747cb738a	100	521.8	533.7	500.6
+Roslyn C#	s2	incomplete	1	916747cb738a	100	523.4	532.4	501.8
+Roslyn C#	s3	incomplete	1	916747cb738a	100	527.5	537.8	505.2

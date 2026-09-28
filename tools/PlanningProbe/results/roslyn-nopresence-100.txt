@@ -1,0 +1,6 @@
+19:45  up 1 day, 21:29, 1 user, load averages: 2.94 2.80 2.24
+scenario	bin	answer	exit	hash	n	median_ms	p95_ms	min_ms
+Roslyn C# no presence	base	false	0	8417cecb0429	100	46.5	47.5	45.7
+Roslyn C# no presence	s1	false	0	8417cecb0429	100	46.6	48.0	45.8
+Roslyn C# no presence	s2	false	0	8417cecb0429	100	46.6	47.8	45.8
+Roslyn C# no presence	s3	false	0	8417cecb0429	100	46.4	47.6	45.6

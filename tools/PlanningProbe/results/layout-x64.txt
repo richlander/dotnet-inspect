@@ -1,0 +1,18 @@
+base 0.27.0+e854c6a 2cb91753bec24fff
+s3 0.27.0+6c4e5e4 1a30abcb919af3bc
+1
+basepad40 0.27.0+e854c6a a104a3615ece15ef
+1
+basepad97 0.27.0+e854c6a 93eda421cd8ed29e
+warm Newtonsoft.Json@13.0.3 rc=0
+warm Microsoft.CodeAnalysis.CSharp@4.14.0 rc=1
+ 20:18:33 up 1 day, 21:59,  5 users,  load average: 14.78, 10.05, 5.83
+scenario	bin	answer	exit	hash	n	median_ms	p95_ms	min_ms
+Newtonsoft.Json	base	true	0	f014e163633f	100	104.5	113.8	100.7
+Newtonsoft.Json	basepad40	true	0	f014e163633f	100	104.9	111.4	100.1
+Newtonsoft.Json	basepad97	true	0	f014e163633f	100	104.4	110.9	98.6
+Newtonsoft.Json	s3	true	0	f014e163633f	100	104.4	115.2	98.9
+Roslyn C#	base	incomplete	1	dc6c8276ab3c	100	455.3	486.0	438.4
+Roslyn C#	basepad40	incomplete	1	dc6c8276ab3c	100	456.2	479.6	440.0
+Roslyn C#	basepad97	incomplete	1	dc6c8276ab3c	100	457.2	485.3	435.4
+Roslyn C#	s3	incomplete	1	dc6c8276ab3c	100	453.7	479.7	437.8
