@@ -405,30 +405,6 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
     },
   });
 
-  await chooseSubject(page, "platform", "Platform");
-  await page.getByLabel("Platform version", { exact: true })
-    .selectOption(alternatePlatformVersion);
-  await expect(page.locator("#platform-version"))
-    .toHaveValue(alternatePlatformVersion);
-  await page.getByRole(
-    "button",
-    { name: /System.Text.Json Implementation/ },
-  ).click();
-  await chooseSubject(page, "type", "Type");
-  await page.locator("#type-list [data-type]").first().click();
-  await chooseSubject(page, "member", "Member");
-  await chooseInspector(page, "data-member-section", "source", "Source");
-  await expect(page.locator(".source-result")).toContainText(
-    "public void Run() {}",
-  );
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-platform-member-source-request",
-    new RegExp(alternatePlatformVersion.replaceAll(".", "\\.")),
-  );
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-platform-member-source-request",
-    /,null\]$/,
-  );
 });
 
 test("Platform Call Graph demo publishes the exact Library and member", async ({
@@ -458,6 +434,34 @@ test("Platform Call Graph demo publishes the exact Library and member", async ({
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
     },
   });
+
+  await openProductDestination(page, "workspace");
+  await page.locator("[data-workspace-platform]").click();
+  await expect(subjectTab(page, "platform"))
+    .toHaveAttribute("aria-selected", "true");
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version"))
+    .toHaveValue(alternatePlatformVersion);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").first().click();
+  await chooseSubject(page, "member", "Member");
+  await chooseInspector(page, "data-member-section", "source", "Source");
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    new RegExp(alternatePlatformVersion.replaceAll(".", "\\.")),
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /,null\]$/,
+  );
 });
 
 test("home demo history failure restores the catalog without publication", async ({
