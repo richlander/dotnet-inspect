@@ -357,6 +357,28 @@ guards and type scopes are the query model's scope predicates at method and
 type grain. When method bodies become a QuerySpace source, tracked by #8577,
 they move to level 2 as its vocabulary.
 
+### Shared scope classifiers
+
+**Rule.** A producer may declare two equivalent forms of its scope. The
+**standalone** form tests scope itself, with its own type scope and unit
+check. The **guarded** form depends on a named shared scope classifier through
+a scope guard. The planner picks the guarded form for every requested
+producer that names the same classifier when two or more such producers are
+requested, and the standalone form otherwise. Both forms must select the same
+units, so the choice never changes a result. It changes only whether scope is
+tested once or once per producer. This is a choice between forms the producer
+declared, not the substitution or narrowing of a request, which
+[Planning](#planning) forbids. The work description records which form was
+chosen.
+
+*Lets the lower levels:* pay for a shared classification only when more than
+one question needs it, so a single question costs what its own check costs.
+
+*Lesson:* the
+[method classification analyzers](method-classification-analyzers.md) split
+a scan that answered three questions every time. A consumer asking one
+question should not pay for a classifier built for three.
+
 ### Access is borrowed for the visit
 
 **Rule.** A producer receives each unit's data as a
