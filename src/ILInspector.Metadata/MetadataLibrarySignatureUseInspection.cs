@@ -177,13 +177,12 @@ internal static class MetadataLibrarySignatureUseInspection
         private readonly Dictionary<
             MetadataTypeDefinitionName,
             TypeEntry> _typesByName = [];
-        private readonly Dictionary<
-            TypeDefinitionHandle,
-            TypeEntry> _typesByHandle = [];
-        private readonly Dictionary<
-            TypeDefinitionHandle,
-            MetadataLibraryTypeClassification>
-                _inheritanceClassification = [];
+        private readonly TypeEntry?[] _typesByRow;
+        private readonly MetadataLibraryTypeClassification[]
+            _inheritanceClassification;
+        private readonly bool[] _inheritanceSettled;
+        private readonly int[] _inheritanceVisitGeneration;
+        private readonly List<TypeDefinitionHandle> _inheritancePath = [];
         private readonly List<TypeEntry> _types = [];
         private readonly ImmutableArray<
             MetadataLibrarySignatureUseOccurrence>.Builder _occurrences =
@@ -197,6 +196,7 @@ internal static class MetadataLibrarySignatureUseInspection
         private int _examined;
         private int _unavailable;
         private bool _limited;
+        private int _currentInheritanceGeneration;
 
         internal Operation(
             PEReader image,
@@ -214,6 +214,13 @@ internal static class MetadataLibrarySignatureUseInspection
             _inventory = inventory;
             _operation = operation;
             _cancellationToken = cancellationToken;
+            int typeRowCapacity =
+                checked(reader.TypeDefinitions.Count + 1);
+            _typesByRow = new TypeEntry?[typeRowCapacity];
+            _inheritanceClassification =
+                new MetadataLibraryTypeClassification[typeRowCapacity];
+            _inheritanceSettled = new bool[typeRowCapacity];
+            _inheritanceVisitGeneration = new int[typeRowCapacity];
         }
 
         internal MetadataLibrarySignatureUseOutcome Execute()
@@ -304,11 +311,13 @@ internal static class MetadataLibrarySignatureUseInspection
                     throw new BadImageFormatException(
                         "More than one TypeDef has the same exact metadata name.");
                 }
-                if (!_typesByHandle.TryAdd(entry.Handle, entry))
+                int row = TypeRow(entry.Handle);
+                if (_typesByRow[row] is not null)
                 {
                     throw new BadImageFormatException(
                         "More than one Type inventory entry has the same TypeDef.");
                 }
+                _typesByRow[row] = entry;
                 _types.Add(entry);
             }
 
@@ -325,27 +334,27 @@ internal static class MetadataLibrarySignatureUseInspection
             const MetadataLibraryTypeClassification inheritedFlags =
                 MetadataLibraryTypeClassification.Attribute
                 | MetadataLibraryTypeClassification.Exception;
-            var path = new List<TypeDefinitionHandle>();
-            var visited = new HashSet<TypeDefinitionHandle>();
+            _inheritancePath.Clear();
+            int visitGeneration =
+                checked(++_currentInheritanceGeneration);
             TypeDefinitionHandle current = entry.Handle;
             MetadataLibraryTypeClassification result;
             while (true)
             {
-                if (_inheritanceClassification.TryGetValue(
-                        current,
-                        out result))
+                int row = TypeRow(current);
+                if (_inheritanceSettled[row])
                 {
+                    result = _inheritanceClassification[row];
                     break;
                 }
-                if (!visited.Add(current))
+                if (_inheritanceVisitGeneration[row] == visitGeneration)
                 {
                     result = MetadataLibraryTypeClassification.None;
                     break;
                 }
-                path.Add(current);
-                if (_typesByHandle.TryGetValue(
-                        current,
-                        out TypeEntry? currentEntry))
+                _inheritanceVisitGeneration[row] = visitGeneration;
+                _inheritancePath.Add(current);
+                if (_typesByRow[row] is { } currentEntry)
                 {
                     result =
                         currentEntry.Classification & inheritedFlags;
@@ -396,9 +405,24 @@ internal static class MetadataLibrarySignatureUseInspection
                 break;
             }
 
-            foreach (TypeDefinitionHandle handle in path)
-                _inheritanceClassification.TryAdd(handle, result);
+            foreach (TypeDefinitionHandle handle in _inheritancePath)
+            {
+                int row = TypeRow(handle);
+                _inheritanceClassification[row] = result;
+                _inheritanceSettled[row] = true;
+            }
             return result;
+        }
+
+        private int TypeRow(TypeDefinitionHandle handle)
+        {
+            int row = MetadataTokens.GetRowNumber(handle);
+            if (row <= 0 || row >= _typesByRow.Length)
+            {
+                throw new BadImageFormatException(
+                    "A TypeDef handle is outside the admitted Type table.");
+            }
+            return row;
         }
 
         private int CountSites()
