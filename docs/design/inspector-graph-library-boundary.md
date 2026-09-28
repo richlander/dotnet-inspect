@@ -30,6 +30,27 @@ Graph semantics, including .NET subject lenses, producer relationships,
 evidence, completeness, and presentation-independent meaning. This document
 owns only the new library and structural carrier boundary.
 
+## Collection model
+
+Think of `Inspector.Graph` as the generic collection for graph-shaped data.
+`List<T>` represents an ordered collection and supports list-shaped questions
+such as membership and position. `Queue<T>` represents a collection with FIFO
+behavior. In the same way, `Inspector.Graph` represents typed nodes and
+relationships and can support graph-shaped questions such as edge membership,
+adjacency, and reachability.
+
+A collection does not discover the values placed in it, and
+`Inspector.Graph` does not discover domain relationships. A caller that
+understands methods can populate nodes for method A and method B and add a
+typed `Calls` edge between them. Graph can then answer whether that edge is
+present, or a later graph algorithm can walk it, without understanding methods,
+IL, or what `Calls` means. The caller owns domain meaning and population; Graph
+owns structure and shape-native behavior over the populated document.
+
+The analogy defines the responsibility boundary rather than the complete API.
+This design establishes the collection shape and graph-local validity. Focused
+successors define lookup, traversal, reachability, and terminal behavior.
+
 ## User outcome
 
 The production-shaped demonstration remains the OpenTelemetry external-focused
