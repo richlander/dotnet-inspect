@@ -64,6 +64,26 @@ test("unavailable forwarding preserves subject, location and actionable focus", 
   await expect(page).toHaveURL(source);
 });
 
+test("namespace filtering includes forwarded-only namespaces and follows the selected Library", async ({ page }) => {
+  await openXml(page);
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  const namespace = page.getByRole("combobox", { name: "Filter by namespace" });
+  await expect(namespace.locator('option[value="System.Xml"]'))
+    .toHaveText("System.Xml · 1");
+  await namespace.selectOption("System.Xml");
+  await expect(namespace).toHaveValue("System.Xml");
+  await expect(page.locator('[data-type="System.Xml:System.Xml.XmlReader"]'))
+    .toBeVisible();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator('[data-type="System.Private.Xml:System.Xml.XmlReader"]'))
+    .toBeVisible();
+  await expect(namespace.locator('option[value="System.Xml"]'))
+    .toHaveText("System.Xml · 1");
+});
+
 test("Library scope controls and keyboard selection retain a forwarded Type", async ({ page }) => {
   await openXml(page);
   await chooseSubject(page, "library", "Library");

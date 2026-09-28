@@ -5875,6 +5875,9 @@ function namespaceOptions() {
     if (!state.accessibilityFilter.has(item.accessibilityId)) continue;
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
   }
+  for (const item of currentPlatformForwarderView()?.forwarders ?? []) {
+    counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
+  }
   return [...counts.keys()]
     .sort((a, b) => a.localeCompare(b))
     .map(ns => `<option value="${escapeHtml(ns)}" ${state.namespaceFilter === ns ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`)

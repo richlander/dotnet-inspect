@@ -953,7 +953,8 @@ The latter retires the unexplained empty facade Type list. Its gates are:
 - `browser/platform-forwarders.spec.ts` exercises the production UI over
   deterministic XML-route responses: immediate destinations, ordinary
   defining-Type inspectors, Back and refresh with renewed actions, visible
-  non-success, destination focus, and superseded completion.
+  non-success, destination focus, forwarded-only namespace selection, and
+  superseded completion.
 - `browser/package-adoption.spec.ts`, `renders the real XML facade and
   navigates two immediate Type destinations`, exercises the published Wasm
   application with the immutable runtime version above, including the
