@@ -411,7 +411,12 @@ the planner:
   `IdentityText`, so a plan of Count, Exists, and classification spends no
   identity budget as a property of the plan. Critical-abort handling is always
   armed. A Tier 1 per-row cap, or a bound specific to a domain, can abort any
-  plan, including one that declares no `IdentityText`;
+  plan, including one that declares no `IdentityText`. The consequence is
+  that a plan with no `IdentityText` cannot notice hostility that lives in
+  identity text. It may answer, possibly misleadingly, where a plan that
+  decodes identities over the same image aborts. That follows from making
+  Count and Exists fast; it is not a promise that hostile images get an
+  answer;
 - reads each field shared by several producers once per row;
 - chooses the kernel; and
 - explains what a plan reads.
