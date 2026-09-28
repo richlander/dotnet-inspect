@@ -38,6 +38,20 @@
       ]
     },
     {
+      "id": "inspector-graph-stays-independent",
+      "source": "docs/design/inspector-graph-library-boundary.md#dependency-boundary",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "Inspector.Graph"
+      ],
+      "allowOnly": [
+        "$platform"
+      ]
+    },
+    {
       "id": "engine-libraries-stay-below-tool-libraries",
       "source": "docs/design/inspection-layers.md#seam-rules",
       "graphs": [

@@ -1,11 +1,9 @@
 import { expect, test } from "@playwright/test";
 import {
-  chooseInspector,
   chooseSubject,
   core,
   createType,
   installFacades,
-  inspectorTab,
   releaseFacade,
   root,
   run,
@@ -78,7 +76,7 @@ function overloadedPackage(): BrowserPackageSurface {
   };
 }
 
-test("implementation profiles stay lazy, preserve family identity, and render accessible evidence", async ({
+test("Type heat paints after the member list and family evidence stays behind its disclosure", async ({
   page,
 }) => {
   await installFacades(
@@ -97,25 +95,50 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
   await page.locator("#type-list [data-type]").click();
   await chooseSubject(page, "member", "Member");
 
+  // One Type request, made after the member list paints; no family detail.
   const html = page.locator("html");
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+  expect(JSON.parse(
+    await html.getAttribute("data-type-heat-request") ?? "null",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    core.id,
+    "Example.Widget",
+  ]);
   expect(await html.getAttribute(
     "data-implementation-profile-request-count")).toBeNull();
-  const tab = inspectorTab(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-  );
-  await expect(tab).toHaveAttribute("aria-label", "Implementation profiles");
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
+  await expect(page.locator('[data-member-section="implementation-profiles"]'))
+    .toHaveCount(0);
 
-  await expect(page.getByRole("heading", {
-    name: "Loading implementation profiles",
-  })).toBeVisible();
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+  await runFamily.click();
+  await expect(runFamily.locator(".family-heat-cue.progress"))
+    .toHaveText("measuring");
+
+  await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
+  await expect(runFamily.locator(".family-heat-cue")).toHaveCount(0);
+  const rows = page.locator(".overload-nav-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(0)).not.toHaveClass(/\bhub\b/);
+  await expect(rows.nth(0)).toHaveAttribute(
+    "aria-description",
+    "98 instructions; 100% of the largest body in this family",
+  );
+  await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
+  await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
+
+  await page.locator('[data-nav-overload="0"]').click();
+  await expect(page.getByRole("heading", { name: "Implementation" }))
+    .toBeVisible();
+  await expect(page.locator(".implementation-profile-heat-summary"))
+    .toHaveText("98 instructions; 100% of the largest body in this family");
+  expect(await html.getAttribute(
+    "data-implementation-profile-request-count")).toBeNull();
+
+  await page.getByText("Implementation evidence", { exact: true }).click();
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
     "1",
@@ -130,54 +153,33 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
     "Example.Widget",
     ["Run(int)", "Run(string)"],
   ]);
-
   await releaseFacade(
     page,
     `fixture-implementation-profiles-ready:${core.id}`,
   );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
-  await expect(page.locator(".member-surface-head p"))
-    .toContainText("2 overloads");
   await expect(page.locator(".implementation-profile-overload"))
-    .toHaveCount(2);
+    .toHaveCount(1);
   await expect(page.locator(".implementation-profile-physical-row"))
-    .toHaveCount(3);
-  await expect(page.getByRole("heading", {
-    name: "Generated physical body",
-  })).toBeVisible();
-  await expect(page.getByRole("img", {
-    name: "80 instructions; 100% of the largest physical body in this overload family",
-  })).toBeVisible();
+    .toHaveCount(2);
   await expect(page.getByText("Branches: 8", { exact: true })).toBeVisible();
-  await expect(page.getByText("Loops: 2", { exact: true })).toBeVisible();
 
-  await page.getByText("Raw implementation metrics", { exact: true })
-    .first()
-    .click();
-  await expect(
-    page.getByText("Distinct opcode count", { exact: true }).first(),
-  ).toBeVisible();
-
-  await page.locator("[data-nav-member]").filter({ hasText: "Compute" })
-    .click();
+  // Moving within the Type reuses its heat, and a disclosure opened on one
+  // overload never turns later selection into family requests.
+  const compute = page.locator("[data-nav-member]")
+    .filter({ hasText: "Compute" });
+  await compute.click();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+  await page.locator('[data-nav-overload="1"]').click();
+  await expect(page.locator("[data-implementation-evidence]"))
+    .not.toHaveAttribute("open", "");
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
     "1",
   );
-  await expect(inspectorTab(
-    page,
-    "data-member-section",
-    "overview",
-  )).toHaveAttribute("aria-selected", "true");
-
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
+  await page.getByText("Implementation evidence", { exact: true }).click();
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
     "2",
@@ -192,57 +194,86 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
     "Example.Widget",
     ["Compute(int)", "Compute(string)"],
   ]);
+});
+
+function packageWithPlainType(): BrowserPackageSurface {
+  const overloaded = overloadedPackage();
+  return {
+    ...overloaded,
+    assemblies: overloaded.assemblies.map(assembly =>
+      assembly.id === core.id
+        ? { ...assembly, publicMembers: 5, publicTypes: 2 }
+        : assembly),
+    types: [
+      ...overloaded.types.slice(0, 1),
+      createType("Example.Plain", core),
+      ...overloaded.types.slice(1),
+    ],
+    totalMembers: 6,
+  };
+}
+
+test("results that settle while the reader is away are shown on return without a request", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    packageWithPlainType(),
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "deferred",
+  );
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  const html = page.locator("html");
+  const types = page.locator("#type-list [data-type]");
+  const openType = async (name: string) => {
+    await chooseSubject(page, "type", "Type");
+    await types.filter({ hasText: name }).first().click();
+    await chooseSubject(page, "member", "Member");
+  };
+  const runFamily = page.locator("[data-nav-member]").filter({ hasText: "Run" });
+
+  // Type heat settles while the reader is on a Type with no eligible family.
+  await openType("Widget");
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+  await runFamily.click();
+  await expect(runFamily.locator(".family-heat-cue.progress"))
+    .toHaveText("measuring");
+  await openType("Plain");
+  await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
+  await openType("Widget");
+  await runFamily.click();
+  await expect(page.locator(".overload-nav-row").nth(0))
+    .toHaveClass(/\bheated\b/);
+  await expect(runFamily.locator(".family-heat-cue")).toHaveCount(0);
+  await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
+
+  // Family detail settles while the reader is on another family.
+  await page.locator('[data-nav-overload="0"]').click();
+  await page.getByText("Implementation evidence", { exact: true }).click();
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "1",
+  );
+  await page.locator("[data-nav-member]").filter({ hasText: "Compute" })
+    .click();
   await releaseFacade(
     page,
     `fixture-implementation-profiles-ready:${core.id}`,
   );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Compute",
-  })).toBeVisible();
-
-  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
-
+  await runFamily.click();
   await page.locator('[data-nav-overload="0"]').click();
+  await expect(page.locator("[data-implementation-evidence]"))
+    .not.toHaveAttribute("open", "");
+  await page.getByText("Implementation evidence", { exact: true }).click();
+  await expect(page.locator(".implementation-profile-overload"))
+    .toHaveCount(1);
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
-    "2",
+    "1",
   );
-  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
-  await expect(
-    page.locator(".implementation-profile-physical-row"),
-  ).toHaveCount(3);
-
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "overview",
-    "Overview",
-  );
-  await chooseInspector(
-    page,
-    "data-member-section",
-    "implementation-profiles",
-    "Implementation profiles",
-  );
-  await expect(html).toHaveAttribute(
-    "data-implementation-profile-request-count",
-    "2",
-  );
-  await expect(page.getByRole("heading", {
-    name: "Example.Widget.Run",
-  })).toBeVisible();
 });

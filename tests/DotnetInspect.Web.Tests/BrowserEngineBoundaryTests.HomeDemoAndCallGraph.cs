@@ -587,7 +587,8 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
+    public async Task
+        DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
     {
         var connectorIdentity = new AssemblyReferenceIdentity(
             "Microsoft.Extensions.Options",
@@ -791,13 +792,13 @@ public sealed partial class BrowserEngineBoundaryTests
                         incompleteEdgeCount: 3,
                         bindingIdentityConflictCount: 4)),
                 new InspectionGraphLimit(
-                    ExternalFocusedCallGraphInspectionCatalog
-                        .BoundaryClassificationIncomplete,
+                    InspectionGraphFocusCatalog
+                        .ScopeClassificationIncomplete,
                     InspectionGraphTarget.Edge(
                         unclassifiedBoundaryEdgeId)),
                 new InspectionGraphLimit(
-                    ExternalFocusedCallGraphInspectionCatalog
-                        .BoundaryClassificationIncomplete,
+                    InspectionGraphFocusCatalog
+                        .ScopeClassificationIncomplete,
                     InspectionGraphTarget.Edge(
                         unclassifiedUnknownEdgeId)),
             ],
@@ -814,19 +815,26 @@ public sealed partial class BrowserEngineBoundaryTests
                     ((InspectionGraphMemberIdentity.CallGraph)
                         target.Identity).Member.Name switch
                     {
-                        "AddOptions" => "connector",
-                        "Get" => "boundary",
-                        "WriteLine" => "unclassified-boundary",
-                        "Invoke" => "unclassified-boundary",
+                        "AddOptions" =>
+                            InspectionGraphFocusCatalog
+                                .ConnectorRole,
+                        "Get" =>
+                            InspectionGraphFocusCatalog.ExitRole,
+                        "WriteLine" =>
+                            InspectionGraphFocusCatalog
+                                .UnclassifiedBoundaryRole,
+                        "Invoke" =>
+                            InspectionGraphFocusCatalog
+                                .UnclassifiedBoundaryRole,
                         _ => throw new InvalidOperationException(
                             "Unexpected call-graph member."),
                     };
                 InspectionGraphTarget edgeTarget =
                     InspectionGraphTarget.Edge(edge.Id);
                 return new InspectionGraphCharacteristic(
-                    ExternalFocusedCallGraphInspectionCatalog.EdgeRole,
+                    InspectionGraphFocusCatalog.Role,
                     edgeTarget,
-                    new InspectionGraphValue.Token(role),
+                    new InspectionGraphValue.TokenSet([role]),
                     new InspectionGraphCharacteristicDerivation(
                         InspectionGraphCharacteristicDerivationKind
                             .Derived,
@@ -871,6 +879,13 @@ public sealed partial class BrowserEngineBoundaryTests
                                 Member.Name: "Get",
                             },
                     }).Id;
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
         var document =
             new PackageDependencyMemberCallGraphDocument(
                 TraversalTargetFrameworkPolicy.ProductDefault,
@@ -890,6 +905,10 @@ public sealed partial class BrowserEngineBoundaryTests
                         "ecosystem.aspnetcore",
                         "ecosystem.microsoft-extensions",
                     ]),
+                MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                    scope,
+                    registrations),
+                [],
                 [
                     new PackageDependencyMemberCallGraphPackageSubject(
                         connectorNodeId,

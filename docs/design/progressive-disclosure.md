@@ -1,9 +1,11 @@
 # Progressive disclosure model
 
-dotnet-inspect uses progressive disclosure to control noise, latency, and
-network use. The core rule is: start with cheap evidence in the command's base
+dotnet-inspect uses progressive disclosure to control noise, output bulk, and
+latency. The core rule is: start with cheap evidence in the command's base
 scope, then require an explicit gesture for broader domains or larger probe
-budgets.
+budgets. Network dependence is governed separately by the
+[network policy](#network-policy): `--offline` is the only no-network
+guarantee.
 
 The model combines five mechanisms:
 
@@ -31,6 +33,11 @@ they do not require `--all` for completeness. A follow-up API command may
 still need `--all` to resolve a non-public result identified by an aggregate
 analysis. These are separate gestures with separate contracts.
 
+An implementation operation that accepts a named Type or Member has both
+boundaries in one command. `--all` may widen the API lookup used to resolve a
+non-public root, but it does not widen the resulting body population, graph
+traversal, relationship set, or work bounds.
+
 See [API and implementation population scope](api-population-scope.md) for
 the normative distinction and the boundaries between API visibility,
 implementation completeness, and package-library selection.
@@ -44,7 +51,7 @@ unrelated domain categories.
 | --- | --- | --- |
 | Quiet | `-v:q` | Compact identity/context only |
 | Minimal | `-v:m` | One high-value base section |
-| Normal | `-v:n` | Fixed, terse, and informative network-free base sections |
+| Normal | `-v:n` | Fixed, terse, and informative base sections |
 | Detailed | `-v:d` | All applicable bounded-cost base sections |
 
 Minimal views should remain close to one screenful. Prefer compact fields,
@@ -392,6 +399,48 @@ turn discovery into target acquisition, or advertise deferred work.
 
 ## Network and source capabilities
 
+### Network policy
+
+dotnet-inspect accepts network dependence in exchange for better data. Ranged
+package reads make acquisition cheap enough that network access no longer
+decides what a default view shows.
+
+- `--offline` is the only way to guarantee no network dependence. It is
+  enforced once, where HTTP clients are created: `HttpClientFactory` adds an
+  `OfflineHandler` that rejects every request. A package, PDB, or source
+  acquisition therefore fails rather than reaching the network.
+- Otherwise, acquiring a missing PDB (`PdbAcquire`) is a default capability.
+  Any gesture whose producers want PDB facts may request it.
+- Verbosity presets are defined by size and value, as described in
+  [Verbosity](#verbosity), not by whether a section's producer uses the
+  network.
+- Fixed and `Verbose` (unbounded) sections keep their disclosure rules. A
+  bounded section can appear by default even when its producer uses the
+  network, and an unbounded inventory stays out of the default views even when
+  it needs no network.
+- Source and documentation content is a matter of disclosure, not network
+  dependence. Source is bulky, so it is not shown for every member by default.
+  A single subject may show its own descriptive text by default: a package
+  description, or the docs for a type in a single-type overview. A list of
+  subjects does not show per-row docs or source by default. This matches the
+  website treatment.
+- Plain `-D` stays network-free, so discovery still returns quickly for a
+  local target (see [Discovery](#discovery)).
+
+The rest of this section describes the capability machinery that carries this
+policy. Its rules about request provenance and host preflight still apply.
+Only the policy that decides which capabilities a gesture requests has
+changed.
+
+Adoption status: this policy leads the implementation. Today the CLI requests
+`PdbAcquire` only on exact section selection, `-v:d`, or explicit effective
+discovery. Package descriptions already show by default; a single type's docs
+and a single subject's source do not yet. Until adoption
+([#8729](https://github.com/richlander/dotnet-inspect/issues/8729)) lands,
+the current behavior is what ships.
+
+### Capability machinery
+
 Package acquisition and symbol/source acquisition are separate.
 
 In Browser and CLI Package Query, selecting a product-issued package-content
@@ -430,18 +479,19 @@ probe policy.
 For example, plain library discovery may request `LocalPdbRead` for its bounded
 SourceLink-door probe, while named/category type/member discovery requests none
 of the three. An explicit effective-discovery policy may request more.
-Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
-source-audit work where the selected section's bound query and disclosure
-policy permit it, but it does not request `SourceContent` merely because code
-promoted the effective verbosity. Query definitions alone declare producer
+Outside `--offline`, any gesture may request `PdbAcquire` where the selected
+section's bound query declares it. Detailed verbosity may also request bounded
+source-audit work where the disclosure policy permits it. Neither requests
+`SourceContent` merely because code promoted the effective verbosity. Query definitions alone declare producer
 requirements and conditional successors. Section descriptors bind typed
 queries and apply disclosure/request policy to gesture provenance; they
 neither restate producer requirements nor grant authority. Artifact
 admission/query leases revalidate the authorized closure at content access.
 
 - A package may be downloaded to resolve the requested target.
-- Default gestures must not automatically acquire PDBs or access source
-  content.
+- Outside `--offline`, default gestures may acquire PDBs. Whether they show
+  source content is decided by disclosure (see
+  [Network policy](#network-policy)).
 - Embedded, adjacent, or cached symbols avoid network cost, but may be used
   only when the host-preflight-authorized plan includes `LocalPdbRead` for that
   producer and coordinate. Availability is not authority.
@@ -547,7 +597,8 @@ dotnet-inspect library System.Text.Json -S @Performance
 
 ## Maintenance guidance
 
-- Preserve cheap, network-free defaults.
+- Preserve cheap, bounded defaults. Keep `--offline` the only no-network
+  guarantee, and keep plain `-D` network-free.
 - Put unrelated domains behind authored category doors.
 - Keep selection backpressure wired through producer demand.
 - Add structural and effective discovery coverage for new sections.

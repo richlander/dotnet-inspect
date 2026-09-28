@@ -519,6 +519,12 @@ not adopted this transport.
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
+`--offline` is the only way to guarantee no network dependence. Without it,
+commands other than plain `-D` discovery may acquire packages and PDBs to
+answer the request. The
+[network policy](design/progressive-disclosure.md#network-policy) owns this
+rule and its adoption status.
+
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
@@ -1214,6 +1220,12 @@ that population, without requiring `--all`. If an aggregate result identifies
 a non-public body and you follow it into an API-level command, that separate
 command may require `--all` to resolve the declaration.
 
+Some body-oriented commands also begin with an API lookup. In those commands,
+`--all` can be necessary to resolve a non-public, hidden, or obsolete Type or
+Member root. Once resolved, the implementation operation uses its complete
+admitted body population by default; `--all` does not widen traversal, select
+more relationships, or request every analysis.
+
 Exact `library ... -S "Library Metrics" --json` emits the complete Research
 `LibraryStructuralReportDocument`: the Analysis receipt and coverage,
 numeric distributions and maximum-body identities, async disposition, typed
@@ -1691,6 +1703,11 @@ their adopted Direct Use Clusters and Call Sites cohorts are described below.
 graph, and shows only calls crossing the selected supply-chain baseline plus
 the shortest baseline paths needed to reach them. Root asset selection stays
 exact; dependency traversal independently uses `--tfm` or the product default.
+In the OpenTelemetry example, `--all` is needed only because
+`AddOpenTelemetrySharedProviderBuilderServices` is a non-public starting
+declaration. It widens that API lookup; it does not mean all calls, remove the
+graph bounds, or widen the body population, relationship set, dependency
+traversal, or selected baseline.
 Each edge is typed as `connector`, `boundary`, or `unclassified-boundary`, and
 row-oriented output retains the physical MVID, MethodDef token, IL offset,
 operand token, call kind, dispatch kind, and loop state. A dependency member

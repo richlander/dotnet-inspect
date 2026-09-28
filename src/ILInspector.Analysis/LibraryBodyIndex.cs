@@ -27,12 +27,6 @@ public enum LibraryBodyAnalysisFeatures
     /// Produce optimization opportunities; implies <see cref="Allocations"/>.
     /// </summary>
     OptimizationOpportunities = 1 << 2,
-    /// <summary>Produce the whole-assembly ArrayPool lifecycle census.</summary>
-    LeakTriage = 1 << 3,
-    /// <summary>
-    /// Produce compact body-scoped ArrayPool ownership-flow summaries.
-    /// </summary>
-    OwnershipFlow = 1 << 4,
     /// <summary>
     /// Produce sync-call-in-async opportunities; implies
     /// <see cref="MethodEvidence"/>.
@@ -62,8 +56,6 @@ public enum LibraryBodyAnalysisFeatures
         | AsyncSiblingOpportunities,
     /// <summary>All available body-analysis producers.</summary>
     All = Default
-        | LeakTriage
-        | OwnershipFlow
         | JsonWireContractFlow
         | LocalThrows
         | ImplementationProfiles,
@@ -143,8 +135,6 @@ public sealed class LibraryBodyIndex
         _unsafetyOccurrences = analysis.Safety.Occurrences;
         Features = features;
         HasFullMethodEvidenceScope = hasFullScope;
-        _leakTriage = analysis.Resources.LeakTriage;
-        ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
     }
 
     public string Path { get; }
@@ -229,28 +219,6 @@ public sealed class LibraryBodyIndex
     /// reported separately through <see cref="Diagnostics"/>.
     /// </summary>
     public bool HasFullMethodEvidenceScope { get; }
-
-    /// <summary>
-    /// Compact per-method ArrayPool ownership summaries produced during the
-    /// body walk. No IL or control-flow state is retained.
-    /// </summary>
-    public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
-        ArrayPoolOwnership
-    { get; }
-
-    readonly LeakTriageResult? _leakTriage;
-
-    /// <summary>
-    /// Gets the whole-assembly lifecycle census produced when
-    /// <see cref="LibraryBodyAnalysisFeatures.LeakTriage"/> was requested.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// The Leak Triage producer was not requested.
-    /// </exception>
-    public LeakTriageResult LeakTriage
-        => _leakTriage
-            ?? throw new InvalidOperationException(
-                "Leak Triage was not requested for this body index.");
 
     readonly LibraryOptimizationAnalysisResult _optimization;
     readonly LibraryCallGraphAnalysisResult _callGraph;
@@ -654,8 +622,6 @@ public sealed class LibraryBodyIndex
                         new HashSet<int>(),
                     ExceptionTypeNames:
                         new HashSet<string>(StringComparer.Ordinal)),
-                OwnershipFlow: new(Methods: []),
-                Resources: new(LeakTriage: null),
                 Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
             features: LibraryBodyAnalysisFeatures.MethodEvidence
                 | (allocationOccurrences is null
@@ -723,64 +689,6 @@ public sealed class LibraryBodyIndex
                 bodyScope,
                 bodyTypeScope),
             resolver);
-    }
-
-    /// <summary>
-    /// Determines whether an opened metadata context contains any unsafe
-    /// declaration or body evidence, stopping after the first finding instead
-    /// of materializing a whole-assembly body index or PE image.
-    /// </summary>
-    /// <remarks>
-    /// Gates:
-    /// <c>Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery</c> and
-    /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>.
-    /// </remarks>
-    public static bool HasUnsafeEvidence(
-        string path,
-        PdbContext context)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        ArgumentNullException.ThrowIfNull(context);
-
-        return context.InspectImage(
-            peReader => HasUnsafeEvidence(
-                path,
-                peReader));
-    }
-
-    /// <summary>
-    /// Determines whether an immutable PE image contains unsafe evidence.
-    /// Prefer the context overload when an owning metadata context is already
-    /// open.
-    /// </summary>
-    public static bool HasUnsafeEvidence(
-        string path,
-        ImmutableArray<byte> image)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (image.IsDefaultOrEmpty)
-        {
-            throw new ArgumentException(
-                "A PE image is required.",
-                nameof(image));
-        }
-
-        using var peReader = new PEReader(image);
-        return HasUnsafeEvidence(path, peReader);
-    }
-
-    static bool HasUnsafeEvidence(
-        string path,
-        PEReader peReader)
-    {
-        if (!peReader.HasMetadata)
-            return false;
-
-        using var builder = new LibraryBodyAnalysisBuilder(
-            path,
-            peReader.GetMetadataReader(),
-            peReader);
-        return builder.HasUnsafeEvidence();
     }
 
     static void ValidateSyntheticEvidenceIdentity(

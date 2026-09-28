@@ -18,6 +18,22 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task Execute_TeachesCapabilitySearchToProductionBinding()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.Execute()));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("explain literal", output);
+        Assert.Contains("explain <path>", output);
+        Assert.Contains(
+            "package query Microsoft.Azure.SignalR "
+                + "--where \"library-literal=https://\" "
+                + "--tfm net8.0 -S \"Literal Strings\"",
+            output);
+    }
+
+    [Fact]
     public async Task Execute_AppendsSkillsSectionAfterBaseline()
     {
         var (_, output, _) = await ConsoleCapture.RunAsync(

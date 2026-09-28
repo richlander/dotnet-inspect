@@ -9,6 +9,11 @@ interaction. It does not own which subject, target, or lens is active, the
 contents of coordinate selectors, or the consumer effect lifecycle that
 resolves focus after a navigation result installs; those are separately owned.
 
+Rendered-interaction continuity is tracked end to end by
+[#8617](https://github.com/richlander/dotnet-inspect/issues/8617). The focused
+Spotlight adoption is
+[#8618](https://github.com/richlander/dotnet-inspect/issues/8618).
+
 ## Ownership and boundaries
 
 This owner defines:
@@ -184,6 +189,12 @@ The Application menu starts from three established patterns:
   Palette. The useful transfer is action parity, not VS Code's desktop
   application menu bar or user-editable keybinding system
   ([VS Code keyboard shortcuts](https://code.visualstudio.com/docs/configure/keybindings)).
+- React list keys and Lit's keyed `repeat` preserve the association between one
+  logical list item and its rendered instance while collections change. The
+  useful transfer is stable item identity, not either framework or its
+  component model
+  ([React list keys](https://react.dev/learn/rendering-lists#keeping-list-items-in-order-with-key),
+  [Lit keyed lists](https://lit.dev/docs/templates/lists/#the-repeat-directive)).
 
 The deliberate divergence is that the separate Application menu remains small
 and non-navigational. It contains only the shell-owned Share, Settings, and
@@ -227,6 +238,7 @@ Shell maintenance that replaces an open menu while the current routed product
 destination remains Home, Query, Workspace, Activity, or Demos preserves the
 open state and the focused stable destination. A product-destination change closes
 the outgoing menu and follows the ordinary routed destination-focus contract.
+Maintenance replacement also preserves focus when the closed trigger owns it.
 Surfaces outside that product-destination inventory retain their own
 replacement-focus contract.
 
@@ -407,6 +419,30 @@ owner](inspect-web-spotlight-destination-activation.md) supplies each exact
 result's effect and settled product outcome. Shell Interaction retains only
 Spotlight opening, dismissal, focus, keyboard, and modal behavior; it does not
 classify Workspace coverage or reconstruct activation from the selected row.
+
+Each rendered Spotlight result is bound to the exact
+`spotlightResultIdentity` that produced it. Array position remains a transient
+presentation coordinate for selection and `aria-activedescendant`; it is never
+activation identity. Spotlight admits at most one interactive control for each
+exact result identity; alternate discovery paths coalesce at their first
+occurrence. When asynchronous search or shell maintenance renders the same
+result identity again, the Browser preserves that result control's DOM identity
+and updates its position, selected state, content, and exact current descriptor
+in place. Activation resolves only that identity's current rendered descriptor.
+If the identity is absent, activation has no effect; another result that
+occupies the former index cannot receive it.
+
+This preserves native pointer, keyboard, focus, and assistive-technology
+behavior rather than replaying a gesture through application code. It applies
+only to interactive Spotlight result controls. Static group labels, loading
+hints, empty and failure messages, and results whose identity disappeared may
+be replaced normally.
+
+The motivating production asset is `System.Text.Json@9.0.4`. Under the
+published application gate in #8567, ordinary asynchronous rendering could
+replace its exact package result during a physical pointer sequence. #8578
+made that scenario atomic at the test boundary; #8618 moves the guarantee into
+the Shell-owned production renderer.
 
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.
@@ -693,6 +729,33 @@ outcomes.
     visible within the modal.
 13. Confirm that Spotlight exposes no Platform scope or root result and that a
     matching installed framework assembly appears only as a Library result.
+14. Press a rendered package result, publish an ordinary asynchronous package
+    search update before release, and confirm that a surviving exact result
+    retains the same DOM node and activates exactly that package once.
+15. Focus a rendered package result, press Space, publish an ordinary
+    asynchronous package search update before release, and confirm that the
+    surviving exact result retains focus and activates exactly that package
+    once on release.
+16. In modal Spotlight, focus a rendered package result, press Space, replace
+    the whole application shell, and wait through the next focus-restoration
+    frame. Confirm that the surviving exact result retains the same DOM node
+    and browser focus and activates exactly once on release.
+17. In Add package, retain the active result and modal backdrop while a shell
+    replacement installs a new input and Cancel control. Confirm that Tab and
+    Shift+Tab cycle through the current controls rather than a detached input.
+18. With the resident runtime surface loaded, search in All scope for a Type
+    discovered through both general Type matching and framework-Library
+    matching. Confirm that production composition renders one exact result,
+    then hold Space across an asynchronous result refresh and confirm that the
+    same focused control activates once.
+19. Press a framework-Library result on its descendant label while ordinary
+    acquisition changes that result's visible metadata. Confirm that the
+    button and pressed descendant remain connected and release activates once.
+20. On Home, hold Space on a result while a whole-application render changes
+    its positional DOM ID. Confirm that focus remains on the exact result
+    identity and release activates that result once.
+21. Repeat while removing the pressed result identity and confirm that release
+    does not activate the result that inherited its former array position.
 
 ### Local Open
 

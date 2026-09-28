@@ -1225,6 +1225,42 @@ The House does not choose one assembly because its file name resembles the
 package ID unless the asset-selection owner explicitly defines that role.
 Shared Library inspection begins only after this handoff.
 
+### Library Address operation composition
+
+[#8726](https://github.com/richlander/dotnet-inspect/issues/8726) composes one
+exact acquired settlement and one compile handoff issued by that settlement
+through the existing materializer and
+[Library Address inspection](library-address-inspection.md). The exact claim
+is:
+
+> Given one exact acquired PackageHouse settlement, one compile Library
+> handoff issued by that settlement, and one portable Library Address intent,
+> materialize only that selected Library, execute the existing Library Address
+> operation under a transferred exact Library lease, return its detached
+> `InspectionEnvelope<LibraryAddressInspectionOutcome>`, and retire Library
+> authority before Artifact authority on every terminal path.
+
+`PackageLibraryAddressInspection` requests the optional implementation
+Portable PDB only when the Address intent requests source-location evidence.
+It does not reselect the asset, infer correspondence from paths or names, or
+define another Address result. The existing materializer validates the exact
+settlement, handoff, and package-content generation, and the existing Address
+operation retains implementation targeting, content, Share, diagnostics, and
+operation-lease settlement.
+
+Typed materialization non-success becomes failed Address content with one
+diagnostic per owner-issued materialization failure. Completion, cancellation,
+exception, and operation failure retire the Library owner before the Artifact
+session. An optional PDB omission caused by its content limit, retained-byte
+limit, or unreadable content remains visible in the returned diagnostics.
+Cleanup failure cannot return a successful Address outcome.
+
+This composition does not execute package-source settlement, choose among
+several handoffs, parse host input, render output, expose a Browser facade, or
+retire the legacy package-to-Library continuation. CLI and Browser/Wasm
+adoption remain the fourth slice of
+[#8672](https://github.com/richlander/dotnet-inspect/issues/8672).
+
 ## Workspace boundary
 
 `Workspace` owns registration, transactions, revisions, admission, order,

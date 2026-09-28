@@ -878,6 +878,67 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void RequestScopesLibraryCompanionDemandToImplementationHandoffs()
+    {
+        PackageHouseDemand demand = new PackageHouseDemand.Exact(Coordinate);
+        PackageHouseLibraryCompanionDemand companion =
+            PackageHouseLibraryCompanionDemand
+                .ImplementationPortablePdb;
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                libraryCompanionDemand:
+                    (PackageHouseLibraryCompanionDemand)42));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Runtime,
+                PackageHouseLibraryHandoffMode.SelectedLibraries,
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Compile,
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Compile,
+                PackageHouseLibraryHandoffMode.SelectedLibraries,
+                assetDemand: PackageAssetDemand.Surface,
+                libraryCompanionDemand: companion));
+
+        PackageHouseRequest request = new(
+            demand,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries,
+            libraryCompanionDemand: companion);
+
+        Assert.Equal(companion, request.LibraryCompanionDemand);
+    }
+
+    [Fact]
     public void OperationPreservesIdentityAndDeadlineDurations()
     {
         PackageHouseOperation operation = PackageHouseOperation.Create(

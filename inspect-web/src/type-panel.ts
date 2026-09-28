@@ -49,6 +49,136 @@ export interface TypeSummary {
 export interface MemberOverloadSummary {
   signature: string;
   graphOnly?: boolean;
+  parameters?: readonly OverloadLabelParameter[];
+  returnType?: string | null;
+}
+
+export interface OverloadLabelParameter {
+  type: string;
+  modifier?: string | null;
+}
+
+// A nested overload row needs only enough to tell its siblings apart: the
+// member name, type parameters, and parameter types without namespaces. The
+// return type rarely differs between overloads and parameter names never
+// distinguish them, so both are left to the overload's detail. Pass-by
+// modifiers stay because they distinguish overloads; `params` does not.
+interface OverloadLabelParts {
+  readonly name: string;
+  readonly typeParameters: string;
+  readonly parameters: ReadonlyArray<{ modifier: string; type: string }>;
+}
+
+function overloadLabelParts(
+  name: string,
+  overload: MemberOverloadSummary,
+): OverloadLabelParts | string {
+  const displayName = signatureFromName(name, overload.signature) === null
+    ? declaredDisplayName(overload.signature)
+    : name;
+  const named = displayName === null
+    ? null
+    : signatureFromName(displayName, overload.signature);
+  if (!overload.parameters || named === null || displayName === null)
+    return named ?? overload.signature;
+  return {
+    name: displayName,
+    typeParameters: named.startsWith(`${displayName}<`)
+      ? balancedTypeParameters(named.slice(displayName.length))
+      : "",
+    parameters: overload.parameters.map(parameter => ({
+      modifier: parameter.modifier && parameter.modifier !== "params"
+        ? parameter.modifier
+        : "",
+      type: unqualifiedType(parameter.type),
+    })),
+  };
+}
+
+export function overloadNavLabel(
+  name: string,
+  overload: MemberOverloadSummary,
+): string {
+  const parts = overloadLabelParts(name, overload);
+  if (typeof parts === "string") return parts;
+  const parameters = parts.parameters.map(parameter =>
+    parameter.modifier ? `${parameter.modifier} ${parameter.type}` : parameter.type);
+  return `${parts.name}${parts.typeParameters}(${parameters.join(", ")})`;
+}
+
+// The same label as markup: the name leads, type names and C# keyword types
+// take their own tones, and punctuation recedes. A signature without
+// structured parameters falls back to the host's highlighter.
+export function overloadNavLabelHtml(
+  name: string,
+  overload: MemberOverloadSummary,
+  escapeHtml: (value: string) => string,
+  fallback: (value: string) => string,
+): string {
+  const parts = overloadLabelParts(name, overload);
+  if (typeof parts === "string") return fallback(parts);
+  const parameters = parts.parameters.map(parameter =>
+    `${parameter.modifier ? `<span class="sig-modifier">${escapeHtml(parameter.modifier)}</span> ` : ""}${typeSpellingHtml(parameter.type, escapeHtml)}`);
+  return `<span class="sig-name">${escapeHtml(parts.name)}</span>${typeSpellingHtml(parts.typeParameters, escapeHtml)}<span class="sig-punct">(</span>${parameters.join('<span class="sig-punct">, </span>')}<span class="sig-punct">)</span>`;
+}
+
+const csharpKeywordTypes = new Set([
+  "bool", "byte", "sbyte", "char", "decimal", "double", "float", "int",
+  "uint", "nint", "nuint", "long", "ulong", "short", "ushort", "object",
+  "string", "void", "dynamic",
+]);
+
+// Colors one type spelling token by token: identifiers are types or keyword
+// types, everything else (generic brackets, arrays, nullability) is
+// punctuation.
+export function typeSpellingHtml(
+  type: string,
+  escapeHtml: (value: string) => string,
+): string {
+  return [...type.matchAll(/[A-Za-z_]\w*|[^A-Za-z_]+/g)].map(([token]) => {
+    const tone = /^[A-Za-z_]/.test(token)
+      ? csharpKeywordTypes.has(token) ? "sig-keyword" : "sig-type"
+      : "sig-punct";
+    return `<span class="${tone}">${escapeHtml(token)}</span>`;
+  }).join("");
+}
+
+// Starts the signature at the member name, or null when the signature does
+// not spell it (a constructor or operator).
+function signatureFromName(name: string, signature: string): string | null {
+  for (const suffix of ["(", "<"]) {
+    const needle = `${name}${suffix}`;
+    let index = signature.indexOf(needle);
+    while (index > 0 && signature[index - 1] !== " ")
+      index = signature.indexOf(needle, index + 1);
+    if (index >= 0) return signature.slice(index);
+  }
+  return null;
+}
+
+// A constructor or operator spells its own display name before the parameter
+// list: the Type name, or `operator` and its symbol.
+function declaredDisplayName(signature: string): string | null {
+  const head = signature.slice(0, signature.indexOf("(")).trim();
+  const operator = /\boperator\s*\S+$/.exec(head);
+  if (operator) return operator[0];
+  const identifier = /[A-Za-z_]\w*$/.exec(head);
+  return identifier ? identifier[0] : null;
+}
+
+function balancedTypeParameters(text: string): string {
+  let depth = 0;
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === "<") depth++;
+    else if (text[index] === ">" && --depth === 0) return text.slice(0, index + 1);
+  }
+  return "";
+}
+
+// Drops namespace and enclosing-type qualifiers from each type name in a C#
+// type spelling, keeping generic arguments, arrays, tuples, and nullability.
+export function unqualifiedType(type: string): string {
+  return type.replace(/(?:global::)?(?:[A-Za-z_][\w]*\.)+(?=[A-Za-z_])/g, "");
 }
 
 export interface MemberGroup {
@@ -385,7 +515,6 @@ export interface TypeNavOptions {
   typeDisplayName: (item: TypeSummary) => string;
   typeLibraryLabel: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
-  shortKind: (kind: string) => string;
 }
 
 export function renderTypeNav(options: TypeNavOptions): string {
@@ -393,7 +522,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
-    typeDisplayName, typeLibraryLabel, kindIcon, shortKind,
+    typeDisplayName, typeLibraryLabel, kindIcon,
   } = options;
   return `
     <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
@@ -447,13 +576,56 @@ export function renderTypeNav(options: TypeNavOptions): string {
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                <small>${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${escapeHtml(shortKind(item.kind))}</small>
+                <small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>
               </button>`;
             }).join("")}
           </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
       <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;
+}
+
+/** Parent-row status text for a family's heat request. */
+export interface MemberNavHeatCue {
+  text: string;
+  tone: "progress" | "problem";
+}
+
+/** Implementation evidence for one nested overload row. */
+const valueMemberKinds = new Set(["property", "field", "event"]);
+
+// A single member's row says what it is, not which kind it is (the icon
+// carries the kind): a method shows its compact parameter list, and a
+// property, field, or event shows its value type.
+function singleMemberLabelHtml(
+  group: MemberGroup,
+  escapeHtml: (value: string) => string,
+  highlight: (value: string) => string,
+): string {
+  const overload = group.overloads[0];
+  return overload && !valueMemberKinds.has(group.kind) && overload.parameters
+    ? overloadNavLabelHtml(group.name, overload, escapeHtml, highlight)
+    : escapeHtml(group.name);
+}
+
+function singleMemberDetailHtml(
+  group: MemberGroup,
+  escapeHtml: (value: string) => string,
+  shortKind: (kind: string) => string,
+): string {
+  const overload = group.overloads[0];
+  if (valueMemberKinds.has(group.kind) && overload?.returnType)
+    return typeSpellingHtml(unqualifiedType(overload.returnType), escapeHtml);
+  return overload?.parameters ? "" : escapeHtml(shortKind(group.kind));
+}
+
+export interface MemberNavOverloadHeat {
+  /** Tint strength in (0, 1]; null leaves the row untinted. */
+  heatStrength: number | null;
+  hub: boolean;
+  description: string;
+  /** The measured size, shown on the selected row. */
+  size: number | null;
 }
 
 export interface MemberNavOptions {
@@ -468,6 +640,8 @@ export interface MemberNavOptions {
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
   highlight: (value: string) => string;
+  overloadHeat?: (group: MemberGroup, index: number) => MemberNavOverloadHeat | null;
+  familyHeatCue?: (group: MemberGroup) => MemberNavHeatCue | null;
 }
 
 export function renderMemberNav(options: MemberNavOptions): string {
@@ -475,6 +649,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
     escapeHtml, typeDisplayName, shortKind, highlight,
+    overloadHeat, familyHeatCue,
   } = options;
   const navigationSelection = selectedMemberKey
     ? (selectedOverloadIndex == null
@@ -505,10 +680,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
               group.overloads.some(overload => overload.graphOnly);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
+            const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;
             return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : (isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind)))}</small>
+              <span class="type-name">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `${group.overloads.length}×` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
@@ -517,9 +693,20 @@ export function renderMemberNav(options: MemberNavOptions): string {
             throw new Error(
               `Member group '${entry.group.key}' has no overload ${entry.index}.`);
           }
-          return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
-            <span class="overload-branch">↳</span>
-            <code>${highlight(overload.signature)}</code>
+          const heat = overloadHeat?.(entry.group, entry.index) ?? null;
+          const heated = heat?.heatStrength != null;
+          const heatStyle = heated
+            ? ` style="--heat-t: ${heat.heatStrength!.toFixed(3)}; --heat-reach: ${Math.round(12 + heat.heatStrength! * 63)}%"`
+            : "";
+          const heatClasses = `${heated ? " heated" : ""}${heat?.hub ? " hub" : ""}`;
+          const heatDescription = heat === null
+            ? ""
+            : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
+          const size = selected && heat?.size != null
+            ? `<small class="overload-size" title="${heat.size} instructions">${heat.size}</small>`
+            : "";
+          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+            <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>${size}
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>

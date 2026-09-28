@@ -131,6 +131,36 @@ test("Home preserves focused controls through delayed Build identity", async ({
   await expect(page.locator("#spotlight-input")).not.toBeFocused();
 });
 
+test("Home preserves exact Spotlight activation across positional ID changes", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  const activity = page.locator('[data-sl-package-activity="1"]');
+  await activity.focus();
+  await expect(activity).toBeFocused();
+  const activityHandle = await activity.elementHandle();
+  expect(activityHandle).not.toBeNull();
+  await activity.evaluate(element => {
+    element.id = "spotlight-result-0";
+  });
+  await page.keyboard.down("Space");
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  expect(await activityHandle.evaluate(element =>
+    document.querySelector('[data-sl-package-activity="1"]') === element))
+    .toBe(true);
+  await expect(activity).toBeFocused();
+  await page.keyboard.up("Space");
+
+  await expect(page).toHaveURL(/\/activity$/);
+});
+
 test("Home preserves focus across adjacent startup rerenders", async ({
   page,
 }) => {
