@@ -21,6 +21,15 @@ public sealed record GraphConsumerObservation(
     IReadOnlyList<string> Characteristics,
     IReadOnlyList<string> Limits,
     IReadOnlyList<string> Failures,
+    IReadOnlyList<string> NeighborhoodNodes,
+    IReadOnlyList<string> FocusRelationships,
+    IReadOnlyList<string> AdjacentNodes,
+    IReadOnlyList<int> Degrees,
+    GraphStructuralCompletion NeighborhoodCompletion,
+    GraphStructuralCompletion FocusCompletion,
+    GraphExecutionWorkReceipt NeighborhoodReceipt,
+    GraphExecutionWorkReceipt AdjacencyReceipt,
+    GraphExecutionWorkReceipt DegreeReceipt,
     Type SubjectType,
     Type RelationshipType);
 
@@ -109,6 +118,42 @@ public static class GraphDirectConsumer
         limits.Clear();
         failures.Clear();
 
+        GraphNeighborhoodResult neighborhood =
+            GraphDocumentExecution.Neighborhood(
+                document,
+                new GraphNeighborhoodPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    maxDepth: 1,
+                    rootNodeIds: [0],
+                    entries: []));
+        GraphFocusResult focus =
+            GraphDocumentExecution.Focus(
+                document,
+                new GraphFocusPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    [
+                        new(0, GraphScopeMembership.Inside),
+                        new(1, GraphScopeMembership.Outside),
+                    ],
+                    originNodeIds: [0],
+                    GraphFocusReachability.FromOrigins));
+        GraphAdjacencyResult adjacency =
+            GraphDocumentExecution.Adjacency(
+                document,
+                new GraphNeighborPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    GraphSelfLoopPolicy.Exclude));
+        GraphDistinctNeighborDegreeResult degree =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                new GraphNeighborPlan<DependsOn>(
+                    [relationship],
+                    GraphTraversalDirection.Outgoing,
+                    GraphSelfLoopPolicy.Exclude));
+
         return new(
             [.. document.Nodes.Select(node => node.Subject.Name)],
             [.. document.Edges.Select(edge => edge.Relationship.Kind)],
@@ -118,6 +163,18 @@ public static class GraphDirectConsumer
                 characteristic => characteristic.Payload.Name)],
             [.. document.Limits.Select(limit => limit.Payload.Reason)],
             [.. document.Failures.Select(failure => failure.Payload.Message)],
+            [.. neighborhood.NodeIds.Select(id =>
+                document.Nodes[id].Subject.Name)],
+            [.. focus.ExitEdgeIds.Select(id =>
+                document.Edges[id].Relationship.Kind)],
+            [.. adjacency.Rows[0].NeighborNodeIds.Select(id =>
+                document.Nodes[id].Subject.Name)],
+            [.. degree.Rows.Select(row => row.Degree)],
+            neighborhood.Completion,
+            focus.Completion,
+            neighborhood.Receipt,
+            adjacency.Receipt,
+            degree.Receipt,
             typeof(Service),
             typeof(DependsOn));
     }

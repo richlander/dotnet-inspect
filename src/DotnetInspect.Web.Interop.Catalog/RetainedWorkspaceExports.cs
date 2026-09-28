@@ -173,6 +173,69 @@ public static partial class CatalogExports
     }
 
     [JSExport]
+    public static async Task<string> ActivateSpotlightDestination(
+        string action)
+    {
+        BrowserTypeFindActivationResult result =
+            await BrowserRetainedWorkspaceActivationRegistry.Owner
+                .ActivateTypeFindActionAsync(action)
+                .ConfigureAwait(false);
+        BrowserSpotlightActionResult wire = result switch
+        {
+            BrowserTypeFindActivationResult.Navigation navigation =>
+                new(
+                    "navigation",
+                    BrowserCatalogWireProjection.Project(
+                        navigation.Result.Consumer),
+                    Surface: null,
+                    SelectedType: null,
+                    new BrowserSpotlightTypeSelection(
+                        navigation.Selection.DefinitionId,
+                        navigation.Selection.AssemblyName),
+                    ActivationStatus: null,
+                    Reason: null),
+            BrowserTypeFindActivationResult.Framework
+            {
+                Effect: BrowserFrameworkDeclarationEffect.Type type,
+            } =>
+                new(
+                    "frameworkType",
+                    Navigation: null,
+                    BrowserCatalogWireProjection.Project(type.Surface),
+                    BrowserCatalogWireProjection.Project(type.SelectedType),
+                    Selection: null,
+                    ActivationStatus: null,
+                    Reason: null),
+            BrowserTypeFindActivationResult.Framework
+            {
+                Effect: BrowserFrameworkDeclarationEffect.Library library,
+            } =>
+                new(
+                    "frameworkLibrary",
+                    Navigation: null,
+                    BrowserCatalogWireProjection.Project(library.Surface),
+                    SelectedType: null,
+                    Selection: null,
+                    ActivationStatus: null,
+                    Reason: null),
+            BrowserTypeFindActivationResult.Blocked blocked =>
+                new(
+                    "blocked",
+                    Navigation: null,
+                    Surface: null,
+                    SelectedType: null,
+                    Selection: null,
+                    blocked.Status.ToString(),
+                    blocked.Reason),
+            _ => throw new InvalidOperationException(
+                "Spotlight activation returned an unsupported result."),
+        };
+        return JsonSerializer.Serialize(
+            wire,
+            BrowserCatalogJsonContext.Default.BrowserSpotlightActionResult);
+    }
+
+    [JSExport]
     public static async Task<string> ActivateRetainedWorkspaceDefinition(
         string retainedDefinitionId,
         string label,

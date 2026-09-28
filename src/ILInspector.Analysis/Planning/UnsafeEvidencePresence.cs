@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Metadata;
@@ -34,7 +35,7 @@ public struct UnsafeEvidencePredicate : IMethodDefinitionPredicate
 /// <summary>
 /// Unsafe-evidence presence as an open query over method definitions, at
 /// declaration depth with body depth and the module lookup on demand. Closed
-/// with Exists it settles on the first evidence; closed with All it counts the
+/// with Exists it settles on the first evidence; closed with Complete it counts the
 /// methods with evidence.
 /// </summary>
 public sealed class UnsafeEvidencePresenceProducer
@@ -113,14 +114,18 @@ public static class UnsafeEvidencePresence
         ProducerResult<int> result =
             Execute(path, peReader).ResultOf(
                 UnsafeEvidencePresenceProducer.Instance);
-        return result.Outcome switch
-        {
-            ProducerOutcome.Complete or ProducerOutcome.Stopped =>
-                result.Value > 0,
-            _ => throw new InvalidDataException(
-                "Unsafe evidence presence is incomplete because "
-                + $"{result.Failure?.Unit} could not be analyzed: "
-                + result.Failure?.Message),
-        };
+        if (result.Outcome is ProducerOutcome.Complete or ProducerOutcome.Stopped)
+            return result.Value > 0;
+
+        // The failure is recorded by token; presenting it resolves that one
+        // method's name with a length-checked, capped read.
+        int token = result.Failure?.UnitToken ?? result.Critical?.UnitToken ?? 0;
+        string unit = token != 0
+            ? MethodRowProjection.FailureLabel(peReader.GetMetadataReader(), token).ToString()
+            : result.Failure?.Unit ?? result.Critical?.Unit ?? "(unknown)";
+        string reason = result.Failure?.Message ?? result.Critical?.Message ?? "";
+        throw new InvalidDataException(
+            "Unsafe evidence presence is incomplete because "
+            + $"{unit} could not be analyzed: {reason}");
     }
 }

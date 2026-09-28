@@ -5,7 +5,7 @@ namespace Inspector.Graph.Tests;
 public sealed class GraphDirectConsumerTests
 {
     [Fact]
-    public void OrdinaryApplicationPayloadsRemainTypedAndSnapshotted()
+    public void GraphExecutionDirectConsumerRuns()
     {
         GraphConsumerObservation observation =
             GraphDirectConsumer.Execute();
@@ -18,6 +18,25 @@ public sealed class GraphDirectConsumerTests
         Assert.Equal(
             ["optional configuration missing"],
             observation.Failures);
+        Assert.Equal(
+            ["api", "database"],
+            observation.NeighborhoodNodes);
+        Assert.Equal(["runtime"], observation.FocusRelationships);
+        Assert.Equal(["database"], observation.AdjacentNodes);
+        Assert.Equal([1, 0], observation.Degrees);
+        Assert.Equal(
+            GraphStructuralCompletion.Exhausted,
+            observation.NeighborhoodCompletion);
+        Assert.Equal(
+            GraphStructuralCompletion.Exhausted,
+            observation.FocusCompletion);
+        Assert.Equal(2, observation.NeighborhoodReceipt.NodesAdmitted);
+        Assert.Equal(2, observation.AdjacencyReceipt.NodesAdmitted);
+        Assert.Equal(2, observation.DegreeReceipt.NodesAdmitted);
+        Assert.True(
+            observation.NeighborhoodReceipt.TerminalSettled);
+        Assert.True(observation.AdjacencyReceipt.TerminalSettled);
+        Assert.True(observation.DegreeReceipt.TerminalSettled);
         Assert.Equal(typeof(Service), observation.SubjectType);
         Assert.Equal(typeof(DependsOn), observation.RelationshipType);
     }

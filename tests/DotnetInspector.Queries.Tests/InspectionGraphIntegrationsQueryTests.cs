@@ -231,7 +231,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     InspectionGraphIntegrationsCatalog
                         .IntegrationObserved,
                 ],
-                InspectionGraphTraversalDirection.Both,
+                GraphTraversalDirection.Both,
                 maxDepth: 1);
 
         InspectionGraphDocument document =
@@ -322,7 +322,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationObserved,
                     ],
-                    InspectionGraphTraversalDirection.Both,
+                    GraphTraversalDirection.Both,
                     maxDepth: 0));
 
         Assert.Empty(document.Edges);
@@ -365,7 +365,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     InspectionGraphIntegrationsCatalog
                         .IntegrationObserved,
                 ],
-                InspectionGraphTraversalDirection.Both,
+                GraphTraversalDirection.Both,
                 maxDepth: 1),
             (query, _) => executions.Add(query));
 
@@ -1217,7 +1217,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationObserved,
                     ],
-                    InspectionGraphTraversalDirection.Both,
+                    GraphTraversalDirection.Both,
                     maxDepth: 1));
 
         Assert.Equal(
@@ -1278,13 +1278,13 @@ public sealed class InspectionGraphIntegrationsQueryTests
             InspectionGraphNeighborhoodRequest.SingleSeed(
                 hub,
                 relationships,
-                InspectionGraphTraversalDirection.Both,
+                GraphTraversalDirection.Both,
                 maxDepth: 1);
         InspectionGraphNeighborhoodRequest depthTwo =
             InspectionGraphNeighborhoodRequest.SingleSeed(
                 hub,
                 relationships,
-                InspectionGraphTraversalDirection.Both,
+                GraphTraversalDirection.Both,
                 maxDepth: 2);
 
         InspectionGraphDocument one =
@@ -1377,7 +1377,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     InspectionGraphIntegrationsCatalog
                         .IntegrationObserved,
                 ],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1);
 
         InspectionGraphDocument document =
@@ -1423,7 +1423,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     InspectionGraphIntegrationsCatalog
                         .IntegrationOpportunity,
                 ],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1);
 
         InspectionGraphDocument document =
@@ -1477,7 +1477,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationOpportunity,
                     ],
-                    InspectionGraphTraversalDirection.Outgoing,
+                    GraphTraversalDirection.Outgoing,
                     maxDepth: 1));
 
         Assert.Empty(document.Edges);
@@ -1510,7 +1510,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationObserved,
                     ],
-                    InspectionGraphTraversalDirection.Incoming,
+                    GraphTraversalDirection.Incoming,
                     maxDepth: 0));
 
         Assert.Empty(document.Edges);
@@ -1554,7 +1554,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationObserved,
                     ],
-                    InspectionGraphTraversalDirection.Incoming,
+                    GraphTraversalDirection.Incoming,
                     maxDepth: 0));
 
         Assert.Empty(document.Edges);
@@ -1619,7 +1619,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             InspectionGraphNeighborhoodRequest.SingleSeed(
                 extensionSource,
                 [InspectionGraphIntegrationsCatalog.Extension],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1),
             (query, _) => extensionExecutions.Add(query));
         InspectionGraphIntegrationsQuery.Execute(
@@ -1630,7 +1630,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     InspectionGraphIntegrationsCatalog
                         .MetadataReference,
                 ],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1),
             (query, _) => referenceExecutions.Add(query));
         InspectionGraphIntegrationsQuery.Execute(
@@ -1641,7 +1641,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     InspectionGraphIntegrationsCatalog
                         .IntegrationObserved,
                 ],
-                InspectionGraphTraversalDirection.Incoming,
+                GraphTraversalDirection.Incoming,
                 maxDepth: 1),
             (query, _) => observedExecutions.Add(query));
         InspectionGraphIntegrationsQuery.Execute(
@@ -1652,7 +1652,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     InspectionGraphIntegrationsCatalog
                         .IntegrationOpportunity,
                 ],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1),
             (query, _) => opportunityExecutions.Add(query));
 
@@ -1692,7 +1692,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             InspectionGraphNeighborhoodRequest.SingleSeed(
                 member,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1);
         bool producerRan = false;
 
@@ -1729,7 +1729,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationObserved,
                     ],
-                    InspectionGraphTraversalDirection.Incoming,
+                    GraphTraversalDirection.Incoming,
                     maxDepth: 1));
 
         InspectionGraphFailure failure = Assert.Single(document.Failures);
@@ -1773,7 +1773,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationOpportunity,
                     ],
-                    InspectionGraphTraversalDirection.Outgoing,
+                    GraphTraversalDirection.Outgoing,
                     maxDepth: 1));
 
         string[] failedProducers =

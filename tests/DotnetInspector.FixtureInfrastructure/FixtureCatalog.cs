@@ -70,6 +70,8 @@ public static class FixtureIds
         "metadata.methodimpl.fixtures";
     public const string MetadataPublicMethodRoots =
         "metadata.public-method-roots";
+    public const string MetadataVbInterfaceImplementations =
+        "metadata.vb-interface-implementations";
     public const string MetadataTypeDependencyConsumer =
         "metadata.type-dependency.consumer";
     public const string MetadataTypeDependencyReference =
@@ -241,6 +243,14 @@ public static class FixtureCatalog
             "ILInspector.Metadata.PublicMethodRootFixtures.dll",
             Boundaries(FixtureBoundary.AssemblyIdentity),
             "metadata", "public-method-roots");
+
+    public static readonly FixtureDefinition MetadataVbInterfaceImplementations =
+        Fixture(
+            FixtureIds.MetadataVbInterfaceImplementations,
+            "ILInspector.Metadata.VbInterfaceImplementations",
+            "ILInspector.Metadata.VbInterfaceImplementations.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "metadata", "vb", "interface-implementation");
 
     public static readonly FixtureDefinition MetadataTypeDependencyConsumer =
         Fixture(
@@ -1108,6 +1118,7 @@ public static class FixtureCatalog
         MetadataMethodImplContracts,
         MetadataMethodImplFixtures,
         MetadataPublicMethodRoots,
+        MetadataVbInterfaceImplementations,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
         InspectWebCloneTransport,
@@ -1541,6 +1552,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.MethodImplFixtures",
             "ILInspector.Metadata.PublicMethodRootFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures",
+            "ILInspector.Metadata.VbInterfaceImplementations" =>
+                "fixtures/metadata/ILInspector.Metadata.VbInterfaceImplementations",
             "ILInspector.Metadata.TypeDependencyConsumer" =>
                 "fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer",
             "ILInspector.Metadata.TypeDependencyReference" =>

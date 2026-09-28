@@ -356,7 +356,7 @@ public static class CallGraphInspectionGraphAdapter
             InspectionGraphNeighborhoodRequest.PeerSeeds(
                 roots,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth);
         InspectionGraphDocument source = Create(
             projection,
@@ -375,7 +375,7 @@ public static class CallGraphInspectionGraphAdapter
     internal static InspectionGraphDocument
         CreateExternalFocusedOutgoingNeighborhood(
         CallGraphProjection projection,
-        Func<CallGraphNode, InspectionGraphScopeMembership> classify,
+        Func<CallGraphNode, GraphScopeMembership> classify,
         int maxDepth,
         int maxNodes,
         CatalogCallGraphDiagnostics diagnostics)
@@ -391,7 +391,7 @@ public static class CallGraphInspectionGraphAdapter
             InspectionGraphNeighborhoodRequest.SingleSeed(
                 seed,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth);
         var limits = new List<InspectionGraphLimit>
         {
@@ -438,7 +438,7 @@ public static class CallGraphInspectionGraphAdapter
             InspectionGraphFocusRequest.ExitFrontier(
                 source.ModeRequest,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 scopeDecisions);
         return InspectionGraphFocusProjection.Project(source, focus);
     }
