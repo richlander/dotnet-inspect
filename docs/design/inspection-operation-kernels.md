@@ -515,7 +515,9 @@ After this pattern locks:
 
 1. implement the focused `Inspector.Graph`
    [library boundary](inspector-graph-library-boundary.md);
-2. file the Graph reference-execution and typed-provider design;
+2. adopt the
+   [Inspector.Graph execution and derived-view
+   contract](inspector-graph-execution.md);
 3. file the Graph/QuerySpace composition adoption using the OpenTelemetry
    scenario;
 4. file the compiler-transparent terminal specialization only after the
