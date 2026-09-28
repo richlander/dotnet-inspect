@@ -395,6 +395,63 @@ public sealed class GraphDocumentExecutionTests
     }
 
     [Fact]
+    public void DenseEqualDistancePathsExpandEachNodeOnce()
+    {
+        const int width = 32;
+        int terminalNodeId = width * 3;
+        string[] nodes =
+        [
+            .. Enumerable.Range(0, terminalNodeId + 1)
+                .Select(static id => id.ToString()),
+        ];
+        var edges =
+            new List<(
+                int From,
+                int To,
+                Relationship Relationship)>();
+        for (int nodeId = width; nodeId < width * 2; nodeId++)
+        {
+            for (int origin = width - 1; origin >= 0; origin--)
+                edges.Add((nodeId, origin, Call));
+        }
+        for (int nodeId = width * 2; nodeId < width * 3; nodeId++)
+        {
+            for (int prior = width * 2 - 1; prior >= width; prior--)
+                edges.Add((nodeId, prior, Call));
+        }
+        for (int prior = width * 3 - 1; prior >= width * 2; prior--)
+            edges.Add((terminalNodeId, prior, Call));
+        edges.Add((0, terminalNodeId, Call));
+
+        TestDocument document = Document(nodes, edges);
+        GraphFocusResult result =
+            GraphDocumentExecution.Focus(
+                document,
+                Focus(
+                    [Call],
+                    GraphTraversalDirection.Incoming,
+                    [
+                        .. Enumerable.Range(0, nodes.Length)
+                            .Select(id => new GraphNodeScope(
+                                id,
+                                GraphScopeMembership.Inside)),
+                    ],
+                    origins: [.. Enumerable.Range(0, width)]));
+
+        Assert.Equal(nodes.Length, result.ConnectorPathsByNodeId.Count);
+        Assert.Equal(
+            [
+                width * width * 2,
+                width * width * 2 - width,
+                width * width - width,
+            ],
+            result.ConnectorPathsByNodeId[terminalNodeId]);
+        Assert.Equal(
+            edges.Count,
+            result.Receipt.AdjacencyEntriesExamined);
+    }
+
+    [Fact]
     public void FocusReportsActualStructuralWork()
     {
         TestDocument document = Document(

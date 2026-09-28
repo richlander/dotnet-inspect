@@ -599,15 +599,18 @@ public static class GraphDocumentExecution
         var distances = new Dictionary<int, int>();
         var paths = new Dictionary<int, ImmutableArray<int>>();
         var queue = new Queue<int>();
+        var pending = new HashSet<int>();
         foreach (int origin in origins.Order())
         {
             distances[origin] = 0;
             paths[origin] = [];
-            queue.Enqueue(origin);
+            if (pending.Add(origin))
+                queue.Enqueue(origin);
         }
 
         while (queue.TryDequeue(out int current))
         {
+            pending.Remove(current);
             work.ExamineNode(current);
             int distance = distances[current];
             ImmutableArray<int> prefix = paths[current];
@@ -636,7 +639,8 @@ public static class GraphDocumentExecution
 
                 distances[step.NodeId] = candidateDistance;
                 paths[step.NodeId] = candidate;
-                queue.Enqueue(step.NodeId);
+                if (pending.Add(step.NodeId))
+                    queue.Enqueue(step.NodeId);
             }
         }
         return paths;
