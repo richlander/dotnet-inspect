@@ -81,6 +81,9 @@ public abstract record ClassificationAnswer
 /// The typed result of a classification request: one answer per question, in
 /// question order, and, when the Finding was requested, the merged rows in
 /// legacy order and the classified-method Finding inspection built from them.
+/// <see cref="Finding"/> is null only when the Finding was not requested. When
+/// an analyzer failed or the execution aborted, it is a failed inspection that
+/// names the analyzer and the unit, and <see cref="MergedRows"/> is default.
 /// </summary>
 public sealed record MethodClassificationResult(
     ImmutableArray<(ClassificationQuestion Question, ClassificationAnswer Answer)> Answers,
@@ -191,15 +194,19 @@ public static class MethodClassificationQuery
 
         ImmutableArray<ClassifiedMethodRow> merged = default;
         FindingInspection<ClassifiedMethodObservation>? inspection = null;
-        if (finding && execution.Receipt.Critical is null)
+        if (finding)
         {
-            merged = Merge(execution);
-            if (!merged.IsDefault)
-            {
-                inspection = MetadataFindings.InspectClassifiedMethods(
+            merged = Merge(execution, out string? failure);
+            inspection = merged.IsDefault
+                ? new FindingInspection<ClassifiedMethodObservation>(
+                    new FindingInspection<ClassifiedMethodObservation>.Failed(
+                        new InspectionError(
+                            findingSubject!,
+                            MetadataFindings.ClassifiedMethodDescriptor,
+                            failure!)))
+                : MetadataFindings.InspectClassifiedMethods(
                     merged.Select(ToClassifiedMethodInfo),
                     findingSubject!);
-            }
         }
 
         return new MethodClassificationResult(
@@ -289,27 +296,44 @@ public static class MethodClassificationQuery
     }
 
     /// <summary>
-    /// The analyzers' rows merged in legacy order: metadata order, then
-    /// P/Invoke, async, pointer signature within one method. Null (default)
-    /// when an analyzer did not publish rows.
+    /// The analyzers' rows merged in legacy order: traversal order, then
+    /// P/Invoke, async, pointer signature within one method. Default when an
+    /// analyzer did not publish rows, with <paramref name="failure"/> naming
+    /// the analyzer and the unit.
     /// </summary>
-    static ImmutableArray<ClassifiedMethodRow> Merge(MethodDefinitionExecution execution)
+    static ImmutableArray<ClassifiedMethodRow> Merge(
+        MethodDefinitionExecution execution,
+        out string? failure)
     {
+        failure = null;
         var rows = new List<(ClassifiedMethodRow Row, int Rank)>();
         int rank = 0;
         foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
         {
-            ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result =
-                execution.ResultOf(ProducerFor(analyzer));
-            if (!result.HasValue || !result.Value!.HasRows)
+            ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>> producer = ProducerFor(analyzer);
+            ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result = execution.ResultOf(producer);
+            if (result.Outcome == ProducerOutcome.Aborted)
+            {
+                CriticalFailure critical = result.Critical!;
+                failure = $"{producer.Identity} aborted at {critical.Unit}: {critical.Budget}.";
                 return default;
+            }
+
+            if (!result.HasValue || !result.Value!.HasRows)
+            {
+                failure = result.Failure is { } failed
+                    ? $"{producer.Identity} failed at {failed.Unit}: {failed.Message}"
+                    : $"{producer.Identity} did not complete ({result.Outcome}).";
+                return default;
+            }
+
             foreach (ClassifiedMethodRow row in result.Value.Rows)
                 rows.Add((row, rank));
             rank++;
         }
 
         return [.. rows
-            .OrderBy(static entry => (uint)entry.Row.Token)
+            .OrderBy(static entry => entry.Row.Ordinal)
             .ThenBy(static entry => entry.Rank)
             .Select(static entry => entry.Row)];
     }
@@ -319,37 +343,21 @@ public static class MethodClassificationQuery
         MethodClassificationAnalyzer analyzer,
         ClassifiedRowOrder order)
     {
-        if (order == ClassifiedRowOrder.Metadata)
-            return rows;
-
-        // The model order, as LibraryMetadataService sorted it.
-        IEnumerable<ClassifiedMethodRow> model = analyzer == MethodClassificationAnalyzer.Async
-            ? rows
-                .OrderBy(static row => AsyncKind(row.Classification), StringComparer.Ordinal)
-                .ThenBy(static row => row.DeclaringType.ToString())
-                .ThenBy(static row => row.MethodName.ToString())
-            : rows
-                .OrderBy(static row => row.DeclaringType.ToString())
-                .ThenBy(static row => row.MethodName.ToString());
-        if (order == ClassifiedRowOrder.Model)
-            return [.. model];
-
-        // The display order, as LibraryInspectionView re-sorted the model order.
-        return analyzer == MethodClassificationAnalyzer.PInvoke
-            ? [.. model
-                .OrderBy(static row => row.DeclaringType.ToString(), StringComparer.OrdinalIgnoreCase)
-                .ThenBy(static row => row.MethodName.ToString(), StringComparer.OrdinalIgnoreCase)
-                .ThenBy(static row => row.ModuleName?.ToString(), StringComparer.OrdinalIgnoreCase)
-                .ThenBy(static row => row.Signature.ToString(), StringComparer.OrdinalIgnoreCase)]
-            : [.. model
-                .OrderBy(static row => row.DeclaringType.ToString(), StringComparer.OrdinalIgnoreCase)
-                .ThenBy(static row => row.MethodName.ToString(), StringComparer.OrdinalIgnoreCase)
-                .ThenBy(static row => row.Signature.ToString(), StringComparer.OrdinalIgnoreCase)];
+        string key = (order, analyzer) switch
+        {
+            (ClassifiedRowOrder.Metadata, _) => ClassifiedMethodRowOrders.Metadata,
+            (ClassifiedRowOrder.Model, MethodClassificationAnalyzer.Async) => ClassifiedMethodRowOrders.AsyncModel,
+            (ClassifiedRowOrder.Model, _) => ClassifiedMethodRowOrders.Model,
+            (ClassifiedRowOrder.Display, MethodClassificationAnalyzer.Async) => ClassifiedMethodRowOrders.AsyncDisplay,
+            (ClassifiedRowOrder.Display, MethodClassificationAnalyzer.PInvoke) => ClassifiedMethodRowOrders.PInvokeDisplay,
+            _ => ClassifiedMethodRowOrders.Display,
+        };
+        return [.. ClassifiedMethodRowOrders.Apply(rows, key)];
     }
 
     /// <summary>The async kind text the model sorts by.</summary>
     public static string AsyncKind(MethodClassification classification) =>
-        classification == MethodClassification.RuntimeAsync ? "runtime" : "state-machine";
+        ClassifiedMethodRowOrders.AsyncKind(classification);
 
     static ClassifiedMethodInfo ToClassifiedMethodInfo(ClassifiedMethodRow row) =>
         new(
@@ -360,7 +368,7 @@ public static class MethodClassificationQuery
             row.Classification,
             row.ModuleName?.ToString())
         {
-            Anchor = row.Anchor,
+            Anchor = row.Anchor?.Key,
             ReturnType = row.ReturnType?.ToString(),
         };
 }

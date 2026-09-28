@@ -108,7 +108,7 @@ public sealed class MethodClassificationAnalyzerTests
         }
 
         Assert.Equal(ProducerOutcome.Failed, result.Outcome);
-        Assert.Contains("Truncated", result.Failure!.Unit);
+        Assert.StartsWith("MethodDef 0x", result.Failure!.Unit);
     }
 
     [Fact]

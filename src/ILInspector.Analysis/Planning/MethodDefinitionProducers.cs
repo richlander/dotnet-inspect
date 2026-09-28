@@ -320,6 +320,12 @@ public readonly ref struct MethodDefinitionView
     /// <summary>The closing of the request the visiting producer serves.</summary>
     internal ProducerTerminal Terminal => Producer.Terminal;
 
+    /// <summary>
+    /// The unit's position in the source's traversal order, which follows
+    /// MethodPtr indirection where present, so it can differ from token order.
+    /// </summary>
+    public int Ordinal => _unit.Ordinal;
+
     // Raw rows are for producers with a domain layer, whose own probes read
     // them; every other reader goes through the gate's accessors.
 
@@ -560,6 +566,9 @@ internal struct MethodDefinitionUnit(
     /// <summary>The source's method-row gate, positioned on this unit.</summary>
     public readonly MethodRowGate Gate = gate;
 
+    /// <summary>The unit's position in this pass's traversal, from 0.</summary>
+    public int Ordinal { get; private set; } = -1;
+
     public TypeDefinitionHandle TypeHandle { get; private set; }
 
     public TypeDefinition TypeDefinition { get; private set; }
@@ -583,6 +592,7 @@ internal struct MethodDefinitionUnit(
         MethodHandle = methodHandle;
         MethodDefinition = _reader.GetMethodDefinition(methodHandle);
         _body = null;
+        Ordinal++;
         Gate.MoveTo(typeHandle, typeDefinition, methodHandle, MethodDefinition);
     }
 

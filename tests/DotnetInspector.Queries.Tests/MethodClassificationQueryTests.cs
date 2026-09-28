@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
@@ -133,7 +134,7 @@ public sealed class MethodClassificationQueryTests
             Assert.Equal(expected.Signature, actual.Signature.ToString());
             Assert.Equal(expected.Classification, actual.Classification);
             Assert.Equal(expected.ModuleName, actual.ModuleName?.ToString());
-            Assert.Equal(expected.Anchor, actual.Anchor);
+            Assert.Equal(expected.Anchor, actual.Anchor?.Key);
             Assert.Equal(expected.ReturnType, actual.ReturnType?.ToString());
         }
 
@@ -270,8 +271,7 @@ public sealed class MethodClassificationQueryTests
         MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [count, pointer]);
 
         var failed = Assert.IsType<ClassificationAnswer.Failed>(result.AnswerTo(count));
-        Assert.Contains("MalformedAsyncSourceFixture", failed.Failure.Unit);
-        Assert.Contains("AnalyzeAsync", failed.Failure.Unit);
+        Assert.Equal(TokenLabel(path, "MalformedAsyncSourceFixture", "AnalyzeAsync"), failed.Failure.Unit);
         Assert.IsType<ClassificationAnswer.Count>(result.AnswerTo(pointer));
         Assert.Null(result.Critical);
     }
@@ -293,10 +293,7 @@ public sealed class MethodClassificationQueryTests
 
         var failed = Assert.IsType<ClassificationAnswer.Failed>(result.AnswerTo(count));
         if (type is not null)
-        {
-            Assert.Contains(type, failed.Failure.Unit);
-            Assert.Contains(method!, failed.Failure.Unit);
-        }
+            Assert.Equal(TokenLabel(path, type, method!), failed.Failure.Unit);
 
         Assert.Null(result.Critical);
     }
@@ -323,6 +320,106 @@ public sealed class MethodClassificationQueryTests
             listed.Methods,
             static row => row.MethodName.ToString() == "Analyze"
                 && row.DeclaringType.ToString() == "System.AsyncAttributeSpoofer");
+    }
+
+    [Fact]
+    public void Finding_FailedAnalyzerIsAFailedInspectionNamingIt()
+    {
+        string path = FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
+        using var peReader = new PEReader(File.OpenRead(path));
+
+        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [], Subject);
+
+        Assert.True(result.MergedRows.IsDefault);
+        var failed = Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(result.Finding!.Value);
+        Assert.Contains("MethodClassification.Async", failed.Error.Reason);
+        Assert.Contains(TokenLabel(path, "MalformedAsyncSourceFixture", "AnalyzeAsync"), failed.Error.Reason);
+        Assert.Null(result.Critical);
+
+        using var again = new PEReader(File.OpenRead(path));
+        Assert.Null(MethodClassificationQuery.Execute(again, []).Finding);
+    }
+
+    [Fact]
+    public void Finding_MalformedPointerSignatureIsAFailedInspectionNamingIt()
+    {
+        byte[] image = TruncatedSignatureImage();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+
+        MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [], Subject);
+
+        var failed = Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(result.Finding!.Value);
+        Assert.Contains("MethodClassification.PointerSignature", failed.Error.Reason);
+        Assert.Contains("MethodDef 0x06000001", failed.Error.Reason);
+    }
+
+    [Fact]
+    public void Equivalence_ReorderedMethodPtrKeepsTraversalOrder()
+    {
+        byte[] image = MetadataMethodPtrFixture.BuildPointerMethods(2, 1);
+        using var legacyReader = new PEReader(ImmutableArray.Create(image));
+        List<ClassifiedMethodInfo> legacy = MethodClassificationScanner.Scan(legacyReader);
+        Assert.True(legacy.Count >= 2, $"The reordered fixture yields {legacy.Count} legacy rows.");
+
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MethodClassificationResult result = MethodClassificationQuery.Execute(
+            peReader,
+            [new(MethodClassificationAnalyzer.PointerSignature, ClassificationClosing.Rows)],
+            Subject);
+
+        Assert.Equal(
+            legacy.Select(static row => (row.DeclaringType, row.MethodName, row.Classification)),
+            result.MergedRows.Select(static row => (row.DeclaringType.ToString(), row.MethodName.ToString(), row.Classification)));
+    }
+
+    /// <summary>One public type with one public method whose signature is truncated (00 01 01).</summary>
+    static byte[] TruncatedSignatureImage()
+    {
+        var metadata = new System.Reflection.Metadata.Ecma335.MetadataBuilder();
+        metadata.AddModule(0, metadata.GetOrAddString("Truncated.dll"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+        metadata.AddAssembly(metadata.GetOrAddString("Truncated"), new Version(1, 0, 0, 0), default, default, default, default);
+        metadata.AddTypeDefinition(default, default, metadata.GetOrAddString("<Module>"), default,
+            System.Reflection.Metadata.Ecma335.MetadataTokens.FieldDefinitionHandle(1),
+            System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(System.Reflection.TypeAttributes.Public, metadata.GetOrAddString("N"), metadata.GetOrAddString("T"), default,
+            System.Reflection.Metadata.Ecma335.MetadataTokens.FieldDefinitionHandle(1),
+            System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new System.Reflection.Metadata.BlobBuilder();
+        signature.WriteBytes(new byte[] { 0x00, 0x01, 0x01 });
+        metadata.AddMethodDefinition(
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Static,
+            System.Reflection.MethodImplAttributes.IL,
+            metadata.GetOrAddString("Short"),
+            metadata.GetOrAddBlob(signature),
+            -1,
+            System.Reflection.Metadata.Ecma335.MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadata),
+            new System.Reflection.Metadata.BlobBuilder());
+        var output = new System.Reflection.Metadata.BlobBuilder();
+        pe.Serialize(output);
+        return output.ToArray();
+    }
+
+    /// <summary>The content-free label of <c>type::method</c> in the assembly at <paramref name="path"/>.</summary>
+    static string TokenLabel(string path, string typeName, string methodName)
+    {
+        using var peReader = new PEReader(File.OpenRead(path));
+        System.Reflection.Metadata.MetadataReader reader = peReader.GetMetadataReader();
+        foreach (System.Reflection.Metadata.TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+        {
+            System.Reflection.Metadata.TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+            foreach (System.Reflection.Metadata.MethodDefinitionHandle methodHandle in type.GetMethods())
+            {
+                if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
+                    return $"MethodDef 0x{System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(methodHandle):X8}";
+            }
+        }
+
+        throw new InvalidOperationException($"{typeName}::{methodName} was not found.");
     }
 
     static void AssertRows(List<ClassifiedMethodInfo> expected, ClassificationAnswer answer)
