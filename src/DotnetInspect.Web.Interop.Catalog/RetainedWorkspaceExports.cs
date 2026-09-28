@@ -790,6 +790,17 @@ internal static class BrowserRetainedWorkspaceActivationService
         {
             WorkspaceSharePacket packet =
                 WorkspaceSharePacketCodec.Decode(canonicalPacket);
+            if (!CompleteRestorationPreparation.SupportsPacketFormat(
+                    packet.FormatVersion))
+            {
+                return new(
+                    false,
+                    [],
+                    new(
+                        "UnsupportedVersion",
+                        "packet",
+                        $"Complete Workspace restoration does not support packet format {packet.FormatVersion}."));
+            }
             return new(
                 true,
                 [

@@ -19,6 +19,29 @@ public sealed class BrowserRetainedWorkspaceActivationCollection;
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
     [Fact]
+    public void PackageSourceDescription_AdmitsSourceFreeCompletePacketsAndRejectsLegacy()
+    {
+        BrowserWorkspacePackageSourceRequirementsResult complete =
+            BrowserRetainedWorkspaceActivationService.DescribePackageSources(
+                Packet());
+        Assert.True(complete.Succeeded);
+        Assert.Empty(complete.Sources);
+        Assert.Null(complete.Failure);
+
+        BrowserWorkspacePackageSourceRequirementsResult legacy =
+            BrowserRetainedWorkspaceActivationService.DescribePackageSources(
+                LegacyPacket());
+        Assert.False(legacy.Succeeded);
+        Assert.Empty(legacy.Sources);
+        Assert.Equal("UnsupportedVersion", legacy.Failure?.Kind);
+        Assert.Equal("packet", legacy.Failure?.Path);
+        Assert.Contains(
+            "packet format 1",
+            legacy.Failure?.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PackageSourcePatBindings_AreRequiredBeforeSourceAuthorization()
     {
         const string endpoint =
