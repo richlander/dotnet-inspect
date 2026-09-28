@@ -48,12 +48,12 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_DoesNotTrustIncompleteReachingDefinitionsForArrayEscape()
+    public void OptimizationOpportunities_DirectStackProofDoesNotRequireReachingDefinitions()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
 
         var local = Assert.Single(ArrayShapes(index, nameof(OptimizationOpportunityFixtures.LocalArrayInTryCatch)));
-        Assert.Equal("small-array", local);
+        Assert.Equal("stackalloc-candidate", local);
     }
 
     [Fact]

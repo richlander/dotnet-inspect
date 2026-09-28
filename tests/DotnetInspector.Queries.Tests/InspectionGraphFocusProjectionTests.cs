@@ -147,10 +147,10 @@ public sealed class InspectionGraphFocusProjectionTests
                     document.Characteristics,
                     characteristic =>
                         ReferenceEquals(
-                            characteristic.Descriptor,
+                            characteristic.Payload.Descriptor,
                             InspectionGraphFocusCatalog.Role)
                         && characteristic.Target == target)
-                    .Value)
+                    .Payload.Value)
                 .Values);
 
     [Fact]
@@ -217,10 +217,10 @@ public sealed class InspectionGraphFocusProjectionTests
             [],
             [
                 new(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
                         new InspectionGraphInducedSubjectBoundEvidence(
-                            explicitSubjects.Length)),
+                            explicitSubjects.Length))),
             ],
             source.Failures);
 
@@ -241,13 +241,13 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     InspectionGraphInducedSetCatalog.SubjectBound)
-                && limit.Evidence
+                && limit.Payload.Evidence
                     is InspectionGraphInducedSubjectBoundEvidence
-                    {
-                        SubjectCount: 4,
-                    });
+                {
+                    SubjectCount: 4,
+                });
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     InspectionGraphFocusCatalog
                         .ScopeClassificationIncomplete)
                 && limit.Target
@@ -516,18 +516,23 @@ public sealed class InspectionGraphFocusProjectionTests
             limits:
             [
                 new(
-                    CallGraphInspectionGraphCatalog.TraversalIncomplete),
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .TraversalIncomplete)),
                 new(
-                    CallGraphInspectionGraphCatalog
-                        .PhysicalOccurrencesUnavailable,
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .PhysicalOccurrencesUnavailable),
                     InspectionGraphTarget.Edge(1)),
             ],
             failures:
             [
                 new(
-                    CallGraphInspectionGraphCatalog.AnalysisIncomplete),
+                    new InspectionGraphFailurePayload(
+                        CallGraphInspectionGraphCatalog.AnalysisIncomplete)),
                 new(
-                    CallGraphInspectionGraphCatalog.AnalysisIncomplete,
+                    new InspectionGraphFailurePayload(
+                        CallGraphInspectionGraphCatalog.AnalysisIncomplete),
                     InspectionGraphTarget.Edge(1)),
             ]);
 
@@ -542,13 +547,13 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog.TraversalIncomplete)
                 && limit.Target is null);
         Assert.Contains(
             result.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog
                         .PhysicalOccurrencesUnavailable)
                 && limit.Target
@@ -556,13 +561,13 @@ public sealed class InspectionGraphFocusProjectionTests
         Assert.Contains(
             result.Failures,
             failure => ReferenceEquals(
-                    failure.Descriptor,
+                    failure.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog.AnalysisIncomplete)
                 && failure.Target is null);
         Assert.Contains(
             result.Failures,
             failure => ReferenceEquals(
-                    failure.Descriptor,
+                    failure.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog.AnalysisIncomplete)
                 && failure.Target
                     == InspectionGraphTarget.Edge(edge.Id));
@@ -583,14 +588,16 @@ public sealed class InspectionGraphFocusProjectionTests
             limits:
             [
                 new(
-                    CallGraphInspectionGraphCatalog
-                        .TraversalIncomplete,
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .TraversalIncomplete),
                     InspectionGraphTarget.Node(2)),
             ],
             failures:
             [
                 new(
-                    CallGraphInspectionGraphCatalog.AnalysisIncomplete,
+                    new InspectionGraphFailurePayload(
+                        CallGraphInspectionGraphCatalog.AnalysisIncomplete),
                     InspectionGraphTarget.Node(2)),
             ]);
 

@@ -279,7 +279,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
         InspectionGraphLimit[] depthBounds =
         [
             .. document.Limits.Where(limit =>
-                limit.Descriptor
+                limit.Payload.Descriptor
                     == InspectionGraphNeighborhoodCatalog.DepthBound),
         ];
         Assert.Equal(peers.Length, depthBounds.Length);
@@ -292,7 +292,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 1,
                 Assert.IsType<
                     InspectionGraphNeighborhoodDepthBoundEvidence>(
-                        limit.Evidence)
+                        limit.Payload.Evidence)
                     .MaxDepth));
     }
 
@@ -336,7 +336,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
         Assert.Equal(
             peers.Length,
             document.Limits.Count(limit =>
-                limit.Descriptor
+                limit.Payload.Descriptor
                     == InspectionGraphNeighborhoodCatalog.DepthBound));
     }
 
@@ -485,13 +485,13 @@ public sealed class InspectionGraphIntegrationsQueryTests
         InspectionGraphLimit subjectBound = Assert.Single(
             document.Limits,
             limit =>
-                limit.Descriptor
+                limit.Payload.Descriptor
                     == InspectionGraphInducedSetCatalog.SubjectBound);
         Assert.Null(subjectBound.Target);
         Assert.Equal(
             3,
             Assert.IsType<InspectionGraphInducedSubjectBoundEvidence>(
-                subjectBound.Evidence).SubjectCount);
+                subjectBound.Payload.Evidence).SubjectCount);
         Assert.Equal(
             document.Nodes.Select(static node => node.Subject),
             repeated.Nodes.Select(static node => node.Subject));
@@ -706,7 +706,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
         Assert.Equal(
             ["integrations"],
             Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                    failure.Evidence)
+                    failure.Payload.Evidence)
                 .Details
                 .Select(static detail => detail.Producer));
         Assert.Empty(excluded.Failures);
@@ -723,7 +723,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             workspace.Failures,
             failure =>
                 Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                    failure.Evidence).Details.Any(detail =>
+                    failure.Payload.Evidence).Details.Any(detail =>
                         detail.Producer == "extensions"
                         && detail.Kind
                             == InspectionGraphIntegrationFailureKind
@@ -764,13 +764,13 @@ public sealed class InspectionGraphIntegrationsQueryTests
             workspace.Failures,
             failure =>
                 Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                    failure.Evidence).Details.Any(detail =>
+                    failure.Payload.Evidence).Details.Any(detail =>
                         detail.Kind
                             == InspectionGraphIntegrationFailureKind
                                 .BindingMissing));
         var missingEvidence =
             Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                missing.Evidence);
+                missing.Payload.Evidence);
         InspectionGraphIntegrationFailureDetail missingDetail =
             Assert.Single(missingEvidence.Details);
         InspectionGraphIntegrationFailureDetail unavailableDetail =
@@ -779,11 +779,13 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 Kind = InspectionGraphIntegrationFailureKind
                     .BindingUnavailable,
             };
-        InspectionGraphFailure mixed = missing with
-        {
-            Evidence = new InspectionGraphIntegrationFailureEvidence(
-                [missingDetail, unavailableDetail]),
-        };
+        var mixed = new InspectionGraphFailure(
+            missing.Payload with
+            {
+                Evidence = new InspectionGraphIntegrationFailureEvidence(
+                    [missingDetail, unavailableDetail]),
+            },
+            missing.Target);
         var source = new InspectionGraphDocument(
             workspace.Scope,
             workspace.ModeRequest,
@@ -819,7 +821,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             Assert.Single(
                 Assert.IsType<
                     InspectionGraphIntegrationFailureEvidence>(
-                        failure.Evidence).Details);
+                        failure.Payload.Evidence).Details);
         Assert.Equal(
             InspectionGraphIntegrationFailureKind.BindingUnavailable,
             detail.Kind);
@@ -853,7 +855,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             Assert.Single(
                 Assert.IsType<
                     InspectionGraphIntegrationFailureEvidence>(
-                        failure.Evidence).Details);
+                        failure.Payload.Evidence).Details);
         Assert.Equal("references", detail.Producer);
         Assert.Equal(
             InspectionGraphIntegrationFailureKind.BindingUnavailable,
@@ -1351,10 +1353,10 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 Assert.Single(
                     one.Limits,
                     limit =>
-                        limit.Descriptor
+                        limit.Payload.Descriptor
                             == InspectionGraphNeighborhoodCatalog
                                 .DepthBound)
-                    .Evidence);
+                    .Payload.Evidence);
         Assert.Equal(1, bound.MaxDepth);
     }
 
@@ -1519,7 +1521,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             node => node.Subject == hub);
         var evidence = Assert.IsType<
             InspectionGraphNeighborhoodDepthBoundEvidence>(
-                Assert.Single(document.Limits).Evidence);
+                Assert.Single(document.Limits).Payload.Evidence);
         Assert.Equal(0, evidence.MaxDepth);
     }
 
@@ -1780,7 +1782,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 .SelectMany(failure =>
                     Assert.IsType<
                         InspectionGraphIntegrationFailureEvidence>(
-                            failure.Evidence)
+                            failure.Payload.Evidence)
                         .Details)
                 .Select(static detail => detail.Producer)
                 .Distinct(StringComparer.Ordinal)
@@ -2075,7 +2077,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                    failure.Evidence).Details.Any(detail =>
+                    failure.Payload.Evidence).Details.Any(detail =>
                         detail.Kind
                             == InspectionGraphIntegrationFailureKind
                                 .BindingAmbiguous));
@@ -2083,7 +2085,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                    failure.Evidence).Details.Any(detail =>
+                    failure.Payload.Evidence).Details.Any(detail =>
                         detail.Producer == "references"
                         && detail.Kind
                             == InspectionGraphIntegrationFailureKind
@@ -2105,7 +2107,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             {
                 var evidence =
                     Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                        failure.Evidence);
+                        failure.Payload.Evidence);
                 return evidence.Details.Any(detail =>
                     detail.Producer == "integrations"
                     && detail.Kind
@@ -2155,7 +2157,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     == "Rejected.Integration");
         var evidence =
             Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                rejected.Evidence);
+                rejected.Payload.Evidence);
         Assert.Equal(
             ["extensions", "integrations", "opportunities", "references"],
             evidence.Details
@@ -2235,7 +2237,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                    failure.Evidence).Details.Any(detail =>
+                    failure.Payload.Evidence).Details.Any(detail =>
                         detail.Producer == "references"
                         && detail.Kind
                             == InspectionGraphIntegrationFailureKind
@@ -2262,7 +2264,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     == "UnavailableReferences");
         var evidence =
             Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
-                failure.Evidence);
+                failure.Payload.Evidence);
         Assert.Equal(
             ["Bar", "Foo"],
             evidence.Details
@@ -2299,7 +2301,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
         [
             .. Assert.IsType<
                     InspectionGraphIntegrationFailureEvidence>(
-                        failure.Evidence)
+                        failure.Payload.Evidence)
                 .Details
                 .Where(detail =>
                     detail.Producer == "references"
@@ -2455,7 +2457,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     == "Oversized.Logging"
                 && Assert.IsType<
                     InspectionGraphIntegrationFailureEvidence>(
-                        failure.Evidence).Details.Any(detail =>
+                        failure.Payload.Evidence).Details.Any(detail =>
                             detail.Producer == "integrations"
                             && detail.Kind
                                 == InspectionGraphIntegrationFailureKind

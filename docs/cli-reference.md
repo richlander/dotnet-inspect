@@ -699,7 +699,8 @@ dependency whose package ID begins with that prefix. The match is literal and
 case-insensitive; include a trailing `.` to express a dot-delimited family.
 Use
 `depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
-against the ecosystem's registered exact packages and package prefixes:
+against the ecosystem's core packages (matched exactly) and its package
+prefixes:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \

@@ -94,6 +94,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
+    searchCapabilities: () => unexpected("searchCapabilities"),
     searchTypes: () => unexpected("searchTypes"),
     activateWorkspacePackageOccurrence: () =>
       unexpected("activateWorkspacePackageOccurrence"),
@@ -2027,6 +2028,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
+      "searchCapabilities",
       "searchTypes",
     ],
     metadata: [
@@ -2116,7 +2118,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 88);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 89);
 
   const state = fixture();
   const groups = [

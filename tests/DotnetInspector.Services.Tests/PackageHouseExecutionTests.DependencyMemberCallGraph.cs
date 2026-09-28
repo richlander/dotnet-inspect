@@ -1430,11 +1430,11 @@ public sealed partial class PackageHouseExecutionTests
                     document.Characteristics,
                     characteristic =>
                         ReferenceEquals(
-                            characteristic.Descriptor,
+                            characteristic.Payload.Descriptor,
                             InspectionGraphFocusCatalog.Role)
                         && characteristic.Target
                             == InspectionGraphTarget.Edge(edge.Id))
-                    .Value)
+                    .Payload.Value)
                 .Values);
 
     private static WorkspaceRegistrationRevision CurrentRegistrations(
