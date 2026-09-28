@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using NuGet.Versioning;
 
 const string TargetFramework = "net11.0";
 const string RuntimeFamily = "Microsoft.NETCore.App";
@@ -40,7 +41,7 @@ catch (ArgumentException exception)
     return 2;
 }
 
-VerifyFrameworkReferenceScoping();
+VerifyRootTargetEvidence();
 
 string repositoryRoot = FindRepositoryRoot(Directory.GetCurrentDirectory())
     ?? throw new InvalidOperationException(
@@ -432,6 +433,14 @@ static async Task<RootCensusResult> AnalyzeRootAsync(
         rootDirectory,
         "obj",
         "project.assets.json");
+    RootTargetEvidence rootTarget = ReadRootTargetEvidence(
+        assetsPath,
+        targetFramework,
+        entry.Package);
+    ValidatePinnedRootVersion(
+        entry.Package,
+        pin.Version!,
+        rootTarget.PackageVersion);
     List<(string Path, string PackageName, string Version)> selectedAssets =
         ProjectAssetsParser.Parse(
             assetsPath,
@@ -446,10 +455,7 @@ static async Task<RootCensusResult> AnalyzeRootAsync(
             "Restore selected no package compile assets.");
     }
 
-    string[] eligiblePlatformFamilies = ReadEligiblePlatformFamilies(
-        assetsPath,
-        targetFramework,
-        entry.Package);
+    string[] eligiblePlatformFamilies = rootTarget.EligiblePlatformFamilies;
     string platformCatalogKey = targetFramework
         + "|aspnet="
         + eligiblePlatformFamilies.Contains(
@@ -688,7 +694,8 @@ static PlatformCatalog LoadPlatformCatalog(
     IReadOnlyList<string> requiredFamilies)
 {
     string runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
-    DirectoryInfo? dotnetRoot = Directory.GetParent(runtimeDirectory)?
+    var runtimeVersionDirectory = new DirectoryInfo(runtimeDirectory);
+    DirectoryInfo? dotnetRoot = runtimeVersionDirectory
         .Parent?
         .Parent?
         .Parent;
@@ -787,20 +794,20 @@ static string[] ReadPackageFolders(string assetsPath)
         .ToArray();
 }
 
-static string[] ReadEligiblePlatformFamilies(
+static RootTargetEvidence ReadRootTargetEvidence(
     string assetsPath,
     string targetFramework,
     string rootPackageId)
 {
     using JsonDocument document = JsonDocument.Parse(
         File.ReadAllBytes(assetsPath));
-    return ProjectEligiblePlatformFamilies(
+    return ProjectRootTargetEvidence(
         document.RootElement,
         targetFramework,
         rootPackageId);
 }
 
-static string[] ProjectEligiblePlatformFamilies(
+static RootTargetEvidence ProjectRootTargetEvidence(
     JsonElement assets,
     string targetFramework,
     string rootPackageId)
@@ -830,16 +837,23 @@ static string[] ProjectEligiblePlatformFamilies(
             $"The assets file has no '{targetFramework}' target.");
     }
 
+    string rootPrefix = rootPackageId + "/";
     JsonProperty rootLibrary = target.Value
         .EnumerateObject()
         .FirstOrDefault(library =>
-            library.Name.Split('/')[0].Equals(
-                rootPackageId,
+            library.Name.StartsWith(
+                rootPrefix,
                 StringComparison.OrdinalIgnoreCase));
     if (rootLibrary.Value.ValueKind != JsonValueKind.Object)
     {
         throw new InvalidDataException(
             $"The assets target has no root package '{rootPackageId}'.");
+    }
+    string packageVersion = rootLibrary.Name[rootPrefix.Length..];
+    if (string.IsNullOrWhiteSpace(packageVersion))
+    {
+        throw new InvalidDataException(
+            $"The assets target root '{rootLibrary.Name}' has no version.");
     }
 
     if (rootLibrary.Value.TryGetProperty(
@@ -861,17 +875,45 @@ static string[] ProjectEligiblePlatformFamilies(
         }
     }
 
-    return families.OrderBy(value => value, StringComparer.Ordinal).ToArray();
+    return new RootTargetEvidence(
+        packageVersion,
+        families.OrderBy(value => value, StringComparer.Ordinal).ToArray());
 }
 
-static void VerifyFrameworkReferenceScoping()
+static void ValidatePinnedRootVersion(
+    string packageId,
+    string pinnedVersion,
+    string selectedVersion)
+{
+    if (!NuGetVersion.TryParse(
+            pinnedVersion,
+            out NuGetVersion? parsedPinned)
+        || !NuGetVersion.TryParse(
+            selectedVersion,
+            out NuGetVersion? parsedSelected))
+    {
+        throw new InvalidDataException(
+            $"Package '{packageId}' has an invalid pinned or selected version.");
+    }
+
+    if (!parsedPinned.ToNormalizedString().Equals(
+            parsedSelected.ToNormalizedString(),
+            StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidDataException(
+            $"Package '{packageId}' restored '{selectedVersion}' instead of "
+            + $"the exact pin '{pinnedVersion}'.");
+    }
+}
+
+static void VerifyRootTargetEvidence()
 {
     using JsonDocument document = JsonDocument.Parse(
         """
         {
           "targets": {
             "net11.0": {
-              "Root.Package/1.0.0": {},
+              "Root.Package/1.0.1": {},
               "Dependency.Package/1.0.0": {
                 "frameworkReferences": [
                   "Microsoft.AspNetCore.App"
@@ -881,11 +923,11 @@ static void VerifyFrameworkReferenceScoping()
           }
         }
         """);
-    string[] rootFamilies = ProjectEligiblePlatformFamilies(
+    RootTargetEvidence root = ProjectRootTargetEvidence(
         document.RootElement,
         "net11.0",
         "Root.Package");
-    if (rootFamilies.Contains(
+    if (root.EligiblePlatformFamilies.Contains(
             AspNetCoreFamily,
             StringComparer.OrdinalIgnoreCase))
     {
@@ -893,16 +935,33 @@ static void VerifyFrameworkReferenceScoping()
             "A transitive framework reference admitted the root Platform route.");
     }
 
-    string[] dependencyFamilies = ProjectEligiblePlatformFamilies(
+    RootTargetEvidence dependency = ProjectRootTargetEvidence(
         document.RootElement,
         "net11.0",
         "Dependency.Package");
-    if (!dependencyFamilies.Contains(
+    if (!dependency.EligiblePlatformFamilies.Contains(
             AspNetCoreFamily,
             StringComparer.OrdinalIgnoreCase))
     {
         throw new InvalidOperationException(
             "The selected root framework reference was not admitted.");
+    }
+
+    ValidatePinnedRootVersion(
+        "Root.Package",
+        "1.0.1",
+        root.PackageVersion);
+    try
+    {
+        ValidatePinnedRootVersion(
+            "Root.Package",
+            "1.0.0",
+            root.PackageVersion);
+        throw new InvalidOperationException(
+            "An approximated root package version was accepted.");
+    }
+    catch (InvalidDataException)
+    {
     }
 }
 
@@ -1048,6 +1107,10 @@ sealed record PackageCoordinate(
     string Id,
     string Version,
     string TargetFramework);
+
+sealed record RootTargetEvidence(
+    string PackageVersion,
+    string[] EligiblePlatformFamilies);
 
 sealed record AssemblyAsset(
     string PackageId,

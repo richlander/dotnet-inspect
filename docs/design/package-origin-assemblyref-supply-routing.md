@@ -544,11 +544,16 @@ This census is motivating evidence, not a universal proof. It examines root
 assemblies and restore-selected compile assets in a pinned popular-package
 corpus; it does not enumerate every assembly in every package or model future
 PackageHouse pruning. The JSON report records the package-pin digest,
-per-root TFM, closure sizes, exceptional routes, and failures. Any restore,
-asset decode, or root-analysis failure makes the sensor fail. A future
-identity-only supplier or repeated filename-fallback growth is evidence to
-revisit this bounded contract rather than silently broadening every production
-request into a closure-wide Metadata scan.
+per-root TFM, closure sizes, exceptional routes, and failures. The sensor
+requires the assets target's selected root version to equal the normalized
+pin, so a successful restore that approximates an unavailable version does not
+become pinned evidence. Platform catalogs search restored package folders and
+then the SDK installation's `packs` directory; a required pack missing from
+both is a visible failure. Any restore, asset decode, or root-analysis failure
+makes the sensor fail. A future identity-only supplier or repeated
+filename-fallback growth is evidence to revisit this bounded contract rather
+than silently broadening every production request into a closure-wide Metadata
+scan.
 
 ## Production adoption
 
