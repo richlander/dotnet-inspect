@@ -1,0 +1,21 @@
+scenario	bin	answer	exit	hash	n	median_ms	p95_ms	min_ms
+System.CommandLine	base	true	0	b81de588bfab	20	60.5	65.9	57.8
+System.CommandLine	s1	true	0	b81de588bfab	20	59.5	64.6	57.5
+System.CommandLine	s2	true	0	b81de588bfab	20	59.9	64.3	57.8
+System.CommandLine	s3	true	0	b81de588bfab	20	59.9	65.0	58.1
+Newtonsoft.Json	base	true	0	f014e163633f	20	136.1	154.5	116.1
+Newtonsoft.Json	s1	true	0	f014e163633f	20	137.8	185.3	118.4
+Newtonsoft.Json	s2	true	0	f014e163633f	20	144.5	178.8	117.2
+Newtonsoft.Json	s3	true	0	f014e163633f	20	132.0	177.9	118.1
+Mono.Cecil	base	false	0	6550e8772f5f	20	84.4	90.2	82.4
+Mono.Cecil	s1	false	0	6550e8772f5f	20	85.2	95.1	83.1
+Mono.Cecil	s2	false	0	6550e8772f5f	20	85.7	99.9	83.1
+Mono.Cecil	s3	false	0	6550e8772f5f	20	85.1	107.1	83.3
+Roslyn C#	base	incomplete	1	916747cb738a	20	552.1	789.7	537.1
+Roslyn C#	s1	incomplete	1	916747cb738a	20	551.3	813.5	541.5
+Roslyn C#	s2	incomplete	1	916747cb738a	20	554.8	699.7	538.6
+Roslyn C#	s3	incomplete	1	916747cb738a	20	559.6	621.8	540.0
+CoreLib	base	true	0	178fd1281810	20	400.5	617.2	366.6
+CoreLib	s1	true	0	178fd1281810	20	389.3	532.9	367.0
+CoreLib	s2	true	0	178fd1281810	20	392.8	763.9	364.3
+CoreLib	s3	true	0	178fd1281810	20	384.1	616.8	370.0

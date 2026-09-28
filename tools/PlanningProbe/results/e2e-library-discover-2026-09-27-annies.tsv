@@ -1,0 +1,29 @@
+warm rc=1
+warm rc=1
+warm rc=1
+warm rc=1
+warm rc=1
+17:05  up 1 day, 18:49, 1 user, load averages: 2.08 2.04 2.08
+scenario	bin	answer	exit	hash	n	median_ms	p95_ms	min_ms
+System.CommandLine	base	true	0	b81de588bfab	20	49.0	50.0	48.1
+System.CommandLine	s1	true	0	b81de588bfab	20	49.2	51.3	48.0
+System.CommandLine	s2	true	0	b81de588bfab	20	49.1	50.7	48.6
+System.CommandLine	s3	true	0	b81de588bfab	20	49.2	58.8	48.3
+Newtonsoft.Json	base	true	0	f014e163633f	20	102.9	105.7	101.0
+Newtonsoft.Json	s1	true	0	f014e163633f	20	102.9	114.7	101.1
+Newtonsoft.Json	s2	true	0	f014e163633f	20	103.3	105.3	102.1
+Newtonsoft.Json	s3	true	0	f014e163633f	20	103.0	104.9	101.4
+Mono.Cecil	base	false	0	6550e8772f5f	20	74.4	88.0	72.6
+Mono.Cecil	s1	false	0	6550e8772f5f	20	74.5	76.5	73.1
+Mono.Cecil	s2	false	0	6550e8772f5f	20	74.8	77.5	73.5
+Mono.Cecil	s3	false	0	6550e8772f5f	20	74.1	76.4	72.6
+Roslyn C#	base	incomplete	1	916747cb738a	20	505.9	531.3	497.1
+Roslyn C#	s1	incomplete	1	916747cb738a	20	512.3	535.5	504.5
+Roslyn C#	s2	incomplete	1	916747cb738a	20	516.1	537.6	507.7
+Roslyn C#	s3	incomplete	1	916747cb738a	20	509.4	541.9	497.1
+CoreLib	base	false	1	6866fc4bedba	20	23.7	26.8	23.3
+CoreLib	s1	false	1	6866fc4bedba	20	23.8	26.2	23.5
+CoreLib	s2	false	1	6866fc4bedba	20	23.9	24.4	23.5
+CoreLib	s3	false	1	6866fc4bedba	20	23.7	25.2	23.3
+
+[exited with code 0]
