@@ -57,7 +57,13 @@ project layering cannot express: raw platform PE/metadata decoding and runtime
 assembly loading or activation. `Directory.Build.targets` escalates `RS0030`
 to an error.
 
-Web Core and the capability facades still use the broader
+The `inspect-web-call-graph-facade-stays-at-capability-boundary` rule similarly
+limits `DotnetInspect.Web.Interop.CallGraph` to the .NET platform, Web Core,
+Queries, and Sections in both graphs. Its project references declare that same
+set rather than relying on transitive access or retaining unused low-level
+projects, and it shares the narrow platform-hazard analyzer input.
+
+Web Core and the remaining capability facades still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
 boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both evaluated
 analyzer inputs and resolves every complete banned documentation ID, including
