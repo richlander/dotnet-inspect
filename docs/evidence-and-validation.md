@@ -137,10 +137,15 @@ also reports a kernel-level **postcard** against two fixtures.
 
 Do not construct a hand-written loop as an oracle. What such a loop measures
 depends on its author's choices, and it costs one loop per question where
-NLinq costs one source per population. A hand-written baseline is justified
-only as the Before of a path that already exists, or for a source-native
-answer NLinq cannot express, such as a count from a table size. Label it as
-such.
+NLinq costs one source per population. A hand-written loop appears only as
+the Before of a path that already exists.
+
+Every postcard closing has an NLinq query; when NLinq lacks an operator, the
+fixture adds it. A source-native answer, such as a count from a table size, is
+an After technique, not an exception: its ratio to NLinq shows what it skips.
+To show an After against a source-native ceiling, add a labeled column beside
+the three. It is not checked by regression tracking, and its answers must
+agree with the other columns.
 
 **The postcard** scores Before, NLinq, and After for Exists, Count, Head(N),
 Tail(N), Rows, and Rows(n..m), over one open query on pinned real assets:
