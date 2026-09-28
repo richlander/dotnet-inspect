@@ -222,7 +222,7 @@ public sealed class QueryAccumulator<TRow>
 
 /// <summary>
 /// An open query whose request chooses its closing: Exists stops at the first
-/// unit that satisfies the predicate, All counts them, and Rows also projects
+/// unit that satisfies the predicate, Complete counts them, and Rows also projects
 /// each one. The projection's fields, such as identity text, are declared
 /// only for the Rows closing, so Count and Exists never read them. A pass that
 /// visits only this producer runs as a closed-query kernel specialized to the

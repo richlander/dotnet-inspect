@@ -6,6 +6,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.Analysis.Classification;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
+using InertText;
 using Inspector.Findings;
 
 namespace DotnetInspector.Queries.Tests;
@@ -244,7 +245,7 @@ public sealed class MethodClassificationQueryTests
     }
 
     [Fact]
-    public void Combined_RowsAndCountForOneAnalyzerAgree()
+    public void Combined_RowsCountAndExistsForOneAnalyzerExecuteIndependentlyAndAgree()
     {
         string path = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
         ClassificationQuestion rows = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows, ClassifiedRowOrder.Display);
@@ -258,6 +259,35 @@ public sealed class MethodClassificationQueryTests
         Assert.NotEmpty(listed.Methods);
         Assert.Equal(new ClassificationAnswer.Count(listed.Methods.Length), result.AnswerTo(count));
         Assert.Equal(new ClassificationAnswer.Exists(true), result.AnswerTo(exists));
+
+        // One execution per closing; Count and Exists read no identity text.
+        Assert.Equal(
+            [ClassificationClosing.Rows, ClassificationClosing.Count, ClassificationClosing.Exists],
+            result.Receipts.Keys.Order());
+        Assert.True(result.Receipts[ClassificationClosing.Rows].IdentityBudgetArmed);
+        Assert.False(result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+        Assert.False(result.Receipts[ClassificationClosing.Exists].IdentityBudgetArmed);
+        Assert.Equal(0, result.Receipts[ClassificationClosing.Count].IdentityWorkCharged);
+    }
+
+    [Fact]
+    public void LegacyOrder_IsANamedOrderWithAsyncBeforePointerWithinOneMethod()
+    {
+        static ClassifiedMethodRow Row(int ordinal, MethodClassification classification) =>
+            new(ordinal, ordinal, InertString.Empty, InertString.Empty, InertString.Empty, InertString.Empty,
+                classification, null, null, null);
+
+        ClassifiedMethodRow[] rows =
+        [
+            Row(1, MethodClassification.Unsafe),
+            Row(0, MethodClassification.Unsafe),
+            Row(1, MethodClassification.RuntimeAsync),
+            Row(0, MethodClassification.PInvoke),
+        ];
+
+        Assert.Equal(
+            [(0, MethodClassification.PInvoke), (0, MethodClassification.Unsafe), (1, MethodClassification.RuntimeAsync), (1, MethodClassification.Unsafe)],
+            ClassifiedMethodRowOrders.Apply(rows, ClassifiedMethodRowOrders.Legacy).Select(static row => (row.Ordinal, row.Classification)));
     }
 
     [Fact]

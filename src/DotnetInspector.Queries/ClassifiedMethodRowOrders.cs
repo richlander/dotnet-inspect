@@ -22,6 +22,7 @@ public static class ClassifiedMethodRowOrders
     public const string Display = "Display";
     public const string AsyncDisplay = "AsyncDisplay";
     public const string PInvokeDisplay = "PInvokeDisplay";
+    public const string Legacy = "Legacy";
 
     /// <summary>The model's async kind text, as <c>LibraryInspection</c> sorts it.</summary>
     public static string AsyncKind(MethodClassification classification) =>
@@ -58,6 +59,21 @@ public static class ClassifiedMethodRowOrders
         return result != 0 ? result : model(left, right);
     }
 
+    // Legacy order (MethodClassificationScanner.Scan): traversal order, then,
+    // within one method, P/Invoke, async, then pointer signature.
+    static int CompareLegacy(ClassifiedMethodRow left, ClassifiedMethodRow right)
+    {
+        int result = left.Ordinal.CompareTo(right.Ordinal);
+        return result != 0 ? result : LegacyRank(left.Classification).CompareTo(LegacyRank(right.Classification));
+    }
+
+    static int LegacyRank(MethodClassification classification) => classification switch
+    {
+        MethodClassification.PInvoke => 0,
+        MethodClassification.Unsafe => 2,
+        _ => 1,
+    };
+
     static RowQueryNamedOrder<ClassifiedMethodRow> Order(string key, Comparison<ClassifiedMethodRow> ascending) =>
         new(
             RowQueryNamedOrderIdentity.Create(),
@@ -87,6 +103,7 @@ public static class ClassifiedMethodRowOrders
                 Order(Display, static (left, right) => CompareDisplay(left, right, withModule: false, CompareModel)),
                 Order(AsyncDisplay, static (left, right) => CompareDisplay(left, right, withModule: false, CompareAsyncModel)),
                 Order(PInvokeDisplay, static (left, right) => CompareDisplay(left, right, withModule: true, CompareModel)),
+                Order(Legacy, CompareLegacy),
             ]);
 
     /// <summary>Reads <paramref name="rows"/> in the named order through the QuerySpace executor.</summary>

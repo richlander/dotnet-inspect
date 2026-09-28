@@ -138,7 +138,7 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Fact]
-    public void Analyzers_RowsAndCountForOneAnalyzerRunRowsOnce()
+    public void Analyzers_RowsAndCountForOneAnalyzerExecuteIndependently()
     {
         GateFixtureImage builder = new();
         builder.Type("N", "Plain")
@@ -147,17 +147,19 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("C");
         ImmutableArray<byte> image = builder.Build();
 
-        WorkDescription description = Plan(
-            new ProducerRequest(AsyncAnalyzer.Instance, ProducerTerminal.Complete),
-            new ProducerRequest(AsyncAnalyzer.Instance, ProducerTerminal.Rows));
+        // Each closing is its own request in its own work description:
+        // nothing derives Count from Rows.
+        MethodDefinitionExecution rows = Execute(image, new ProducerRequest(AsyncAnalyzer.Instance, ProducerTerminal.Rows));
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(AsyncAnalyzer.Instance, ProducerTerminal.Complete));
 
-        Assert.Equal(ProducerTerminal.Rows, description.TerminalOf(AsyncAnalyzer.Instance));
-        using var peReader = new PEReader(image);
-        MethodDefinitionExecution execution = MethodDefinitionExecution.Execute(description, "Fixture.dll", peReader);
-        ClosedQueryResult<ClassifiedMethodRow> result = execution.ResultOf(AsyncAnalyzer.Instance).Value!;
-        Assert.Equal(2, result.Count);
-        Assert.Equal(result.Count, result.Rows.Length);
-        Assert.True(execution.Receipt.IdentityBudgetArmed);
+        ClosedQueryResult<ClassifiedMethodRow> listed = rows.ResultOf(AsyncAnalyzer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> counted = count.ResultOf(AsyncAnalyzer.Instance).Value!;
+        Assert.Equal(2, listed.Rows.Length);
+        Assert.Equal(listed.Rows.Length, counted.Count);
+        Assert.False(counted.HasRows);
+        Assert.True(rows.Receipt.IdentityBudgetArmed);
+        Assert.False(count.Receipt.IdentityBudgetArmed);
+        Assert.Equal(0, count.Receipt.IdentityWorkCharged);
     }
 
     [Fact]

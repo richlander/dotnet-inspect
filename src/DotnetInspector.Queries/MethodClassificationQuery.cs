@@ -73,7 +73,7 @@ public abstract record ClassificationAnswer
     /// <summary>The analyzer failed recoverably at one unit, such as a malformed pointer signature.</summary>
     public sealed record Failed(ProducerFailure Failure) : ClassificationAnswer;
 
-    /// <summary>A containment budget was exhausted; every question in the request has this answer.</summary>
+    /// <summary>A containment budget was exhausted; every question in that closing's execution has this answer.</summary>
     public sealed record Aborted(CriticalFailure Critical) : ClassificationAnswer;
 }
 
@@ -84,12 +84,15 @@ public abstract record ClassificationAnswer
 /// <see cref="Finding"/> is null only when the Finding was not requested. When
 /// an analyzer failed or the execution aborted, it is a failed inspection that
 /// names the analyzer and the unit, and <see cref="MergedRows"/> is default.
+/// <see cref="Receipts"/> holds one work receipt per closing that ran, and
+/// <see cref="Critical"/> the first execution's critical failure, if any.
 /// </summary>
 public sealed record MethodClassificationResult(
     ImmutableArray<(ClassificationQuestion Question, ClassificationAnswer Answer)> Answers,
     ImmutableArray<ClassifiedMethodRow> MergedRows,
     FindingInspection<ClassifiedMethodObservation>? Finding,
-    CriticalFailure? Critical)
+    CriticalFailure? Critical,
+    ImmutableDictionary<ClassificationClosing, WorkReceipt> Receipts)
 {
     public ClassificationAnswer AnswerTo(ClassificationQuestion question)
     {
@@ -105,11 +108,10 @@ public sealed record MethodClassificationResult(
 
 /// <summary>
 /// Host-neutral method classification: per-analyzer questions and one
-/// combined request, run in one Producer Planning execution. Requests for the
-/// same analyzer compose: if any asks for Rows, Rows runs once and every Count
-/// and Exists derives from it, taking its outcome; otherwise Count and Exists
-/// run alone and read no identity text. Hosts bind questions and map answers;
-/// they never sort, merge, or count rows.
+/// combined request. Each closing runs as its own request in its own Producer
+/// Planning execution, so Count and Exists never derive from Rows and never
+/// read identity text; composing requests belongs to QuerySpace (#8574).
+/// Hosts bind questions and map answers; they never sort, merge, or count rows.
 /// </summary>
 /// <remarks>
 /// Owned by <c>docs/design/method-classification-analyzers.md#queries-and-demand</c>.
@@ -159,44 +161,49 @@ public static class MethodClassificationQuery
         if (!MetadataFormatAdmission.AdmitImage(peReader))
             return Empty(questions, findingSubject);
 
-        var requests = new List<ProducerRequest>();
-        foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
+        // Each closing is its own request and its own execution: planning
+        // never derives Count or Exists from Rows. The Finding asks for Rows
+        // of every analyzer, so it shares the Rows execution.
+        var executions = new Dictionary<ClassificationClosing, MethodDefinitionExecution>();
+        foreach (ClassificationClosing closing in Enum.GetValues<ClassificationClosing>())
         {
-            ProducerTerminal? terminal = finding ? ProducerTerminal.Rows : null;
-            foreach (ClassificationQuestion question in questions)
+            var requests = new List<ProducerRequest>();
+            foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
             {
-                if (question.Analyzer == analyzer)
-                    terminal = MostExpansive(terminal, TerminalFor(question.Closing));
+                bool requested = finding && closing == ClassificationClosing.Rows;
+                foreach (ClassificationQuestion question in questions)
+                    requested |= question.Analyzer == analyzer && question.Closing == closing;
+                if (requested)
+                    requests.Add(new ProducerRequest(ProducerFor(analyzer), TerminalFor(closing)));
             }
 
-            if (terminal is { } requested)
-                requests.Add(new ProducerRequest(ProducerFor(analyzer), requested));
-        }
+            if (requests.Count == 0)
+                continue;
 
-        if (requests.Count == 0)
-        {
-            return new MethodClassificationResult([], default, null, null);
+            WorkDescription description =
+                ProducerPlanner.Plan(requests) is ProducerPlanResult.Accepted accepted
+                    ? accepted.Description
+                    : throw new InvalidOperationException(
+                        "The method classification request must plan.");
+            executions[closing] = MethodDefinitionExecution.Execute(
+                description,
+                "MethodClassification",
+                peReader);
         }
-
-        WorkDescription description =
-            ProducerPlanner.Plan(requests) is ProducerPlanResult.Accepted accepted
-                ? accepted.Description
-                : throw new InvalidOperationException(
-                    "The method classification request must plan.");
-        MethodDefinitionExecution execution = MethodDefinitionExecution.Execute(
-            description,
-            "MethodClassification",
-            peReader);
 
         var answers = ImmutableArray.CreateBuilder<(ClassificationQuestion, ClassificationAnswer)>(questions.Count);
         foreach (ClassificationQuestion question in questions)
-            answers.Add((question, Answer(execution.ResultOf(ProducerFor(question.Analyzer)), question)));
+        {
+            answers.Add((question, Answer(
+                executions[question.Closing].ResultOf(ProducerFor(question.Analyzer)),
+                question)));
+        }
 
         ImmutableArray<ClassifiedMethodRow> merged = default;
         FindingInspection<ClassifiedMethodObservation>? inspection = null;
         if (finding)
         {
-            merged = Merge(execution, out string? failure);
+            merged = Merge(executions[ClassificationClosing.Rows], out string? failure);
             inspection = merged.IsDefault
                 ? new FindingInspection<ClassifiedMethodObservation>(
                     new FindingInspection<ClassifiedMethodObservation>.Failed(
@@ -209,11 +216,22 @@ public static class MethodClassificationQuery
                     findingSubject!);
         }
 
+        var receipts = ImmutableDictionary.CreateBuilder<ClassificationClosing, WorkReceipt>();
+        CriticalFailure? critical = null;
+        foreach (ClassificationClosing closing in Enum.GetValues<ClassificationClosing>())
+        {
+            if (!executions.TryGetValue(closing, out MethodDefinitionExecution? execution))
+                continue;
+            receipts[closing] = execution.Receipt;
+            critical ??= execution.Receipt.Critical;
+        }
+
         return new MethodClassificationResult(
             answers.MoveToImmutable(),
             merged,
             inspection,
-            execution.Receipt.Critical);
+            critical,
+            receipts.ToImmutable());
     }
 
     static MethodClassificationResult Empty(
@@ -237,7 +255,8 @@ public static class MethodClassificationQuery
             findingSubject is null
                 ? null
                 : MetadataFindings.InspectClassifiedMethods([], findingSubject),
-            null);
+            null,
+            ImmutableDictionary<ClassificationClosing, WorkReceipt>.Empty);
     }
 
     static MethodDefinitionQueryProducer<TTest, TProjection, ClassifiedMethodRow> Typed<TTest, TProjection>(
@@ -264,18 +283,6 @@ public static class MethodClassificationQuery
             _ => ProducerTerminal.Exists,
         };
 
-    static ProducerTerminal MostExpansive(ProducerTerminal? current, ProducerTerminal next) =>
-        current is not { } existing ? next
-        : Rank(existing) >= Rank(next) ? existing
-        : next;
-
-    static int Rank(ProducerTerminal terminal) => terminal switch
-    {
-        ProducerTerminal.Exists => 0,
-        ProducerTerminal.Complete => 1,
-        _ => 2,
-    };
-
     static ClassificationAnswer Answer(
         ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result,
         ClassificationQuestion question)
@@ -289,15 +296,21 @@ public static class MethodClassificationQuery
         return question.Closing switch
         {
             ClassificationClosing.Rows => new ClassificationAnswer.Rows(
-                Order(value.Rows, question.Analyzer, question.Order)),
+                Order(
+                    value.HasRows
+                        ? value.Rows
+                        : throw new InvalidOperationException("The Rows closing must publish rows."),
+                    question.Analyzer,
+                    question.Order)),
             ClassificationClosing.Count => new ClassificationAnswer.Count(value.Count),
             _ => new ClassificationAnswer.Exists(value.Exists),
         };
     }
 
     /// <summary>
-    /// The analyzers' rows merged in legacy order: traversal order, then
-    /// P/Invoke, async, pointer signature within one method. Default when an
+    /// The analyzers' rows in the legacy order the vocabulary declares:
+    /// traversal order, then P/Invoke, async, pointer signature within one
+    /// method. Default when an
     /// analyzer did not publish rows, with <paramref name="failure"/> naming
     /// the analyzer and the unit.
     /// </summary>
@@ -306,8 +319,7 @@ public static class MethodClassificationQuery
         out string? failure)
     {
         failure = null;
-        var rows = new List<(ClassifiedMethodRow Row, int Rank)>();
-        int rank = 0;
+        var rows = new List<ClassifiedMethodRow>();
         foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
         {
             ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>> producer = ProducerFor(analyzer);
@@ -327,15 +339,10 @@ public static class MethodClassificationQuery
                 return default;
             }
 
-            foreach (ClassifiedMethodRow row in result.Value.Rows)
-                rows.Add((row, rank));
-            rank++;
+            rows.AddRange(result.Value.Rows);
         }
 
-        return [.. rows
-            .OrderBy(static entry => entry.Row.Ordinal)
-            .ThenBy(static entry => entry.Rank)
-            .Select(static entry => entry.Row)];
+        return [.. ClassifiedMethodRowOrders.Apply(rows, ClassifiedMethodRowOrders.Legacy)];
     }
 
     static ImmutableArray<ClassifiedMethodRow> Order(

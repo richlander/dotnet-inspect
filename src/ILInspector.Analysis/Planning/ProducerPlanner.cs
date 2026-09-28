@@ -20,8 +20,9 @@ public enum ProducerTerminal
     /// <summary>
     /// Every unit in scope contributes, and each unit that satisfies the
     /// producer's open query is projected to a row. A producer may declare
-    /// fields it reads only for this closing, such as identity text. It is the
-    /// most expansive closing: Count and Exists derive from it.
+    /// fields it reads only for this closing, such as identity text. Planning
+    /// never derives another closing from it: a consumer that needs Count or
+    /// Exists requests that closing in its own work description.
     /// </summary>
     Rows,
 }
@@ -272,7 +273,8 @@ public static class ProducerPlanner
                 terminals.TryGetValue(
                     request.Producer,
                     out ProducerTerminal existing)
-                    ? MostExpansive(existing, request.Terminal)
+                && existing == ProducerTerminal.Complete
+                    ? ProducerTerminal.Complete
                     : request.Terminal;
         }
 
@@ -284,12 +286,7 @@ public static class ProducerPlanner
             foreach (ProducerDependency dependency in producer.Dependencies)
             {
                 if (dependency.Producer is { } target)
-                {
-                    terminals[target] =
-                        terminals.TryGetValue(target, out ProducerTerminal current)
-                            ? MostExpansive(current, ProducerTerminal.Complete)
-                            : ProducerTerminal.Complete;
-                }
+                    terminals[target] = ProducerTerminal.Complete;
             }
         }
 
@@ -374,17 +371,6 @@ public static class ProducerPlanner
     /// completions it reads. Cycles are detected on this graph, so a
     /// producer-level loop through different stages is not a cycle.
     /// </summary>
-    /// <summary>Exists, then All (Count), then Rows: requests for one producer run its most expansive closing.</summary>
-    static ProducerTerminal MostExpansive(ProducerTerminal a, ProducerTerminal b) =>
-        Rank(a) >= Rank(b) ? a : b;
-
-    static int Rank(ProducerTerminal terminal) => terminal switch
-    {
-        ProducerTerminal.Exists => 0,
-        ProducerTerminal.Complete => 1,
-        _ => 2,
-    };
-
     static StageSchedule Schedule(
         IReadOnlyList<ProducerDeclaration> closure,
         ImmutableArray<ProducerRejection>.Builder rejections)
