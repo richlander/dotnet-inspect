@@ -88,23 +88,52 @@ internal readonly record struct SignatureOccurrenceLimits(
 
 internal sealed class SignatureOccurrenceWorkBudget(
     SignatureOccurrenceLimits limits,
-    SignatureOccurrenceMetrics? metrics)
+    SignatureOccurrenceMetrics? metrics,
+    MetadataOperationContext? operation = null)
 {
     int _nodes;
     int _copies;
     int _work;
 
-    internal void Node() =>
+    internal void Node()
+    {
+        operation?.Charge(
+            MetadataOperationDimension.StructuredNodes);
         Charge(SignatureOccurrenceMetric.SignatureNodes, 1, ref _nodes,
             limits.Nodes, SignatureOccurrenceRejectionReason.NodeBudget);
+    }
 
-    internal void Copies(int amount) =>
+    internal void Copies(int amount)
+    {
+        operation?.Charge(
+            MetadataOperationDimension.StructuredNodes,
+            amount);
         Charge(SignatureOccurrenceMetric.OccurrenceCopies, amount, ref _copies,
             limits.Copies, SignatureOccurrenceRejectionReason.OccurrenceCopyBudget);
+    }
 
-    internal void Work(SignatureOccurrenceMetric metric, int amount) =>
+    internal void Work(SignatureOccurrenceMetric metric, int amount)
+    {
+        if (operation is not null)
+        {
+            MetadataOperationDimension? dimension = metric switch
+            {
+                SignatureOccurrenceMetric.TypeNameCharacters
+                    or SignatureOccurrenceMetric.AssemblyReferenceNameBytes
+                    or SignatureOccurrenceMetric
+                        .AssemblyReferenceCultureBytes
+                    or SignatureOccurrenceMetric.ModuleReferenceNameBytes =>
+                    MetadataOperationDimension.RetainedText,
+                SignatureOccurrenceMetric.TypeSpecificationBytes =>
+                    MetadataOperationDimension.SignatureBytes,
+                _ => null,
+            };
+            if (dimension is { } value)
+                operation.Charge(value, amount);
+        }
         Charge(metric, amount, ref _work, limits.Work,
             SignatureOccurrenceRejectionReason.WorkBudget);
+    }
 
     internal void ObserveGuard(SignatureBlobGuardMeasurements measurements)
     {
