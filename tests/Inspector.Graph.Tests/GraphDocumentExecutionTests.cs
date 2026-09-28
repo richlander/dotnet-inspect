@@ -127,6 +127,308 @@ public sealed class GraphDocumentExecutionTests
     }
 
     [Fact]
+    public void DerivedViewsMatchCanonicalScan()
+    {
+        TestDocument document = Document(
+            ["zero", "one", "two", "three", "isolated"],
+            [
+                (0, 0, Call),
+                (0, 1, Call),
+                (0, 1, Reference),
+                (1, 0, Call),
+                (2, 0, Reference),
+                (2, 3, Call),
+                (3, 2, Reference),
+            ]);
+        Relationship[][] selections =
+        [
+            [],
+            [Call],
+            [Reference],
+            [Call, Reference],
+        ];
+
+        foreach (Relationship[] relationships in selections)
+        {
+            foreach (GraphTraversalDirection direction
+                in Enum.GetValues<GraphTraversalDirection>())
+            {
+                foreach (GraphSelfLoopPolicy selfLoopPolicy
+                    in Enum.GetValues<GraphSelfLoopPolicy>())
+                {
+                    GraphAdjacencyResult adjacency =
+                        GraphDocumentExecution.Adjacency(
+                            document,
+                            new GraphNeighborPlan<Relationship>(
+                                relationships,
+                                direction,
+                                selfLoopPolicy));
+                    GraphDistinctNeighborDegreeResult degree =
+                        GraphDocumentExecution.DistinctNeighborDegree(
+                            document,
+                            new GraphNeighborPlan<Relationship>(
+                                relationships,
+                                direction,
+                                selfLoopPolicy));
+
+                    Assert.Equal(
+                        document.Nodes.Length,
+                        adjacency.Rows.Length);
+                    Assert.Equal(
+                        document.Nodes.Length,
+                        degree.Rows.Length);
+                    for (var nodeId = 0;
+                        nodeId < document.Nodes.Length;
+                        nodeId++)
+                    {
+                        (int[] Edges, int[] Neighbors) expected =
+                            CanonicalAdjacency(
+                                document,
+                                relationships,
+                                direction,
+                                selfLoopPolicy,
+                                nodeId);
+                        Assert.Equal(
+                            expected.Edges,
+                            adjacency.Rows[nodeId].EdgeIds);
+                        Assert.Equal(
+                            expected.Neighbors,
+                            adjacency.Rows[nodeId].NeighborNodeIds);
+                        Assert.Equal(nodeId, adjacency.Rows[nodeId].NodeId);
+                        Assert.Equal(nodeId, degree.Rows[nodeId].NodeId);
+                        Assert.Equal(
+                            expected.Neighbors.Length,
+                            degree.Rows[nodeId].Degree);
+                    }
+
+                    Assert.Equal(
+                        GraphStructuralCompletion.Exhausted,
+                        adjacency.Completion);
+                    Assert.Equal(
+                        GraphStructuralCompletion.Exhausted,
+                        degree.Completion);
+                    Assert.Same(
+                        document.Identity,
+                        adjacency.Receipt.SourceDocument);
+                    Assert.Same(
+                        document.Identity,
+                        degree.Receipt.SourceDocument);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void DerivedViewsUseDocumentRelationshipEquality()
+    {
+        TestDocument document = Document(
+            ["root", "next"],
+            [(0, 1, new Relationship("CALL"))],
+            RelationshipNameComparer.OrdinalIgnoreCase);
+
+        GraphAdjacencyResult adjacency =
+            GraphDocumentExecution.Adjacency(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [new Relationship("call")],
+                    GraphTraversalDirection.Outgoing,
+                    GraphSelfLoopPolicy.Exclude));
+        GraphDistinctNeighborDegreeResult degree =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [new Relationship("call")],
+                    GraphTraversalDirection.Outgoing,
+                    GraphSelfLoopPolicy.Exclude));
+
+        Assert.Equal([0], adjacency.Rows[0].EdgeIds);
+        Assert.Equal([1], adjacency.Rows[0].NeighborNodeIds);
+        Assert.Equal(1, degree.Rows[0].Degree);
+    }
+
+    [Fact]
+    public void DerivedViewsUseCanonicalIdsNotSubjectDisplay()
+    {
+        var document =
+            new GraphDocument<
+                DisplayedSubject,
+                Relationship,
+                Receipt,
+                Characteristic,
+                Limit,
+                Failure>(
+                GraphDocumentScope.SessionBound,
+                [
+                    new(
+                        0,
+                        new(0, "same"),
+                        GraphNodeRole.Ordinary,
+                        []),
+                    new(
+                        1,
+                        new(1, "same"),
+                        GraphNodeRole.Ordinary,
+                        []),
+                ],
+                groups: [],
+                edges:
+                [
+                    new(0, 0, 1, Call, []),
+                ],
+                occurrences: [],
+                characteristics: [],
+                seeds: [],
+                limits: [],
+                failures: []);
+
+        GraphAdjacencyResult adjacency =
+            GraphDocumentExecution.Adjacency(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [Call],
+                    GraphTraversalDirection.Both,
+                    GraphSelfLoopPolicy.Exclude));
+
+        Assert.Equal([1], adjacency.Rows[0].NeighborNodeIds);
+        Assert.Equal([0], adjacency.Rows[1].NeighborNodeIds);
+    }
+
+    [Fact]
+    public void NeighborPlanSnapshotsRelationshipSelection()
+    {
+        var relationships = new List<Relationship> { Call };
+        var plan = new GraphNeighborPlan<Relationship>(
+            relationships,
+            GraphTraversalDirection.Outgoing,
+            GraphSelfLoopPolicy.Exclude);
+        relationships.Clear();
+        TestDocument document = Document(
+            ["root", "next"],
+            [(0, 1, Call)]);
+
+        GraphDistinctNeighborDegreeResult result =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                plan);
+
+        Assert.Equal([1, 0], result.Rows.Select(row => row.Degree));
+    }
+
+    [Fact]
+    public void EmptyRelationshipSelectionRetainsZeroRowsWithoutEdgeScan()
+    {
+        TestDocument document = Document(
+            ["zero", "one"],
+            [(0, 1, Call)]);
+
+        GraphAdjacencyResult adjacency =
+            GraphDocumentExecution.Adjacency(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [],
+                    GraphTraversalDirection.Both,
+                    GraphSelfLoopPolicy.Include));
+        GraphDistinctNeighborDegreeResult degree =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [],
+                    GraphTraversalDirection.Both,
+                    GraphSelfLoopPolicy.Include));
+
+        Assert.All(adjacency.Rows, row =>
+        {
+            Assert.Empty(row.EdgeIds);
+            Assert.Empty(row.NeighborNodeIds);
+        });
+        Assert.All(degree.Rows, row => Assert.Equal(0, row.Degree));
+        Assert.Equal(0, adjacency.Receipt.CanonicalEdgesExamined);
+        Assert.Equal(0, degree.Receipt.CanonicalEdgesExamined);
+        Assert.Equal(2, adjacency.Receipt.CanonicalNodesExamined);
+        Assert.Equal(2, degree.Receipt.CanonicalNodesExamined);
+        Assert.Equal(2, adjacency.Receipt.NodesAdmitted);
+        Assert.Equal(2, degree.Receipt.NodesAdmitted);
+    }
+
+    [Fact]
+    public void SelfLoopPolicyChangesOnlyTheSelectedNode()
+    {
+        TestDocument document = Document(
+            ["zero", "one"],
+            [
+                (0, 0, Call),
+                (0, 1, Call),
+            ]);
+
+        GraphDistinctNeighborDegreeResult excluded =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [Call],
+                    GraphTraversalDirection.Both,
+                    GraphSelfLoopPolicy.Exclude));
+        GraphDistinctNeighborDegreeResult included =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [Call],
+                    GraphTraversalDirection.Both,
+                    GraphSelfLoopPolicy.Include));
+
+        Assert.Equal([1, 1], excluded.Rows.Select(row => row.Degree));
+        Assert.Equal([2, 1], included.Rows.Select(row => row.Degree));
+        Assert.Equal(1, excluded.Receipt.SelectedEdgesIndexed);
+        Assert.Equal(2, included.Receipt.SelectedEdgesIndexed);
+        Assert.Equal(2, excluded.Receipt.AdjacencyEntriesExamined);
+        Assert.Equal(3, included.Receipt.AdjacencyEntriesExamined);
+    }
+
+    [Fact]
+    public void DenseParallelReciprocalTopologyCountsEachPeerOnce()
+    {
+        const int count = 128;
+        string[] nodes =
+        [
+            .. Enumerable.Range(0, count).Select(
+                static id => id.ToString()),
+        ];
+        var edges =
+            new List<(
+                int From,
+                int To,
+                Relationship Relationship)>();
+        for (var from = 0; from < count; from++)
+        {
+            for (var to = 0; to < count; to++)
+            {
+                if (from == to)
+                    continue;
+                edges.Add((from, to, Call));
+                edges.Add((from, to, Reference));
+            }
+        }
+        TestDocument document = Document(nodes, edges);
+
+        GraphDistinctNeighborDegreeResult result =
+            GraphDocumentExecution.DistinctNeighborDegree(
+                document,
+                new GraphNeighborPlan<Relationship>(
+                    [Call, Reference],
+                    GraphTraversalDirection.Both,
+                    GraphSelfLoopPolicy.Exclude));
+
+        Assert.All(
+            result.Rows,
+            row => Assert.Equal(count - 1, row.Degree));
+        Assert.Equal(
+            edges.Count,
+            result.Receipt.SelectedEdgesIndexed);
+        Assert.Equal(
+            edges.Count * 2,
+            result.Receipt.AdjacencyEntriesExamined);
+    }
+
+    [Fact]
     public void BidirectionalSelfLoopIsVisitedOnce()
     {
         TestDocument document = Document(
@@ -517,6 +819,57 @@ public sealed class GraphDocumentExecutionTests
                 [new(0, GraphScopeMembership.Inside)],
                 originNodeIds: [0],
                 GraphFocusReachability.EntireInsideScope));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphNeighborPlan<Relationship>(
+                [Call],
+                GraphTraversalDirection.Outgoing,
+                (GraphSelfLoopPolicy)42));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphNeighborPlan<Relationship>(
+                [Call],
+                (GraphTraversalDirection)42,
+                GraphSelfLoopPolicy.Exclude));
+    }
+
+    static (int[] Edges, int[] Neighbors) CanonicalAdjacency(
+        TestDocument document,
+        IReadOnlyCollection<Relationship> relationships,
+        GraphTraversalDirection direction,
+        GraphSelfLoopPolicy selfLoopPolicy,
+        int nodeId)
+    {
+        var edgeIds = new List<int>();
+        var neighborNodeIds = new HashSet<int>();
+        foreach (GraphEdge<Relationship> edge in document.Edges)
+        {
+            if (!relationships.Contains(edge.Relationship)
+                || selfLoopPolicy == GraphSelfLoopPolicy.Exclude
+                && edge.FromNodeId == edge.ToNodeId)
+            {
+                continue;
+            }
+
+            if (direction is GraphTraversalDirection.Outgoing
+                or GraphTraversalDirection.Both
+                && edge.FromNodeId == nodeId)
+            {
+                edgeIds.Add(edge.Id);
+                neighborNodeIds.Add(edge.ToNodeId);
+            }
+            else if (direction == GraphTraversalDirection.Incoming
+                && edge.ToNodeId == nodeId)
+            {
+                edgeIds.Add(edge.Id);
+                neighborNodeIds.Add(edge.FromNodeId);
+            }
+            else if (direction == GraphTraversalDirection.Both
+                && edge.ToNodeId == nodeId)
+            {
+                edgeIds.Add(edge.Id);
+                neighborNodeIds.Add(edge.FromNodeId);
+            }
+        }
+        return ([.. edgeIds], [.. neighborNodeIds.Order()]);
     }
 
     static GraphNeighborhoodPlan<Relationship> Neighborhood(
@@ -586,4 +939,6 @@ public sealed class GraphDocumentExecutionTests
             failures: [],
             relationshipComparer: relationshipComparer);
     }
+
+    public sealed record DisplayedSubject(int Identity, string Display);
 }

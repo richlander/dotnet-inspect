@@ -44,6 +44,14 @@ public enum MethodDefinitionLayers
     /// Declaring it arms the gate's identity budget.
     /// </summary>
     IdentityText = 64,
+
+    /// <summary>
+    /// Tier 1: the method's kickoff relationship from the Metadata semantic
+    /// substrate <c>StateMachineRelationshipIndex</c>, built once per execution
+    /// and bounded by its own budgets. Its global budget exhaustion aborts; a
+    /// per-row rejection is a recoverable failure.
+    /// </summary>
+    StateMachineRelationship = 128,
 }
 
 /// <summary>
@@ -70,6 +78,16 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
 
     /// <summary>The layers this producer may acquire; the declaration layer is always included.</summary>
     public MethodDefinitionLayers Layers { get; }
+
+    /// <summary>
+    /// Fields read only when the request's closing is
+    /// <see cref="ProducerTerminal.Rows"/>, such as identity text for projection.
+    /// </summary>
+    internal virtual MethodDefinitionLayers RowLayers => 0;
+
+    /// <summary>The fields and layers this producer reads under <paramref name="terminal"/>.</summary>
+    public MethodDefinitionLayers LayersFor(ProducerTerminal terminal) =>
+        terminal == ProducerTerminal.Rows ? Layers | RowLayers : Layers;
 
     /// <summary>Visits one unit and returns its fact. Throwing a recoverable failure fails the producer at this unit.</summary>
     internal abstract TFact Visit(scoped MethodDefinitionView view);
@@ -161,7 +179,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             ProducerTerminal terminal,
             ImmutableArray<int> dependencies,
             UnitFactRetention retention)
-            : base(execution, producer, producer.Layers, terminal, dependencies)
+            : base(execution, producer, producer.LayersFor(terminal), terminal, dependencies)
         {
             _producer = producer;
             _accumulator = producer.Seed();
@@ -249,6 +267,8 @@ internal interface IMethodDefinitionProducer
 {
     MethodDefinitionLayers Layers { get; }
 
+    MethodDefinitionLayers LayersFor(ProducerTerminal terminal);
+
     SourceGateGuard? SourceGate { get; }
 
     MethodDefinitionExecution.ProducerState CreateState(
@@ -296,6 +316,15 @@ public readonly ref struct MethodDefinitionView
 
     /// <summary>The unit's MethodDef metadata token.</summary>
     public int Token => MetadataTokens.GetToken(_unit.MethodHandle);
+
+    /// <summary>The closing of the request the visiting producer serves.</summary>
+    internal ProducerTerminal Terminal => Producer.Terminal;
+
+    /// <summary>
+    /// The unit's position in the source's traversal order, which follows
+    /// MethodPtr indirection where present, so it can differ from token order.
+    /// </summary>
+    public int Ordinal => _unit.Ordinal;
 
     // Raw rows are for producers with a domain layer, whose own probes read
     // them; every other reader goes through the gate's accessors.
@@ -377,6 +406,16 @@ public readonly ref struct MethodDefinitionView
         {
             Require(MethodDefinitionLayers.SignatureShape);
             return _unit.Gate.SignatureHasPointer();
+        }
+    }
+
+    /// <summary>Tier 1: the method's kickoff relationship from <c>StateMachineRelationshipIndex</c>.</summary>
+    public StateMachineRelationshipResult StateMachineByKickoff
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.StateMachineRelationship);
+            return _unit.Gate.StateMachineByKickoff();
         }
     }
 
@@ -494,6 +533,9 @@ public readonly ref struct MethodDefinitionCompletionView
         MethodDefinitionExecution.ProducerState producer) =>
         _producer = producer;
 
+    /// <summary>The closing of the request the completing producer serves.</summary>
+    internal ProducerTerminal Terminal => _producer.Terminal;
+
     public ProducerResult<TResult> ResultOf<TResult>(
         ProducerDeclaration<TResult> dependency)
     {
@@ -524,6 +566,9 @@ internal struct MethodDefinitionUnit(
     /// <summary>The source's method-row gate, positioned on this unit.</summary>
     public readonly MethodRowGate Gate = gate;
 
+    /// <summary>The unit's position in this pass's traversal, from 0.</summary>
+    public int Ordinal { get; private set; } = -1;
+
     public TypeDefinitionHandle TypeHandle { get; private set; }
 
     public TypeDefinition TypeDefinition { get; private set; }
@@ -547,6 +592,7 @@ internal struct MethodDefinitionUnit(
         MethodHandle = methodHandle;
         MethodDefinition = _reader.GetMethodDefinition(methodHandle);
         _body = null;
+        Ordinal++;
         Gate.MoveTo(typeHandle, typeDefinition, methodHandle, MethodDefinition);
     }
 
