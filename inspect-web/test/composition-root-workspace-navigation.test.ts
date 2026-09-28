@@ -1802,7 +1802,7 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
-    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
+    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadMemberSectionContent\(state\.memberSection\)[\s\S]*else \{\s*render\(\)/);
   assert.match(
     appSource,
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
