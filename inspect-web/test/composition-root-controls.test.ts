@@ -712,9 +712,16 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     appSource,
     /function drillToPerfMember\([\s\S]*resetMemberSectionState\(\);[\s\S]*loadSelectedMemberDocumentation\(\)/);
+  const drillToPerfMember =
+    appSource.match(/function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(
+    drillToPerfMember,
+    /const group = memberGroups\(targetType\)\s*\.find\(candidate => candidate\.overloads\.includes\(member\)\)/);
   assert.doesNotMatch(
-    appSource.match(
-      /function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "",
+    drillToPerfMember,
+    /group\.overloads\.length > 1|selectedOverloadIndex = null/);
+  assert.doesNotMatch(
+    drillToPerfMember,
     /memberSection = "facts"|loadSelectedMemberFacts\(\)/);
   assert.doesNotMatch(
     appSource,
@@ -2013,7 +2020,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*await loadSelectionData\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
-    /async function pickSpotlightMember[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadSelectedMemberDocumentation\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /async function pickSpotlightMember[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadSelectedMemberOverview\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
     /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);

@@ -1256,7 +1256,8 @@ internal static class CSharpDeclarationWriter
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
                 && member.Kind == "method";
-            modifiers.Add(member.Accessibility ?? "public");
+            modifiers.Add(
+                member.DeclaredAccessibility ?? member.Accessibility ?? "public");
             if (member.IsConst)
                 modifiers.Add("const");
             else if (member.IsStatic && !omitInterfaceModifiers)

@@ -215,6 +215,47 @@ public static partial class ApiSurfaceExtractor
     }
 
     /// <summary>
+    /// The narrower of two accessibilities in the ECMA-335 order: the access
+    /// that only consumers admitted by both have.
+    /// </summary>
+    static MethodAttributes NarrowerAccess(
+        MethodAttributes left,
+        MethodAttributes right)
+    {
+        if (left == right || right == MethodAttributes.Public)
+            return left;
+        if (left == MethodAttributes.Public)
+            return right;
+        if (left == MethodAttributes.Private
+            || right == MethodAttributes.Private)
+        {
+            return MethodAttributes.Private;
+        }
+        if (left == MethodAttributes.FamORAssem)
+            return right;
+        if (right == MethodAttributes.FamORAssem)
+            return left;
+        // Family and Assembly, or either with FamANDAssem.
+        return MethodAttributes.FamANDAssem;
+    }
+
+    /// <summary>
+    /// The access an <c>api.accessibility</c> spelling names; no spelling is
+    /// public.
+    /// </summary>
+    static MethodAttributes AccessOf(string? accessibility) => accessibility switch
+    {
+        null or "" or "public" => MethodAttributes.Public,
+        "private" => MethodAttributes.Private,
+        "private protected" => MethodAttributes.FamANDAssem,
+        "internal" => MethodAttributes.Assembly,
+        "protected" => MethodAttributes.Family,
+        "protected internal" => MethodAttributes.FamORAssem,
+        _ => throw new InvalidOperationException(
+            $"Unknown accessibility '{accessibility}'."),
+    };
+
+    /// <summary>
     /// A C# property or event accessor is represented by its property or event
     /// row. An explicit implementation's accessors compose into its property or
     /// event record too, which takes their effective access.
