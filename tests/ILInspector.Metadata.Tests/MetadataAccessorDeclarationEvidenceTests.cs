@@ -1008,6 +1008,61 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
     }
 
     [Theory]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x01 })]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x10, 0x01 })]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x45, 0x08 })]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x1D, 0x16 })]
+    public void Mdp007_EventFireRejectsMalformedParameterGrammar(
+        byte[] signature)
+    {
+        using var fixture = new Fixture(
+            BuildEventRootShapeImage(
+                fireSignatureBytes: signature));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Event));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.ConsistencyValidation,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.SignatureCorrespondence,
+            rejected.Failure.Mechanism);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x08 })]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x10, 0x08 })]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x16 })]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x1D, 0x08 })]
+    [InlineData(new byte[] { 0x20, 0x01, 0x01, 0x0F, 0x01 })]
+    public void Mdp007_EventFirePreservesLegalParameterGrammar(
+        byte[] signature)
+    {
+        using var fixture = new Fixture(
+            BuildEventRootShapeImage(
+                fireSignatureBytes: signature));
+
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Event));
+
+        Assert.Contains(
+            posted.Evidence.Accessors,
+            accessor =>
+                accessor.Role
+                == MetadataAccessorSemanticsRole.Fire);
+    }
+
+    [Theory]
     [InlineData(MetadataAccessorDeclarationKind.Property)]
     [InlineData(MetadataAccessorDeclarationKind.Event)]
     public void Mdp004_ZeroAccessorAggregateIsComplete(
@@ -1612,7 +1667,8 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
     static byte[] BuildEventRootShapeImage(
         bool mismatchedAddParameter = false,
         bool includeFireWithInvocationParameter = false,
-        string rootName = "Value")
+        string rootName = "Value",
+        byte[]? fireSignatureBytes = null)
     {
         var metadata = CreateMetadata();
         AssemblyReferenceHandle coreLibrary =
@@ -1666,7 +1722,15 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                         eventType,
                         isValueType: false));
         MethodDefinitionHandle fire = default;
-        if (includeFireWithInvocationParameter)
+        if (fireSignatureBytes is not null)
+        {
+            fire = AddRawMethod(
+                metadata,
+                "raise_Value",
+                AccessorAttributes,
+                fireSignatureBytes);
+        }
+        else if (includeFireWithInvocationParameter)
         {
             fire = AddMethod(
                 metadata,

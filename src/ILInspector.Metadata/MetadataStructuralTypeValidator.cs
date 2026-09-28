@@ -73,6 +73,64 @@ internal static class MetadataStructuralTypeValidator
             methodParameterCount,
             subject);
 
+    internal static string? ValidateAccessorMethodSignature(
+        MethodSignature<TypeNode> signature,
+        int typeParameterCount,
+        string subject)
+    {
+        SignatureHeader header = signature.Header;
+        if ((header.RawValue & 0x80) != 0
+            || header.Kind != SignatureKind.Method
+            || header.HasExplicitThis
+            || header.IsGeneric
+            || header.CallingConvention
+                != SignatureCallingConvention.Default
+            || signature.GenericParameterCount != 0
+            || signature.RequiredParameterCount
+                != signature.ParameterTypes.Length)
+        {
+            return $"{subject} does not carry a complete ordinary method signature.";
+        }
+
+        string? failure = ValidateSignatureType(
+            signature.ReturnType,
+            allowByReference: true,
+            allowVoid: true,
+            allowTypedReference: true,
+            $"{subject} return type");
+        if (failure is not null)
+            return failure;
+
+        failure = Validate(
+            signature.ReturnType,
+            typeParameterCount,
+            methodParameterCount: 0,
+            $"{subject} return type");
+        if (failure is not null)
+            return failure;
+
+        foreach (TypeNode parameter in signature.ParameterTypes)
+        {
+            failure = ValidateSignatureType(
+                parameter,
+                allowByReference: true,
+                allowVoid: false,
+                allowTypedReference: true,
+                $"{subject} parameter");
+            if (failure is not null)
+                return failure;
+
+            failure = Validate(
+                parameter,
+                typeParameterCount,
+                methodParameterCount: 0,
+                $"{subject} parameter");
+            if (failure is not null)
+                return failure;
+        }
+        return null;
+    }
+
     internal static string? Validate(
         TypeNode node,
         int typeParameterCount,
