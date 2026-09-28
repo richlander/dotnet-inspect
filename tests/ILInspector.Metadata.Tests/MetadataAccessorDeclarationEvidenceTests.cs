@@ -726,6 +726,85 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                             accessor.Method.Signature.ParameterTypes)));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Mdp007_EventRootTypeNameBudgetIsTyped(
+        bool wrapInTypeSpec)
+    {
+        using var fixture = new Fixture(
+            BuildEventNamedRootImage(
+                new string('N', 64 * 1024),
+                wrapInTypeSpec: wrapInTypeSpec));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Event));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.BudgetExceeded,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.RootDeclaration,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.RelationshipTraversal,
+            rejected.Failure.Mechanism);
+    }
+
+    [Fact]
+    public void Mdp007_EventRootResolutionScopeBudgetIsTyped()
+    {
+        using var fixture = new Fixture(
+            BuildEventNamedRootImage(
+                "EventHandler",
+                resolutionScopeDepth:
+                    MetadataSafetyPolicy.MaxRelationshipNodes));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Event));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.BudgetExceeded,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.RootDeclaration,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.RelationshipTraversal,
+            rejected.Failure.Mechanism);
+    }
+
+    [Fact]
+    public void Mdp007_EventRootResolutionScopeCycleRemainsMalformed()
+    {
+        using var fixture = new Fixture(
+            BuildEventNamedRootImage(
+                "EventHandler",
+                cyclicResolutionScope: true));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Event));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.RootDeclaration,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.RelationshipTraversal,
+            rejected.Failure.Mechanism);
+    }
+
     [Fact]
     public void Mdp007_EventFirePreservesInvocationSignature()
     {
@@ -1487,6 +1566,66 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                 MethodSemanticsAttributes.Remover,
                 remove);
         }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildEventNamedRootImage(
+        string typeName,
+        int resolutionScopeDepth = 0,
+        bool wrapInTypeSpec = false,
+        bool cyclicResolutionScope = false)
+    {
+        var metadata = CreateMetadata();
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("mscorlib"),
+                new Version(4, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        EntityHandle resolutionScope = cyclicResolutionScope
+            ? MetadataTokens.TypeReferenceHandle(1)
+            : coreLibrary;
+        for (int i = 0; i < resolutionScopeDepth; i++)
+        {
+            resolutionScope = metadata.AddTypeReference(
+                resolutionScope,
+                metadata.GetOrAddString("Scopes"),
+                metadata.GetOrAddString($"Scope{i}"));
+        }
+        TypeReferenceHandle eventTypeDefinition =
+            metadata.AddTypeReference(
+                resolutionScope,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString(typeName));
+        EntityHandle eventType = eventTypeDefinition;
+        if (wrapInTypeSpec)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .TypeSpecificationSignature()
+                .Type(
+                    eventTypeDefinition,
+                    isValueType: false);
+            eventType = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        }
+        AddModuleType(
+            metadata,
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        EventDefinitionHandle @event = metadata.AddEvent(
+            EventAttributes.SpecialName,
+            metadata.GetOrAddString("Value"),
+            eventType);
+        metadata.AddEventMap(owner, @event);
         return Serialize(metadata);
     }
 

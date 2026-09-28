@@ -1137,7 +1137,8 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 _context.Charge(
                     MetadataOperationDimension.RelationshipEdges),
             relationshipRejected: rejection =>
-                throw new BadImageFormatException(rejection.Detail),
+                throw new GenericContextRelationshipRejectedException(
+                    rejection),
             beforeRelationshipFollow: _ =>
                 _context.Charge(
                     MetadataOperationDimension.RelationshipEdges),
