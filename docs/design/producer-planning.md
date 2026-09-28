@@ -331,12 +331,22 @@ interrupted, parallelized, or fused.
 
 **Rule.** A producer that applies to only some units says so in its
 declaration: a type scope for whole types, and a scope guard for units a
-classifier has classified. A scope guard is a same-unit dependency that names
-the unit classes it accepts, possibly all of them; naming them is what makes
-the edge a guard, and a guard always applies its classifier's type scope. A
-type the guard excludes is outside the dependent's scope before the
-dependent's own type scope is asked. Work that several producers need, such as a
-classification, is its own producer that the others depend on; it is never
+classifier has classified. A scope guard names the unit classes it accepts,
+possibly all of them; naming them is what makes it a guard, and a guard always
+applies its classifier's type scope. The classifier is one of two kinds:
+
+- **The source gate.** The guard names classes from the source's
+  [method-row gate](#the-source-gate-owns-safety). It is declared on the
+  producer and adds no dependency, because the gate is part of the source.
+- **A classifying producer.** The guard is a same-unit, same-pass dependency
+  on a producer that classifies units, for a classification specific to a
+  domain.
+
+Both kinds have the same meaning. A type the guard excludes is outside the
+dependent's scope before the dependent's own type scope is asked. A unit the
+guard excludes is not attempted and is not failed, and the receipt counts
+only attempted units. Work that several producers need, such as a
+classification, is done once, by the gate or by its own producer; it is never
 repeated inside each visit. A scope guard is not a failure guard: a unit
 outside scope is not attempted, and nothing about it is reported as failed.
 The accepted classes are part of the producer's meaning. A wrong set silently
@@ -397,17 +407,20 @@ throws `ProducerContractException`, exactly as reading an undeclared layer
 does. That runtime contract is the enforcement gate. From the declarations,
 the planner:
 
-- arms the gate's budget and abort only when some requested producer declares
-  `IdentityText`, so a plan of Count, Exists, and classification is budget-free
-  as a property of the plan;
+- arms the gate's identity budget only when some requested producer declares
+  `IdentityText`, so a plan of Count, Exists, and classification spends no
+  identity budget as a property of the plan. Critical-abort handling is always
+  armed. A Tier 1 per-row cap, or a bound specific to a domain, can abort any
+  plan, including one that declares no `IdentityText`;
 - reads each field shared by several producers once per row;
 - chooses the kernel; and
 - explains what a plan reads.
 
-The gate's classification is a unit class that scope guards accept, as
+The gate's classification is a unit class that source-gate scope guards
+accept, as
 [Scope is declared on the edge](#scope-is-declared-on-the-edge-not-tested-inside-the-visit)
-describes. The gate is not a dependency, so a producer asked alone still has
-no dependencies and still qualifies for a closed-query kernel. That kernel is
+describes. A source-gate guard is not a dependency, so a producer asked alone
+still has no dependencies and still qualifies for a closed-query kernel. That kernel is
 one loop, specialized to the gate, the predicate, and the closing.
 
 *Lets the lower levels:* share scope, classification, and decoding among every
@@ -686,7 +699,11 @@ property above is **unverified**.
 - **Critical failure aborts:** when a budget is exhausted in a plan with
   several producers, every requested producer is `Aborted` with the same
   `CriticalFailure`, no result is published, and no unit is read after the one
-  that exhausted the budget.
+  that exhausted the budget. The same holds when a Tier 1 per-row cap is
+  exceeded in a plan that declares no `IdentityText`.
+- **Source-gate guards:** a producer guarded by the source gate has no
+  dependency and qualifies for a closed-query kernel. Units the gate excludes
+  are neither attempted nor failed, as with a producer-classifier guard.
 - **Field demand:** reading an undeclared gate field throws
   `ProducerContractException`. A plan with no `IdentityText` declaration never
   charges the identity budget.
