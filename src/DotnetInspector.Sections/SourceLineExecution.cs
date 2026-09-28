@@ -247,6 +247,14 @@ public sealed record SourceLineExecutionObservation(
     int SelectedLines,
     int ProjectedRows);
 
+public sealed record SourceLineExecutionSelection(
+    SourceLineExecutionStrategy Strategy,
+    SourceLineDemand Demand,
+    int DecodedUtf16Length,
+    string? DeliveryProfileIdentity,
+    string? PolicyGeneration,
+    int? ThresholdUtf16);
+
 public sealed class SourceLineExecutionBatch
 {
     internal SourceLineExecutionBatch(
@@ -298,57 +306,39 @@ public sealed class SourceLineExecution : IDisposable
             ?? throw new ArgumentNullException(nameof(document));
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(bounds);
-        if (!Enum.IsDefined(terminal))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(terminal),
-                terminal,
-                "Unsupported Source line terminal.");
-        }
-
-        if (!SourceLineVocabulary.Owns(plan))
-        {
-            throw new ArgumentException(
-                "The forward plan belongs to a different row vocabulary.",
-                nameof(plan));
-        }
-
         _terminal = terminal;
         _plan = plan;
         _bounds = bounds;
-        Demand =
-            terminal is QuerySpaceTerminalRequirement.Count
-                ? SourceLineDemand.ExactCount
-                : plan.MaximumResultRows is not null
-                    ? SourceLineDemand.BoundedRows
-                    : SourceLineDemand.UnboundedRows;
-        DecodedUtf16Length = document.Utf16Length;
-        DeliveryProfileIdentity = deliveryProfile?.Identity;
-        PolicyGeneration = deliveryProfile?.PolicyGeneration;
-        SelectedThresholdUtf16 =
-            deliveryProfile?.Threshold(Demand);
-        Strategy =
-            SelectedThresholdUtf16 is int threshold
-            && DecodedUtf16Length >= threshold
-                ? SourceLineExecutionStrategy.ColdPull
-                : SourceLineExecutionStrategy.Complete;
+        Selection =
+            Select(
+                document.Utf16Length,
+                terminal,
+                plan,
+                deliveryProfile);
         _cursor = document.StartCursor;
 
         if (Strategy is SourceLineExecutionStrategy.Complete)
             PrepareComplete(cancellationToken);
     }
 
-    public SourceLineExecutionStrategy Strategy { get; }
+    public SourceLineExecutionSelection Selection { get; }
 
-    public SourceLineDemand Demand { get; }
+    public SourceLineExecutionStrategy Strategy =>
+        Selection.Strategy;
 
-    public int DecodedUtf16Length { get; }
+    public SourceLineDemand Demand => Selection.Demand;
 
-    public string? DeliveryProfileIdentity { get; }
+    public int DecodedUtf16Length =>
+        Selection.DecodedUtf16Length;
 
-    public string? PolicyGeneration { get; }
+    public string? DeliveryProfileIdentity =>
+        Selection.DeliveryProfileIdentity;
 
-    public int? SelectedThresholdUtf16 { get; }
+    public string? PolicyGeneration =>
+        Selection.PolicyGeneration;
+
+    public int? SelectedThresholdUtf16 =>
+        Selection.ThresholdUtf16;
 
     public SourceLineExecutionObservation Observation =>
         new(
@@ -373,6 +363,51 @@ public sealed class SourceLineExecution : IDisposable
             bounds ?? SourceLineExecutionBounds.Production,
             deliveryProfile,
             cancellationToken);
+
+    public static SourceLineExecutionSelection Select(
+        int decodedUtf16Length,
+        QuerySpaceTerminalRequirement terminal,
+        ForwardRowQueryPlan<SourceLineCandidate> plan,
+        SourceLineDeliveryProfile? deliveryProfile = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            decodedUtf16Length);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!Enum.IsDefined(terminal))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(terminal),
+                terminal,
+                "Unsupported Source line terminal.");
+        }
+
+        if (!SourceLineVocabulary.Owns(plan))
+        {
+            throw new ArgumentException(
+                "The forward plan belongs to a different row vocabulary.",
+                nameof(plan));
+        }
+
+        SourceLineDemand demand =
+            terminal is QuerySpaceTerminalRequirement.Count
+                ? SourceLineDemand.ExactCount
+                : plan.MaximumResultRows is not null
+                    ? SourceLineDemand.BoundedRows
+                    : SourceLineDemand.UnboundedRows;
+        int? threshold = deliveryProfile?.Threshold(demand);
+        SourceLineExecutionStrategy strategy =
+            threshold is int value
+            && decodedUtf16Length >= value
+                ? SourceLineExecutionStrategy.ColdPull
+                : SourceLineExecutionStrategy.Complete;
+        return new(
+            strategy,
+            demand,
+            decodedUtf16Length,
+            deliveryProfile?.Identity,
+            deliveryProfile?.PolicyGeneration,
+            threshold);
+    }
 
     public SourceLineExecutionBatch Pull(
         CancellationToken cancellationToken = default)

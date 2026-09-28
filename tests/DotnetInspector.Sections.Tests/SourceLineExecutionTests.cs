@@ -154,6 +154,12 @@ public sealed class SourceLineExecutionTests
                 deliveryProfile: null,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
+        SourceLineExecutionSelection pureSelection =
+            SourceLineExecution.Select(
+                decodedUtf16Length: 3,
+                QuerySpaceTerminalRequirement.Count,
+                SourceLineVocabulary.EmptyPlan,
+                profile);
 
         Assert.Equal(
             SourceLineExecutionStrategy.ColdPull,
@@ -162,6 +168,7 @@ public sealed class SourceLineExecutionTests
         Assert.Equal("test/selector", count.DeliveryProfileIdentity);
         Assert.Equal("test-1", count.PolicyGeneration);
         Assert.Equal(3, count.SelectedThresholdUtf16);
+        Assert.Equal(count.Selection, pureSelection);
         Assert.Equal(
             SourceLineExecutionStrategy.Complete,
             bounded.Strategy);
