@@ -587,7 +587,7 @@ public sealed class PackagePlatformHouseAdapterTests
             Target(),
             new PlatformPopulationDemand.Library(
                 new PlatformLibraryDemand.PlatformLibrary(
-                    PlatformLibraryIdentityAuthority.Create("test").Issue("opaque"))),
+                    PlatformLibraryDemandIdentityAuthority.Create("test").Issue("opaque"))),
             PlatformViewDemand.Reference,
             TestContext.Current.CancellationToken);
         await AssertRejectedWithoutPayloadAsync(secondAdapter, opaque, opaqueRequest);

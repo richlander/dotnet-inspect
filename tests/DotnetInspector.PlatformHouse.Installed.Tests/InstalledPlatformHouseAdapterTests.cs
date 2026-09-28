@@ -210,13 +210,13 @@ public sealed class InstalledPlatformHouseAdapterTests
     }
 
     [Fact]
-    public async Task RealizeReference_RejectsOpaquePlatformLibraryIdentity()
+    public async Task RealizeReference_RejectsOpaquePlatformLibraryDemandIdentity()
     {
         using var hive = new TestHive();
         hive.CreateReferencePack();
         InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
-        PlatformLibraryIdentity identity =
-            PlatformLibraryIdentityAuthority.Create("test").Issue("library");
+        PlatformLibraryDemandIdentity identity =
+            PlatformLibraryDemandIdentityAuthority.Create("test").Issue("library");
         PlatformHouseRequest request = ExactRequest(
             adapter,
             Target(),

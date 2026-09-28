@@ -71,9 +71,10 @@ public sealed class PackagePlatformRealPackageTests
         Assert.Equal(
             reference.Value.Libraries.Select(
                 static library => library.Identity),
-            completed.Population.Value.Libraries.Select(
-                static library =>
-                    library.ApiAssembly.AssemblyIdentity!.Identity),
+            completed.Population.Value.Members.Select(
+                static member =>
+                    member.PlatformLibrary.Library.ApiAssembly
+                        .AssemblyIdentity!.Identity),
             AssemblyReferenceIdentity.EquivalentComparer);
         Assert.Equal(
             reference.Value.Libraries.Length,
@@ -85,15 +86,19 @@ public sealed class PackagePlatformRealPackageTests
                         .SourceSettlements)
                 .Contribution);
         Assert.All(
-            completed.Population.Value.Libraries,
-            static library =>
-                Assert.Null(library.ImplementationAssembly));
+            completed.Population.Value.Members,
+            static member =>
+                Assert.Null(
+                    member.PlatformLibrary.Library
+                        .ImplementationAssembly));
 
-        LibraryReference json = Assert.Single(
-            completed.Population.Value.Libraries,
-            static library =>
-                library.ApiAssembly.AssemblyIdentity!.Identity.Name
+        PlatformPopulationMember jsonMember = Assert.Single(
+            completed.Population.Value.Members,
+            static member =>
+                member.PlatformLibrary.Library.ApiAssembly
+                    .AssemblyIdentity!.Identity.Name
                 == "System.Text.Json");
+        LibraryReference json = jsonMember.PlatformLibrary.Library;
         var provenance =
             Assert.IsType<PackageReferenceArtifactProvenance>(
                 Assert.IsType<PlatformLibraryArtifactProvenance>(
@@ -115,7 +120,8 @@ public sealed class PackagePlatformRealPackageTests
             completed.Artifacts.DisposeAsync().AsTask();
         Assert.False(artifactRetirement.IsCompleted);
         int jsonIndex =
-            completed.Population.Value.Libraries.ToList().IndexOf(json);
+            completed.Population.Value.Members.ToList()
+                .IndexOf(jsonMember);
         using LibraryOperationLease operation = Assert.IsType<
                 LibraryOperationLeaseIssueOutcome.Issued>(
                     completed.Population.Owners[jsonIndex]
@@ -199,9 +205,10 @@ public sealed class PackagePlatformRealPackageTests
         Assert.Equal(
             implementation.Value.Libraries.Select(
                 static library => library.Identity),
-            completed.Population.Value.Libraries.Select(
-                static library =>
-                    library.ApiAssembly.AssemblyIdentity!.Identity),
+            completed.Population.Value.Members.Select(
+                static member =>
+                    member.PlatformLibrary.Library.ApiAssembly
+                        .AssemblyIdentity!.Identity),
             AssemblyReferenceIdentity.EquivalentComparer);
         Assert.Equal(
             implementation.Value.Libraries.Length,
@@ -213,20 +220,24 @@ public sealed class PackagePlatformRealPackageTests
                         .SourceSettlements)
                 .Contribution);
         Assert.All(
-            completed.Population.Value.Libraries,
-            static library =>
+            completed.Population.Value.Members,
+            static member =>
             {
+                LibraryReference library =
+                    member.PlatformLibrary.Library;
                 Assert.Same(
                     library.ApiAssembly,
                     library.ImplementationAssembly);
                 Assert.Equal(2, library.ApiAssembly.Roles.Count);
             });
 
-        LibraryReference json = Assert.Single(
-            completed.Population.Value.Libraries,
-            static library =>
-                library.ApiAssembly.AssemblyIdentity!.Identity.Name
+        PlatformPopulationMember jsonMember = Assert.Single(
+            completed.Population.Value.Members,
+            static member =>
+                member.PlatformLibrary.Library.ApiAssembly
+                    .AssemblyIdentity!.Identity.Name
                 == "System.Text.Json");
+        LibraryReference json = jsonMember.PlatformLibrary.Library;
         PackageImplementationLibrary sourceJson = Assert.Single(
             implementation.Value.Libraries,
             static library =>
@@ -254,7 +265,8 @@ public sealed class PackagePlatformRealPackageTests
             completed.Artifacts.DisposeAsync().AsTask();
         Assert.False(artifactRetirement.IsCompleted);
         int jsonIndex =
-            completed.Population.Value.Libraries.ToList().IndexOf(json);
+            completed.Population.Value.Members.ToList()
+                .IndexOf(jsonMember);
         using LibraryOperationLease operation = Assert.IsType<
                 LibraryOperationLeaseIssueOutcome.Issued>(
                     completed.Population.Owners[jsonIndex]
@@ -367,9 +379,10 @@ public sealed class PackagePlatformRealPackageTests
         ];
         Assert.Equal(
             expected,
-            completed.Population.Value.Libraries.Select(
-                    static library =>
-                        library.ApiAssembly.AssemblyIdentity!.Identity)
+            completed.Population.Value.Members.Select(
+                    static member =>
+                        member.PlatformLibrary.Library.ApiAssembly
+                            .AssemblyIdentity!.Identity)
                 .ToArray(),
             AssemblyReferenceIdentity.EquivalentComparer);
         Assert.Equal(expected.Length, completed.Population.Owners.Count);
@@ -378,11 +391,13 @@ public sealed class PackagePlatformRealPackageTests
             completed.Population.Receipt.HouseReceipt.SourceSettlements
                 .Select(static settlement => settlement.Contribution));
 
-        LibraryReference json = Assert.Single(
-            completed.Population.Value.Libraries,
-            static library =>
-                library.ApiAssembly.AssemblyIdentity!.Identity.Name
+        PlatformPopulationMember jsonMember = Assert.Single(
+            completed.Population.Value.Members,
+            static member =>
+                member.PlatformLibrary.Library.ApiAssembly
+                    .AssemblyIdentity!.Identity.Name
                 == "System.Text.Json");
+        LibraryReference json = jsonMember.PlatformLibrary.Library;
         Assert.NotNull(json.ImplementationAssembly);
         Assert.Equal(
             "ref/net11.0/System.Text.Json.dll",
@@ -410,9 +425,8 @@ public sealed class PackagePlatformRealPackageTests
         using LibraryOperationLease operation = Assert.IsType<
                 LibraryOperationLeaseIssueOutcome.Issued>(
                     completed.Population.Owners[
-                            completed.Population.Value.Libraries
-                                .ToList()
-                                .IndexOf(json)]
+                            completed.Population.Value.Members.ToList()
+                                .IndexOf(jsonMember)]
                         .IssueOperationLease(json))
             .Lease;
         Assert.Equal(
@@ -509,7 +523,7 @@ public sealed class PackagePlatformRealPackageTests
                         reference,
                         implementation,
                         consumed));
-        LibraryReference library = completed.Library.Value.Reference;
+        LibraryReference library = completed.Library.Value.Library;
         Assert.Equal(
             "ref/net11.0/System.Text.Json.dll",
             Assert.IsType<PackageReferenceArtifactProvenance>(
@@ -724,7 +738,7 @@ public sealed class PackagePlatformRealPackageTests
         PlatformPopulationMember runtime = Assert.Single(
             completed.Population.Value.Members,
             member =>
-                member.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                member.PlatformLibrary.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
                     == "System.Text.Json");
         Assert.Equal(
             PlatformPopulationMemberRole.BindingSupport,
@@ -735,7 +749,7 @@ public sealed class PackagePlatformRealPackageTests
         PlatformPopulationMember aspNet = Assert.Single(
             completed.Population.Value.Members,
             member =>
-                member.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                member.PlatformLibrary.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
                     == "Microsoft.AspNetCore.Hosting");
         Assert.Equal(PlatformPopulationMemberRole.Focus, aspNet.Role);
         Assert.Equal(PlatformFamily.AspNetCore, aspNet.Target.Family);

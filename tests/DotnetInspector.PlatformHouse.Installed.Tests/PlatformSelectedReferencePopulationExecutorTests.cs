@@ -61,9 +61,10 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             completed.Population.Owners.Count);
         Assert.Equal(
             context.Contents.Select(static content => content.Identity),
-            completed.Population.Value.Libraries.Select(
-                static library =>
-                    library.ApiAssembly.AssemblyIdentity!.Identity),
+            completed.Population.Value.Members.Select(
+                static member =>
+                    member.PlatformLibrary.Library.ApiAssembly
+                        .AssemblyIdentity!.Identity),
             AssemblyReferenceIdentity.EquivalentComparer);
         Assert.All(
             completed.Population.Value.Members,
@@ -575,10 +576,10 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             terminal.TerminalRealization.Outcome.Receipt;
         string detail = receipt.Termination
             is PlatformHouseTermination.Rejected
-            {
-                Rejection:
+        {
+            Rejection:
                     PlatformHouseRejection.OwnerEvidence owner,
-            }
+        }
                 ? $"{owner.Kind}:{owner.Evidence.Name}"
                 : receipt.Termination?.GetType().Name ?? "none";
         return $"Unexpected {receipt.SettlementKind} terminal: {detail}";
