@@ -99,10 +99,10 @@ public sealed class ProducerPlanningTests
         MethodDefinitionExecution execution = Run(
             image,
             UnsafeEvidencePresence.Description);
-        ProducerResult<bool> result = execution.ResultOf(
+        ProducerResult<int> result = execution.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Stopped, result.Outcome);
-        Assert.True(result.Value);
+        Assert.Equal(1, result.Value);
         ProducerParticipation participation = execution.Receipt.For(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(2, participation.UnitsAttempted);
@@ -119,10 +119,10 @@ public sealed class ProducerPlanningTests
             Plan(new ProducerRequest(
                 UnsafeEvidencePresenceProducer.Instance,
                 ProducerTerminal.All)));
-        ProducerResult<bool> allResult = all.ResultOf(
+        ProducerResult<int> allResult = all.ResultOf(
             UnsafeEvidencePresenceProducer.Instance);
         Assert.Equal(ProducerOutcome.Complete, allResult.Outcome);
-        Assert.True(allResult.Value);
+        Assert.Equal(1, allResult.Value);
         Assert.Equal(
             3,
             all.Receipt.For(UnsafeEvidencePresenceProducer.Instance)
@@ -162,7 +162,7 @@ public sealed class ProducerPlanningTests
                     "Fixture.dll",
                     failsFirst));
         Assert.Contains("N.Sample::Broken", exception.Message, StringComparison.Ordinal);
-        ProducerResult<bool> result = Run(
+        ProducerResult<int> result = Run(
                 failsFirst,
                 UnsafeEvidencePresence.Description)
             .ResultOf(UnsafeEvidencePresenceProducer.Instance);
@@ -458,6 +458,74 @@ public sealed class ProducerPlanningTests
         Assert.Equal(ProducerOutcome.PrerequisiteFailed, blocked.Outcome);
         Assert.Equal("FailsInCompletion", blocked.FailedPrerequisite);
         Assert.Equal(3, execution.Receipt.Producers.Length);
+    }
+
+    [Theory]
+    [InlineData(ProducerTerminal.All)]
+    [InlineData(ProducerTerminal.Exists)]
+    public void ClosedQueryKernel_MatchesTheInterpretedExecutor(ProducerTerminal terminal)
+    {
+        ImmutableArray<byte>[] images =
+        [
+            BuildImage(Method.Safe("A"), Method.Safe("B"), Method.Safe("C")),
+            BuildImage(Method.Safe("A"), Method.Safe("B", readableBody: false), Method.Safe("C")),
+            BuildImage(Method.Unsafe("A"), Method.Safe("B")),
+            BuildImage(),
+        ];
+
+        foreach (ImmutableArray<byte> image in images)
+        {
+            foreach (string scopedType in (string[])["Sample", "Other"])
+            {
+                var kernel = new BodySizeProducer("Kernel", scopedType, allowsKernel: true);
+                var interpreted = new BodySizeProducer("Interpreted", scopedType, allowsKernel: false);
+
+                MethodDefinitionExecution k = Run(image, Plan(new ProducerRequest(kernel, terminal)));
+                MethodDefinitionExecution i = Run(image, Plan(new ProducerRequest(interpreted, terminal)));
+
+                ProducerResult<int> kr = k.ResultOf(kernel);
+                ProducerResult<int> ir = i.ResultOf(interpreted);
+                Assert.Equal(ir.Outcome, kr.Outcome);
+                Assert.Equal(ir.Value, kr.Value);
+                Assert.Equal(ir.Failure?.Unit, kr.Failure?.Unit);
+                Assert.Equal(i.Receipt.UnitsVisited, k.Receipt.UnitsVisited);
+                ProducerParticipation kp = k.Receipt.For(kernel);
+                ProducerParticipation ip = i.Receipt.For(interpreted);
+                Assert.Equal(
+                    (ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
+                    (kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
+                Assert.Equal(
+                    ip.Layers.Select(layer => (layer.Layer, layer.Acquired)),
+                    kp.Layers.Select(layer => (layer.Layer, layer.Acquired)));
+            }
+        }
+    }
+
+    [Fact]
+    public void ClosedQueryKernel_DefersToTheInterpretedExecutorWhenALaterPassReadsItsFacts()
+    {
+        // A predicate alone in its pass would run as a kernel, but a reader in
+        // a later pass needs its per-unit facts, which a kernel does not keep.
+        ImmutableArray<byte> image = BuildImage(Method.Unsafe("A"), Method.Safe("B"), Method.Safe("C"));
+        var kernel = new BodySizeProducer("Kernel", "Sample", allowsKernel: true);
+        var interpreted = new BodySizeProducer("Interpreted", "Sample", allowsKernel: false);
+        var kernelReader = new PredicateFactReader("KernelReader", kernel);
+        var interpretedReader = new PredicateFactReader("InterpretedReader", interpreted);
+
+        MethodDefinitionExecution k = Run(
+            image,
+            Plan(new ProducerRequest(kernel), new ProducerRequest(kernelReader)));
+        MethodDefinitionExecution i = Run(
+            image,
+            Plan(new ProducerRequest(interpreted), new ProducerRequest(interpretedReader)));
+
+        Assert.Equal(ProducerOutcome.Complete, k.ResultOf(kernel).Outcome);
+        Assert.Equal(i.ResultOf(interpreted).Value, k.ResultOf(kernel).Value);
+        ProducerResult<string> kr = k.ResultOf(kernelReader);
+        ProducerResult<string> ir = i.ResultOf(interpretedReader);
+        Assert.Equal(ProducerOutcome.Complete, kr.Outcome);
+        Assert.Equal(ir.Value, kr.Value);
+        Assert.Equal(i.Receipt.UnitsVisited, k.Receipt.UnitsVisited);
     }
 
     [Fact]
@@ -828,6 +896,61 @@ public sealed class ProducerPlanningTests
 
         internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
             reader.StringComparer.Equals(type.Name, scopedType);
+    }
+
+    /// <summary>A body-reading predicate: the unit's IL body is non-empty.</summary>
+    struct BodyReadPredicate : IMethodDefinitionPredicate
+    {
+        public bool Test(scoped MethodDefinitionView view) => view.GetBody().Size > 0;
+    }
+
+    /// <summary>An open query over <see cref="BodyReadPredicate"/>, with a type scope and a kernel toggle.</summary>
+    sealed class BodySizeProducer(string identity, string scopedType, bool allowsKernel)
+        : MethodDefinitionPredicateProducer<BodyReadPredicate>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Body)
+    {
+        internal override bool AllowsKernel => allowsKernel;
+
+        internal override bool HasTypeScope => true;
+
+        internal override bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            reader.StringComparer.Equals(type.Name, scopedType)
+            || reader.StringComparer.Equals(type.Name, "<Module>");
+    }
+
+    /// <summary>
+    /// Reads a predicate's per-unit facts in a pass after the predicate completes.
+    /// </summary>
+    sealed class PredicateFactReader(string identity, BodySizeProducer predicate)
+        : MethodDefinitionProducer<bool, List<bool>, string>(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Declaration,
+            () =>
+            [
+                new ProducerDependency(predicate, ProducerDependencyKind.VisitNeedsVisit),
+                new ProducerDependency(predicate, ProducerDependencyKind.VisitNeedsResult),
+            ])
+    {
+        internal override bool Visit(scoped MethodDefinitionView view) =>
+            view.FactOf(predicate);
+
+        internal override List<bool> Seed() => [];
+
+        internal override List<bool> Accumulate(List<bool> accumulator, bool fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
+        internal override string Complete(
+            List<bool> accumulator,
+            MethodDefinitionCompletionView completion) =>
+            string.Join(",", accumulator);
     }
 
     /// <summary>Classifies units by parity, but its type predicate always fails.</summary>
