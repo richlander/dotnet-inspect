@@ -105,7 +105,9 @@ public class PropertyAccessorSignatureConsistencyTests
         }
         if (mismatch == AccessorMismatch.IncomparableAccessibility)
         {
-            Assert.Equal("protected", property.Accessibility);
+            // An internal getter and a protected setter join to protected
+            // internal (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+            Assert.Equal("protected internal", property.Accessibility);
             Assert.Equal(
                 "internal",
                 property.SignatureModel.Accessors

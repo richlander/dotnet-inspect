@@ -12,9 +12,10 @@ source-local position, and line-limit failure contracts. The existing Source
 view projection is the first adopter: it now uses this substrate for its
 complete line inventory instead of maintaining a second line parser.
 
-Demand-aware Source execution, host-visible receipts, CLI draining, Browser
-delivery, and package README adoption remain unverified until a measured
-full-stack execution model is selected under
+The Source owner now selects a House-only adaptive Complete/Cold Pull model in
+[Source view cardinality](source-document-cardinality.md). Demand-aware Source
+execution, host-visible receipts, CLI draining, Browser delivery, and package
+README adoption remain unverified under
 [#8766](https://github.com/richlander/dotnet-inspect/issues/8766).
 
 ## Owner and exact claim
@@ -217,12 +218,12 @@ complete `SourceView.Lines` value. This preserves the current public Source
 shape while removing its duplicate line grammar. It does not yet claim
 progressive Source execution.
 
-The next production step is the full-stack performance investigation in
-[#8766](https://github.com/richlander/dotnet-inspect/issues/8766). It must
-select an execution model that carries bounded demand through Source
-projection and Browser transport without penalizing complete output. The
-tracker in #8319 owns later Source and package adoption. Exact-byte CLI
-destination streaming remains separate under #8303.
+The next production step under
+[#8766](https://github.com/richlander/dotnet-inspect/issues/8766) implements
+the Source-owned adaptive Complete/Cold Pull model and validates it through
+Source projection and Browser transport without penalizing small complete
+output. The tracker in #8319 owns later Source and package adoption.
+Exact-byte CLI destination streaming remains separate under #8303.
 
 ## Real asset and pathological case
 
