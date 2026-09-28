@@ -158,7 +158,9 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (DirectLibraryInspectionCommand.ShouldExecute(options))
+        if (DirectLibraryInspectionCommand.ShouldExecute(options)
+            && !(source.Selector is SourceSelector.PackageSource
+                && options.AddressRequest is not null))
         {
             return await DirectLibraryInspectionCommand.ExecuteAsync(
                     options,
@@ -173,6 +175,7 @@ public partial class LibraryCommand
         }
         if (source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
+                || options.AddressRequest is null
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
                 || !string.Equals(
@@ -189,7 +192,8 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            preResolvedPackage: null).ConfigureAwait(false);
+            preResolvedPackage: null,
+            cancellationToken).ConfigureAwait(false);
     }
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
@@ -218,13 +222,15 @@ public partial class LibraryCommand
         return await ExecuteBoundAsync(
             options,
             source,
-            resolution).ConfigureAwait(false);
+            resolution,
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     static async Task<int> ExecuteBoundAsync(
         LibraryOptions options,
         LibrarySourceBinding source,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!options.Trace)
         {
@@ -232,7 +238,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace: null,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
@@ -255,7 +262,8 @@ public partial class LibraryCommand
                 options,
                 source,
                 trace,
-                preResolvedPackage).ConfigureAwait(false);
+                preResolvedPackage,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -294,7 +302,8 @@ public partial class LibraryCommand
         LibraryOptions options,
         LibrarySourceBinding source,
         InspectionTrace? trace,
-        PackageExtractionResult? preResolvedPackage)
+        PackageExtractionResult? preResolvedPackage,
+        CancellationToken cancellationToken)
     {
         if (!LibraryNamespaceListingCommand.ValidateOptions(options))
             return 1;
@@ -1224,6 +1233,21 @@ public partial class LibraryCommand
             else if (source.Selector
                 is SourceSelector.PackageSource)
             {
+                if (options.AddressRequest is not null
+                    && options.WorkspacePacket is null)
+                {
+                    return await ExecutePackageAddressAsync(
+                        source.PackageTarget!,
+                        options,
+                        pipeline,
+                        userVerbosity,
+                        discoveryInspection,
+                        fullEffectiveDiscovery,
+                        discoveryExecutionScope,
+                        context,
+                        cancellationToken);
+                }
+
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath,

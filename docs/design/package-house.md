@@ -1255,10 +1255,24 @@ session. An optional PDB omission caused by its content limit, retained-byte
 limit, or unreadable content remains visible in the returned diagnostics.
 Cleanup failure cannot return a successful Address outcome.
 
-This composition does not execute package-source settlement, choose among
-several handoffs, parse host input, render output, expose a Browser facade, or
-retire the legacy package-to-Library continuation. CLI and Browser/Wasm
-adoption remain the fourth slice of
+This composition does not parse host input, render output, expose a Browser
+facade, or retire the legacy package-to-Library continuation.
+
+The CLI is the first production adopter under
+[#8751](https://github.com/richlander/dotnet-inspect/issues/8751).
+Package-backed `library address` validates and plans its Address request before
+acquisition, then asks PackageHouse for one named implementation, selected
+Library handoffs, ranged `SurfaceAndImplementation` access, and the optional
+Portable PDB companion only when source-location evidence is selected. Exact
+configured coordinates and PackageHouse-owned version selection use the same
+desktop composition. A local `.nupkg` is admitted as one immutable exact-only
+source before the same realization request. The CLI consumes the detached
+Address envelope and lowers it through its existing Address section, terminal,
+row-selection, JSON, text, and diagnostic presentation.
+
+Other package-backed Library modes and Workspace-backed Address requests still
+use their existing paths. Browser/Wasm adoption and final removal of the
+legacy package-to-Library Address continuation remain later slices of
 [#8672](https://github.com/richlander/dotnet-inspect/issues/8672).
 
 ## Workspace boundary

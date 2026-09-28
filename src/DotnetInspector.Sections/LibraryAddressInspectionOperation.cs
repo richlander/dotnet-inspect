@@ -234,6 +234,7 @@ public static class LibraryAddressInspectionOperation
                         point.MethodToken,
                         point.ILOffset,
                         point.Capabilities,
+                        point.BrowsableUrls,
                         analysis,
                         cancellationToken);
                 LibraryIlAddressOutcome result = outcome.Succeeded
@@ -377,6 +378,7 @@ public static class LibraryAddressInspectionOperation
                             coordinate.MethodToken,
                             coordinate.ILOffset,
                             population.Capabilities,
+                            population.BrowsableUrls,
                             analysis,
                             cancellationToken);
                     if (outcome.Succeeded)
@@ -703,6 +705,7 @@ public static class LibraryAddressInspectionOperation
         int methodToken,
         int ilOffset,
         ILOffsetProjectionCapabilities capabilities,
+        bool browsableUrls,
         AnalysisPreparation analysis,
         CancellationToken cancellationToken)
     {
@@ -714,7 +717,7 @@ public static class LibraryAddressInspectionOperation
                     methodToken,
                     ilOffset,
                     capabilities,
-                    BrowsableUrls: false,
+                    BrowsableUrls: browsableUrls,
                     Analysis: analysis.Input,
                     AnalysisFailure: analysis.Failure));
         cancellationToken.ThrowIfCancellationRequested();
