@@ -489,8 +489,10 @@ Analysis / Metadata / CallGraph / package / Research evidence
 
 The overall product Graph operation remains tracked by
 [#7624](https://github.com/richlander/dotnet-inspect/issues/7624). Reference
-execution, provider expansion, QuerySpace composition, specialization, and
-terminal execution remain successors under #8669.
+execution, structural views, provider expansion, completion, and terminal
+behavior are owned by [Inspector.Graph execution and derived
+views](inspector-graph-execution.md). QuerySpace composition, specialization,
+and host adoption remain staged successors under #8669.
 
 ## Required evidence
 
@@ -548,7 +550,9 @@ This boundary does not:
 After this boundary locks:
 
 1. implement the structural carrier and complete its product migration;
-2. define the Graph reference interpreter and typed frontier-provider contract;
+2. adopt the
+   [Graph execution and derived-view
+   contract](inspector-graph-execution.md);
 3. adopt QuerySpace-backed frontier expansion with one real relationship
    provider;
 4. specialize one measured terminal only after reference behavior is
