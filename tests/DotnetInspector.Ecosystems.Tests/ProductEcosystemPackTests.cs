@@ -34,6 +34,38 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
+    public void PackageQueryExactMembershipIsTheCoreNotThePackageSet()
+    {
+        foreach (EcosystemPackDescriptor pack in EcosystemPackCatalog.Discover())
+        {
+            PackageQueryEcosystemMembershipDeclaration membership =
+                Assert.Single(
+                    EcosystemPackCatalog.PackageQueryMemberships.Declarations,
+                    candidate => candidate.Id.Value == pack.Id.Value);
+            Assert.Equal(
+                pack.CorePackages.Select(package => package.PackageId),
+                membership.ExactPackages.Select(package => package.PackageId));
+        }
+
+        PackageQueryEcosystemMembershipDeclaration extensions =
+            Assert.Single(
+                EcosystemPackCatalog.PackageQueryMemberships.Declarations,
+                membership =>
+                    membership.Id.Value
+                    == EcosystemPackIds.MicrosoftExtensions.Value);
+        // A former package-set member is still in the population, now through
+        // the Ecosystem's recorded prefix rather than exact membership.
+        Assert.DoesNotContain(
+            extensions.ExactPackages,
+            package => package.PackageId == "Microsoft.Extensions.Http.Resilience");
+        Assert.Contains(
+            extensions.PackagePrefixes,
+            prefix => "Microsoft.Extensions.Http.Resilience".StartsWith(
+                prefix.Prefix,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void RuntimeAndAspNetCoreExposeIndependentPopulationLoaders()
     {
         Assert.Equal(
