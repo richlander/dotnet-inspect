@@ -14,6 +14,7 @@ import {
   SourceFileClassification,
   TypeCategory,
   openTypeScriptSemanticFacts,
+  semanticFactsTestSeam,
   type DeclarationHandle,
   type QueryResult,
   type SourceFileFact,
@@ -198,6 +199,30 @@ function cloneSyntheticState(state: SyntheticState) {
       );
     } finally {
       session.dispose();
+    }
+
+    const unavailableOpened = semanticFactsTestSeam.createHarness({
+      missingApiFactOperation: "getCallSignatures",
+    }).open(join(fixtureRoot, "tsconfig.json"));
+    assert.equal(unavailableOpened.kind, "Opened");
+    if (unavailableOpened.kind === "Opened") {
+      const unavailableSession = unavailableOpened.session;
+      try {
+        const source = sourceByPath(unavailableSession, "state.ts");
+        const text = readFileSync(join(fixtureRoot, "state.ts"), "utf8");
+        const state = declaredTypeAlias(
+          unavailableSession,
+          source,
+          text,
+          "SyntheticState",
+        );
+        assert.throws(
+          () => propertiesRequiringCloneProjection(unavailableSession, state),
+          /"kind":"Unavailable"/,
+        );
+      } finally {
+        unavailableSession.dispose();
+      }
     }
 
     assert.throws(
@@ -411,7 +436,9 @@ function sourceByPath(
 }
 
 function applicable<T>(result: QueryResult<readonly T[]>): readonly T[] {
-  return result.kind === "Resolved" ? result.value : [];
+  if (result.kind === "Resolved") return result.value;
+  if (result.kind === "NotApplicable") return [];
+  throw new Error(`TypeScript semantic query failed: ${JSON.stringify(result)}`);
 }
 
 function resolved<T>(result: QueryResult<T>): T {
