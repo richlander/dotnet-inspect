@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The postcard harness entry point: checks and times the NLinq oracle and the
+    The scorecard harness entry point: checks and times the NLinq oracle and the
     System.Linq reference over the public-methods population of pinned
-    assemblies, and is the shape an enablement copies to add its Before and
-    After columns. Publish NativeAOT to time:
-      dotnet publish tools/QuerySpacePostcard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+    assemblies, and is the shape an enablement copies to add its Old and
+    Planner columns. Publish NativeAOT to time:
+      dotnet publish tools/QuerySpaceScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
     See docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
   -->
 
@@ -17,8 +17,8 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
-    <AssemblyName>queryspace-postcard</AssemblyName>
-    <RootNamespace>QuerySpacePostcard</RootNamespace>
+    <AssemblyName>queryspace-scorecard</AssemblyName>
+    <RootNamespace>QuerySpaceScorecard</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
   </PropertyGroup>

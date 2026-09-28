@@ -4,7 +4,7 @@ namespace DotnetInspector.PerformanceOracles.Tests;
 
 /// <summary>
 /// Pins the fixture's operators to System.Linq on small inputs, and pins the
-/// properties the postcard relies on: Take never pulls past its count, Skip
+/// properties the scorecard relies on: Take never pulls past its count, Skip
 /// discards only when pulled, and a strict window fails rather than truncates.
 /// </summary>
 public sealed class OracleOperatorTests

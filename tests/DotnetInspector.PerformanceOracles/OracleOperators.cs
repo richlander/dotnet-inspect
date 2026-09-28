@@ -5,7 +5,7 @@ namespace DotnetInspector.PerformanceOracles;
 
 /// <summary>
 /// Operators the pinned NLinq lacks, written once in its style so every
-/// postcard closing has an NLinq query.
+/// scorecard closing has an NLinq query.
 /// </summary>
 /// <remarks>
 /// <para>

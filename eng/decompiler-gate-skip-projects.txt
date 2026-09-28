@@ -224,6 +224,6 @@ tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/InspectWebFixtureResolver
 tools/PackageHouse.CliBenchmarks
-tools/QuerySpacePostcard
+tools/QuerySpaceScorecard
 tools/SectionRegistrySpike
 tools/SourceCorpusCensus

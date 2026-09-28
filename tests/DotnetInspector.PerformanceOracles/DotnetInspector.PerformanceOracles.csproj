@@ -3,7 +3,7 @@
   <!--
     The performance-oracle fixture for QuerySpace enablement: operators NLinq
     lacks, written in NLinq style; struct sources over populations; and the
-    postcard harness that checks and times Before, NLinq, and After columns.
+    scorecard harness that checks and times Old, LINQ, NLinq, and Planner columns.
     Test infrastructure only; see
     docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
   -->
