@@ -118,6 +118,53 @@ supported terminal, verified result cardinality, reported median and p95, and
 explained a bounded terminal tradeoff alongside substantial end-to-end
 improvements.
 
+## Performance oracles for QuerySpace enablement
+
+The end-to-end comparison above proves what a user sees. It does not show
+how close the new execution comes to what the query could cost, because
+startup and acquisition often mask the work. QuerySpace enablement therefore
+also reports a kernel-level **postcard** against two fixtures.
+
+**The two fixtures:**
+
+- **Before** is the path being replaced, exactly as it runs today: a legacy
+  loop, or rows built and then filtered, counted, or trimmed. It is the
+  improvement target and leaves when the path it measures is retired.
+- **NLinq** is the standing oracle: an [NLinq](https://github.com/agocke/NLinq)
+  query over a struct source of the population, written as an NLinq author
+  would write it. The pinned fixture, its population sources, and any
+  operators it lacks are owned by the fixture, never written per question.
+
+Do not construct a hand-written loop as an oracle. What such a loop measures
+depends on its author's choices, and it costs one loop per question where
+NLinq costs one source per population. A hand-written baseline is justified
+only as the Before of a path that already exists, or for a source-native
+answer NLinq cannot express, such as a count from a table size. Label it as
+such.
+
+**The postcard** scores Before, NLinq, and After for Exists, Count, Head(N),
+Tail(N), Rows, and Rows(n..m), over one open query on pinned real assets:
+
+- Report each cell as a ratio to NLinq, measured by the same binary in the
+  same run. Give the geometric mean across assets and the range, with
+  absolute medians alongside.
+- Check that all three columns give the same answer for every closing and
+  asset: the Boolean, the count, or the rows' identity. Report a strict
+  window's failure as a failure, never as a success.
+- Mark each After cell as shipping in the candidate or measured only in an
+  experiment.
+- Run on at least two machines, and exclude a loaded run with its reason.
+
+Performance regression tracking uses only the NLinq ratio. It is relative to
+the machine, stays meaningful after Before is retired, and changes only when
+the query or the oracle does.
+
+Use the [Producer Planning
+postcard](https://github.com/richlander/dotnet-inspect/pull/8736) as the
+reporting precedent. It showed After at 0.47–1.02× of NLinq and Before at up
+to 7,000× on the same questions, while the end-to-end command stayed at
+parity because presence is a small part of it.
+
 ## Use evidence envelopes during command development
 
 `EvidenceInspectionEnvelope<TContent, TEvidence>` is the shared shape for
