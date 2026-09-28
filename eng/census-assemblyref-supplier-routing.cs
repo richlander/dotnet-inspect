@@ -40,6 +40,8 @@ catch (ArgumentException exception)
     return 2;
 }
 
+VerifyFrameworkReferenceScoping();
+
 string repositoryRoot = FindRepositoryRoot(Directory.GetCurrentDirectory())
     ?? throw new InvalidOperationException(
         "Run the AssemblyRef supplier census from inside the repository.");
@@ -446,7 +448,8 @@ static async Task<RootCensusResult> AnalyzeRootAsync(
 
     string[] eligiblePlatformFamilies = ReadEligiblePlatformFamilies(
         assetsPath,
-        targetFramework);
+        targetFramework,
+        entry.Package);
     string platformCatalogKey = targetFramework
         + "|aspnet="
         + eligiblePlatformFamilies.Contains(
@@ -786,20 +789,33 @@ static string[] ReadPackageFolders(string assetsPath)
 
 static string[] ReadEligiblePlatformFamilies(
     string assetsPath,
-    string targetFramework)
+    string targetFramework,
+    string rootPackageId)
+{
+    using JsonDocument document = JsonDocument.Parse(
+        File.ReadAllBytes(assetsPath));
+    return ProjectEligiblePlatformFamilies(
+        document.RootElement,
+        targetFramework,
+        rootPackageId);
+}
+
+static string[] ProjectEligiblePlatformFamilies(
+    JsonElement assets,
+    string targetFramework,
+    string rootPackageId)
 {
     var families = new HashSet<string>(
         StringComparer.OrdinalIgnoreCase)
     {
         RuntimeFamily,
     };
-    using JsonDocument document = JsonDocument.Parse(
-        File.ReadAllBytes(assetsPath));
-    if (!document.RootElement.TryGetProperty(
+    if (!assets.TryGetProperty(
             "targets",
             out JsonElement targets))
     {
-        return families.OrderBy(value => value, StringComparer.Ordinal).ToArray();
+        throw new InvalidDataException(
+            "The assets file has no targets.");
     }
 
     JsonProperty target = targets
@@ -809,17 +825,27 @@ static string[] ReadEligiblePlatformFamilies(
                 targetFramework,
                 StringComparison.OrdinalIgnoreCase));
     if (target.Value.ValueKind != JsonValueKind.Object)
-        return families.OrderBy(value => value, StringComparer.Ordinal).ToArray();
-
-    foreach (JsonProperty library in target.Value.EnumerateObject())
     {
-        if (!library.Value.TryGetProperty(
-                "frameworkReferences",
-                out JsonElement references))
-        {
-            continue;
-        }
+        throw new InvalidDataException(
+            $"The assets file has no '{targetFramework}' target.");
+    }
 
+    JsonProperty rootLibrary = target.Value
+        .EnumerateObject()
+        .FirstOrDefault(library =>
+            library.Name.Split('/')[0].Equals(
+                rootPackageId,
+                StringComparison.OrdinalIgnoreCase));
+    if (rootLibrary.Value.ValueKind != JsonValueKind.Object)
+    {
+        throw new InvalidDataException(
+            $"The assets target has no root package '{rootPackageId}'.");
+    }
+
+    if (rootLibrary.Value.TryGetProperty(
+            "frameworkReferences",
+            out JsonElement references))
+    {
         if (references.ValueKind == JsonValueKind.Array)
         {
             foreach (JsonElement reference in references.EnumerateArray())
@@ -836,6 +862,48 @@ static string[] ReadEligiblePlatformFamilies(
     }
 
     return families.OrderBy(value => value, StringComparer.Ordinal).ToArray();
+}
+
+static void VerifyFrameworkReferenceScoping()
+{
+    using JsonDocument document = JsonDocument.Parse(
+        """
+        {
+          "targets": {
+            "net11.0": {
+              "Root.Package/1.0.0": {},
+              "Dependency.Package/1.0.0": {
+                "frameworkReferences": [
+                  "Microsoft.AspNetCore.App"
+                ]
+              }
+            }
+          }
+        }
+        """);
+    string[] rootFamilies = ProjectEligiblePlatformFamilies(
+        document.RootElement,
+        "net11.0",
+        "Root.Package");
+    if (rootFamilies.Contains(
+            AspNetCoreFamily,
+            StringComparer.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            "A transitive framework reference admitted the root Platform route.");
+    }
+
+    string[] dependencyFamilies = ProjectEligiblePlatformFamilies(
+        document.RootElement,
+        "net11.0",
+        "Dependency.Package");
+    if (!dependencyFamilies.Contains(
+            AspNetCoreFamily,
+            StringComparer.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            "The selected root framework reference was not admitted.");
+    }
 }
 
 static async Task<ProcessResult> RunAsync(

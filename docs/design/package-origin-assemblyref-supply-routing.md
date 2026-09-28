@@ -512,7 +512,8 @@ selected compile assets, and 1,094 AssemblyRefs. Their classifications were:
 | Exact namesake Package | 97 |
 | Filename-only Package | 1 |
 | Same-package context member | 3 |
-| Platform | 992 |
+| Platform | 979 |
+| Ineligible Platform member | 13 |
 | Unresolved | 1 |
 
 The exact namesake route had no competing Package supplier and no candidate
@@ -523,6 +524,14 @@ needed it to discover; 52 AssemblyRefs instead had a non-supplying
 prefix-affinity package. The selected closure averaged 2.73 packages and 2.75
 compile assets, with a maximum of 14 for each. The unresolved observation was
 `Sfa.Core.ServiceModel.dll` referencing `System.ServiceModel`.
+
+The 13 ineligible Platform members belonged to
+`Swashbuckle.AspNetCore.SwaggerGen` and
+`Swashbuckle.AspNetCore.Annotations`. Their selected roots did not declare
+`Microsoft.AspNetCore.App`; a transitive package did. The sensor therefore
+records their matching ASP.NET Core pack members without treating another
+package target's framework reference as root eligibility. A focused startup
+check preserves that root-versus-transitive distinction.
 
 The supplemental `Microsoft.Azure.SignalR@1.33.1/net8.0` root selected 25
 packages and 26 compile assets. Its 74 AssemblyRefs classified as 6 exact
