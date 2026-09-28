@@ -101,6 +101,7 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.EnablementFixtures/ILInspector.Metadata.EnablementFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures/ILInspector.Metadata.PublicMethodRootFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.VbInterfaceImplementations/ILInspector.Metadata.VbInterfaceImplementations.vbproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
@@ -277,6 +278,9 @@
     <Project Path="tests/DotnetInspector.Queries.Consumer/DotnetInspector.Queries.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PortableQueries.Tests/DotnetInspector.PortableQueries.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
+    <Project Path="tests/DotnetInspector.PerformanceOracles.Tests/DotnetInspector.PerformanceOracles.Tests.csproj" />
+    <Project Path="tests/NLinq.Oracle/NLinq.Oracle.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
     <Project Path="tests/QuerySpace.Consumer/QuerySpace.Consumer.csproj" />
     <Project Path="tests/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
@@ -293,6 +297,7 @@
     <Project Path="tools/AotProbe/AotProbe.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
+    <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
     <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />

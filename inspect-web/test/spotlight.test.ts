@@ -43,6 +43,8 @@ interface HarnessOptions {
   pickResult?: (result: SpotlightResult) => void;
   packageSearchError?: () => string;
   packageSearchLoading?: () => boolean;
+  typeSearchLoading?: () => boolean;
+  typeSearchNotice?: () => string;
   capabilitySearchMessage?: () => string;
 }
 
@@ -90,6 +92,8 @@ function createHarness({
   pickResult = () => {},
   packageSearchError,
   packageSearchLoading = () => false,
+  typeSearchLoading,
+  typeSearchNotice,
   capabilitySearchMessage,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
@@ -118,6 +122,8 @@ function createHarness({
     resetPackageSearch: () => {},
     packageSearchLoading,
     ...(packageSearchError ? { packageSearchError } : {}),
+    ...(typeSearchLoading ? { typeSearchLoading } : {}),
+    ...(typeSearchNotice ? { typeSearchNotice } : {}),
     scheduleCapabilitySearch: () => {},
     resetCapabilitySearch: () => {},
     ...(capabilitySearchMessage ? { capabilitySearchMessage } : {}),
@@ -665,6 +671,51 @@ test("package source errors are escaped, coexist with local results and replace 
     error = "";
     assert.match(harness.spotlight.modalHtml(), /Nothing matches/);
   }
+});
+
+test("incomplete Type coverage qualifies empty and nonempty results", () => {
+  const notice = "1 assembly could not be fully evaluated.";
+  const empty = createHarness({
+    scope: "types",
+    query: "Missing",
+    typeSearchNotice: () => notice,
+  });
+  assert.match(empty.spotlight.modalHtml(), /No confirmed matches/);
+  assert.match(empty.spotlight.modalHtml(), /1 assembly could not be fully evaluated/);
+  assert.doesNotMatch(empty.spotlight.modalHtml(), /Nothing matches/);
+
+  const populated = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchNotice: () => notice,
+    searchResults: () => [{
+      kind: "managed-type",
+      identity: "candidate",
+      action: "action",
+      reason: null,
+      name: "JsonSerializer",
+      namespace: "System.Text.Json",
+      library: "System.Text.Json",
+      source: "System.Text.Json@10.0.0",
+      typeKind: "class",
+      ranges: [],
+    }],
+  });
+  const html = populated.spotlight.modalHtml();
+  assert.match(html, /data-sl-managed-type="[^"]*candidate[^"]*"/);
+  assert.match(html, /1 assembly could not be fully evaluated/);
+});
+
+test("pending Types-only search does not report a complete miss", () => {
+  const harness = createHarness({
+    scope: "types",
+    query: "JsonSerializer",
+    typeSearchLoading: () => true,
+  });
+
+  const html = harness.spotlight.modalHtml();
+  assert.match(html, /Searching/);
+  assert.doesNotMatch(html, /Nothing matches|No confirmed matches/);
 });
 
 test("Spotlight selection clamps without wrapping and scope cycling wraps", () => {

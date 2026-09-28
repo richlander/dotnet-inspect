@@ -216,14 +216,18 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
 - **Request identity.** Each analyzer has exactly one producer declaration.
   Closing and row order are request parameters, not declaration parameters.
   So several consumers asking the same analyzer never create conflicting
-  declarations. In one execution, requests for the same analyzer compose as
-  follows:
-  - If any consumer asks for Rows, Rows runs once, and every Count and
-    Exists for that analyzer is derived from it. They take its outcome,
-    including an abort.
-  - Otherwise, Count and Exists run alone, with no `IdentityText` declared.
-  - Each requested row order is applied by the query to the one set of folded
-    rows.
+  declarations. Requests are not merged at this level. Per
+  [Requests are QuerySpace requests, never merged here](producer-planning.md#requests-are-queryspace-requests-never-merged-here),
+  each consumer's request runs its own closing:
+  - Rows, Count, and Exists for the same analyzer are separate requests. Count
+    and Exists never declare `IdentityText`, even when Rows is also requested.
+  - Nothing derives Count or Exists from Rows, and no ranking of closings
+    exists in the queries or the planner.
+  - Collapsing several requests for one resource into one pass belongs to
+    QuerySpace, [#8574](https://github.com/richlander/dotnet-inspect/issues/8574).
+    Until it lands, a section's Rows and a summary's Count for the same
+    analyzer cost one extra pass, and the Count pass decodes no identity
+    text.
 - **Rows order is a typed request parameter,** not a host sort. A query
   offers exactly the orders today's outputs use:
 
@@ -239,8 +243,8 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   A host names the order it shows, and the query returns rows in that order.
   No host sorts or projects rows itself.
 - **One combined request** runs every requested analyzer and closing in one
-  execution, with each consumer's own closing, composed by the request
-  identity rule above. Rows are requested only by the Finding and the row
+  execution, with each consumer's own closing and no merging between
+  them. Rows are requested only by the Finding and the row
   sections. The merged rows, in legacy order, and the Finding inspection built
   from them come only when the Finding is requested. Signals and LibraryInfo
   counts get Count closings, matching what each shows today:
@@ -314,10 +318,10 @@ work, tracked in #8733, and not part of this change.
 
 ## Verification
 
-- **Combined consumers.** One execution with async section Rows and a
-  LibraryInfo async Count runs async Rows once and derives the Count. Signals'
-  pointer Count, with no pointer Rows requested, runs alone. A request
-  with no Rows declares no `IdentityText`.
+- **Combined consumers.** Async section Rows and a LibraryInfo async Count
+  run as separate requests with equal answers, and the Count declares no
+  `IdentityText`. Nothing in the queries or the planner ranks or merges
+  closings.
 - **Malformed pointer signature under Count.** It fails the pointer analyzer
   with a typed `Failed` outcome naming the method, and never publishes a
   silently reduced count.

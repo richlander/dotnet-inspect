@@ -99,7 +99,7 @@ public sealed class EcosystemDependencyClassifierTests
     }
 
     [Fact]
-    public void AspireAzureDependencyRetainsIntentionalCrossPackOverlap()
+    public void ExtensionsAIDependencyRetainsIntentionalCrossPackOverlap()
     {
         EcosystemDependencyClassification classification =
             EcosystemDependencyClassifier.Classify(
@@ -109,14 +109,44 @@ public sealed class EcosystemDependencyClassifierTests
                         new(1),
                         1,
                         new DeclaredPackageDependency(
-                            "Aspire.Hosting.Azure.SignalR",
-                            "13.5.4"),
+                            "Microsoft.Extensions.AI.OpenAI",
+                            "10.10.1"),
                         PackageSubject()),
                 ]);
 
         Assert.Equal(
-            [EcosystemPackIds.Aspire, EcosystemPackIds.Azure],
+            [EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.AI],
             classification.Recognized.Select(entry => entry.Ecosystem.Id));
+    }
+
+    [Fact]
+    public void AIRecognizesLabRootsExactlyAndNotCommunityNamesakes()
+    {
+        EcosystemDependencyClassification classification =
+            EcosystemDependencyClassifier.Classify(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                [
+                    new EcosystemDependencyObservation.PackageDeclaration(
+                        new(1),
+                        1,
+                        new DeclaredPackageDependency("Anthropic", "12.50.0"),
+                        PackageSubject()),
+                ]);
+        Assert.Equal(
+            [EcosystemPackIds.AI],
+            classification.Recognized.Select(entry => entry.Ecosystem.Id));
+
+        EcosystemDependencyClassification community =
+            EcosystemDependencyClassifier.Classify(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                [
+                    new EcosystemDependencyObservation.PackageDeclaration(
+                        new(1),
+                        1,
+                        new DeclaredPackageDependency("Anthropic.SDK", "5.5.0"),
+                        PackageSubject()),
+                ]);
+        Assert.Empty(community.Recognized);
     }
 
     [Fact]
@@ -126,7 +156,7 @@ public sealed class EcosystemDependencyClassifierTests
             EcosystemPackCatalog.Discover(),
             [
                 new(
-                    EcosystemPackIds.Azure,
+                    EcosystemPackIds.Blazor,
                     [
                         EcosystemDependencyAssociation.PackageIdFamily("Contoso"),
                         EcosystemDependencyAssociation.ExactPackageId(

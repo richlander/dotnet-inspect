@@ -924,6 +924,81 @@ public sealed class PolicyEvaluatorTests
                     $"src/{name}/{name}.csproj")));
     }
 
+    [Fact]
+    public void CheckedInInspectWebExecutableRuleMatchesManagedPartition()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-executable-stays-at-host-boundary");
+
+        Assert.Equal(
+            [DependencyGraphKind.Project, DependencyGraphKind.Assembly],
+            rule.Graphs);
+        Assert.Equal(["DotnetInspect.Web"], rule.Targets);
+        Assert.Equal(
+            ["src/DotnetInspect.Web/DotnetInspect.Web.csproj"],
+            rule.ProjectPaths);
+        string[] allowOnly = Assert.IsType<string[]>(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "$platform",
+                "TsJsExport.Contracts",
+                "DotnetInspect.Web.Core",
+                "DotnetInspect.Web.Interop.Package",
+                "DotnetInspect.Web.Interop.Library",
+                "DotnetInspect.Web.Interop.Metadata",
+                "DotnetInspect.Web.Interop.Analysis",
+                "DotnetInspect.Web.Interop.Source",
+                "DotnetInspect.Web.Interop.CallGraph",
+                "DotnetInspect.Web.Interop.Catalog",
+            ],
+            allowOnly);
+        Assert.Null(rule.Deny);
+        Assert.Empty(rule.ExcludeTargets);
+        Assert.Empty(rule.ExcludeProjectPaths);
+        Assert.Empty(rule.Except);
+    }
+
+    [Fact]
+    public void CheckedInInspectWebCallGraphRuleMatchesCapabilityPartition()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-call-graph-facade-stays-at-capability-boundary");
+
+        Assert.Equal(
+            [DependencyGraphKind.Project, DependencyGraphKind.Assembly],
+            rule.Graphs);
+        Assert.Equal(["DotnetInspect.Web.Interop.CallGraph"], rule.Targets);
+        Assert.Equal(
+            [
+                "src/DotnetInspect.Web.Interop.CallGraph/"
+                    + "DotnetInspect.Web.Interop.CallGraph.csproj",
+            ],
+            rule.ProjectPaths);
+        string[] allowOnly = Assert.IsType<string[]>(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "$platform",
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.Queries",
+                "DotnetInspector.Sections",
+            ],
+            allowOnly);
+        Assert.Null(rule.Deny);
+        Assert.Empty(rule.ExcludeTargets);
+        Assert.Empty(rule.ExcludeProjectPaths);
+        Assert.Empty(rule.Except);
+    }
+
     private static ProjectDependencyNode Node(
         string name,
         string? projectPath = null,

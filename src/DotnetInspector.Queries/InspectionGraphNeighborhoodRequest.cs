@@ -1,14 +1,7 @@
 using System.Collections.Immutable;
+using Inspector.Graph;
 
 namespace DotnetInspector.Queries;
-
-/// <summary>Which semantic endpoint roles a neighborhood may traverse.</summary>
-public enum InspectionGraphTraversalDirection
-{
-    Outgoing,
-    Incoming,
-    Both,
-}
 
 /// <summary>
 /// A finite relationship neighborhood around one or more typed seeds.
@@ -18,7 +11,7 @@ public sealed class InspectionGraphNeighborhoodRequest
     InspectionGraphNeighborhoodRequest(
         InspectionGraphModeRequest modeRequest,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
-        InspectionGraphTraversalDirection direction,
+        GraphTraversalDirection direction,
         int maxDepth)
     {
         ArgumentNullException.ThrowIfNull(modeRequest);
@@ -86,13 +79,13 @@ public sealed class InspectionGraphNeighborhoodRequest
     public ImmutableArray<InspectionGraphRelationshipDescriptor>
         Relationships
     { get; }
-    public InspectionGraphTraversalDirection Direction { get; }
+    public GraphTraversalDirection Direction { get; }
     public int MaxDepth { get; }
 
     public static InspectionGraphNeighborhoodRequest SingleSeed(
         InspectionGraphSubject seed,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
-        InspectionGraphTraversalDirection direction,
+        GraphTraversalDirection direction,
         int maxDepth) =>
         new(
             InspectionGraphModeRequest.SingleSeed(seed),
@@ -103,7 +96,7 @@ public sealed class InspectionGraphNeighborhoodRequest
     public static InspectionGraphNeighborhoodRequest PeerSeeds(
         IEnumerable<InspectionGraphSubject> seeds,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
-        InspectionGraphTraversalDirection direction,
+        GraphTraversalDirection direction,
         int maxDepth) =>
         new(
             InspectionGraphModeRequest.PeerSeeds(seeds),
@@ -114,11 +107,11 @@ public sealed class InspectionGraphNeighborhoodRequest
     internal bool Includes(InspectionGraphEndpointRole role) =>
         Direction switch
         {
-            InspectionGraphTraversalDirection.Outgoing =>
+            GraphTraversalDirection.Outgoing =>
                 role == InspectionGraphEndpointRole.Source,
-            InspectionGraphTraversalDirection.Incoming =>
+            GraphTraversalDirection.Incoming =>
                 role == InspectionGraphEndpointRole.Target,
-            InspectionGraphTraversalDirection.Both =>
+            GraphTraversalDirection.Both =>
                 true,
             _ => throw new ArgumentOutOfRangeException(nameof(Direction)),
         };
@@ -176,21 +169,11 @@ internal static class InspectionGraphNeighborhoodProjection
             .. source.Edges.Where(edge =>
                 selectedRelationships.Contains(edge.Relationship)),
         ];
-        IReadOnlyDictionary<int, ImmutableArray<InspectionGraphEdge>>
-            outgoingEdges = IndexEdges(
-                selectedEdges,
-                static edge => edge.FromNodeId);
-        IReadOnlyDictionary<int, ImmutableArray<InspectionGraphEdge>>
-            incomingEdges = IndexEdges(
-                selectedEdges,
-                static edge => edge.ToNodeId);
         IReadOnlyDictionary<InspectionGraphSubject, InspectionGraphNode>
             nodesBySubject = source.Nodes.ToDictionary(
                 static node => node.Subject);
-        var retainedEdgeIds = new HashSet<int>();
         var retainedNodeIds = new HashSet<int>();
-        var queue = new Queue<(int NodeId, int Depth)>();
-        var nodeDepths = new Dictionary<int, int>();
+        var entries = new HashSet<GraphTraversalEntry>();
         ImmutableArray<InspectionGraphSeed> sourceSeeds =
             AssertSeeds(source, request);
         foreach (InspectionGraphSeed sourceSeed in sourceSeeds)
@@ -199,8 +182,6 @@ internal static class InspectionGraphNeighborhoodProjection
                 sourceSeed.Target,
                 retainedNodeIds,
                 retainedGroupIds: null);
-            if (sourceSeed.Target.Kind == InspectionGraphTargetKind.Node)
-                nodeDepths[sourceSeed.Target.Id] = 0;
         }
 
         if (request.MaxDepth > 0)
@@ -224,54 +205,40 @@ internal static class InspectionGraphNeighborhoodProjection
                             continue;
                         }
 
-                        RetainEdge(edge, retainedEdgeIds, retainedNodeIds);
                         int nextNodeId =
                             admission.Role
                                 == InspectionGraphEndpointRole.Source
                                     ? edge.ToNodeId
                                     : edge.FromNodeId;
-                        Enqueue(nextNodeId, 1, nodeDepths, queue);
+                        entries.Add(
+                            new GraphTraversalEntry(
+                                edge.Id,
+                                nextNodeId));
                     }
                 }
             }
         }
 
-        while (queue.TryDequeue(out (int NodeId, int Depth) item))
-        {
-            if (item.Depth >= request.MaxDepth)
-                continue;
-
-            if (request.Includes(InspectionGraphEndpointRole.Source)
-                && outgoingEdges.TryGetValue(
-                    item.NodeId,
-                    out ImmutableArray<InspectionGraphEdge> outgoing))
-            {
-                foreach (InspectionGraphEdge edge in outgoing)
-                {
-                    RetainEdge(edge, retainedEdgeIds, retainedNodeIds);
-                    Enqueue(
-                        edge.ToNodeId,
-                        item.Depth + 1,
-                        nodeDepths,
-                        queue);
-                }
-            }
-            if (request.Includes(InspectionGraphEndpointRole.Target)
-                && incomingEdges.TryGetValue(
-                    item.NodeId,
-                    out ImmutableArray<InspectionGraphEdge> incoming))
-            {
-                foreach (InspectionGraphEdge edge in incoming)
-                {
-                    RetainEdge(edge, retainedEdgeIds, retainedNodeIds);
-                    Enqueue(
-                        edge.FromNodeId,
-                        item.Depth + 1,
-                        nodeDepths,
-                        queue);
-                }
-            }
-        }
+        GraphNeighborhoodResult execution =
+            GraphDocumentExecution.Neighborhood(
+                source.Structure,
+                new GraphNeighborhoodPlan<
+                    InspectionGraphRelationshipDescriptor>(
+                    request.Relationships,
+                    request.Direction,
+                    request.MaxDepth,
+                    rootNodeIds: [],
+                    [.. entries],
+                    anchorNodeIds:
+                    [
+                        .. sourceSeeds
+                        .Where(seed =>
+                            seed.Target.Kind
+                                == InspectionGraphTargetKind.Node)
+                        .Select(static seed => seed.Target.Id),
+                    ]));
+        retainedNodeIds.UnionWith(execution.NodeIds);
+        var retainedEdgeIds = execution.EdgeIds.ToHashSet();
 
         foreach (InspectionGraphFailure failure in source.Failures)
         {
@@ -448,15 +415,6 @@ internal static class InspectionGraphNeighborhoodProjection
             failures);
     }
 
-    static IReadOnlyDictionary<int, ImmutableArray<InspectionGraphEdge>>
-        IndexEdges(
-            IEnumerable<InspectionGraphEdge> edges,
-            Func<InspectionGraphEdge, int> getNodeId) =>
-        edges.GroupBy(getNodeId)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.ToImmutableArray());
-
     static ImmutableArray<InspectionGraphSeed> AssertSeeds(
         InspectionGraphDocument source,
         InspectionGraphNeighborhoodRequest request)
@@ -515,31 +473,6 @@ internal static class InspectionGraphNeighborhoodProjection
                             admission.Role))),
             _ => throw new ArgumentOutOfRangeException(nameof(admission)),
         };
-    }
-
-    static void RetainEdge(
-        InspectionGraphEdge edge,
-        HashSet<int> retainedEdgeIds,
-        HashSet<int> retainedNodeIds)
-    {
-        retainedEdgeIds.Add(edge.Id);
-        retainedNodeIds.Add(edge.FromNodeId);
-        retainedNodeIds.Add(edge.ToNodeId);
-    }
-
-    static void Enqueue(
-        int nodeId,
-        int depth,
-        Dictionary<int, int> nodeDepths,
-        Queue<(int NodeId, int Depth)> queue)
-    {
-        if (nodeDepths.TryGetValue(nodeId, out int priorDepth)
-            && priorDepth <= depth)
-        {
-            return;
-        }
-        nodeDepths[nodeId] = depth;
-        queue.Enqueue((nodeId, depth));
     }
 
     static void RetainTarget(

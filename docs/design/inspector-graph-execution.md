@@ -6,6 +6,8 @@ Status: **design contract** for
 [#8747](https://github.com/richlander/dotnet-inspect/issues/8747), a focused
 successor under
 [#8669](https://github.com/richlander/dotnet-inspect/issues/8669).
+The selected-adjacency and distinct-neighbor-degree implementation is tracked
+by [#8821](https://github.com/richlander/dotnet-inspect/issues/8821).
 
 The **Inspector.Graph Execution** owner defines this claim:
 
@@ -165,6 +167,11 @@ A closed-document operation reads one already-populated immutable
 `GraphDocument`. It performs no relationship discovery and invokes no
 provider.
 
+The closed-document binding reuses the relationship equality admitted by that
+document. Its detached receipt carries the document's runtime identity rather
+than retaining the document, so local-id results stay associated with exactly
+the structure that issued them.
+
 The operation is structurally exact over the supplied document when it
 exhausts its declared structural scope. That does not make the document a
 complete representation of the caller's domain. For example, Graph can answer
@@ -250,6 +257,15 @@ or terminal-specific indexes that no selected operation uses.
 Product-named views such as `method_callers`, `package_dependencies`, or
 `cve_releases` remain with product composition. Graph may supply the generic
 typed structural result from which those views are named and published.
+
+The first derived-view proof uses one neighbor plan that selects relationship
+values, direction, and self-loop policy. Its adjacency terminal returns one
+document-local row per canonical node with selected edge ids and distinct
+neighboring node ids. Its degree terminal returns only document-local node ids
+and distinct-neighbor counts; it does not materialize adjacency rows and count
+them afterward. Both terminals order rows, edge ids, and neighbor ids by their
+canonical document-local ids and identify the exact source document in their
+work receipt.
 
 ## Shape-native operations and terminals
 

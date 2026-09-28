@@ -485,11 +485,39 @@ public class SlotMaterializationPassTests
         body.Add(block);
         var function = Function([Boolean, Int32], body);
 
+        new BooleanSlotIdentityPass().Run(function, PassContext.None);
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
         Assert.Equal(SlotMaterializationVeto.ConflictingTypeTestimony, decision.Vetoes);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Single(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CanonicalIntegerBooleanStoresMaterializeBooleanStorage()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(0, Int32)));
+        block.Add(new StoreStackSlot(0, new Constant(1, Int32)));
+        block.Add(new StoreLocal(0, Boolean, new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([Boolean], body);
+
+        new BooleanSlotIdentityPass().Run(function, PassContext.None);
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.True(decision.WillMaterialize);
+        Assert.Equal(Boolean, decision.Type);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        var constants = function.Descendants.OfType<Constant>()
+            .Where(constant => Boolean.Equals(constant.Type))
+            .ToArray();
+        Assert.Equal([false, true], constants.Select(constant => constant.Value));
         function.CheckInvariant();
     }
 
@@ -505,6 +533,7 @@ public class SlotMaterializationPassTests
         body.Add(block);
         var function = Function([Boolean], body);
 
+        new BooleanSlotIdentityPass().Run(function, PassContext.None);
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
         Assert.Equal(Int32, decision.Type);
         Assert.Equal(SlotMaterializationVeto.BooleanSinkIdentityRecovery, decision.Vetoes);

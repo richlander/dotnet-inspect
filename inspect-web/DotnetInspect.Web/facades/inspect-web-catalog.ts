@@ -624,6 +624,21 @@ export interface BrowserRetainedWorkspaceTypePage {
   readonly nextOffset: number | null;
 }
 
+export interface BrowserSpotlightActionResult {
+  readonly status: string;
+  readonly navigation: BrowserRetainedNavigationResult | null;
+  readonly surface: BrowserPackageSurface | null;
+  readonly selectedType: BrowserTypeSurface | null;
+  readonly selection: BrowserSpotlightTypeSelection | null;
+  readonly activationStatus: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserSpotlightTypeSelection {
+  readonly definitionId: string;
+  readonly assemblyName: string;
+}
+
 export interface BrowserTypeSurface {
   readonly id: string;
   readonly definitionId: string;
@@ -736,6 +751,7 @@ type $ManagedExports = {
             readonly "AcknowledgeRetainedWorkspaceNavigation.1618630472": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => string;
             readonly "ActivateRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
             readonly "ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
+            readonly "ActivateSpotlightDestination.976702342": (action: string) => Promise<string>;
             readonly "AdmitRetainedWorkspacePackage.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "AdmitRetainedWorkspacePlatform.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "CancelRetainedWorkspaceActivation.976702342": (receipt: string) => Promise<string>;
@@ -852,6 +868,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "ActivateSpotlightDestination.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateSpotlightDestination.976702342\u0027 is not callable.");
     }
   }
   {
@@ -1175,6 +1203,12 @@ export async function activateRetainedWorkspaceDefinitionWithCredentials(retaine
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, $serializeJsonInput(packageSourceCredentialsJson, "DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314", "packageSourceCredentialsJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspaceActivationResult;
+}
+
+export async function activateSpotlightDestination(action: string): Promise<BrowserSpotlightActionResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateSpotlightDestination.976702342"](action);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserSpotlightActionResult;
 }
 
 export async function admitRetainedWorkspacePackage(retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number): Promise<BrowserRetainedWorkspacePackageAdmissionResult> {

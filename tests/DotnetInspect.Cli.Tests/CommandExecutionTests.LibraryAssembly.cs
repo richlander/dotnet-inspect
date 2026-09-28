@@ -2120,6 +2120,7 @@ public partial class CommandExecutionTests
             "library",
             missingPath,
             "-S",
+            LibraryFixedOverviewSelection,
             "--count",
             "--tips",
             "q");

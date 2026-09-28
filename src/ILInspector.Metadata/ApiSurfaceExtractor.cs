@@ -1385,6 +1385,7 @@ public static partial class ApiSurfaceExtractor
             apiType.Members = [];
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+            var interfaceImplementations = GetInterfaceImplementations(reader, typeDef);
 
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
@@ -1439,10 +1440,11 @@ public static partial class ApiSurfaceExtractor
                 }
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                if (!AdmitsMethodAccess(
-                        methodAccess,
-                        isExplicitInterfaceImplementation,
-                        includeAll))
+                var effectiveAccess = MethodEffectiveAccess(
+                    methodAccess,
+                    methodHandle,
+                    interfaceImplementations);
+                if (!AdmitsMethodAccess(effectiveAccess, includeAll))
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1527,7 +1529,6 @@ public static partial class ApiSurfaceExtractor
                     observeDecodeWork,
                     constraintResolution,
                     observeAttributeMaterialize);
-                var isOperator = IsOperatorMethodName(methodName);
                 var modifiers = ApiMethodModifiers.FromAttributes(
                     methodAttributes,
                     isExplicitInterfaceImplementation);
@@ -1602,7 +1603,7 @@ public static partial class ApiSurfaceExtractor
                             observeDecodeWork),
                     MemorySafety = ApiMemorySafetyFacts.Read(
                         reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
-                    Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
+                    Accessibility = GetAccessibility(effectiveAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     ObsoleteIsError = obsoleteIsError,
