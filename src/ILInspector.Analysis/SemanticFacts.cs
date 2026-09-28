@@ -20,7 +20,8 @@ public sealed record AllocationFact(
     string? PostDominance,
     string Evidence,
     string? Multiplicity,
-    string? ChurnedType);
+    string? ChurnedType,
+    AllocationLifetimeEvidence LifetimeEvidence);
 
 public sealed record SafetyFact(
     MethodIdentity Method,
@@ -86,7 +87,8 @@ public static class SemanticFactProjection
                 occurrence.Detail ?? FormatSource(occurrence.Source),
                 OptimizationOpportunityAnalysis.FormatMultiplicity(
                     occurrence.Multiplicity),
-                occurrence.ChurnedType))];
+                occurrence.ChurnedType,
+                occurrence.LifetimeEvidence))];
 
     public static ImmutableArray<SafetyFact> SafetyFacts(
         IEnumerable<Finding<UnsafeEvidence>> unsafeEvidence,
@@ -214,6 +216,50 @@ public static class SemanticFactProjection
         AllocationEscapeKind.Collection => "escapes-collection",
         AllocationEscapeKind.Capture => "escapes-capture",
         _ => null
+    };
+    public static string FormatLifetimeUseKind(
+        AllocationLifetimeUseKind kind) => kind switch
+    {
+        AllocationLifetimeUseKind.ElementRead => "element-read",
+        AllocationLifetimeUseKind.ElementWrite => "element-write",
+        AllocationLifetimeUseKind.LengthRead => "length-read",
+        AllocationLifetimeUseKind.Drop => "drop",
+        AllocationLifetimeUseKind.Unbox => "unbox",
+        AllocationLifetimeUseKind.TrustedNonCapturingCall =>
+            "trusted-non-capturing-call",
+        AllocationLifetimeUseKind.Return => "return",
+        AllocationLifetimeUseKind.Throw => "throw",
+        AllocationLifetimeUseKind.FieldStore => "field-store",
+        AllocationLifetimeUseKind.StaticStore => "static-store",
+        AllocationLifetimeUseKind.CollectionStore => "collection-store",
+        AllocationLifetimeUseKind.Capture => "capture",
+        AllocationLifetimeUseKind.ByReferenceTransfer =>
+            "by-reference-transfer",
+        _ => "unknown"
+    };
+    public static string FormatLifetimeLimitationKind(
+        AllocationLifetimeLimitationKind kind) => kind switch
+    {
+        AllocationLifetimeLimitationKind.ReachingDefinitionsUnavailable =>
+            "reaching-definitions-unavailable",
+        AllocationLifetimeLimitationKind.ReachingDefinitionsIncomplete =>
+            "reaching-definitions-incomplete",
+        AllocationLifetimeLimitationKind.DefinitionUnavailable =>
+            "definition-unavailable",
+        AllocationLifetimeLimitationKind.AliasCycle => "alias-cycle",
+        AllocationLifetimeLimitationKind.UnsupportedInstruction =>
+            "unsupported-instruction",
+        AllocationLifetimeLimitationKind.UnsupportedStackShape =>
+            "unsupported-stack-shape",
+        AllocationLifetimeLimitationKind.UnsupportedByReferenceFlow =>
+            "unsupported-by-reference-flow",
+        AllocationLifetimeLimitationKind.UnsupportedCall =>
+            "unsupported-call",
+        AllocationLifetimeLimitationKind.MetadataResolution =>
+            "metadata-resolution",
+        AllocationLifetimeLimitationKind.AnalysisFailure =>
+            "analysis-failure",
+        _ => "unknown"
     };
     static string FormatSource(AllocationFactSource source) => source switch
     {
