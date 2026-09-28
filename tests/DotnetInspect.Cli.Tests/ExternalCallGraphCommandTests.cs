@@ -898,6 +898,12 @@ public sealed class ExternalCallGraphCommandTests
                                         true,
                                 }))));
         await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 assemblies.Select(assembly =>
@@ -934,6 +940,9 @@ public sealed class ExternalCallGraphCommandTests
                         ["test.root"],
                         [],
                         []),
+                    MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                        scope,
+                        registrations),
                     [],
                     [],
                     graph));

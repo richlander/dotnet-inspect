@@ -1986,6 +1986,13 @@ public class LibraryViewShapeDerivedContainmentTests
                 return Array.CreateInstance(type.GetElementType()!, 0);
             }
 
+            // A version carries no text, but a null one would stop the walk at
+            // constructors that require it, such as LibraryAssemblyIdentity.
+            if (type == typeof(Version))
+            {
+                return new Version(1, 0, 0, 0);
+            }
+
             if (IsImmutableArray(type))
             {
                 return BuildImmutableArray(type, depth);

@@ -6,28 +6,16 @@ using ILInspector.Metadata;
 namespace ILInspector.Analysis.Planning;
 
 /// <summary>
-/// Unsafe-evidence presence: a producer over method definitions at
-/// declaration depth, with body depth on demand, whose fact is whether the
-/// unit has unsafe evidence. It settles an Exists terminal on the first
-/// evidence. The algorithm and its presence work budget are the ones the
-/// retired index probe used.
+/// Whether one method definition has unsafe evidence: the open query behind
+/// unsafe-evidence presence. It reads the declaration first and the body only
+/// when the declaration cannot decide. The algorithm and its presence work
+/// budget are the ones the retired index probe used.
 /// </summary>
-public sealed class UnsafeEvidencePresenceProducer
-    : MethodDefinitionProducer<bool, bool, bool>
+public struct UnsafeEvidencePredicate : IMethodDefinitionPredicate
 {
-    UnsafeEvidencePresenceProducer()
-        : base(
-            "UnsafeEvidencePresence",
-            version: 1,
-            tier: 0,
-            MethodDefinitionLayers.Body
-                | MethodDefinitionLayers.ModuleLookup)
-    {
-    }
-
-    public static UnsafeEvidencePresenceProducer Instance { get; } = new();
-
-    internal override bool Visit(scoped MethodDefinitionView view)
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    public readonly bool Test(scoped MethodDefinitionView view)
     {
         var unit = new UnsafePresenceUnit(
             view.TypeHandle,
@@ -41,18 +29,28 @@ public sealed class UnsafeEvidencePresenceProducer
             _ => view.Lookup.ProbeUnsafeBody(unit, view.GetBody()),
         };
     }
+}
 
-    internal override bool Seed() => false;
+/// <summary>
+/// Unsafe-evidence presence as an open query over method definitions, at
+/// declaration depth with body depth and the module lookup on demand. Closed
+/// with Exists it settles on the first evidence; closed with All it counts the
+/// methods with evidence.
+/// </summary>
+public sealed class UnsafeEvidencePresenceProducer
+    : MethodDefinitionPredicateProducer<UnsafeEvidencePredicate>
+{
+    UnsafeEvidencePresenceProducer()
+        : base(
+            "UnsafeEvidencePresence",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Body
+                | MethodDefinitionLayers.ModuleLookup)
+    {
+    }
 
-    internal override bool Accumulate(bool accumulator, bool fact) =>
-        accumulator | fact;
-
-    internal override bool Complete(
-        bool accumulator,
-        MethodDefinitionCompletionView completion) =>
-        accumulator;
-
-    internal override bool Settles(bool fact) => fact;
+    public static UnsafeEvidencePresenceProducer Instance { get; } = new();
 }
 
 /// <summary>
@@ -112,13 +110,13 @@ public static class UnsafeEvidencePresence
         string path,
         PEReader peReader)
     {
-        ProducerResult<bool> result =
+        ProducerResult<int> result =
             Execute(path, peReader).ResultOf(
                 UnsafeEvidencePresenceProducer.Instance);
         return result.Outcome switch
         {
             ProducerOutcome.Complete or ProducerOutcome.Stopped =>
-                result.Value,
+                result.Value > 0,
             _ => throw new InvalidDataException(
                 "Unsafe evidence presence is incomplete because "
                 + $"{result.Failure?.Unit} could not be analyzed: "
