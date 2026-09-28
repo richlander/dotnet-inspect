@@ -805,6 +805,54 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             rejected.Failure.Mechanism);
     }
 
+    [Theory]
+    [InlineData(MetadataAccessorDeclarationKind.Property, 0)]
+    [InlineData(MetadataAccessorDeclarationKind.Property, 1)]
+    [InlineData(MetadataAccessorDeclarationKind.Event, 0)]
+    [InlineData(MetadataAccessorDeclarationKind.Event, 1)]
+    public void Mdp007_AccessorRootNameLimitIsTyped(
+        MetadataAccessorDeclarationKind kind,
+        int excessLength)
+    {
+        string name = new(
+            'N',
+            MetadataSafetyPolicy.MaxStructuralSignatureChars
+                + excessLength);
+        using var fixture = new Fixture(
+            kind == MetadataAccessorDeclarationKind.Property
+                ? BuildPropertyRootShapeImage(
+                    RootShapeMismatch.None,
+                    rootName: name)
+                : BuildEventRootShapeImage(rootName: name));
+
+        MetadataAccessorDeclarationResult result =
+            Run(fixture, kind);
+
+        if (excessLength == 0)
+        {
+            MetadataAccessorDeclarationResult.Posted posted =
+                Assert.IsType<
+                    MetadataAccessorDeclarationResult.Posted>(
+                        result);
+            Assert.Equal(
+                name.Length,
+                posted.Evidence.Root.Name.ToString().Length);
+            return;
+        }
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(result);
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.BudgetExceeded,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.RootDeclaration,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.TextRetention,
+            rejected.Failure.Mechanism);
+    }
+
     [Fact]
     public void Mdp007_EventFirePreservesInvocationSignature()
     {
@@ -1252,7 +1300,8 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
     static byte[] BuildPropertyRootShapeImage(
         RootShapeMismatch mismatch,
         ushort getterSemantics =
-            (ushort)MethodSemanticsAttributes.Getter)
+            (ushort)MethodSemanticsAttributes.Getter,
+        string rootName = "Value")
     {
         var metadata = CreateMetadata();
         bool indexed =
@@ -1361,7 +1410,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         PropertyDefinitionHandle property =
             metadata.AddProperty(
                 PropertyAttributes.SpecialName,
-                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddString(rootName),
                 metadata.GetOrAddBlob(signature));
         metadata.AddPropertyMap(owner, property);
         metadata.AddMethodSemantics(
@@ -1377,7 +1426,8 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
 
     static byte[] BuildEventRootShapeImage(
         bool mismatchedAddParameter = false,
-        bool includeFireWithInvocationParameter = false)
+        bool includeFireWithInvocationParameter = false,
+        string rootName = "Value")
     {
         var metadata = CreateMetadata();
         AssemblyReferenceHandle coreLibrary =
@@ -1455,7 +1505,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             add);
         EventDefinitionHandle @event = metadata.AddEvent(
             EventAttributes.SpecialName,
-            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddString(rootName),
             eventType);
         metadata.AddEventMap(owner, @event);
         metadata.AddMethodSemantics(

@@ -1242,7 +1242,8 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         if (bytes
             > MetadataSafetyPolicy.MaxStructuralSignatureChars)
         {
-            throw new BadImageFormatException(
+            throw new AccessorDeclarationRejectedException(
+                MetadataAccessorDeclarationFailureReason.BudgetExceeded,
                 "An accessor root name exceeds the structural string limit.");
         }
         _context.Charge(
