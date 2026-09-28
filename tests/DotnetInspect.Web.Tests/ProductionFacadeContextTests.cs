@@ -143,6 +143,7 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberFindingCensus",
             "QueryMemberSource",
             "QueryMemberSourceComparison",
+            "QueryPlatformMemberSource",
             "QueryTypeExplorer",
             "QueryTypeMemberSource",
             "QueryTypeSource",
@@ -224,10 +225,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 109 operations, and no operation name in two modules: a move that forgot to delete its
+        // 110 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(109, everyExport.Length);
+        Assert.Equal(110, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

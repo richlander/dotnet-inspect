@@ -252,14 +252,6 @@ import {
   renderMemberFacts,
 } from "./member-facts.ts";
 import {
-  bindImplementationProfileState,
-  createImplementationProfileCoordinator,
-  renderImplementationProfileState,
-  type ImplementationProfileFamilySelection,
-  type ImplementationProfileFamilyRequest,
-  type ImplementationProfileState,
-} from "./implementation-profiles.ts";
-import {
   createTypeHeatCoordinator,
   familyHeatCue,
   familyHeatFor,
@@ -839,8 +831,6 @@ let inspectLibraryApiDiff:
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
-let inspectPackageImplementationProfiles:
-  EngineClient["analysis"]["queryPackageImplementationProfiles"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
@@ -851,8 +841,6 @@ let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
-let inspectPlatformImplementationProfiles:
-  EngineClient["analysis"]["queryPlatformImplementationProfiles"];
 let inspectPackageTypeImplementationHeat:
   EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
 let inspectPlatformTypeImplementationHeat:
@@ -871,6 +859,8 @@ let cancelTypeExplorerInspection:
 let inspectMemberFindingCensus:
   EngineClient["source"]["queryMemberFindingCensus"];
 let inspectMemberSource: EngineClient["source"]["queryMemberSource"];
+let inspectPlatformMemberSource:
+  EngineClient["source"]["queryPlatformMemberSource"];
 let inspectTypeMemberSource:
   EngineClient["source"]["queryTypeMemberSource"];
 let inspectTypeSource: EngineClient["source"]["queryTypeSource"];
@@ -1013,14 +1003,10 @@ async function loadEngineModule() {
     ({
       queryCloneCandidates: inspectCloneCandidates,
       queryMemberFacts: inspectMemberFacts,
-      queryPackageImplementationProfiles:
-        inspectPackageImplementationProfiles,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
-      queryPlatformImplementationProfiles:
-        inspectPlatformImplementationProfiles,
       queryPackageTypeImplementationHeat:
         inspectPackageTypeImplementationHeat,
       queryPlatformTypeImplementationHeat:
@@ -1034,6 +1020,7 @@ async function loadEngineModule() {
       cancelSourceQuery: cancelSourceInspection,
       queryMemberFindingCensus: inspectMemberFindingCensus,
       queryMemberSource: inspectMemberSource,
+      queryPlatformMemberSource: inspectPlatformMemberSource,
       queryTypeMemberSource: inspectTypeMemberSource,
       queryTypeSource: inspectTypeSource,
       queryTypeExplorer: inspectTypeExplorer,
@@ -1268,9 +1255,7 @@ const initialState = {
   memberAccessibilityFilter: "all",
   memberTraitFilter: "",
   memberTextFilter: "",
-  implementationProfiles: { status: "idle" as const },
   typeHeat: { status: "idle" } as TypeHeatState,
-  implementationEvidenceKey: null as string | null,
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1438,9 +1423,7 @@ interface StateOverrides {
   } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
-  implementationProfiles: ImplementationProfileState;
   typeHeat: TypeHeatState;
-  implementationEvidenceKey: string | null;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -1866,7 +1849,6 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     platformIndex: null,
     retryAction: null,
     queryNoticeRetryAction: null,
-    implementationProfiles: { status: "idle" as const },
     typeHeat: { status: "idle" as const },
   });
   const retainedState: AppState = {
@@ -3247,7 +3229,7 @@ async function deleteManagedRetainedWorkspace(
 const keybindings = createWorkbenchKeybindings();
 let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
-const implementationProfileWorkspaceGenerations =
+const typeHeatWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
 const typeHeat = createTypeHeatCoordinator({
   state,
@@ -3283,46 +3265,30 @@ const typeHeat = createTypeHeatCoordinator({
   },
   render: renderPreservingMemberFocus,
 });
-const implementationProfiles = createImplementationProfileCoordinator({
-  state,
-  operationAuthority,
-  query: request => request.kind === "package"
-    ? inspectPackageImplementationProfiles(
-        request.packageId,
-        request.version,
-        request.targetFramework,
-        request.assemblyName,
-        request.typeDefinitionId,
-        [...request.stableSelectors])
-    : inspectPlatformImplementationProfiles(
-        request.targetFramework,
-        request.platformVersion,
-        request.assemblyFileName,
-        request.pack,
-        request.typeDefinitionId,
-        [...request.stableSelectors]),
-  describeError: errorMessage,
-  reportOperationDiagnostic: diagnostic => {
-    console.error(
-      "Implementation Profiles operation authority failure.",
-      diagnostic);
-    return undefined;
-  },
-  render: renderPreservingMemberFocus,
-});
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   operationAuthority,
-  queryMemberSource: request => inspectMemberSource(
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.type,
-    request.member,
-    request.selectorKey,
-    request.metadataToken,
-    request.taste),
+  queryMemberSource: request => request.kind === "package"
+    ? inspectMemberSource(
+        request.packageId,
+        request.version,
+        request.framework,
+        request.assembly,
+        request.type,
+        request.member,
+        request.selectorKey,
+        request.metadataToken,
+        request.taste)
+    : inspectPlatformMemberSource(
+        request.framework,
+        request.version,
+        request.assembly,
+        request.pack,
+        request.type,
+        request.member,
+        request.selectorKey,
+        request.metadataToken,
+        request.taste),
   queryTypeSource: (operationId, request) => inspectTypeSource(
     operationId,
     request.packageId,
@@ -6367,104 +6333,12 @@ function memberSectionUsesWorkingSurface(section: MemberSection) {
     || section === "facts";
 }
 
-function implementationProfileWorkspaceGeneration(pkg: AppPackage) {
-  const existing = implementationProfileWorkspaceGenerations.get(pkg);
+function typeHeatWorkspaceGeneration(pkg: AppPackage) {
+  const existing = typeHeatWorkspaceGenerations.get(pkg);
   if (existing) return existing;
   const generation = crypto.randomUUID();
-  implementationProfileWorkspaceGenerations.set(pkg, generation);
+  typeHeatWorkspaceGenerations.set(pkg, generation);
   return generation;
-}
-
-function implementationProfileTarget(): {
-  request: ImplementationProfileFamilyRequest;
-  selection: ImplementationProfileFamilySelection;
-} | null {
-  const pkg = state.package;
-  const type = selectedType();
-  const member = selectedMember(type);
-  if (!pkg
-    || !type
-    || !member
-    || state.rootKind === "library"
-    || member.kind !== "method"
-    || member.overloads.length < 2) {
-    return null;
-  }
-
-  const selectedOverloadIndex = state.selectedOverloadIndex;
-  const typeDefinitionId = type.definitionId;
-  const stableSelectors = member.overloads.map(
-    overload => overload.stableSelector);
-  const request: ImplementationProfileFamilyRequest =
-    pkg.isRuntimePack
-      ? (() => {
-          const row = platformLibraryForRequest(pkg, type.assemblyId);
-          return {
-            kind: "platform",
-            workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
-            targetFramework: pkg.activeFramework,
-            platformVersion: pkg.version,
-            pack: row.pack,
-            assemblyFileName: platformAssemblyRequest(row),
-            typeDefinitionId,
-            stableSelectors,
-          };
-        })()
-      : {
-          kind: "package",
-          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
-          packageId: pkg.id,
-          version: pkg.version,
-          targetFramework: pkg.activeFramework,
-          assemblyName: type.assemblyId,
-          typeDefinitionId,
-          stableSelectors,
-        };
-  const selection: ImplementationProfileFamilySelection = {
-    typeDefinitionId,
-    display: `${typeDisplayName(type)}.${member.name}`,
-    members: member.overloads.map((overload, index) => ({
-      typeDefinitionId,
-      stableSelector: overload.stableSelector,
-      display: overload.signature,
-      bodyTokens: [
-        ...new Set([
-          ...(overload.metadataToken === null
-            ? []
-            : [overload.metadataToken]),
-          ...overload.bodySelectors.map(body => body.token),
-        ]),
-      ],
-      selected: selectedOverloadIndex === index,
-    })),
-    isCurrent: () =>
-      state.package === pkg
-      && selectedType()?.id === type.id
-      && selectedMember(selectedType())?.key === member.key,
-  };
-  return { request, selection };
-}
-
-function loadSelectedImplementationProfiles(retry = false) {
-  const target = implementationProfileTarget();
-  if (!target) return Promise.resolve();
-  return retry
-    ? implementationProfiles.retry(target.request, target.selection)
-    : implementationProfiles.activate(target.request, target.selection);
-}
-
-function currentImplementationProfileState(): ImplementationProfileState {
-  const current = state.implementationProfiles;
-  if (current.status === "idle" || current.selection.isCurrent())
-    return current;
-  const target = implementationProfileTarget();
-  return target
-    ? {
-        status: "loading",
-        request: target.request,
-        selection: target.selection,
-      }
-    : { status: "idle" };
 }
 
 // Member-list heat: after a Type's member list paints, one request covers every
@@ -6489,7 +6363,7 @@ function typeHeatTarget(): {
         const row = platformLibraryForRequest(pkg, type.assemblyId);
         return {
           kind: "platform",
-          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+          workspaceGeneration: typeHeatWorkspaceGeneration(pkg),
           targetFramework: pkg.activeFramework,
           platformVersion: pkg.version,
           pack: row.pack,
@@ -6499,7 +6373,7 @@ function typeHeatTarget(): {
       })()
     : {
         kind: "package",
-        workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+        workspaceGeneration: typeHeatWorkspaceGeneration(pkg),
         packageId: pkg.id,
         version: pkg.version,
         targetFramework: pkg.activeFramework,
@@ -6556,22 +6430,6 @@ function scheduleTypeHeat() {
   }, 0));
 }
 
-// The implementation-evidence disclosure is the only family-detail request.
-// It belongs to the overload it was opened on, and it renders open only while
-// the published family detail still serves the current selection, so moving
-// to another overload or Type never issues a request by itself.
-function implementationEvidenceKey(stableSelector: string) {
-  return `${selectedType()?.id ?? ""}\u0000${stableSelector}`;
-}
-
-function implementationEvidenceIsOpen(stableSelector: string) {
-  const published = state.implementationProfiles;
-  return state.implementationEvidenceKey
-      === implementationEvidenceKey(stableSelector)
-    && published.status !== "idle"
-    && published.selection.isCurrent();
-}
-
 function navGroupSelectors(group: { key: string }) {
   const type = selectedType();
   const appGroup = type
@@ -6609,36 +6467,6 @@ function memberNavFamilyHeatCue(group: { key: string }) {
   return family
     ? familyHeatCue(currentTypeHeatState(), family.name, family.selectors)
     : null;
-}
-
-function renderOverloadImplementationEvidence(stableSelector: string) {
-  const member = selectedMember(selectedType());
-  if (!member || !implementationProfileTarget()) return "";
-  const evidenceOpen = implementationEvidenceIsOpen(stableSelector);
-  const selectors = member.overloads.map(overload => overload.stableSelector);
-  const heatState = currentTypeHeatState();
-  const overloadHeat = familyHeatFor(heatState, member.name, selectors)
-    ?.overloads.find(item => item.stableSelector === stableSelector);
-  const summary = heatState.status === "failed"
-    ? `<div class="implementation-heat-failure"><p>Implementation heat is unavailable (${escapeHtml(heatState.outcome)}): ${escapeHtml(heatState.message)}${heatState.outcome === "producer-failed" ? ' <button type="button" id="type-heat-retry" data-type-heat-retry>Retry heat</button>' : ""}</p>${heatState.diagnostics?.length ? `<ul>${heatState.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`
-    : overloadHeat
-      ? `<p class="implementation-profile-heat-summary">${escapeHtml(overloadHeat.description)}</p>`
-      : heatState.status === "loading"
-        ? '<p class="docs-loading">Measuring this Type\'s overloads…</p>'
-        : "";
-  return `<section class="learn-section member-implementation" aria-labelledby="member-implementation-title">
-    <h2 id="member-implementation-title">Implementation</h2>
-    ${summary}
-    <details class="implementation-evidence" data-implementation-evidence="${escapeHtml(stableSelector)}"${evidenceOpen ? " open" : ""}>
-      <summary>Implementation evidence</summary>
-      ${evidenceOpen
-        ? renderImplementationProfileState(
-            currentImplementationProfileState(),
-            escapeHtml,
-            stableSelector)
-        : ""}
-    </details>
-  </section>`;
 }
 
 function currentSourceOperationKind() {
@@ -10183,7 +10011,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
               ? "error"
               : "loaded",
         })}
-        ${renderOverloadImplementationEvidence(overload.stableSelector)}
       </article>
     `;
   } else if (state.memberSection === "call-graph") {
@@ -11533,42 +11360,6 @@ function bindMemberFactsEvents() {
   });
 }
 
-function bindImplementationProfileEvents() {
-  document.querySelector<HTMLDetailsElement>("[data-implementation-evidence]")
-    ?.addEventListener("toggle", event => {
-      const details = event.currentTarget;
-      if (!(details instanceof HTMLDetailsElement)) return;
-      const selector = details.dataset.implementationEvidence ?? "";
-      if (details.open === implementationEvidenceIsOpen(selector)) return;
-      state.implementationEvidenceKey = details.open
-        ? implementationEvidenceKey(selector)
-        : null;
-      if (details.open)
-        observeAsync(
-          loadSelectedImplementationProfiles(),
-          "Loading implementation evidence");
-      else
-        renderPreservingMemberFocus();
-    });
-  document.querySelector("[data-type-heat-retry]")
-    ?.addEventListener("click", () => {
-      const target = typeHeatTarget();
-      if (target) typeHeat.retry(target.request, target.isCurrent);
-    });
-  bindImplementationProfileState(document, {
-    onRetry: () => {
-      observeAsync(
-        loadSelectedImplementationProfiles(true).finally(() => {
-          requestAnimationFrame(() =>
-            document.querySelector<HTMLElement>(
-              "#implementation-profile-retry, #implementation-profile-state-title")
-              ?.focus({ preventScroll: true }));
-        }),
-        "Retrying implementation profiles");
-    },
-  });
-}
-
 function bindAnnotatedSourceEvents() {
   bindAnnotatedSource(document, {
     onAction: applyAnnotatedSourceAction,
@@ -11654,7 +11445,6 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindMemberFactsEvents();
-  bindImplementationProfileEvents();
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibrarySubjectNavEvents();
@@ -17827,12 +17617,8 @@ async function loadSelectedMemberSource() {
   }
   const signature = memberRequestSignature(type, overload, false, true);
   const pkg = currentPackage();
-  return sourceInspection.loadMemberSource({
+  const selection = {
     signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
     type: type.definitionId ?? type.id,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     selectorKey:
@@ -17843,6 +17629,25 @@ async function loadSelectedMemberSource() {
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
     taste: JSON.stringify(state.taste),
     isCurrent: () => memberRequestIsCurrent(signature, false, true),
+  };
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, type.assemblyId);
+    return sourceInspection.loadMemberSource({
+      ...selection,
+      kind: "platform",
+      framework: pkg.activeFramework,
+      version: pkg.version,
+      assembly: platformAssemblyRequest(row),
+      pack: row.pack,
+    });
+  }
+  return sourceInspection.loadMemberSource({
+    ...selection,
+    kind: "package",
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
   });
 }
 

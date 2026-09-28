@@ -264,6 +264,9 @@ actions in the result:
   [Inspect Web Type Explorer](inspect-web-type-explorer.md); this document owns
   only the action's placement. Member Source retains its existing contextual
   Settings destination; changing that destination is outside Type Explorer.
+  Member Source is available for package and platform implementation members;
+  the platform route resolves the selected implementation assembly through the
+  platform workspace rather than treating it as a package coordinate.
 - Annotated Source places `Copy` and `Explore` in the working-surface action
   region while product provenance stays attached to the bottom.
 - Member Diff places the viewer-owned mode control, `Previous`, current change

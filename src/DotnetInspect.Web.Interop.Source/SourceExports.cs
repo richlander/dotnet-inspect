@@ -69,6 +69,80 @@ public static partial class SourceExports
     }
 
     [JSExport]
+    public static async Task<string> QueryPlatformMemberSource(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        string styleOptionsJson)
+    {
+        BrowserMemberSource source =
+            await QueryPlatformMemberSourceCore(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken,
+                styleOptionsJson);
+        return JsonSerializer.Serialize(
+            source,
+            BrowserSourceJsonContext.Default.BrowserMemberSource);
+    }
+
+    static async Task<BrowserMemberSource> QueryPlatformMemberSourceCore(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        string styleOptionsJson)
+    {
+        using BrowserSourceOperationLease operation =
+            await BrowserSourceOperationCoordinator.BeginAsync();
+        await using BrowserMemberResolution.ScopedPlatformResolution resolved =
+            await BrowserMemberResolution.PlatformImplementationMemberAsync(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken,
+                operation.CancellationToken);
+        AssemblyMemberSourceRequest request = MemberSourceRequest(
+            resolved.Member,
+            typeIdentity,
+            memberName,
+            styleOptionsJson,
+            includeParts: true);
+        InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
+            await resolved.Scope.UseParticipant(
+                resolved.Participant,
+                (group, participant) => MemberSourceInspection.ExecuteAsync(
+                    group,
+                    participant,
+                    request,
+                    BrowserSourceQueryContext.Create(),
+                    operation.CancellationToken));
+        BrowserMemberSource source = AdaptMember(
+            inspection.Content,
+            resolved.Participant,
+            includeParts: true);
+        return source;
+    }
+
+    [JSExport]
     public static async Task<string> QueryTypeSource(
         string operationId,
         string packageId,
@@ -412,22 +486,12 @@ public static partial class SourceExports
         operation.CancellationToken.ThrowIfCancellationRequested();
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
-        ApiMember selectedMember = resolution.Member;
-        if (selectedMember.MetadataToken != resolution.BodyToken)
-        {
-            selectedMember = ApiMemberAccessors.Create(selectedMember, resolution.Type)
-                .SingleOrDefault(member => member.MetadataToken == resolution.BodyToken)
-                ?? throw new InvalidOperationException(
-                    $"Whole-member source for '{typeIdentity}.{memberName}' is unavailable because "
-                    + "the selected body has no exact physical accessor projection.");
-        }
-
-        AssemblyMemberSourceRequest request = AssemblyMemberSourceRequest.From(
-            resolution.Type,
-            selectedMember,
-            BrowserStyleOptions.Resolve(styleOptionsJson));
-        if (includeParts)
-            request = request.WithAuthoredParts(allowDecompiledFallback: true);
+        AssemblyMemberSourceRequest request = MemberSourceRequest(
+            resolution,
+            typeIdentity,
+            memberName,
+            styleOptionsJson,
+            includeParts);
         InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
             await scope.UseImplementationParticipant(
                 participant,
@@ -439,6 +503,35 @@ public static partial class SourceExports
                     operation.CancellationToken));
 
         return AdaptMember(inspection.Content, participant, includeParts);
+    }
+
+    static AssemblyMemberSourceRequest MemberSourceRequest(
+        CallGraphMemberResolution resolution,
+        string typeIdentity,
+        string memberName,
+        string styleOptionsJson,
+        bool includeParts)
+    {
+        ApiMember selectedMember = resolution.Member;
+        if (selectedMember.MetadataToken != resolution.BodyToken)
+        {
+            selectedMember = ApiMemberAccessors.Create(
+                    selectedMember,
+                    resolution.Type)
+                .SingleOrDefault(
+                    member => member.MetadataToken == resolution.BodyToken)
+                ?? throw new InvalidOperationException(
+                    $"Whole-member source for '{typeIdentity}.{memberName}' is unavailable because "
+                    + "the selected body has no exact physical accessor projection.");
+        }
+
+        AssemblyMemberSourceRequest request = AssemblyMemberSourceRequest.From(
+            resolution.Type,
+            selectedMember,
+            BrowserStyleOptions.Resolve(styleOptionsJson));
+        return includeParts
+            ? request.WithAuthoredParts(allowDecompiledFallback: true)
+            : request;
     }
 
     static async Task<(
@@ -525,10 +618,31 @@ public static partial class SourceExports
         AssemblyMemberSourceEntry result,
         BrowserWorkspaceParticipant participant,
         bool includeParts) =>
+        AdaptMember(
+            result,
+            DecompiledProvenance(participant),
+            includeParts);
+
+    internal static BrowserMemberSource AdaptMember(
+        AssemblyMemberSourceEntry result,
+        WorkspaceContextMember participant,
+        bool includeParts) =>
+        AdaptMember(
+            result,
+            DecompiledProvenance(participant),
+            includeParts);
+
+    static BrowserMemberSource AdaptMember(
+        AssemblyMemberSourceEntry result,
+        InertString decompiledProvenance,
+        bool includeParts) =>
         result switch
         {
             AssemblyMemberSourceEntry.Available available =>
-                AdaptMember(available.Source, participant, includeParts),
+                AdaptMember(
+                    available.Source,
+                    decompiledProvenance,
+                    includeParts),
             AssemblyMemberSourceEntry.Rejected rejected =>
                 throw new InvalidOperationException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
@@ -606,7 +720,7 @@ public static partial class SourceExports
 
     static BrowserSource Adapt(
         AssemblyMemberSource source,
-        BrowserWorkspaceParticipant participant) =>
+        InertString decompiledProvenance) =>
         source switch
         {
             AssemblyMemberSource.Pdb pdb => new BrowserSource(
@@ -617,7 +731,7 @@ public static partial class SourceExports
                 pdb.Text),
             AssemblyMemberSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
-                DecompiledProvenance(participant),
+                decompiledProvenance,
                 null,
                 PdbSourceLimitation(decompiled.PdbAttempt.Lines),
                 decompiled.Text),
@@ -628,9 +742,27 @@ public static partial class SourceExports
     internal static BrowserMemberSource AdaptMember(
         AssemblyMemberSource source,
         BrowserWorkspaceParticipant participant,
+        bool includeParts) =>
+        AdaptMember(
+            source,
+            DecompiledProvenance(participant),
+            includeParts);
+
+    internal static BrowserMemberSource AdaptMember(
+        AssemblyMemberSource source,
+        WorkspaceContextMember participant,
+        bool includeParts) =>
+        AdaptMember(
+            source,
+            DecompiledProvenance(participant),
+            includeParts);
+
+    static BrowserMemberSource AdaptMember(
+        AssemblyMemberSource source,
+        InertString decompiledProvenance,
         bool includeParts)
     {
-        BrowserSource browserSource = Adapt(source, participant);
+        BrowserSource browserSource = Adapt(source, decompiledProvenance);
         BrowserMemberSourcePart[] parts = includeParts
             && source is AssemblyMemberSource.Pdb
             {
@@ -756,6 +888,16 @@ public static partial class SourceExports
     static InertString DecompiledProvenance(
         BrowserWorkspaceParticipant participant) =>
         PackageProvenance("dotnet-inspect from", participant);
+
+    static InertString DecompiledProvenance(
+        WorkspaceContextMember participant) =>
+        participant.Realized is RealizedMemberCoordinate.Platform platform
+            ? new InertString(
+                TextPolicy.Field,
+                $"dotnet-inspect from {platform.Family} "
+                + $"{platform.Version} {platform.Assembly ?? "platform"}")
+            : throw new InvalidOperationException(
+                "Platform member source requires a realized platform coordinate.");
 
     static InertString PackageProvenance(
         string prefix,

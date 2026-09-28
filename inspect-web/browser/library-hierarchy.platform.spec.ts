@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   subjectTab,
+  inspectorTab,
   chooseInspector,
   chooseSubject,
   surface,
@@ -15,6 +16,35 @@ import {
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
+
+test("Platform Member offers Source without an Implementation section", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").first().click();
+  await chooseSubject(page, "member", "Member");
+
+  await expect(
+    inspectorTab(page, "data-member-section", "source"),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Implementation" }))
+    .toHaveCount(0);
+  await chooseInspector(page, "data-member-section", "source", "Source");
+
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /net11\.0.*System\.Text\.Json\.dll.*netcore\.app/,
+  );
+});
 
 // PR-fast: production navigation with the existing Platform facade fixture.
 test("Platform Workspace entry preserves the catalog for Back and Forward", async ({ page }) => {

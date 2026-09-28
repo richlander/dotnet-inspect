@@ -21,22 +21,35 @@ import type {
   OperationSession,
 } from "./operation-authority.ts";
 
-interface SourceCoordinates {
+interface PackageSourceCoordinates {
   packageId: string;
   version: string;
   framework: string;
   assembly: string;
-  type: string;
 }
 
-export interface MemberSourceQuery extends SourceCoordinates {
+interface MemberSourceSelection {
+  type: string;
   member: string;
   selectorKey: string;
   metadataToken: number;
   taste: string;
 }
 
-export interface TypeSourceQuery extends SourceCoordinates {
+export type MemberSourceQuery =
+  | ({
+      kind: "package";
+    } & PackageSourceCoordinates & MemberSourceSelection)
+  | ({
+      kind: "platform";
+      framework: string;
+      version: string;
+      assembly: string;
+      pack: string;
+    } & MemberSourceSelection);
+
+export interface TypeSourceQuery extends PackageSourceCoordinates {
+  type: string;
   taste: string;
   view: TypeSourceView;
 }
@@ -56,7 +69,8 @@ export function typeSourceView(value: string): TypeSourceView | null {
     : null;
 }
 
-export interface GraphSourceRequest extends SourceCoordinates {
+export interface GraphSourceRequest extends PackageSourceCoordinates {
+  type: string;
   member: string;
   selectorKey: string;
   metadataToken: number;
@@ -121,10 +135,10 @@ export function graphSourceAutoLoadRequest(
   }
 }
 
-export interface MemberSourceLoadRequest extends MemberSourceQuery {
+export type MemberSourceLoadRequest = MemberSourceQuery & {
   signature: string;
   isCurrent(): boolean;
-}
+};
 
 export interface TypeSourceLoadRequest extends TypeSourceQuery {
   signature: string;

@@ -14,12 +14,12 @@ completed `InspectionEnvelope<TContent>` without redefining exact family
 selection, implementation metrics, overload relationships, generated-body
 correspondence, API identity, participant selection, or diagnostics.
 
-Implementation evidence is part of the member list, where the reader already
-compares overloads; the separate Implementation Profiles Member section is
-retired. This revision acquires member-list evidence once per Type rather than
-once per expanded family, because Analysis setup cost dominates a family-sized
-request. It replaces the earlier analyzed-family record on the family result,
-which no consumer reads under this design.
+Implementation evidence is represented only by subtle member-list heat and hub
+cues, where the reader already compares overloads. Inspect Web has no
+Implementation section, evidence disclosure, or raw-metrics view; readers who
+need that detail use the CLI `Member Metrics` section. The Browser acquires
+member-list evidence once per Type because Analysis setup cost dominates a
+family-sized request.
 
 ## Claim
 
@@ -37,10 +37,11 @@ Heat is a family-relative size cue, not a complexity score. The hub strip is
 derived only from owner-issued call relationships, never from names,
 signatures, or size.
 
-The experience preserves owner-issued Member anchors, physical body identity,
-raw measurements, exact sibling-call relationships, coverage, incompleteness,
-and diagnostics. It never treats a failed or incomplete inspection as a
-successful empty family.
+The experience preserves owner-issued Member anchors, exact sibling-call
+relationships, coverage, incompleteness, and diagnostics needed to derive the
+compact cues. It never treats a failed or incomplete inspection as a
+successful empty family. Physical-body rows and raw measurements remain CLI
+concerns.
 
 ## Adjacent owners
 
@@ -67,11 +68,11 @@ This owner composes existing contracts by their issued currencies:
 This design transfers one claim to Queries: a **Type heat query** that, for one
 participant and one Type definition ID, analyzes every eligible overload
 family on that Type in a single Analysis execution and issues the compact
-**Type heat record** defined below. The family query and its result are
-unchanged. The Analysis facade lowers the completed host-neutral envelope to an
-assembly-local generated wire contract. The Browser joins only owner-issued
-method tokens, module identities, Type definition IDs, stable Member
-selectors, and exact Library coordinates.
+**Type heat record** defined below. The CLI-owned family query and result are
+unchanged and do not cross the Browser facade. The Analysis facade lowers the
+completed host-neutral Type heat envelope to an assembly-local generated wire
+contract. The Browser joins only owner-issued method tokens, module identities,
+Type definition IDs, stable Member selectors, and exact Library coordinates.
 
 ## Supported scope
 
@@ -126,11 +127,9 @@ explicit requests. For this consumer only, selecting a Type is that explicit
 request, by operator decision: the reader has chosen the Type whose members
 they are reading, and one request per Type replaces a request per family.
 
-Selecting a concrete overload issues no implementation request; the Member
-detail restates its heat description from the Type heat record. Opening the
-detail's implementation-evidence disclosure requests that overload's family
-detail through the unchanged family query, so a walk that never asks for raw
-metrics pays one Analysis execution per Type.
+Selecting a concrete overload issues no implementation request and renders no
+Implementation section. A Browser walk pays at most one Analysis execution per
+Type; raw metrics remain available through the CLI.
 
 The engine Worker is single-threaded. Heat analysis is synchronous managed CPU
 work in the same ordinary Worker as interactive requests such as Member
@@ -147,7 +146,8 @@ the remainder of the run. The Browser bounds this:
 - at most one Type heat request runs; a queued request for a Type the reader
   has left is dropped, and a running request finishes and settles its cache
   entry but publishes only into the view that still owns it; and
-- a producer-failed Type is not retried by navigation. Retry is explicit.
+- a producer-failed Type is retained as a terminal result and is not retried by
+  navigation.
 
 Completion uses the existing operation-authority `started` and `terminal`
 events. This revision issues no progress events and adds no separate event
@@ -184,10 +184,10 @@ record per eligible family. Each family record carries:
   that fall inside the analyzed family.
 
 The Type heat query computes each size and trivial flag when it constructs the
-record; the Browser reads them and never recomputes them from physical bodies. The record
-carries no raw metric set, physical-body breakdown, or IL offsets. Those remain
-in the family detail result. The record also carries the envelope
-outcome, Share outcome, and ordered diagnostics.
+record; the Browser reads them and never recomputes them from physical bodies.
+The record carries no raw metric set, physical-body breakdown, or IL offsets.
+Those remain available through the CLI family result. The record also carries
+the envelope outcome, Share outcome, and ordered diagnostics.
 
 ## Browser wire identity
 
@@ -197,42 +197,28 @@ normalize repeated identities, but it preserves these exact join currencies:
 
 - method identity: module version ID plus metadata token;
 - public Member identity: Type definition ID plus stable selector;
-- overload relationships: caller and callee method identity, and, for the
-  family detail result, evidence-body identity, IL offset, and call kind; and
+- overload relationships: caller and callee method identity; and
 - subject identity: assembly name, version, culture, and public-key token.
 
 A Type heat record analyzes one module, so it carries method identity as a
 bare metadata token under the record's subject module version ID; its
 relationships join by caller and callee token.
 
-Method names, declaring Types, parameter Types, return Types, and generated
-framework Types are carried as host-produced display strings. Browser logic
-does not parse those strings to recover identity.
-
-The family detail wire includes every raw `MethodImplementationProfile`
-measurement: IL bytes, instruction count, distinct opcode count, basic blocks,
-branches, conditional branches, switches, switch targets, normal-flow
-cyclomatic complexity, loops, exception-region counts, locals, direct calls,
-distinct callees, allocations, throws, unsafe, Reflection, async evidence,
-incoming and outgoing sibling-overload counts, and completeness with its
-reasons.
+Method names and family labels are carried as host-produced display strings.
+Browser logic does not parse those strings to recover identity.
 
 ## Cache and publication authority
 
-The existing implementation-profile result cache holds both results. A Type
-heat entry's key is the exact participant, workspace generation, and Type
-definition ID. A family detail entry's key is the exact participant,
-workspace generation, Type definition ID, and canonicalized complete selector
-set. A successful, empty, incomplete, rejected, or failed settled result
-belongs only to its key, and an in-flight request is single-flight for its
-key.
+The implementation-heat result cache holds Type heat records. An entry's key is
+the exact participant, workspace generation, and Type definition ID. A
+successful, empty, incomplete, rejected, or failed settled result belongs only
+to its key, and an in-flight request is single-flight for its key.
 
 Returning to a Type reuses its cached heat entry without a request. A transport
 or producer failure is retained as a terminal failed state so navigation does
-not retry expensive work implicitly; the Retry action explicitly replaces that
-entry. Changing package, platform, framework, version, implementation Library,
-workspace generation, or Type creates a different key and cannot consume the
-previous entry.
+not retry expensive work implicitly. Changing package, platform, framework,
+version, implementation Library, workspace generation, or Type creates a
+different key and cannot consume the previous entry.
 
 Replacing the active view creates a new operation-authority operation. A
 request may still settle its cache entry, but only the current operation may
@@ -250,7 +236,8 @@ iterator state machine, a local function, or a lambda. An overload's code is
 all of that; for an `async` implementation the logical body is only a stub that
 starts the state machine. Declared-source attribution assigns each generated
 body to exactly one logical method, so the sum counts no body twice. The family
-detail result keeps each physical body as a separate evidence row.
+result used by CLI `Member Metrics` keeps each physical body as a separate
+evidence row.
 
 An analyzed method is **trivial** when every body counted in its size has at
 most eight instructions and no branches, loops, exception regions, unsafe
@@ -348,19 +335,13 @@ its size in instructions; its share of the family maximum and whether that
 maximum belongs to a method outside the listed overloads; and, for a hub, how
 many same-name methods call it. Neither channel relies on color alone.
 
-### Detail
+### Detail boundary
 
-Selecting an overload restates its heat description from the Type heat record
-in the Member detail. The detail's implementation-evidence disclosure, when
-opened, shows the family detail result: instruction counts per physical body,
-structural cues, the exact sibling relationships the overload makes and
-receives within the public roster, and every raw metric, incomplete reason,
-and unavailable-body receipt.
-
-The presentation uses host-specific HTML and CSS rather than Markout. The
-member list is an interactive Browser view; no current CLI or multi-format
-consumer needs this rendering. The structured wire contract, rather than
-rendered HTML, is the reusable boundary.
+Member detail contains no Implementation section or implementation-evidence
+disclosure. The member list's tint, hub strip, status text, and accessible
+description are the complete Browser presentation. Raw physical-body metrics,
+relationships, and incomplete reasons are available from the CLI `Member
+Metrics` section.
 
 ## Visible states
 
@@ -376,15 +357,10 @@ For the Type heat record:
   on its parent row;
 - **rejected, failed, or unavailable Content**, or **producer failed**: no heat
   or hub strip, and `heat unavailable` on each eligible family's parent row
-  when expanded. The owner-issued outcome and diagnostics appear in the Member
-  detail of any selected member of an eligible family in that Type, with an
-  explicit Retry for a transport or producer failure; settled Content belongs
-  to its key and is not retried; and
+  when expanded. Settled Content belongs to its key and is not retried by
+  navigation; and
 - **superseded**: no state is published because operation authority removed
   the view's publication right.
-
-The family detail result keeps its existing loading, ready, incomplete, empty,
-rejected, failed, producer-failed, and superseded states in the Member detail.
 
 ## Real evidence
 
@@ -426,8 +402,7 @@ Measurements that shaped this revision, observational rather than thresholds:
   from cache; overload rows painted within about 100 ms in every case.
 
 Deterministic synthetic fixture coverage remains responsible for rejected,
-failed, incomplete, bodyless, generated-body, retry, and stale-publication
-boundaries.
+failed, incomplete, bodyless, generated-body, and stale-publication boundaries.
 
 ## Gates
 
@@ -441,18 +416,16 @@ The following gates enforce this design:
    the Browser derives its 8 hubs; that ineligible, attached-extension, and
    mixed groups are absent; and that one Analysis execution serves every family
    on the Type. The family query and CLI `Member Metrics` gates pass unchanged.
-2. Analysis-facade projection tests compare Type heat and family detail wire
-   results with their completed host-neutral envelopes, including outcome,
-   identities, sizes, relationships, coverage, Share, and ordered diagnostics.
+2. Analysis-facade projection tests compare Type heat wire results with their
+   completed host-neutral envelopes, including outcome, identities, sizes,
+   relationships, coverage, Share, and ordered diagnostics.
 3. Generated-facade ownership and ordinary Worker tests prove the complete
    typed results cross the Analysis facade and Worker transport unchanged.
 4. Coordinator tests prove no request before the member list's first paint, one
    Type heat request per Type, no request on family expansion or overload
-   selection, a family detail request only from the evidence disclosure,
-   deferral while an interactive request is outstanding, at most one heat
-   request running with queued requests for departed Types dropped, cache reuse
-   on return, explicit retry, workspace replacement, and stale-publication
-   suppression.
+   selection, deferral while an interactive request is outstanding, at most one
+   heat request running with queued requests for departed Types dropped, cache
+   reuse on return, workspace replacement, and stale-publication suppression.
 5. Family-projection tests prove size, the family maximum, the half-of-maximum
    heat threshold, noise suppression from sizes and trivial flags, hub
    derivation, and unknown-maximum handling over the real-asset families plus
@@ -460,7 +433,8 @@ The following gates enforce this design:
    boundaries.
 6. Member-list rendering and accessibility tests prove roster order,
    right-anchored heat with at most 75% reach, the hub strip, parent-row status
-   text and tokens, accessible descriptions, and every visible state.
+   text and tokens, accessible descriptions, every visible state, and the
+   absence of an Implementation detail section.
 7. The Inspect Web authored typecheck, lint, `knip`, build, and focused Browser
    tests gate the production composition; Browser tests run against a fresh
    build.

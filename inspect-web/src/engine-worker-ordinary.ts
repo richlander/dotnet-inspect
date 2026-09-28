@@ -84,7 +84,6 @@ type MetadataOperationName =
 type AnalysisOperationName =
   | "queryCloneCandidates"
   | "queryMemberFacts"
-  | "queryPackageImplementationProfiles"
   | "queryPackageIntegrations"
   | "queryPlatformIntegrations"
   | "queryPackageOpportunities"
@@ -92,13 +91,13 @@ type AnalysisOperationName =
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
   | "queryPackageTypeImplementationHeat"
-  | "queryPlatformImplementationProfiles"
   | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformPerformance";
 
 type SourceOperationName =
   | "queryMemberSource"
+  | "queryPlatformMemberSource"
   | "queryTypeMemberSource"
   | "cancelSourceQuery"
   | "queryMethodBodyComparisonTargets"
@@ -1234,26 +1233,6 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryCloneCandidates"]>
       ) => facades.analysis.queryCloneCandidates(...args),
     ),
-    queryPackageImplementationProfiles: valueOperation(
-      "ordinary-analysis-query-package-implementation-profiles",
-      6,
-      (
-        facades,
-        ...args: Parameters<
-          AnalysisFacade["queryPackageImplementationProfiles"]
-        >
-      ) => facades.analysis.queryPackageImplementationProfiles(...args),
-    ),
-    queryPlatformImplementationProfiles: valueOperation(
-      "ordinary-analysis-query-platform-implementation-profiles",
-      6,
-      (
-        facades,
-        ...args: Parameters<
-          AnalysisFacade["queryPlatformImplementationProfiles"]
-        >
-      ) => facades.analysis.queryPlatformImplementationProfiles(...args),
-    ),
     queryPackageTypeImplementationHeat: valueOperation(
       "ordinary-analysis-query-package-type-implementation-heat",
       5,
@@ -1355,6 +1334,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<SourceFacade["queryMemberSource"]>
       ) => facades.source.queryMemberSource(...args),
+    ),
+    queryPlatformMemberSource: valueOperation(
+      "ordinary-source-query-platform-member",
+      9,
+      (
+        facades,
+        ...args: Parameters<SourceFacade["queryPlatformMemberSource"]>
+      ) => facades.source.queryPlatformMemberSource(...args),
     ),
     queryTypeMemberSource: valueOperation(
       "ordinary-source-query-type-member",
@@ -1924,14 +1911,6 @@ export function bindEngineWorkerOrdinaryClient(
       queryCloneCandidates: bind(
         engineWorkerOrdinaryOperations.analysis.queryCloneCandidates,
       ),
-      queryPackageImplementationProfiles: bind(
-        engineWorkerOrdinaryOperations.analysis
-          .queryPackageImplementationProfiles,
-      ),
-      queryPlatformImplementationProfiles: bind(
-        engineWorkerOrdinaryOperations.analysis
-          .queryPlatformImplementationProfiles,
-      ),
       queryPackageTypeImplementationHeat: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageTypeImplementationHeat,
@@ -1979,6 +1958,9 @@ export function bindEngineWorkerOrdinaryClient(
     source: {
       queryMemberSource: bind(
         engineWorkerOrdinaryOperations.source.queryMemberSource,
+      ),
+      queryPlatformMemberSource: bind(
+        engineWorkerOrdinaryOperations.source.queryPlatformMemberSource,
       ),
       queryTypeMemberSource: bind(
         engineWorkerOrdinaryOperations.source.queryTypeMemberSource,

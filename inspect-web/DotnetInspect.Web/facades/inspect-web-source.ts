@@ -799,6 +799,7 @@ type $ManagedExports = {
             readonly "QueryMemberSourceComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+            readonly "QueryPlatformMemberSource.641907440": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
             readonly "QueryTypeExplorer.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: string) => Promise<string>;
             readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
             readonly "QueryTypeSource.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, view: string) => Promise<string>;
@@ -990,6 +991,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryPlatformMemberSource.641907440");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryPlatformMemberSource.641907440\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Source");
+    value = $ownDataProperty(value, "SourceExports");
     value = $ownDataProperty(value, "QueryTypeExplorer.335255791");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.335255791\u0027 is not callable.");
@@ -1131,6 +1144,12 @@ export async function queryMethodBodyComparisonTargets(operationId: string, pack
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMethodBodyComparisonTargets.642387634"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMethodBodyTargetsResult;
+}
+
+export async function queryPlatformMemberSource(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberSource> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryPlatformMemberSource.641907440"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMemberSource;
 }
 
 export async function queryTypeExplorer(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: BrowserTypeExplorerRequest): Promise<BrowserTypeExplorerResult> {
