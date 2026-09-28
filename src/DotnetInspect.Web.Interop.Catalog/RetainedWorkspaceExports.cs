@@ -801,6 +801,16 @@ internal static class BrowserRetainedWorkspaceActivationService
                         "packet",
                         $"Complete Workspace restoration does not support packet format {packet.FormatVersion}."));
             }
+            if (packet.Tabs.Count == 0)
+            {
+                return new(
+                    false,
+                    [],
+                    new(
+                        "UnsupportedDefinition",
+                        "packet.tabs",
+                        "Complete Workspace link activation requires at least one Package or Platform target."));
+            }
             return new(
                 true,
                 [

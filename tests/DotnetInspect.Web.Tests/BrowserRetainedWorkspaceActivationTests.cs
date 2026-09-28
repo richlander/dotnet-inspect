@@ -19,7 +19,7 @@ public sealed class BrowserRetainedWorkspaceActivationCollection;
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
     [Fact]
-    public void PackageSourceDescription_AdmitsSourceFreeCompletePacketsAndRejectsLegacy()
+    public void PackageSourceDescription_AdmitsTargetedSourceFreePacketsAndRejectsUnsupportedPackets()
     {
         BrowserWorkspacePackageSourceRequirementsResult complete =
             BrowserRetainedWorkspaceActivationService.DescribePackageSources(
@@ -38,6 +38,20 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Contains(
             "packet format 1",
             legacy.Failure?.Message,
+            StringComparison.Ordinal);
+
+        BrowserWorkspacePackageSourceRequirementsResult registrationOnly =
+            BrowserRetainedWorkspaceActivationService.DescribePackageSources(
+                RegistrationOnlyPacket());
+        Assert.False(registrationOnly.Succeeded);
+        Assert.Empty(registrationOnly.Sources);
+        Assert.Equal(
+            "UnsupportedDefinition",
+            registrationOnly.Failure?.Kind);
+        Assert.Equal("packet.tabs", registrationOnly.Failure?.Path);
+        Assert.Contains(
+            "Package or Platform target",
+            registrationOnly.Failure?.Message,
             StringComparison.Ordinal);
     }
 
@@ -1243,6 +1257,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 memberSignature: null,
                 section: null,
                 libraries: []));
+
+    static string RegistrationOnlyPacket() =>
+        WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
+                """,
+                TestContext.Current.CancellationToken));
 
     static async Task<CompleteRestorationExecutionOptions> OptionsAsync()
     {

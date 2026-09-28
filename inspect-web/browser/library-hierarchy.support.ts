@@ -1766,6 +1766,17 @@ async function installFacades(
               },
             };
           }
+          if (!Array.isArray(state.t) || state.t.length === 0) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedDefinition",
+                path: "packet.tabs",
+                message: "Complete Workspace link activation requires at least one Package or Platform target.",
+              },
+            };
+          }
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
       }`,
