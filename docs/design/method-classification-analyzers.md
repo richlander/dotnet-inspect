@@ -57,7 +57,9 @@ This owner does not define:
   [Producer Planning](producer-planning.md) owns those.
 - async recognition, pointer detection, anchors, or signature text. Metadata
   owns those, and this design reuses them behind the gate.
-- sections, Findings, Signals, or presentation, which the CLI owns.
+- the classified-method Finding descriptor, which Metadata owns; or
+- sections, Signals rows, or presentation, which each host binds and
+  presents.
 
 ## The analyzers
 
@@ -120,7 +122,32 @@ fail together, as legacy's do. An unreadable row, such as an undecodable
 signature, is a recoverable failure: legacy skips it, counts it against the
 decode-failure budget, and does the same here.
 
-## Demand
+## Queries and demand
+
+The queries live in host-neutral `DotnetInspector.Queries`, beside
+`UnsafeEvidencePresenceQuery`:
+
+- **One query per analyzer:** P/Invoke, async, and pointer signature. Each is
+  parameterized by its closing (Rows, Count, or Exists) and returns a typed
+  result for that closing, or the typed critical failure.
+- **Rows order.** A Rows result comes in the order its consumers show it
+  today: declaring type, then method name, compared as the CLI compares them
+  today (the default string comparer). Async rows are sorted by kind first,
+  compared ordinally. No host sorts or projects rows again.
+- **One combined request** asks for all three analyzers in one execution, for
+  the classified-method Finding, Signals, and LibraryInfo counts. It returns
+  a typed result that carries:
+  - the three analyzers' rows merged in legacy order;
+  - the Finding inspection built from them; and
+  - each analyzer's count.
+
+  No host merges three results by hand.
+
+Hosts only bind. A section registers the query and the closing it shows.
+`LibraryInspection` maps typed results into its model, with no splitting,
+merging, sorting, or counting logic of its own. Counts come from Count
+closings, or from the combined result's counts, never from counting rows in
+the host.
 
 Each consumer asks only for what it shows:
 
@@ -132,28 +159,31 @@ Each consumer asks only for what it shows:
 | Signals | Count of P/Invoke and pointer, and the async kinds present |
 | Classified-method Finding and LibraryInfo counts | rows of all three, merged |
 
-The CLI splits the combined `ClassifiedMethodsQuery` result into one result
-per analyzer and closing. The Finding merges the three analyzers' rows in the
-legacy order, so its observations are unchanged. On a critical failure, every
-consumer that asked reports the one typed failure.
+The combined request's Finding observations equal those legacy produces from
+`ClassifiedMethodsQuery`. On a critical failure, every query that was asked
+returns the one typed failure, and every host presents it.
 
 ## Layering
 
 The analyzers and the method-row gate live in `ILInspector.Analysis`, beside
 Producer Planning. The gate uses Metadata's classification, in-place
 comparison, and projection functions through a public API that names no
-Planning type, so Metadata does not reference Planning. `DotnetInspector.Queries`
-already references Analysis.
+Planning type, so Metadata does not reference Planning. The queries live in
+`DotnetInspector.Queries`, which already references Analysis. Hosts reference
+the queries only.
 
 ## Production adoption
 
-1. **CLI.** Async Methods first, as the demo. Then P/Invoke Methods, the
-   pointer-signature list, Signals, the Finding, and the LibraryInfo counts.
-   Each migrated consumer drops its read of the combined result.
+1. **CLI.** Bind Async Methods first, as the demo. Then bind P/Invoke
+   Methods, the pointer-signature list, Signals, the Finding, and the
+   LibraryInfo counts. Each migrated consumer drops its read of the combined
+   `ClassifiedMethodsQuery` result, and `ApplyClassifiedMethodsResult` loses
+   its filtering, sorting, and projection.
 2. **Browser/Wasm.** The browser has no consumer today, and
-   `MethodClassificationScanner` is on its deny list. The analyzers are
-   host-neutral, and a future browser consumer uses them instead of the
-   scanner.
+   `MethodClassificationScanner` is on its deny list. When a browser consumer
+   is designed, it binds the same queries, the same way the CLI does. That is
+   binding, not porting: the browser needs no analyzer, gate, merge, or order
+   logic of its own.
 3. **Retirement.** When no consumer reads the combined result,
    `ClassifiedMethodsQuery`, `AssemblyInspectionSession.ClassifiedMethods`, and
    `MethodClassificationScanner.Scan` are removed. `ClassifyAsyncMethod` stays,
@@ -189,6 +219,9 @@ work, tracked in #8733, and not part of this change.
 - **Abort.** When two analyzers run together and the gate's budget is
   exhausted, neither publishes a result, both are `Aborted` with the same
   `CriticalFailure`, and no row after the exhausting one is read.
+- **Thin hosts.** The CLI's classified-method binding contains no
+  filtering, sorting, merging, or counting of classified rows. The query tests
+  assert order and counts, so the CLI's output tests are not the gate.
 - **Kernel.** An analyzer asked alone runs as a closed-query kernel over the
   gate, and its results equal the interpreted executor's.
 - **End to end.** A NativeAOT base/head comparison of the migrated sections,
@@ -214,5 +247,6 @@ work, tracked in #8733, and not part of this change.
 
   The first keeps the operator's "Count is budget-free" property.
 - **Browser scope.** The design adopts on the CLI only, because the browser
-  has no consumer. Narrowing shared substrate to the CLI needs explicit
-  approval.
+  has no consumer. Later browser adoption is binding the same host-neutral
+  queries, so deferring it carries no porting cost. Narrowing shared substrate
+  to the CLI still needs explicit approval.
