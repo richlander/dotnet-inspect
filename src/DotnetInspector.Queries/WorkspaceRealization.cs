@@ -692,32 +692,30 @@ public sealed class WorkspaceReplacementCoordinator : IAsyncDisposable
         WorkspaceRealizationCandidate candidate) =>
         CutOverCore(
             candidate,
-            expectedPredecessor: null,
-            requireExpectedPredecessor: false);
+            expectedPredecessor: null);
 
     /// <summary>
-    /// Atomically cuts over only while the expected predecessor remains active.
+    /// Atomically cuts over only while the expected predecessor definition
+    /// remains current.
     /// </summary>
     public WorkspaceRealizationCutoverResult CutOver(
         WorkspaceRealizationCandidate candidate,
-        InspectionWorkspaceIdentity expectedPredecessor)
+        WorkspaceDefinitionSnapshot expectedPredecessor)
     {
         ArgumentNullException.ThrowIfNull(expectedPredecessor);
         return CutOverCore(
             candidate,
-            expectedPredecessor,
-            requireExpectedPredecessor: true);
+            expectedPredecessor);
     }
 
     WorkspaceRealizationCutoverResult CutOverCore(
         WorkspaceRealizationCandidate candidate,
-        InspectionWorkspaceIdentity? expectedPredecessor,
-        bool requireExpectedPredecessor)
+        WorkspaceDefinitionSnapshot? expectedPredecessor)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         WorkspaceRealizationRetirement? predecessor = null;
         RealizationState? startClose = null;
-        WorkspaceRealization realization;
+        WorkspaceRealizationCutoverResult result;
         lock (_gate)
         {
             if (!ReferenceEquals(candidate.Owner, this))
@@ -740,42 +738,62 @@ public sealed class WorkspaceReplacementCoordinator : IAsyncDisposable
                 return new WorkspaceRealizationCutoverResult.Rejected(
                     WorkspaceRealizationCandidateRejection.NotReady);
             }
-            if (requireExpectedPredecessor
-                && !ReferenceEquals(
-                    _active?.Identity,
-                    expectedPredecessor))
+
+            WorkspaceRealizationCutoverResult Activate()
             {
-                return new WorkspaceRealizationCutoverResult.Rejected(
-                    WorkspaceRealizationCandidateRejection
-                        .PredecessorChanged);
+                RealizationState successor = candidate.State;
+                successor.Phase = RealizationPhase.Active;
+                successor.AdmissionOpen = true;
+                successor.Published = new WorkspaceRealization(
+                    successor.Workspace.Identity,
+                    successor.OriginPlan,
+                    successor.InitialDefinition!);
+
+                if (_active is { } current)
+                {
+                    (predecessor, startClose) = RetireLocked(
+                        current,
+                        WorkspaceRealizationRetirementReason.Replaced);
+                }
+                _active = successor;
+                _candidate = null;
+                _currentAttempt = null;
+                _candidateBarrier = Task.CompletedTask;
+                return new WorkspaceRealizationCutoverResult.Activated(
+                    successor.Published,
+                    predecessor);
             }
 
-            RealizationState successor = candidate.State;
-            successor.Phase = RealizationPhase.Active;
-            successor.AdmissionOpen = true;
-            successor.Published = new WorkspaceRealization(
-                successor.Workspace.Identity,
-                successor.OriginPlan,
-                successor.InitialDefinition!);
-            realization = successor.Published;
-
-            if (_active is { } current)
+            if (expectedPredecessor is { } expected)
             {
-                (predecessor, startClose) = RetireLocked(
-                    current,
-                    WorkspaceRealizationRetirementReason.Replaced);
+                if (_active is not { } current
+                    || !ReferenceEquals(
+                        current.Identity,
+                        expected.Workspace))
+                {
+                    return new WorkspaceRealizationCutoverResult.Rejected(
+                        WorkspaceRealizationCandidateRejection
+                            .PredecessorChanged);
+                }
+
+                result = current.Workspace.ExecuteIfCurrentDefinition<
+                    WorkspaceRealizationCutoverResult>(
+                        expected,
+                        Activate,
+                        static () =>
+                            new WorkspaceRealizationCutoverResult.Rejected(
+                                WorkspaceRealizationCandidateRejection
+                                    .PredecessorChanged));
             }
-            _active = successor;
-            _candidate = null;
-            _currentAttempt = null;
-            _candidateBarrier = Task.CompletedTask;
+            else
+            {
+                result = Activate();
+            }
         }
 
         if (startClose is not null)
             StartClose(startClose);
-        return new WorkspaceRealizationCutoverResult.Activated(
-            realization,
-            predecessor);
+        return result;
     }
 
     public WorkspaceRealizationCandidateRetirementResult AbandonCandidate(

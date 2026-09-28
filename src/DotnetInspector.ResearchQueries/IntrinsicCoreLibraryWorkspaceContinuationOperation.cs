@@ -346,10 +346,11 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
                         .ConfigureAwait(false));
         }
 
-        if (PredecessorRejection(
+        if (await PredecessorRejectionAsync(
                 coordinator,
                 predecessor,
                 applicability.Receipt)
+                .ConfigureAwait(false)
             is { } predecessorRejection)
         {
             return await RejectBeforeCandidateAsync(
@@ -512,7 +513,7 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         WorkspaceRealizationCutoverResult cutover =
             coordinator.CutOver(
                 candidate,
-                predecessor.Realization);
+                predecessor.Definition);
         if (cutover
             is not WorkspaceRealizationCutoverResult.Activated activated)
         {
@@ -705,26 +706,17 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
             declarationAdmission);
     }
 
-    static IntrinsicCoreLibraryWorkspaceContinuationRejectionReason?
-        PredecessorRejection(
+    static async ValueTask<
+        IntrinsicCoreLibraryWorkspaceContinuationRejectionReason?>
+        PredecessorRejectionAsync(
         WorkspaceReplacementCoordinator coordinator,
         WorkspaceRealizationOperationLease predecessor,
         IntrinsicCoreLibraryRouteApplicabilityReceipt applicability)
     {
-        WorkspaceRealization? current = coordinator.Current;
+        InspectionWorkspace workspace;
         try
         {
-            if (current is null
-                || !ReferenceEquals(
-                    current.Identity,
-                    predecessor.Realization)
-                || !ReferenceEquals(
-                    predecessor.Workspace.Identity,
-                    predecessor.Realization))
-            {
-                return IntrinsicCoreLibraryWorkspaceContinuationRejectionReason
-                    .PredecessorUnavailable;
-            }
+            workspace = predecessor.Workspace;
         }
         catch (ObjectDisposedException)
         {
@@ -732,12 +724,41 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
                 .PredecessorUnavailable;
         }
 
+        WorkspaceRegistrationReadResult registrationRead =
+            workspace.GetRegistrationSnapshot();
+        WorkspaceScopeReadResult scopeRead =
+            await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+        if (registrationRead
+                is not WorkspaceRegistrationReadResult.Available registrations
+            || scopeRead
+                is not WorkspaceScopeReadResult.Available scope)
+        {
+            return IntrinsicCoreLibraryWorkspaceContinuationRejectionReason
+                .PredecessorUnavailable;
+        }
+
+        WorkspaceRealization? current = coordinator.Current;
         return ReferenceEquals(
+                current?.Identity,
+                predecessor.Realization)
+            && ReferenceEquals(
+                workspace.Identity,
+                predecessor.Realization)
+            && ReferenceEquals(
                 predecessor.Definition.Workspace,
                 predecessor.Realization)
             && ReferenceEquals(
                 predecessor.Scope.Revision.Workspace,
                 predecessor.Realization)
+            && ReferenceEquals(
+                predecessor.Definition.Scope.Identity,
+                predecessor.Scope.Revision.Identity)
+            && ReferenceEquals(
+                registrations.Revision.Identity,
+                predecessor.Definition.Registrations.Identity)
+            && ReferenceEquals(
+                scope.Snapshot.Revision.Identity,
+                predecessor.Definition.Scope.Identity)
             && ReferenceEquals(
                 applicability.Context.ScopeRevision,
                 predecessor.Scope.Revision.Identity)

@@ -266,6 +266,152 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
+        IntrinsicCoreLibraryWorkspaceContinuation_RejectsChangedRegistrationBeforeCandidate()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        WorkspacePlan plan = IntrinsicCoreLibraryWorkspacePlan(
+            PlatformFamily.DotNetRuntime);
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        WorkspaceRealizationCandidate predecessorCandidate =
+            await BeginCandidateAsync(coordinator, plan, cancellationToken);
+        PackageDependencyMemberCallGraphOutcome.Completed predecessorGraph;
+        using (WorkspaceRealizationConstructionLease construction =
+            predecessorCandidate.EnterConstruction())
+        {
+            predecessorGraph = await IntrinsicCoreLibraryGraphAsync(
+                construction.Workspace,
+                PlatformFamily.DotNetRuntime,
+                cancellationToken);
+        }
+        WorkspaceRealization predecessorRealization =
+            await ActivateCandidateAsync(
+                coordinator,
+                predecessorCandidate,
+                cancellationToken);
+        using WorkspaceRealizationOperationLease predecessor =
+            await EnterOperationAsync(coordinator, cancellationToken);
+        PlatformPopulationArtifactMaterializationOutcome.Completed platform =
+            await CreateCoreLibraryPlatformPopulationAsync(cancellationToken);
+        IntrinsicCoreLibraryRouteDecision.Applicable applicability =
+            Applicable(
+                predecessorGraph,
+                platform,
+                cancellationToken);
+
+        _ = Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+            predecessor.Workspace.ReplaceRegistrations(
+                predecessor.Definition.Registrations,
+                []));
+        IntrinsicCoreLibraryWorkspaceContinuationOutcome outcome =
+            await IntrinsicCoreLibraryWorkspaceContinuationOperation
+                .ExecuteAsync(
+                    coordinator,
+                    predecessor,
+                    applicability,
+                    platform,
+                    (_, _) => throw new InvalidOperationException(
+                        "Changed predecessor evidence must fail before construction."),
+                    CatalogBounds(),
+                    cancellationToken);
+
+        var rejected = Assert.IsType<
+            IntrinsicCoreLibraryWorkspaceContinuationOutcome.Rejected>(
+                outcome);
+        Assert.Equal(
+            IntrinsicCoreLibraryWorkspaceContinuationRejectionReason
+                .PredecessorEvidenceMismatch,
+            rejected.Reason);
+        Assert.True(rejected.Cleanup.Succeeded);
+        Assert.NotNull(rejected.Cleanup.Platform);
+        Assert.Null(rejected.Cleanup.Candidate);
+        Assert.Same(predecessorRealization, coordinator.Current);
+    }
+
+    [Fact]
+    public async Task
+        IntrinsicCoreLibraryWorkspaceContinuation_RejectsRegistrationChangeDuringPreparation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        WorkspacePlan plan = IntrinsicCoreLibraryWorkspacePlan(
+            PlatformFamily.DotNetRuntime);
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        WorkspaceRealizationCandidate predecessorCandidate =
+            await BeginCandidateAsync(coordinator, plan, cancellationToken);
+        PackageDependencyMemberCallGraphOutcome.Completed predecessorGraph;
+        using (WorkspaceRealizationConstructionLease construction =
+            predecessorCandidate.EnterConstruction())
+        {
+            predecessorGraph = await IntrinsicCoreLibraryGraphAsync(
+                construction.Workspace,
+                PlatformFamily.DotNetRuntime,
+                cancellationToken);
+        }
+        WorkspaceRealization predecessorRealization =
+            await ActivateCandidateAsync(
+                coordinator,
+                predecessorCandidate,
+                cancellationToken);
+        using WorkspaceRealizationOperationLease predecessor =
+            await EnterOperationAsync(coordinator, cancellationToken);
+        PlatformPopulationArtifactMaterializationOutcome.Completed platform =
+            await CreateCoreLibraryPlatformPopulationAsync(cancellationToken);
+        IntrinsicCoreLibraryRouteDecision.Applicable applicability =
+            Applicable(
+                predecessorGraph,
+                platform,
+                cancellationToken);
+
+        IntrinsicCoreLibraryWorkspaceContinuationOutcome outcome =
+            await IntrinsicCoreLibraryWorkspaceContinuationOperation
+                .ExecuteAsync(
+                    coordinator,
+                    predecessor,
+                    applicability,
+                    platform,
+                    async (workspace, token) =>
+                    {
+                        PackageDependencyMemberCallGraphOutcome.Completed
+                            successorGraph =
+                                await IntrinsicCoreLibraryGraphAsync(
+                                    workspace,
+                                    PlatformFamily.DotNetRuntime,
+                                    token);
+                        _ = Assert.IsType<
+                            WorkspaceRegistrationOperationResult.Committed>(
+                                predecessor.Workspace.ReplaceRegistrations(
+                                    predecessor.Definition.Registrations,
+                                    []));
+                        return new(
+                            ExactVoidOccurrence(successorGraph),
+                            successorGraph.FocalScope);
+                    },
+                    CatalogBounds(),
+                    cancellationToken);
+
+        var rejected = Assert.IsType<
+            IntrinsicCoreLibraryWorkspaceContinuationOutcome.Rejected>(
+                outcome);
+        Assert.Equal(
+            IntrinsicCoreLibraryWorkspaceContinuationRejectionReason
+                .CandidateCutoverRejected,
+            rejected.Reason);
+        Assert.Equal(
+            WorkspaceRealizationCandidateRejection.PredecessorChanged,
+            rejected.CandidateRejection);
+        Assert.True(rejected.Cleanup.Succeeded);
+        Assert.Null(rejected.Cleanup.Platform);
+        Assert.NotNull(rejected.Cleanup.Candidate);
+        Assert.Same(predecessorRealization, coordinator.Current);
+        var registrations = Assert.IsType<
+            WorkspaceRegistrationReadResult.Available>(
+                predecessor.Workspace.GetRegistrationSnapshot());
+        Assert.Empty(registrations.Revision.Registrations);
+    }
+
+    [Fact]
+    public async Task
         IntrinsicCoreLibraryWorkspaceContinuation_RejectsStalePredecessorEvidence()
     {
         CancellationToken cancellationToken =
