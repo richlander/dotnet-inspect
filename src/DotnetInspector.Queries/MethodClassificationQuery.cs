@@ -260,7 +260,7 @@ public static class MethodClassificationQuery
         closing switch
         {
             ClassificationClosing.Rows => ProducerTerminal.Rows,
-            ClassificationClosing.Count => ProducerTerminal.All,
+            ClassificationClosing.Count => ProducerTerminal.Complete,
             _ => ProducerTerminal.Exists,
         };
 
@@ -272,7 +272,7 @@ public static class MethodClassificationQuery
     static int Rank(ProducerTerminal terminal) => terminal switch
     {
         ProducerTerminal.Exists => 0,
-        ProducerTerminal.All => 1,
+        ProducerTerminal.Complete => 1,
         _ => 2,
     };
 

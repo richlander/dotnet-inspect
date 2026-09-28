@@ -87,7 +87,7 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.All)]
+    [InlineData(ProducerTerminal.Complete)]
     [InlineData(ProducerTerminal.Exists)]
     public void Analyzers_MalformedPointerSignatureFailsNamingTheMethod(ProducerTerminal terminal)
     {
@@ -120,7 +120,7 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("B", PointerParameter(), implAttributes: RuntimeAsync);
         ImmutableArray<byte> image = builder.Build();
 
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.All, ProducerTerminal.Exists })
+        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists })
         {
             MethodDefinitionExecution execution = Execute(
                 image,
@@ -148,7 +148,7 @@ public sealed class MethodClassificationAnalyzerTests
         ImmutableArray<byte> image = builder.Build();
 
         WorkDescription description = Plan(
-            new ProducerRequest(AsyncAnalyzer.Instance, ProducerTerminal.All),
+            new ProducerRequest(AsyncAnalyzer.Instance, ProducerTerminal.Complete),
             new ProducerRequest(AsyncAnalyzer.Instance, ProducerTerminal.Rows));
 
         Assert.Equal(ProducerTerminal.Rows, description.TerminalOf(AsyncAnalyzer.Instance));
@@ -171,7 +171,7 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("D");
         ImmutableArray<byte> image = builder.Build();
 
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.All, ProducerTerminal.Exists, ProducerTerminal.Rows })
+        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists, ProducerTerminal.Rows })
         {
             // Alone, each analyzer runs as a kernel; beside an independent
             // producer, the reference executor interprets it.
