@@ -64,7 +64,7 @@ public static class PackageHouseLibraryMaterializer
                 ? null
                 : implementationAsset.Path;
         string? documentationPath =
-            TryGetCompanionPath(apiPath, ".xml");
+            handoff.Asset.DocumentationCompanionPath;
         if (documentationPath is null)
         {
             return Terminal(
@@ -80,9 +80,7 @@ public static class PackageHouseLibraryMaterializer
                 != PackageHouseLibraryOptionalArtifacts
                     .ImplementationPortablePdb
                 ? null
-                : TryGetCompanionPath(
-                    implementationAsset.Path,
-                    ".pdb");
+                : implementationAsset.PortablePdbCompanionPath;
         PackageHouseLibraryOptionalArtifactOmissionKind?
             portablePdbOmission = null;
 
@@ -761,27 +759,6 @@ public static class PackageHouseLibraryMaterializer
                 throw new InvalidOperationException(
                     "Unknown package entry preparation.");
         }
-    }
-
-    private static string? TryGetCompanionPath(
-        string assemblyPath,
-        string companionExtension)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(
-            companionExtension);
-        int separator = assemblyPath.LastIndexOf('/');
-        int extension = assemblyPath.LastIndexOf('.');
-        if (extension <= separator
-            || !assemblyPath.AsSpan(extension).Equals(
-                ".dll",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return string.Concat(
-            assemblyPath.AsSpan(0, extension),
-            companionExtension);
     }
 
     private static bool IsCompanion(
