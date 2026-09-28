@@ -839,6 +839,8 @@ test("the member nav marks the active group and its selected overload", () => {
   });
 
   assert.match(html, /class="type-row member-row active-group [^"]*" data-nav-member="method:Serialize"/);
+  assert.match(html, /<span class="type-name family-name">Serialize<\/span>/);
+  assert.match(html, /<span class="family-count">2×<\/span>/);
   assert.match(html, /id="content-navigation-pane"/);
   assert.match(
     html,
@@ -885,6 +887,47 @@ test("the member nav labels a selected graph-only target", () => {
   assert.match(html, /class="type-row member-row graph-member-row active-group/);
   assert.match(html, /graph target · method/);
   assert.match(html, /0 of 0/);
+  assert.doesNotMatch(html, /family-name|family-count/);
+});
+
+test("only an overload family's row takes the family color", () => {
+  const single = {
+    key: "property:RootElement",
+    name: "RootElement",
+    kind: "property",
+    overloads: [{ signature: "JsonElement RootElement { get; }" }],
+  };
+  const family = {
+    key: "method:Parse",
+    name: "Parse",
+    kind: "method",
+    overloads: [
+      { signature: "JsonDocument Parse(string json)" },
+      { signature: "JsonDocument Parse(Stream utf8Json)" },
+    ],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [
+      { kind: "member", group: family },
+      { kind: "member", group: single },
+    ],
+    memberCount: 3,
+    visibleMemberCount: 3,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /<span class="type-name family-name">Parse<\/span>/);
+  assert.match(html, /<span class="family-count">2×<\/span>/);
+  assert.equal(html.match(/family-name/g)?.length, 1);
+  assert.equal(html.match(/family-count/g)?.length, 1);
 });
 
 test("the member nav does not advertise sections without a selected member", () => {
