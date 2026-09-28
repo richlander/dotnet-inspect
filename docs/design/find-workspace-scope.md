@@ -58,6 +58,7 @@ Browser's default, so both hosts search the same default definition.
 | `find Foo --package Bar` | empty, plus `Bar` |
 | `find Foo --package Bar --platform` | platform Workspace, plus `Bar` |
 | `find Foo --package Bar --platform runtime` | empty, plus `Bar`, plus the `runtime` Ecosystem |
+| `find Foo --platform runtime@10.0` | empty, plus the `runtime` Ecosystem with its platform pinned to the latest 10.0.x |
 | `find Foo --platform System.Xml` | empty, plus the `System.Xml` platform Library |
 | `find Foo --workspace <packet>` | exactly the packet's Workspace, plus any explicit selectors |
 
@@ -65,10 +66,16 @@ Rules:
 
 1. No selector means the platform Workspace. Any selector starts empty.
 2. Bare `--platform` adds the platform Workspace to an explicit composition.
-3. `--platform <family>` for `runtime` or `aspnetcore` (case-insensitive) is an
-   alias for `--ecosystem <family>`. `--platform netstandard` and
-   `--platform <family>@<version>` fail before acquisition with a hint rather
-   than falling through to a Library named `netstandard` or `runtime`.
+3. `--platform <family>[@<version>]` for `runtime` or `aspnetcore`
+   (case-insensitive) is an alias for `--ecosystem <family>`. A version pins
+   that Ecosystem's platform population: `@10.0` selects the latest 10.0.x
+   patch, and `@10.0.0` selects that exact version, matching the
+   `family@version` form `library query --platform` already accepts. The pin
+   applies to the platform population; whether it also selects the
+   Ecosystem's package-set versions (such as ASP.NET Core 10.0 Packages) is an
+   open question for the Ecosystem owner. `--platform netstandard` fails before
+   acquisition with a hint, because no Ecosystem declares it, rather than
+   falling through to a Library named `netstandard`.
 4. Any other `--platform <value>` names one platform Library, as today.
 5. `--workspace` restores the complete packet. Packet completeness is owned by
    Workspace definitions; a packet that relied on the default must carry the
@@ -167,7 +174,8 @@ or 1.11 MB with signatures.
 3. **`--workspace` for `find`**, with the packet-completeness verification
    above.
 4. **`--platform` grammar.** Bare form adds the platform Workspace; family
-   aliases map to Ecosystems; unsupported family forms fail visibly.
+   aliases, with optional version pins, map to Ecosystems; `netstandard` fails
+   visibly.
 5. **Browser.** Spotlight already uses the platform Workspace plan. Its Type
    Find consumes the same House-realized definition; precomputed platform
    names indexes are a separately designed follow-up.
@@ -183,8 +191,9 @@ Breaking under CLI change classification:
 - default `find` scope drops .NET Standard and adds the Microsoft.Extensions
   and ASP.NET Core package sets;
 - bare `--platform` means the platform Workspace instead of three frameworks;
-- `--platform runtime` and `--platform aspnetcore` select Ecosystems instead of
-  a Library of that name; `--platform netstandard` fails with a hint.
+- `--platform runtime[@version]` and `--platform aspnetcore[@version]` select
+  Ecosystems, with an optional platform version pin, instead of a Library of
+  that name; `--platform netstandard` fails with a hint.
 
 ## Reproduction
 
