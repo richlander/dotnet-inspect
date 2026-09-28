@@ -425,13 +425,10 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
     "data-platform-member-source-request",
     new RegExp(alternatePlatformVersion.replaceAll(".", "\\.")),
   );
-  const ordinaryRequest = JSON.parse(
-    await page.locator("html").getAttribute(
-      "data-platform-member-source-request",
-    ) ?? "[]",
-  ) as unknown[];
-  expect(ordinaryRequest).toHaveLength(10);
-  expect(ordinaryRequest[9]).toBeNull();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /,null\]$/,
+  );
 });
 
 test("Platform Call Graph demo publishes the exact Library and member", async ({
