@@ -543,7 +543,8 @@ This boundary does not:
 - change CLI grammar, defaults, output, rendering, or Browser interaction;
 - introduce a permanent compatibility wrapper or parallel carrier;
 - create a Graph-to-QuerySpace project reference; or
-- include Diff, Source Delegation, QueryOverflow, or naming-audit work.
+- include Diff, Source Delegation, resumable QuerySpace execution, or
+  naming-audit work.
 
 ## Immediate successors
 
