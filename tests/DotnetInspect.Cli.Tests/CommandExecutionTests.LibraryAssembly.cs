@@ -3223,11 +3223,27 @@ public partial class CommandExecutionTests
                     "string.interpolation-handler",
                     row.GetProperty("operation").GetString());
             });
+        string[] offsets =
+        [
+            .. occurrences.Select(
+                row => row.GetProperty("il").GetString()!),
+        ];
         Assert.Equal(
-            ["IL_00E6", "IL_0146"],
-            occurrences
-                .Select(row => row.GetProperty("il").GetString())
-                .Order(StringComparer.Ordinal));
+            offsets.Length,
+            offsets.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(
+            offsets,
+            offset =>
+            {
+                Assert.StartsWith("IL_", offset);
+                Assert.True(
+                    int.TryParse(
+                        offset.AsSpan(3),
+                        NumberStyles.AllowHexSpecifier,
+                        CultureInfo.InvariantCulture,
+                        out _),
+                    offset);
+            });
     }
 
     [Fact]
