@@ -66,10 +66,20 @@ public static class RowQueryText
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(pattern);
+        return Matches(value.AsSpan(), pattern.AsSpan());
+    }
+
+    /// <summary>
+    /// Returns whether <paramref name="value"/> matches the wildcard
+    /// <paramref name="pattern"/> without requiring string-backed input.
+    /// </summary>
+    public static bool Matches(
+        ReadOnlySpan<char> value,
+        ReadOnlySpan<char> pattern)
+    {
         if (!pattern.Contains('*') && !pattern.Contains('?'))
         {
-            return string.Equals(
-                value,
+            return value.Equals(
                 pattern,
                 StringComparison.OrdinalIgnoreCase);
         }

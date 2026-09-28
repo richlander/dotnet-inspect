@@ -19,8 +19,15 @@ public sealed class RowQueryTextTests
     public void MatchesUsesCaseInsensitiveWildcards(
         string value,
         string pattern,
-        bool expected) =>
+        bool expected)
+    {
         Assert.Equal(expected, RowQueryText.Matches(value, pattern));
+        Assert.Equal(
+            expected,
+            RowQueryText.Matches(
+                value.AsSpan(),
+                pattern.AsSpan()));
+    }
 
     [Fact]
     public void BindMapsEqualsAndNotEqualsAndRejectsOtherOperators()
