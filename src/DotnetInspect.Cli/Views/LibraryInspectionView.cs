@@ -15,11 +15,16 @@ using Markout;
 
 namespace DotnetInspect.Cli.Views;
 
-[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 7, FieldLayout = FieldLayout.Inline)]
+[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 6, FieldLayout = FieldLayout.Inline)]
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
     private readonly bool _topFieldsOnly;
+    private LibraryScalarFields? _scalars;
+
+    // One projection feeds Library Info, the -v:q summary, and the Library
+    // summary field, so they cannot disagree (docs/design/library-info-composition.md).
+    private LibraryScalarFields? Scalars => _scalars ??= LibraryScalarFields.From(_data);
     private readonly Dictionary<LibraryIntegrationDescriptor, List<(string Kind, string Name, string Shape)>> _integrationSignals = [];
 
     public LibraryInspectionView(LibraryInspection data, bool topFieldsOnly = false)
@@ -35,48 +40,47 @@ public class LibraryInspectionView
     [MarkoutPropertyName("File")]
     public string FileName => LibraryViewText.Contain(_data.FileName);
 
-    // ===== Top fields (first 7 auto-fields, rendered inline for -v:q compact summary) =====
+    // ===== Top fields (first 6 auto-fields, rendered inline for -v:q compact summary) =====
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Name => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.AssemblyName) : null;
+    public string? Name => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.Name) : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Version => _topFieldsOnly ? LibraryViewText.Contain(LibraryInspectionDisplay.ResolveVersion(_data)) : null;
+    public string? Version => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.Version) : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("TFM")]
     [MarkoutSkipNull]
-    public string? TargetFramework => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.TargetFramework) : null;
+    public string? TargetFramework => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.TargetFramework) : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Arch")]
     [MarkoutSkipNull]
-    public string? Architecture => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.Architecture) : null;
+    public string? Architecture => _topFieldsOnly ? LibraryViewText.Contain(Scalars?.Architecture) : null;
 
     [MarkoutPropertyName("Size")]
     [MarkoutSkipNull]
-    public string? FileSize => _topFieldsOnly ? (_data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null) : null;
+    public string? FileSize => _topFieldsOnly ? Scalars?.FileSize : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
     public string? Source => _topFieldsOnly ? LibraryViewText.Contain(_data.Source) : null;
 
-    [MarkoutSkipNull]
-    public string? Modified => _topFieldsOnly ? _data.LastModified?.ToString("yyyy-MM-dd") : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Library")]
-    public string? AssemblySummary => _data.AssemblyInfo switch
+    public string? AssemblySummary => Scalars switch
     {
         null => null,
-        var info => LibraryViewText.Contain(string.Join(", ", new[]
+        { DocumentFailure: { } failure } => LibraryViewText.Contain(failure),
+        var fields => LibraryViewText.Contain(string.Join(", ", new[]
         {
-            info.Architecture,
-            info.TargetFramework,
-            info.CompilationType,
-            info.IsSigned ? "Signed" : null
+            fields.Architecture,
+            fields.TargetFramework,
+            fields.Compilation,
+            fields.Signed ? "Signed" : null
         }.Where(s => !string.IsNullOrEmpty(s))))
     };
 
@@ -186,36 +190,37 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutSection(Name = "Library Info")]
-    public LibraryInfoSection? AssemblyInfoSection => _data.AssemblyInfo is not { } info ? null : new LibraryInfoSection
+    public LibraryInfoSection? AssemblyInfoSection => _data.AssemblyInfo is not { } info || Scalars is not { } fields ? null : new LibraryInfoSection
     {
-        Architecture = info.Architecture,
-        AssemblyVersion = info.AssemblyVersion,
+        Architecture = fields.Architecture,
+        AssemblyVersion = fields.AssemblyVersion,
         AsyncMethods = _data.AsyncMethodCount,
-        Company = info.Company,
-        Compilation = info.CompilationType,
-        Copyright = info.Copyright,
+        Company = fields.Company,
+        Compilation = fields.Compilation,
+        Copyright = fields.Copyright,
         CustomAttributes = _data.AssemblyAttributeInspection.FindingCount(),
         Deterministic = _data.IsDeterministic,
         ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
         Facade = _data.IsFacadeAssembly,
-        FileSize = _data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null,
-        InformationalVersion = info.InformationalVersion,
+        Enabled = fields.Enabled,
+        FileSize = fields.FileSize,
+        InformationalVersion = fields.InformationalVersion,
         Integrations = CountIntegrations(_data),
+        LibraryDocument = fields.DocumentFailure,
         Methods = info.MethodDefinitionCount > 0 ? info.MethodDefinitionCount.ToString("N0") : null,
-        Modified = _data.LastModified?.ToString("yyyy-MM-dd"),
-        Name = info.AssemblyName,
-        Product = info.Product,
-        PublicKeyToken = info.PublicKeyToken,
-        Reproducible = _data.HasReproducibleFlag,
+        Name = fields.Name,
+        Product = fields.Product,
+        PublicKeyToken = fields.PublicKeyToken,
+        Reproducible = fields.Reproducible,
         Resources = _data.ResourceInspection.FindingCount(),
-        Signed = info.IsSigned ? "Yes" : null,
+        Signed = fields.Signed ? "Yes" : null,
         Source = _data.Source,
         Switches = CountSwitches(_data),
-        TargetFramework = info.TargetFramework,
+        TargetFramework = fields.TargetFramework,
         TypeForwarders = _data.TypeForwarderInspection.FindingCount(),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         UnionTypes = _data.UnionTypeInspection.FindingCount(),
-        Version = LibraryInspectionDisplay.ResolveVersion(_data),
+        Version = fields.Version,
         EcosystemDependencies = EcosystemDependenciesDisplay,
         EcosystemDependencyStatus = EcosystemDependencyStatus,
     };
@@ -2611,6 +2616,8 @@ public class LibraryInfoSection
     public string? EcosystemDependencies { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? EcosystemDependencyStatus { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <summary>Enabled enablement labels (<c>docs/design/library-info-composition.md</c>).</summary>
+    public string? Enabled { get => field; init => field = LibraryViewText.Contain(value); }
     public int ExtensionMethods { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool? Facade { get; init; }
@@ -2619,18 +2626,21 @@ public class LibraryInfoSection
     /// <inheritdoc cref="LibraryViewText"/>
     public string? InformationalVersion { get => field; init => field = LibraryViewText.Contain(value); }
     public int Integrations { get; init; }
+    /// <summary>
+    /// Set only when the Library document could not be read for a managed
+    /// assembly; document-sourced rows are then omitted.
+    /// </summary>
+    public string? LibraryDocument { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Methods { get => field; init => field = LibraryViewText.Contain(value); }
-    /// <inheritdoc cref="LibraryViewText"/>
-    public string? Modified { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Name { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Product { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? PublicKeyToken { get => field; init => field = LibraryViewText.Contain(value); }
-    [MarkoutBoolFormat("Yes", "No")]
-    public bool Reproducible { get; init; }
+    /// <summary><c>Yes</c>, <c>No</c>, or <c>unavailable</c>.</summary>
+    public string? Reproducible { get => field; init => field = LibraryViewText.Contain(value); }
     public int Resources { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Signed { get => field; init => field = LibraryViewText.Contain(value); }
