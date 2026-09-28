@@ -226,6 +226,17 @@ testing, and review. Treat a performance result that scales with work the
 modern path was intended to avoid as an architectural failure, not as a
 benchmark footnote.
 
+Choose the work-reduction and code-sharing boundary together. The target is
+terminal-optimal work: acquire, decode, and materialize only the information
+needed to answer the terminal and present its data, while sharing mechanisms
+whose inputs, invariants, and outputs genuinely align. Optimal does not mean
+one bespoke metadata decoder per query, which duplicates correctness-sensitive
+logic and carrying cost. Nor does sharing justify one monolithic decoder that
+computes every possible fact for every query, defeating pushdown. State which
+stages and facts are shared, which are specialized, the alternatives rejected,
+and why the boundary is the pragmatic middle ground for current terminals,
+measured costs, and expected consumers.
+
 Every modernization or legacy-path replacement must perform and report an
 exact base-versus-head NativeAOT comparison for every terminal the adopted
 surface supports, like Count. Exercise the complete production-host path,

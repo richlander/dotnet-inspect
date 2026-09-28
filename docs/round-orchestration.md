@@ -339,10 +339,11 @@ must not weaken or broaden the prompt's trust model and finding-admission rules.
 It also records the user purpose, convention or best-practice baseline,
 intentional divergence, analogous implementation evidence, pathological or
 boundary case and gate, complexity basis, consumer, production-host adoption,
-and retirement plan, rendering strategy, current slice and residual work, and
-the demo with a neighboring case. Use `Not applicable — <reason>` only when
-the reason names the relevant change classification and exact-head evidence;
-cite the owning design's exact section when it defines the boundary.
+and retirement plan, rendering strategy, shared and specialized work with its
+code-sharing rationale, current slice and residual work, and the demo with a
+neighboring case. Use `Not applicable — <reason>` only when the reason names
+the relevant change classification and exact-head evidence; cite the owning
+design's exact section when it defines the boundary.
 Agents that prefer a structured composition aid may instead fill the optional
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
 which includes the same fixed prompt followed by candidate placeholders.
@@ -361,13 +362,17 @@ count, any applicable existing-architecture retirement plan, any recorded
 single-consumer or single-host approval and its exact scope, and the rendering
 strategy. Host-neutral components still require the counted path to observable
 host behavior; test infrastructure may name its harness as the production
-host. Reviewers judge the visible design's consistency with those supplied
-facts; they do not grant approvals or invent roadmap decisions. State the facts
-directly in the self-contained prompt; links may support them but do not
-replace them. For a correctness review without an untrusted actor, name the
-ordinary supported caller and input instead. Candidate formation must make
-every non-applicability explanation judgeable from the normative owner,
-changed surfaces, and exact-head diff. If required fields cannot be filled or
+host. A modernization, producer, query, or metadata-decoding change must also
+state the information each terminal and presented data require, the work
+avoided, the shared and specialized stages, rejected per-query and monolithic
+alternatives, and the evidence that justifies that boundary. Reviewers judge
+the visible design's consistency with those supplied facts; they do not grant
+approvals or invent roadmap decisions. State the facts directly in the
+self-contained prompt; links may support them but do not replace them. For a
+correctness review without an untrusted actor, name the ordinary supported
+caller and input instead. Candidate formation must make every
+non-applicability explanation judgeable from the normative owner, changed
+surfaces, and exact-head diff. If required fields cannot be filled or
 non-applicability cannot be established, return to design or scope
 clarification before spending a review round.
 

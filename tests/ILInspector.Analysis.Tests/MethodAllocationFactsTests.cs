@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 using ILInspector.Instructions;
 
@@ -15,10 +16,13 @@ public sealed class MethodAllocationFactsTests
 {
     const int ConstructorToken = 0x06000002;
     const int TypeToken = 0x01000004;
+    const int LoadTypeToken = 0x01000005;
     const int FieldToken = 0x04000001;
 
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_char = TypeRef.CoreLib("System", "Char");
+    static readonly TypeRef s_string =
+        TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_widget =
         TypeRef.Definition("Fixture", "Fixtures", "Widget");
 
@@ -42,6 +46,12 @@ public sealed class MethodAllocationFactsTests
         Assert.Equal(AllocationMultiplicity.Once, occurrence.Multiplicity);
         Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.Return, occurrence.EscapeKind);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.Return),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
     }
 
     [Fact]
@@ -55,6 +65,12 @@ public sealed class MethodAllocationFactsTests
         Assert.Equal(AllocationEscape.LocalOnly, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
         Assert.Equal(AllocationMultiplicity.Once, occurrence.Multiplicity);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.Drop),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
     }
 
     [Fact]
@@ -206,6 +222,11 @@ public sealed class MethodAllocationFactsTests
         var occurrence = Assert.Single(result.ClassifiedOccurrences);
         Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.Capture, occurrence.EscapeKind);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.Capture),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
     }
 
     [Fact]
@@ -228,6 +249,11 @@ public sealed class MethodAllocationFactsTests
         var occurrence = Assert.Single(result.ClassifiedOccurrences);
         Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
         Assert.Equal(AllocationEscapeKind.Field, occurrence.EscapeKind);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                5,
+                AllocationLifetimeUseKind.FieldStore),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
     }
 
     [Fact]
@@ -271,6 +297,427 @@ public sealed class MethodAllocationFactsTests
         Assert.Equal(AllocationSizeTier.Unknown, occurrence.SizeTier);
     }
 
+    [Fact]
+    public void MultipleLocalUsesJoinAllTerminalEvidence()
+    {
+        // ldc.i4.1; newarr int; stloc.0;
+        // ldloc.0; pop; ldloc.0; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x06,
+            0x26,
+            0x06,
+            0x2A,
+        ];
+
+        var result = Collect(il);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
+        Assert.Equal(AllocationEscapeKind.Return, occurrence.EscapeKind);
+        Assert.Equal(
+            [
+                new(
+                    8,
+                    AllocationLifetimeUseKind.Drop),
+                new(
+                    10,
+                    AllocationLifetimeUseKind.Return),
+            ],
+            occurrence.LifetimeEvidence.Uses);
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+    }
+
+    [Fact]
+    public void ConvergentAliasGraphRetainsDistinctEvidenceWithinBudget()
+    {
+        MemberRef sink = ByReferenceCaptureMember();
+        _ = Collect(
+            ConvergentAliasGraph(2),
+            resolvedMember: sink);
+
+        byte[] il = ConvergentAliasGraph(14);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var result = Collect(il, resolvedMember: sink);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.True(
+            occurrence.Escape == AllocationEscape.Escapes,
+            $"Expected escape; limitations: {string.Join(
+                ", ",
+                occurrence.LifetimeEvidence.Limitations)}");
+        Assert.Equal(
+            AllocationLifetimeUseKind.ByReferenceTransfer,
+            Assert.Single(occurrence.LifetimeEvidence.Uses).Kind);
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+        Assert.True(
+            allocated < 2 * 1024 * 1024,
+            $"Convergent alias analysis allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void CyclicAliasRetainsReachableSinkAndLimitation()
+    {
+        // ldc.i4.1; newarr int; stloc.0;
+        // loop: ldloc.0; stloc.0; ldarg.0; brtrue.s loop;
+        // ldloc.0; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x06,
+            0x0A,
+            0x02,
+            0x2D, 0xFB,
+            0x06,
+            0x2A,
+        ];
+
+        var result = Collect(il);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                13,
+                AllocationLifetimeUseKind.Return),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Equal(
+            AllocationLifetimeLimitationKind.AliasCycle,
+            Assert.Single(
+                occurrence.LifetimeEvidence.Limitations).Kind);
+    }
+
+    [Fact]
+    public void ManagedReferenceReadContinuesToArrayConsumer()
+    {
+        // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
+        // ldind.ref; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x50,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(il);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.LocalOnly, occurrence.Escape);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                10,
+                AllocationLifetimeUseKind.LengthRead),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+    }
+
+    [Fact]
+    public void ManagedObjectReadRequiresMatchingType()
+    {
+        // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
+        // ldobj int[]; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            resolvedLoadType: TypeRef.SzArray(s_int));
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.LocalOnly, occurrence.Escape);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                14,
+                AllocationLifetimeUseKind.LengthRead),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnresolvedManagedObjectReadPublishesLimitation(
+        bool throws)
+    {
+        // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
+        // ldobj <unresolved>; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            throwOnLoadTypeResolution: throws);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Empty(occurrence.LifetimeEvidence.Uses);
+        Assert.Equal(
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                9,
+                ILOpCode.Ldobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
+    }
+
+    [Fact]
+    public void IncompatibleManagedObjectReadPublishesLimitation()
+    {
+        // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
+        // ldobj Widget; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            resolvedLoadType: s_widget);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Empty(occurrence.LifetimeEvidence.Uses);
+        Assert.Equal(
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                9,
+                ILOpCode.Ldobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
+    }
+
+    [Fact]
+    public void NestedFunctionPointerMismatchPublishesLimitation()
+    {
+        // ldc.i4.1; newarr delegate*<int>; stloc.0; ldloca.s 0;
+        // ldobj delegate*<string>[]; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            resolvedType: FunctionPointerReturning(s_int),
+            resolvedLoadType: TypeRef.SzArray(
+                FunctionPointerReturning(s_string)));
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Empty(occurrence.LifetimeEvidence.Uses);
+        Assert.Equal(
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                9,
+                ILOpCode.Ldobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
+    }
+
+    [Fact]
+    public void MatchingNestedFunctionPointerResumesArrayConsumer()
+    {
+        // ldc.i4.1; newarr delegate*<int>; stloc.0; ldloca.s 0;
+        // ldobj delegate*<int>[]; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+        TypeRef pointer = FunctionPointerReturning(s_int);
+
+        var result = Collect(
+            il,
+            resolvedType: pointer,
+            resolvedLoadType: TypeRef.SzArray(pointer));
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.LocalOnly, occurrence.Escape);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                14,
+                AllocationLifetimeUseKind.LengthRead),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+    }
+
+    [Fact]
+    public void PresentRawTypeKindMismatchPublishesLimitation()
+    {
+        // ldc.i4.1; newarr Value; stloc.0; ldloca.s 0;
+        // ldobj class Value[]; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+        TypeRef tokenElement = TypeRef.Definition(
+            "Fixture",
+            "Fixtures",
+            "Value");
+        tokenElement.RawTypeKind = 0x11;
+        TypeRef signatureElement = TypeRef.Definition(
+            "Fixture",
+            "Fixtures",
+            "Value");
+        signatureElement.RawTypeKind = 0x12;
+
+        var result = Collect(
+            il,
+            resolvedType: tokenElement,
+            resolvedLoadType:
+                TypeRef.SzArray(signatureElement));
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Empty(occurrence.LifetimeEvidence.Uses);
+        Assert.Equal(
+            AllocationLifetimeLimitationKind
+                .UnsupportedByReferenceFlow,
+            Assert.Single(
+                occurrence.LifetimeEvidence.Limitations).Kind);
+    }
+
+    [Fact]
+    public void ByReferenceCallUsesCallCoordinate()
+    {
+        // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
+        // call Capture(ref int[]); ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x28, 0x02, 0x00, 0x00, 0x06,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            resolvedMember: ByReferenceCaptureMember());
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Escapes, occurrence.Escape);
+        Assert.Equal(AllocationEscapeKind.None, occurrence.EscapeKind);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                9,
+                AllocationLifetimeUseKind.ByReferenceTransfer),
+            Assert.Single(occurrence.LifetimeEvidence.Uses));
+        Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+    }
+
+    [Fact]
+    public void UnsupportedManagedReferenceFlowPublishesLimitation()
+    {
+        // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
+        // dup; pop; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x25,
+            0x26,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(il);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Empty(occurrence.LifetimeEvidence.Uses);
+        Assert.Equal(
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                9,
+                ILOpCode.Dup),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
+    }
+
     [Theory]
     [InlineData(true, AllocationEscape.LocalOnly)]
     [InlineData(false, AllocationEscape.Unknown)]
@@ -308,12 +755,31 @@ public sealed class MethodAllocationFactsTests
             resolvedType: s_char,
             resolvedMember: constructor);
 
-        Assert.Equal(
-            expected,
-            Assert.Single(
-                    result.ClassifiedOccurrences,
-                    occurrence => occurrence.Kind == AllocationKind.Array)
-                .Escape);
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(expected, occurrence.Escape);
+        if (coreLibrary)
+        {
+            Assert.Equal(
+                new AllocationLifetimeUse(
+                    8,
+                    AllocationLifetimeUseKind
+                        .TrustedNonCapturingCall),
+                Assert.Single(occurrence.LifetimeEvidence.Uses));
+            Assert.Empty(occurrence.LifetimeEvidence.Limitations);
+        }
+        else
+        {
+            Assert.Equal(
+                new AllocationLifetimeLimitation(
+                    AllocationLifetimeLimitationKind
+                        .UnsupportedCall,
+                    8,
+                    ILOpCode.Newobj),
+                Assert.Single(
+                    occurrence.LifetimeEvidence.Limitations));
+        }
     }
 
     [Fact]
@@ -344,12 +810,16 @@ public sealed class MethodAllocationFactsTests
             resolvedType: s_char,
             resolvedMember: constructor);
 
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
         Assert.Equal(
-            AllocationEscape.Unknown,
-            Assert.Single(
-                    result.ClassifiedOccurrences,
-                    occurrence => occurrence.Kind == AllocationKind.Array)
-                .Escape);
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind.UnsupportedStackShape,
+                7,
+                ILOpCode.Newobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
     }
 
     [Fact]
@@ -370,12 +840,47 @@ public sealed class MethodAllocationFactsTests
             il,
             incompleteReachingDefinitions: true);
 
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
         Assert.Equal(
-            AllocationEscape.Unknown,
-            Assert.Single(
-                    result.ClassifiedOccurrences,
-                    occurrence => occurrence.Kind == AllocationKind.Array)
-                .Escape);
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind
+                    .ReachingDefinitionsIncomplete,
+                6,
+                ILOpCode.Stloc_0),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
+    }
+
+    [Fact]
+    public void FailedCallResolutionPublishesTypedLimitation()
+    {
+        // ldc.i4.1; newarr char; newobj <malformed>; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x73, 0x02, 0x00, 0x00, 0x06,
+            0x26,
+            0x2A,
+        ];
+
+        var result = Collect(
+            il,
+            resolvedType: s_char,
+            throwOnMemberResolution: true);
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Equal(
+            new AllocationLifetimeLimitation(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                6,
+                ILOpCode.Newobj),
+            Assert.Single(occurrence.LifetimeEvidence.Limitations));
     }
 
     [Fact]
@@ -419,8 +924,11 @@ public sealed class MethodAllocationFactsTests
         (TypeRef? DeclaringType, string? Name) fieldOwner = default,
         bool nonHeapConstruction = false,
         TypeRef? resolvedType = null,
+        TypeRef? resolvedLoadType = null,
         MemberRef? resolvedMember = null,
-        bool incompleteReachingDefinitions = false)
+        bool incompleteReachingDefinitions = false,
+        bool throwOnLoadTypeResolution = false,
+        bool throwOnMemberResolution = false)
     {
         var context = Context(il, loopRegions);
         var result = MethodAllocationFacts.Create(context);
@@ -429,11 +937,103 @@ public sealed class MethodAllocationFactsTests
                 FieldOwner = fieldOwner,
                 NonHeapConstruction = nonHeapConstruction,
                 ResolvedType = resolvedType,
+                ResolvedLoadType = resolvedLoadType,
                 ResolvedMember = resolvedMember,
                 IncompleteReachingDefinitions =
                     incompleteReachingDefinitions,
+                ThrowOnLoadTypeResolution =
+                    throwOnLoadTypeResolution,
+                ThrowOnMemberResolution =
+                    throwOnMemberResolution,
             });
         return result;
+    }
+
+    static MemberRef ByReferenceCaptureMember() =>
+        new(
+            s_widget,
+            "Capture",
+            [TypeRef.ByRef(TypeRef.SzArray(s_int))],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+
+    static TypeRef FunctionPointerReturning(
+        TypeRef returnType) =>
+        TypeRef.UnsupportedFunctionPointer(
+            new MethodSignature<TypeRef>(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.Default,
+                    SignatureAttributes.None),
+                returnType,
+                requiredParameterCount: 0,
+                genericParameterCount: 0,
+                []));
+
+    static byte[] ConvergentAliasGraph(int depth)
+    {
+        List<byte> il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+        ];
+
+        for (int slot = 1; slot <= depth; slot++)
+        {
+            il.Add(0x02);
+            il.Add(0x2C);
+            int falseBranchOperand = il.Count;
+            il.Add(0);
+            EmitLoad(il, slot - 1);
+            EmitStore(il, slot);
+            il.Add(0x2B);
+            int joinBranchOperand = il.Count;
+            il.Add(0);
+
+            int falseOffset = il.Count;
+            EmitLoad(il, slot - 1);
+            EmitStore(il, slot);
+            int joinOffset = il.Count;
+
+            il[falseBranchOperand] = BranchDelta(
+                falseOffset,
+                falseBranchOperand);
+            il[joinBranchOperand] = BranchDelta(
+                joinOffset,
+                joinBranchOperand);
+        }
+
+        il.Add(0x12);
+        il.Add(checked((byte)depth));
+        il.AddRange([0x28, 0x02, 0x00, 0x00, 0x06, 0x2A]);
+        return [.. il];
+
+        static byte BranchDelta(int target, int operandOffset) =>
+            unchecked((byte)checked(
+                (sbyte)(target - operandOffset - 1)));
+
+        static void EmitLoad(List<byte> body, int slot)
+        {
+            if (slot <= 3)
+            {
+                body.Add(checked((byte)(0x06 + slot)));
+                return;
+            }
+            body.Add(0x11);
+            body.Add(checked((byte)slot));
+        }
+
+        static void EmitStore(List<byte> body, int slot)
+        {
+            if (slot <= 3)
+            {
+                body.Add(checked((byte)(0x0A + slot)));
+                return;
+            }
+            body.Add(0x13);
+            body.Add(checked((byte)slot));
+        }
     }
 
     static MethodBodyAnalysisContext Context(
@@ -472,16 +1072,41 @@ public sealed class MethodAllocationFactsTests
 
         public bool ThrowOnMemberResolution { get; init; }
 
+        public bool ThrowOnLoadTypeResolution { get; init; }
+
         public TypeRef? ResolvedType { get; init; }
+
+        public TypeRef? ResolvedLoadType { get; init; }
 
         public MemberRef? ResolvedMember { get; init; }
 
         public bool IncompleteReachingDefinitions { get; init; }
 
         public TypeRef ResolveType(int token)
-            => token == TypeToken
-                ? ResolvedType ?? s_int
-                : TypeRef.Unsupported("type token");
+        {
+            if (token == LoadTypeToken
+                && ThrowOnLoadTypeResolution)
+            {
+                throw new BadImageFormatException(
+                    "Malformed type token.");
+            }
+
+            return token switch
+            {
+                TypeToken => ResolvedType ?? s_int,
+                LoadTypeToken => ResolvedLoadType
+                    ?? TypeRef.Unsupported("type token"),
+                _ => TypeRef.Unsupported("type token"),
+            };
+        }
+
+        public bool TokenTypeMatchesSignature(
+            TypeRef tokenType,
+            TypeRef signatureType) =>
+            TypeRef
+                .ExactSignatureEqualsWithUnspecifiedLeftRawTypeKind(
+                    tokenType,
+                    signatureType);
 
         public MemberRef ResolveMember(int token)
             => ThrowOnMemberResolution
