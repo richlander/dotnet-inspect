@@ -181,7 +181,7 @@ public sealed class MethodDefinitionExecution
         {
             if (producer is not IMethodDefinitionProducer declaration)
                 continue;
-            fields |= declaration.Layers;
+            fields |= declaration.LayersFor(description.TerminalOf(producer));
             if (declaration.SourceGate is { } guard)
                 fields |= guard.Classifier.Fields;
         }
