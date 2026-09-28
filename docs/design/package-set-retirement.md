@@ -96,10 +96,46 @@ The Ecosystem set changes:
   `Anthropic.SDK` and `Mistral.SDK` are not lab-published SDKs and are not
   included.
 
-Every other pack's core is already within the bound: Runtime 0, ASP.NET
-Core 2, Aspire 1, Blazor 4, .NET MAUI 5. ASP.NET Core keeps its two roots
-(`Microsoft.AspNetCore.OpenApi` and `Microsoft.AspNetCore.Authentication.JwtBearer`),
-which are add-on packages outside the shared framework.
+- **ASP.NET Core becomes zero-root.** Its platform population is its hub;
+  `Microsoft.AspNetCore.OpenApi` and
+  `Microsoft.AspNetCore.Authentication.JwtBearer` are reached through the
+  `Microsoft.AspNetCore.` prefix.
+- **Aspire roots its hub.** `Aspire.Hosting` holds the application model (379
+  public types: the builder, resources, `AddProject`, `AddContainer`,
+  `WithReference`, `WaitFor`, parameters, and connection strings) and
+  `Aspire.Hosting.Testing` holds the testing builder. Every integration API
+  (`AddRedis`, `AddPostgres`, `AddRedisClient`, `AddNpgsqlDbContext`) lives in
+  one of about 110 per-technology hosting or client packages, reached through
+  the `Aspire.` prefix. The core becomes `Aspire.Hosting` and
+  `Aspire.Hosting.Testing`.
+
+The guiding rule is **root the hub, prefix the fan-out**. An Ecosystem needs
+no root when a platform population is its hub. Runtime 0, ASP.NET Core 0,
+Microsoft.Extensions 0, Aspire 2, AI 7, Blazor 4, and .NET MAUI 5 are all
+within the bound.
+
+## Partitioned platform populations
+
+The platform Workspace should never contain the same assembly twice. Each
+shared-framework assembly belongs to exactly one Ecosystem, following the
+assembly-name families the Ecosystem dependency-recognition profile already
+uses: `System*`, `Microsoft.Win32*`, `Microsoft.CSharp`,
+`Microsoft.VisualBasic`, `mscorlib`, and `netstandard` belong to Runtime;
+`Microsoft.Extensions*` to Microsoft.Extensions; and `Microsoft.AspNetCore*`
+to ASP.NET Core. The `Microsoft.Extensions*` assemblies physically ship in
+the ASP.NET Core shared framework (and, on net11, partly in
+`Microsoft.NETCore.App`), so today they are searchable only through ASP.NET
+Core's whole-framework population.
+
+`PlatformLibraryPopulationDeclaration` carries only a `PlatformFamily`, so it
+cannot yet select part of a framework. The platform-population owner adds an
+assembly-family selection: Microsoft.Extensions declares the
+`Microsoft.Extensions*` assemblies of both shared frameworks, and Runtime and
+ASP.NET Core declare their frameworks without them. Microsoft.Extensions then
+finds its classic stack in bounded operations on its own, and the platform
+Workspace contains each assembly once by construction. Until that slice
+lands, a Microsoft.Extensions-only selection has no bounded population
+beyond its prefix.
 
 ## Curation is not rebuilt
 
@@ -118,11 +154,13 @@ and remain bounded by their own candidate limits and source page limits
 
 | Owner | Change |
 | --- | --- |
-| [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; core entries as traversal roots; Microsoft.Extensions prefix-only; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes reduced to `Microsoft.Extensions.AI` |
+| [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; core entries as traversal roots ("root the hub, prefix the fan-out"); Microsoft.Extensions and ASP.NET Core zero-root; Aspire core; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes reduced to `Microsoft.Extensions.AI` |
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends`; `--ecosystem` is the replacement selector |
 | [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
 | [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | `package activity --ecosystem` and the Browser picker scope by the Ecosystem's prefixes through the existing `PackagePrefix` selection |
+| [Platform library population declaration](platform-library-population-declaration.md) | Assembly-family selection within a platform family, so shared-framework assemblies partition across Runtime, ASP.NET Core, and Microsoft.Extensions |
+| [Ecosystem dependency recognition](ecosystem-dependency-recognition.md) | AI families reduced to `Microsoft.Extensions.AI` and the root packages' families; Azure families removed |
 | [Workspace definitions](workspace-definitions.md) | No contract change. Packet format 3 carries each Ecosystem declaration inline; the Ecosystem slice verifies that a packet naming `ecosystem.azure` still restores or fails visibly |
 
 ## Slices
@@ -131,8 +169,9 @@ Each slice lands independently from `main`, keeps every gate green, and
 amends its owner's document with its code.
 
 1. **This composition map.**
-2. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions core;
-   replace the AI core and reduce its
+2. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions and
+   ASP.NET Core cores; set the Aspire core; update the dependency-recognition
+   profile; replace the AI core and reduce its
    prefixes to `Microsoft.Extensions.AI`; add the core bound to pack validation with a boundary test at
    twelve and thirteen entries.
 3. **`depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
@@ -146,7 +185,11 @@ amends its owner's document with its code.
    picker lists Ecosystems instead of package sets.
 5. **Search flags.** Remove `--extensions` and `--aspnetcore`; suggest the
    `skills/relationships/SKILL.md` update on the release tracker.
-6. **Deletion.** Remove `PackageSet` from pack descriptors, the registry and
+6. **Partitioned platform populations.** Assembly-family selection in
+   platform populations, adopted by Runtime, ASP.NET Core, and
+   Microsoft.Extensions, with a gate that the platform Workspace contains no
+   assembly twice.
+7. **Deletion.** Remove `PackageSet` from pack descriptors, the registry and
    its types, both literal membership copies in tests, the `ecosystem` Info
    "Package Set" row, and the Extensions-set workspace-budget census script
    and its pinned data.
