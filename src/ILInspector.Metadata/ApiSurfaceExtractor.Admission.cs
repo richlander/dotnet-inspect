@@ -19,10 +19,12 @@ public static partial class ApiSurfaceExtractor
         => includeAll || effectiveAccess == MethodAttributes.Public;
 
     /// <summary>
-    /// A method's effective access. A member that implements an interface
-    /// member through a MethodImpl is reachable by exactly the consumers who
-    /// can see that interface, so its access is the wider of its own and the
-    /// interface's. Every other method, including a finalizer, keeps its own.
+    /// A method's effective access. A private body that implements an
+    /// interface member through a MethodImpl is reachable by exactly the
+    /// consumers who can see that interface, so its access is the wider of its
+    /// own and the interface's. A non-private body keeps its own access even
+    /// when a MethodImpl also targets an interface member, and every other
+    /// method, including a finalizer, keeps its own.
     /// </summary>
     internal static MethodAttributes MethodEffectiveAccess(
         MethodAttributes ownAccess,
@@ -30,27 +32,22 @@ public static partial class ApiSurfaceExtractor
         Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
             interfaceImplementations)
     {
-        if (!interfaceImplementations.TryGetValue(
+        if (ownAccess != MethodAttributes.Private
+            || !interfaceImplementations.TryGetValue(
                 methodHandle,
                 out InterfaceImplementationAccess implemented))
         {
             return ownAccess;
         }
 
-        MethodAttributes access = ownAccess;
-        if (implemented.KnownInterfaceAccess is { } known)
-            access = JoinAccess(access, known);
         // An interface declared in another assembly is public to this
-        // assembly's consumers. A referenced member's Type cannot be told
-        // apart from a class without resolving that assembly, so only a
-        // private body, the explicit-implementation shape, takes that rule.
-        if (implemented.ImplementsReferencedMember
-            && ownAccess == MethodAttributes.Private)
-        {
-            access = MethodAttributes.Public;
-        }
+        // assembly's consumers.
+        if (implemented.ImplementsReferencedMember)
+            return MethodAttributes.Public;
 
-        return access;
+        return implemented.KnownInterfaceAccess is { } known
+            ? JoinAccess(ownAccess, known)
+            : ownAccess;
     }
 
     /// <summary>

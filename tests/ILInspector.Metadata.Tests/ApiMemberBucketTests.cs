@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata.Tests;
@@ -92,6 +93,42 @@ public sealed class ApiMemberBucketTests
             Assert.Null(add.Accessibility);
         }
     }
+
+    // A non-private body keeps its own accessibility even when it implements
+    // a wider interface member, wherever that interface is declared. VB is
+    // the compiler that emits these shapes.
+    [Theory]
+    [InlineData("FriendImplementsLocalPublic", "internal")]
+    [InlineData("ProtectedImplementsLocalPublic", "protected")]
+    [InlineData("FriendImplementsReferenced", "internal")]
+    [InlineData("PrivateImplementsLocalInternal", "internal")]
+    [InlineData("PrivateImplementsLocalPublic", null)]
+    public void VisualBasicImplementation_BucketFollowsOwnAccessUnlessPrivate(
+        string name,
+        string? accessibility)
+    {
+        string path = FixtureCatalog.MetadataVbInterfaceImplementations.AssemblyPath();
+        ApiSurface publicSurface = Extract(path, includeAll: false);
+        ApiSurface includeAllSurface = Extract(path, includeAll: true);
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface summarySurface = ApiSurfaceExtractor.ExtractSummary(peReader);
+
+        ApiMember member = Assert.Single(
+            VbType(includeAllSurface).Members,
+            candidate => candidate.Name == name);
+        Assert.Equal(accessibility, member.Accessibility);
+        bool isPublic = accessibility is null;
+        Assert.Equal(
+            isPublic,
+            VbType(publicSurface).Members.Any(candidate => candidate.Name == name));
+        Assert.Equal(
+            isPublic,
+            VbType(summarySurface).Members.Any(candidate => candidate.Name == name));
+    }
+
+    static ApiType VbType(ApiSurface surface)
+        => surface.Types.Single(type => type.Name == "VbImplementations");
 
     static ApiType Type(ApiSurface surface)
         => surface.Types.Single(type => type.Name == nameof(BucketFixture));
