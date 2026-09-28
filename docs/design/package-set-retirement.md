@@ -170,7 +170,7 @@ and remain bounded by their own candidate limits and source page limits
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends` once each command has a working replacement (see slice 6) |
 | [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
-| [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | A new Ecosystem-membership selection arm: core packages exactly plus every recorded prefix, the membership `PackageQueryEcosystemMembershipDeclaration` already models. The existing `PackagePrefix` arm holds one prefix and cannot express roots or several prefixes, so this changes the change-report selection contract. The new arm replaces `EcosystemChangePackageSelection.PackageSet` and its `PackageSet` output scope kind with an Ecosystem-membership scope kind; `package activity --ecosystem` and the Browser picker adopt it, and the Browser package-set catalog export, its contract, and the `package-list-changes-package-sets` Worker startup kind are replaced by an Ecosystem catalog |
+| [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | Package activity is prefix-specific: it scopes by an Ecosystem's recorded prefixes and never by its roots. The existing `PackagePrefix` arm, which holds one prefix, generalizes to an ordered prefix set (Blazor records two prefixes and .NET MAUI three) and replaces `EcosystemChangePackageSelection.PackageSet` and its `PackageSet` output scope kind. `package activity --ecosystem` and the Browser picker adopt it, and the Browser package-set catalog export, its contract, and the `package-list-changes-package-sets` Worker startup kind are replaced by an Ecosystem catalog. An Ecosystem is offered for package activity only when it records at least one prefix; the platform Ecosystems record `System.` and `Microsoft.AspNetCore.` |
 | [Platform library population declaration](platform-library-population-declaration.md) | Assembly-name selection within a platform family, so `Microsoft.Extensions*` assemblies partition out of both shared frameworks |
 | [Package-backed platform realization](package-backed-platform-realization.md) | Realization honors the selection for CLI and Browser |
 | [Ecosystem dependency recognition](ecosystem-dependency-recognition.md) | AI associations become `Microsoft.Extensions.AI` plus exact package and assembly associations for the seven roots, so community `Anthropic.SDK` stays unrecognized; Azure associations removed |
@@ -203,14 +203,20 @@ amends its owner's document with its code.
    start classifying as baseline because baseline matches registered core
    packages exactly; the baseline owner's contract is unchanged, only its
    data.
-4. **Package activity.** Replace the change report's `PackageSet` selection
-   arm and output scope kind with an Ecosystem-membership arm (core packages
-   exactly plus every recorded prefix) and scope kind; this changes the
-   change-report JSON output. CLI `package activity --ecosystem` and the
-   Browser picker adopt it: the Browser package-set catalog export
-   (`PackageChangesExports`), its `BrowserPackageChangesPackageSetCatalog`
-   contract, and the `package-list-changes-package-sets` Worker startup kind
-   become an Ecosystem catalog, and the picker lists Ecosystems.
+4. **Package activity.** Package activity is prefix-specific. Generalize the
+   change report's single-prefix `PackagePrefix` arm to an ordered prefix set
+   and have it replace the `PackageSet` selection arm and output scope kind;
+   this changes the change-report JSON output. CLI `package activity
+   --ecosystem` and the Browser picker select an Ecosystem's recorded
+   prefixes: Runtime `System.`, ASP.NET Core `Microsoft.AspNetCore.`,
+   Microsoft.Extensions `Microsoft.Extensions.`, Aspire `Aspire.`, AI
+   `Microsoft.Extensions.AI`, and Blazor's and .NET MAUI's recorded prefixes.
+   Roots are not activity scope, so AI's activity covers the
+   Microsoft.Extensions.AI family and not the lab SDKs. The Browser
+   package-set catalog export (`PackageChangesExports`), its
+   `BrowserPackageChangesPackageSetCatalog` contract, and the
+   `package-list-changes-package-sets` Worker startup kind become an
+   Ecosystem catalog listing Ecosystems that record at least one prefix.
 5. **Partitioned platform populations.** Assembly-name selection in platform
    populations, honored by realization and carried by the share packet and
    definition JSON, adopted by Runtime, ASP.NET Core, and
