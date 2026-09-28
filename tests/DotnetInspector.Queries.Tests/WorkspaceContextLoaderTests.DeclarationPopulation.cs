@@ -186,6 +186,17 @@ public sealed partial class WorkspaceContextLoaderTests
             "incomplete",
             unresolvedFocus.Detail,
             StringComparison.OrdinalIgnoreCase);
+        var unresolvedSimpleFocus =
+            Assert.IsType<WorkspaceExactTypeFocusOutcome.Unavailable>(
+                WorkspaceExactTypeFocusQuery.Execute(
+                    mixed,
+                    mixedInventory.Definitions[0].Segments[^1].ToString(),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Contains(
+            "incomplete",
+            unresolvedSimpleFocus.Detail,
+            StringComparison.OrdinalIgnoreCase);
 
         WorkspaceDeclarationPopulation empty = CaptureDeclarations(workspace);
         Assert.True(empty.Receipt.IsRealizationComplete);

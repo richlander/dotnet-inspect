@@ -270,7 +270,9 @@ public static class WorkspaceExactTypeFocusQuery
                         name.ToEscapedFullName())));
         }
 
-        if (outcomes.Any(static outcome => !outcome.IsComplete))
+        if ((library is null
+                && !population.Receipt.IsRealizationComplete)
+            || outcomes.Any(static outcome => !outcome.IsComplete))
         {
             return new WorkspaceExactTypeFocusOutcome.Unavailable(
                 "The exact Type focus could not be established because "

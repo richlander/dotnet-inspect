@@ -72,6 +72,53 @@ public sealed partial class ExactTypeInspectionOperationTests
             available.Relations.Relations.Evidence.IsComplete);
     }
 
+    [Fact]
+    public async Task HierarchyRelationsRejectNonHierarchyFormSelection()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hierarchy.dll", BuildHierarchyAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        SubjectRelationsQueryPlan plan = Assert.IsType<
+            SubjectRelationsQueryPlanResult.Accepted>(
+                SubjectRelationsQuery.ResolveIntent(
+                    SubjectRelationsRouteKind.Type,
+                    PortableQueryIntent.Create(
+                        [
+                            new(
+                                SubjectRelationsQuery.DirectionTermKey,
+                                PortableQueryOperator.Equal,
+                                "incoming"),
+                            new(
+                                SubjectRelationsQuery.FormTermKey,
+                                PortableQueryOperator.Equal,
+                                "extension"),
+                        ],
+                        [],
+                        [],
+                        []),
+                    TestContext.Current.CancellationToken)).Plan;
+
+        ArgumentException failure =
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => ExactTypeRelationsInspectionOperation.ExecuteAsync(
+                    new ExactTypeInspectionRequest(
+                        PackageId,
+                        Version,
+                        Framework,
+                        "Relations.IContract"),
+                    LoadOptions(client, store),
+                    plan,
+                    new SubjectRelationPopulationCountRequest(),
+                    new SubjectRelationPopulationRowsRequest(1),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "hierarchy producer",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("Relations.IGeneric`1", "interface")]
     [InlineData("Relations.Base", "base-type")]
@@ -195,6 +242,7 @@ public sealed partial class ExactTypeInspectionOperationTests
                 population,
                 focus,
                 plan,
+                count: new SubjectRelationPopulationCountRequest(),
                 rows: new SubjectRelationPopulationRowsRequest(1),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
@@ -204,6 +252,12 @@ public sealed partial class ExactTypeInspectionOperationTests
         SubjectRelationPopulationContinuation continuation =
             Assert.IsType<SubjectRelationPopulationContinuation>(
                 firstRows.Continuation);
+        Assert.Equal(
+            2,
+            Assert.IsType<SubjectRelationPopulationCountOutcome.Counted>(
+                first.Population.Count).Value);
+        Assert.Equal(2, first.Relations.CandidateCount);
+        Assert.Single(first.Relations.Rows);
 
         WorkspaceTypeRelationsInspectionResult second =
             WorkspaceTypeRelationsInspectionOperation.Execute(
@@ -223,6 +277,8 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Single(
             Assert.IsType<SubjectRelationPopulationRowsOutcome.Read>(
                 second.Population.Rows).Items);
+        Assert.Equal(2, second.Relations.CandidateCount);
+        Assert.Single(second.Relations.Rows);
         Assert.Single(second.Candidates);
         Assert.NotEqual(
             first.Candidates[0].Candidate,

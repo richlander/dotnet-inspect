@@ -71,10 +71,21 @@ public static class WorkspaceTypeRelationsInspectionOperation
             throw new ArgumentException(
                 "Subject Relations execution requires Count, Rows, or both.");
         }
+        ValidateHierarchySelection(plan.Selection);
 
+        bool producerCandidatePopulation =
+            CanUseProducerCandidatePopulation(plan.Selection);
         bool countNeedsRows =
             count is not null
-            && !CanCountProducerCandidates(plan.Selection);
+            && !producerCandidatePopulation;
+        int producerStart =
+            rows?.Continuation is not null
+            && continuationAuthority is not null
+                ? continuationAuthority.NextOrdinal
+                : 0;
+        bool producerShapesRows =
+            rows is not null
+            && producerCandidatePopulation;
         WorkspaceTypeHierarchyRelationsResult relations =
             WorkspaceTypeHierarchyRelationsQuery.Execute(
                 workspace,
@@ -83,6 +94,14 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 includeNonPublic,
                 plan.Selection.Form,
                 materializeRows: rows is not null || countNeedsRows,
+                startOrdinal:
+                    producerShapesRows
+                        ? producerStart
+                        : 0,
+                maximumRows:
+                    producerShapesRows
+                        ? rows!.MaximumRows
+                        : int.MaxValue,
                 cancellationToken: cancellationToken);
         var inspectionRequest = new SubjectRelationsInspectionRequest(
             SubjectRelationsRouteKind.Type,
@@ -141,7 +160,11 @@ public static class WorkspaceTypeRelationsInspectionOperation
 
             if (rowsOutcome is null)
             {
-                if (start > candidates.Length)
+                int populationCount =
+                    producerShapesRows
+                        ? relations.CandidateCount
+                        : candidates.Length;
+                if (start > populationCount)
                 {
                     rowsOutcome =
                         new SubjectRelationPopulationRowsOutcome.Rejected(
@@ -150,22 +173,29 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 }
                 else
                 {
-                    int take = Math.Min(
-                        rows.MaximumRows,
-                        candidates.Length - start);
-                    candidateRows =
-                    [
-                        .. candidates.Skip(start).Take(take),
-                    ];
+                    if (producerShapesRows)
+                    {
+                        candidateRows = candidates;
+                    }
+                    else
+                    {
+                        int take = Math.Min(
+                            rows.MaximumRows,
+                            candidates.Length - start);
+                        candidateRows =
+                        [
+                            .. candidates.Skip(start).Take(take),
+                        ];
+                    }
                     ImmutableArray<SubjectRelationRow> items =
                     [
                         .. candidateRows.Select(
                             static candidate =>
                                 candidate.Representative),
                     ];
-                    int next = checked(start + take);
+                    int next = checked(start + candidateRows.Length);
                     SubjectRelationPopulationContinuation? continuation =
-                        next < candidates.Length
+                        next < populationCount
                             ? new(
                                 new InertString(
                                     TextPolicy.Field,
@@ -242,7 +272,7 @@ public static class WorkspaceTypeRelationsInspectionOperation
         ];
     }
 
-    private static bool CanCountProducerCandidates(
+    private static bool CanUseProducerCandidatePopulation(
         SubjectRelationPopulationSelection selection)
     {
         if (selection.Direction
@@ -275,5 +305,29 @@ public static class WorkspaceTypeRelationsInspectionOperation
                 selection.Relationship,
                 relationship.Id,
                 StringComparison.Ordinal);
+    }
+
+    private static void ValidateHierarchySelection(
+        SubjectRelationPopulationSelection selection)
+    {
+        if (selection.Form
+                is not null
+                and not SubjectRelationForm.Interface
+                and not SubjectRelationForm.BaseType
+            || selection.Relationship is not null
+                && !string.Equals(
+                    selection.Relationship,
+                    MetadataRelationGraphCatalog.Interface.Id,
+                    StringComparison.Ordinal)
+                && !string.Equals(
+                    selection.Relationship,
+                    MetadataRelationGraphCatalog.BaseType.Id,
+                    StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The request must select the incoming interface or base-Type "
+                    + "population owned by the hierarchy producer.",
+                nameof(selection));
+        }
     }
 }

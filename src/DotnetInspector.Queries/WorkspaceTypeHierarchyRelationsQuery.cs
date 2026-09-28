@@ -43,6 +43,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
         bool includeNonPublic = false,
         SubjectRelationForm? form = null,
         bool materializeRows = true,
+        int startOrdinal = 0,
+        int maximumRows = int.MaxValue,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -57,6 +59,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                 "The hierarchy population must belong to the exact Workspace.",
                 nameof(population));
         }
+        ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumRows, 1);
         var workspaceSubject =
             StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
         StructuralSubjectIdentity focus;
@@ -128,8 +132,8 @@ public static class WorkspaceTypeHierarchyRelationsQuery
             populationAuthority,
             [metadata, correspondence]);
         IGrouping<
-            RelationCandidateIdentity,
-            ResolvedMatch>[] groupedMatches =
+            CandidateIdentity,
+            ResolvedMatch>[] candidateGroups =
             !materializeRows
                 ? []
                 :
@@ -137,49 +141,70 @@ public static class WorkspaceTypeHierarchyRelationsQuery
                     .. scans
                         .SelectMany(scan => scan.Matches)
                         .GroupBy(static match =>
-                            new RelationCandidateIdentity(
-                                match.Occurrence.Relationship,
-                                match.Occurrence.SourceSubject,
-                                match.Occurrence.TargetSubject)),
+                            new CandidateIdentity(
+                                MetadataRelationGraphCatalog.Form(
+                                    match.Occurrence.Relationship),
+                                match.Occurrence.SourceSubject)),
                 ];
         int candidateCount =
-            scans
-                .SelectMany(scan => scan.Matches)
-                .Select(static match =>
-                    new CandidateIdentity(
-                        MetadataRelationGraphCatalog.Form(
-                            match.Occurrence.Relationship),
-                        match.Occurrence.SourceSubject))
-                .Distinct()
-                .Count();
+            materializeRows
+                ? candidateGroups.Length
+                : scans
+                    .SelectMany(scan => scan.Matches)
+                    .Select(static match =>
+                        new CandidateIdentity(
+                            MetadataRelationGraphCatalog.Form(
+                                match.Occurrence.Relationship),
+                            match.Occurrence.SourceSubject))
+                    .Distinct()
+                    .Count();
+        IGrouping<
+            CandidateIdentity,
+            ResolvedMatch>[] selectedCandidateGroups =
+            !materializeRows
+                ? []
+                :
+                [
+                    .. candidateGroups
+                        .Skip(startOrdinal)
+                        .Take(maximumRows),
+                ];
         ImmutableArray<SubjectRelationRow> rows =
             !materializeRows
                 ? []
                 :
         [
-            .. groupedMatches
-                .Select(group =>
-                {
-                    ResolvedMatch match = group.First();
-                    RelationCandidateIdentity identity = group.Key;
-                    SubjectRelationFocusCorrespondence focusCorrespondence =
-                        SubjectRelationFocusCorrespondence.Create(
-                            focus,
-                            populationAuthority,
-                            match.Occurrence.TargetSubject,
-                            InspectionGraphEndpointRole.Target,
-                            match.Correspondence);
-                    return new SubjectRelationRow(
-                        MetadataRelationGraphCatalog.Form(
-                            identity.Relationship),
-                        SubjectRelationEvidenceKind.Declaration,
-                        identity.Relationship,
-                        identity.Source,
-                        identity.Target,
-                        focusCorrespondence,
-                        group.Select(static candidate =>
-                            candidate.Occurrence));
-                }),
+            .. selectedCandidateGroups
+                .SelectMany(candidateGroup =>
+                    candidateGroup
+                        .GroupBy(static match =>
+                            new RelationCandidateIdentity(
+                                match.Occurrence.Relationship,
+                                match.Occurrence.SourceSubject,
+                                match.Occurrence.TargetSubject))
+                        .Select(group =>
+                        {
+                            ResolvedMatch match = group.First();
+                            RelationCandidateIdentity identity = group.Key;
+                            SubjectRelationFocusCorrespondence
+                                focusCorrespondence =
+                                    SubjectRelationFocusCorrespondence.Create(
+                                        focus,
+                                        populationAuthority,
+                                        match.Occurrence.TargetSubject,
+                                        InspectionGraphEndpointRole.Target,
+                                        match.Correspondence);
+                            return new SubjectRelationRow(
+                                MetadataRelationGraphCatalog.Form(
+                                    identity.Relationship),
+                                SubjectRelationEvidenceKind.Declaration,
+                                identity.Relationship,
+                                identity.Source,
+                                identity.Target,
+                                focusCorrespondence,
+                                group.Select(static candidate =>
+                                    candidate.Occurrence));
+                        })),
         ];
         return new(
             focus,
