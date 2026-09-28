@@ -2,10 +2,12 @@
 
 ## Status and ownership
 
-This is the proposed focused Browser/Wasm adoption contract for
+This is the approved focused Browser/Wasm adoption contract for
 [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), step 8 of
 the [reverse type locator adoption](reverse-type-locator-adoption.md) path.
-Implementation and its evidence are unverified.
+The managed operation, Worker transport, and production Spotlight Type
+publication and selection path are implemented. Firefox/Wasm acceptance
+remains unverified.
 
 **Inspect Web Type Find** owns one Browser-specific responsibility:
 
@@ -134,9 +136,14 @@ later lookup.
 The TypeScript boundary receives only that detached compound result. It
 receives no Workspace, lease, reader, assembly image, source authority,
 callback, or managed object. The generated facade and Worker operation
-transport the complete typed result; a handwritten parallel DTO may not omit
-coverage, separate an action from its candidate, or replace the coordinate
-union with display strings.
+transport the complete result. The current generator cannot map the locator's
+custom JSON converters, so the envelope content crosses as `unknown` and one
+bounded TypeScript validator consumes the Sections-owned snake-case wire shape
+and projects only the candidate, completion, coverage, and diagnostic fields
+required for Spotlight presentation. It must reject malformed shape, preserve
+every candidate-to-action correspondence, distinguish complete absence from
+incomplete evidence, and may not replace the coordinate union with display
+strings or reconstruct activation authority.
 
 The Share outcome uses Workspace Definitions' exact codec when it can preserve
 the semantic plan. Until such a projection exists, it is visibly

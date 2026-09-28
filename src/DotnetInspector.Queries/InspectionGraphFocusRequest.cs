@@ -1,21 +1,14 @@
 using System.Collections.Immutable;
+using Inspector.Graph;
 
 namespace DotnetInspector.Queries;
-
-/// <summary>How one graph subject relates to the selected scope.</summary>
-public enum InspectionGraphScopeMembership
-{
-    Unknown,
-    Inside,
-    Outside,
-}
 
 /// <summary>One owner-issued scope decision over a semantic subject.</summary>
 public sealed record InspectionGraphScopeDecision
 {
     public InspectionGraphScopeDecision(
         InspectionGraphSubject subject,
-        InspectionGraphScopeMembership membership)
+        GraphScopeMembership membership)
     {
         ArgumentNullException.ThrowIfNull(subject);
         InspectionGraphCollections.RequireDefined(
@@ -26,7 +19,7 @@ public sealed record InspectionGraphScopeDecision
     }
 
     public InspectionGraphSubject Subject { get; }
-    public InspectionGraphScopeMembership Membership { get; }
+    public GraphScopeMembership Membership { get; }
 }
 
 /// <summary>The topology extent retained by focus projection.</summary>
@@ -44,7 +37,7 @@ public sealed class InspectionGraphFocusRequest
         InspectionGraphModeRequest modeRequest,
         InspectionGraphFocusExtent extent,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
-        InspectionGraphTraversalDirection direction,
+        GraphTraversalDirection direction,
         IEnumerable<InspectionGraphScopeDecision> scopeDecisions)
     {
         ArgumentNullException.ThrowIfNull(modeRequest);
@@ -85,7 +78,7 @@ public sealed class InspectionGraphFocusRequest
         }
         if (!ScopeDecisions.Any(static decision =>
                 decision.Membership
-                    == InspectionGraphScopeMembership.Inside))
+                    == GraphScopeMembership.Inside))
         {
             throw new ArgumentException(
                 "Focus projection requires at least one subject inside scope.",
@@ -94,7 +87,7 @@ public sealed class InspectionGraphFocusRequest
 
         IReadOnlyDictionary<
             InspectionGraphSubject,
-            InspectionGraphScopeMembership> membership =
+            GraphScopeMembership> membership =
             ScopeDecisions.ToDictionary(
                 static decision => decision.Subject,
                 static decision => decision.Membership);
@@ -102,8 +95,8 @@ public sealed class InspectionGraphFocusRequest
         {
             if (!membership.TryGetValue(
                     seed,
-                    out InspectionGraphScopeMembership value)
-                || value != InspectionGraphScopeMembership.Inside)
+                    out GraphScopeMembership value)
+                || value != GraphScopeMembership.Inside)
             {
                 throw new InspectionQueryException(
                     "Every focus origin must have an explicit inside-scope decision.");
@@ -132,13 +125,13 @@ public sealed class InspectionGraphFocusRequest
     public ImmutableArray<InspectionGraphRelationshipDescriptor>
         Relationships
     { get; }
-    public InspectionGraphTraversalDirection Direction { get; }
+    public GraphTraversalDirection Direction { get; }
     public ImmutableArray<InspectionGraphScopeDecision> ScopeDecisions { get; }
 
     public static InspectionGraphFocusRequest ExitFrontier(
         InspectionGraphModeRequest modeRequest,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
-        InspectionGraphTraversalDirection direction,
+        GraphTraversalDirection direction,
         IEnumerable<InspectionGraphScopeDecision> scopeDecisions) =>
         new(
             modeRequest,
@@ -150,11 +143,11 @@ public sealed class InspectionGraphFocusRequest
     internal bool Includes(InspectionGraphEndpointRole role) =>
         Direction switch
         {
-            InspectionGraphTraversalDirection.Outgoing =>
+            GraphTraversalDirection.Outgoing =>
                 role == InspectionGraphEndpointRole.Source,
-            InspectionGraphTraversalDirection.Incoming =>
+            GraphTraversalDirection.Incoming =>
                 role == InspectionGraphEndpointRole.Target,
-            InspectionGraphTraversalDirection.Both => true,
+            GraphTraversalDirection.Both => true,
             _ => throw new ArgumentOutOfRangeException(nameof(Direction)),
         };
 }
@@ -227,80 +220,40 @@ public static class InspectionGraphFocusProjection
 
         IReadOnlyDictionary<
             InspectionGraphSubject,
-            InspectionGraphScopeMembership> membership =
+            GraphScopeMembership> membership =
             request.ScopeDecisions.ToDictionary(
                 static decision => decision.Subject,
                 static decision => decision.Membership);
-        var selectedRelationships =
-            request.Relationships.ToHashSet();
-        InspectionGraphEdge[] selectedEdges =
-        [
-            .. source.Edges.Where(edge =>
-                selectedRelationships.Contains(edge.Relationship)),
-        ];
-        LocalEdgeIndex local = LocalEdgeIndex.Create(
-            source,
-            selectedEdges,
-            membership);
         ImmutableArray<int> origins = OriginNodeIds(source);
-        Dictionary<int, ImmutableArray<int>> outgoingPaths =
-            source.ModeRequest.Mode != InspectionGraphMode.InducedSet
-            && request.Includes(InspectionGraphEndpointRole.Source)
-                ? ShortestPathsFromOrigins(local, origins)
-                : [];
-        Dictionary<int, ImmutableArray<int>> incomingPaths =
-            source.ModeRequest.Mode != InspectionGraphMode.InducedSet
-            && request.Includes(InspectionGraphEndpointRole.Target)
-                ? ShortestPathsToOrigins(local, origins)
-                : [];
-
-        var exitEdgeIds = new HashSet<int>();
-        var connectorEdgeIds = new HashSet<int>();
-        var unclassifiedEdgeIds = new HashSet<int>();
-        foreach (InspectionGraphEdge edge in selectedEdges)
-        {
-            InspectionGraphScopeMembership from = Membership(
-                source.Nodes[edge.FromNodeId].Subject,
-                membership);
-            InspectionGraphScopeMembership to = Membership(
-                source.Nodes[edge.ToNodeId].Subject,
-                membership);
-            if (from == InspectionGraphScopeMembership.Inside
-                && request.Includes(
-                    InspectionGraphEndpointRole.Source))
-            {
-                AddBoundary(
-                    edge,
-                    to,
-                    edge.FromNodeId,
-                    outgoingPaths,
-                    source.ModeRequest.Mode,
-                    exitEdgeIds,
-                    connectorEdgeIds,
-                    unclassifiedEdgeIds);
-            }
-            if (to == InspectionGraphScopeMembership.Inside
-                && request.Includes(
-                    InspectionGraphEndpointRole.Target))
-            {
-                AddBoundary(
-                    edge,
-                    from,
-                    edge.ToNodeId,
-                    incomingPaths,
-                    source.ModeRequest.Mode,
-                    exitEdgeIds,
-                    connectorEdgeIds,
-                    unclassifiedEdgeIds);
-            }
-        }
+        GraphFocusResult execution = GraphDocumentExecution.Focus(
+            source.Structure,
+            new GraphFocusPlan<
+                InspectionGraphRelationshipDescriptor>(
+                request.Relationships,
+                request.Direction,
+                [
+                    .. source.Nodes.Select(node =>
+                    new GraphNodeScope(
+                        node.Id,
+                        Membership(node.Subject, membership))),
+                ],
+                origins,
+                reachability:
+                    source.ModeRequest.Mode
+                        == InspectionGraphMode.InducedSet
+                            ? GraphFocusReachability.EntireInsideScope
+                            : GraphFocusReachability.FromOrigins));
+        var exitEdgeIds = execution.ExitEdgeIds.ToHashSet();
+        var connectorEdgeIds =
+            execution.ConnectorEdgeIds.ToHashSet();
+        var unclassifiedEdgeIds =
+            execution.UnclassifiedEdgeIds.ToHashSet();
 
         HashSet<int> diagnosticNodeIds =
             RetainReachableNodeDiagnostics(
                 source,
                 membership,
-                outgoingPaths,
-                incomingPaths,
+                execution.ConnectorPathsByNodeId,
                 connectorEdgeIds);
         HashSet<int> retainedEdgeIds =
         [
@@ -500,9 +453,8 @@ public static class InspectionGraphFocusProjection
         InspectionGraphDocument source,
         IReadOnlyDictionary<
             InspectionGraphSubject,
-            InspectionGraphScopeMembership> membership,
-        IReadOnlyDictionary<int, ImmutableArray<int>> outgoingPaths,
-        IReadOnlyDictionary<int, ImmutableArray<int>> incomingPaths,
+            GraphScopeMembership> membership,
+        IReadOnlyDictionary<int, ImmutableArray<int>> connectorPaths,
         HashSet<int> connectorEdgeIds)
     {
         var retainedNodeIds = new HashSet<int>();
@@ -519,7 +471,7 @@ public static class InspectionGraphFocusProjection
                 || Membership(
                     source.Nodes[nodeTarget.Id].Subject,
                     membership)
-                    != InspectionGraphScopeMembership.Inside)
+                    != GraphScopeMembership.Inside)
             {
                 continue;
             }
@@ -531,29 +483,14 @@ public static class InspectionGraphFocusProjection
                 continue;
             }
 
-            ImmutableArray<int>? connector = null;
-            if (outgoingPaths.TryGetValue(
+            if (!connectorPaths.TryGetValue(
                     nodeTarget.Id,
-                    out ImmutableArray<int> outgoing))
+                    out ImmutableArray<int> connector))
             {
-                connector = outgoing;
-            }
-            if (incomingPaths.TryGetValue(
-                    nodeTarget.Id,
-                    out ImmutableArray<int> incoming)
-                && (connector is null
-                    || incoming.Length < connector.Value.Length
-                    || (incoming.Length == connector.Value.Length
-                        && CompareSequences(
-                            incoming,
-                            connector.Value) < 0)))
-            {
-                connector = incoming;
-            }
-            if (connector is null)
                 continue;
+            }
 
-            connectorEdgeIds.UnionWith(connector.Value);
+            connectorEdgeIds.UnionWith(connector);
             retainedNodeIds.Add(nodeTarget.Id);
         }
         return retainedNodeIds;
@@ -614,165 +551,6 @@ public static class InspectionGraphFocusProjection
         return origins.ToImmutable();
     }
 
-    static void AddBoundary(
-        InspectionGraphEdge edge,
-        InspectionGraphScopeMembership opposite,
-        int insideEndpoint,
-        IReadOnlyDictionary<int, ImmutableArray<int>> paths,
-        InspectionGraphMode mode,
-        HashSet<int> exitEdgeIds,
-        HashSet<int> connectorEdgeIds,
-        HashSet<int> unclassifiedEdgeIds)
-    {
-        if (opposite == InspectionGraphScopeMembership.Inside)
-            return;
-
-        ImmutableArray<int> connector = [];
-        bool hasConnector =
-            mode == InspectionGraphMode.InducedSet
-            || paths.TryGetValue(insideEndpoint, out connector);
-        if (opposite == InspectionGraphScopeMembership.Unknown)
-        {
-            unclassifiedEdgeIds.Add(edge.Id);
-            if (hasConnector)
-                connectorEdgeIds.UnionWith(connector);
-            return;
-        }
-        if (!hasConnector)
-            return;
-
-        exitEdgeIds.Add(edge.Id);
-        connectorEdgeIds.UnionWith(connector);
-    }
-
-    static Dictionary<int, ImmutableArray<int>>
-        ShortestPathsFromOrigins(
-        LocalEdgeIndex index,
-        ImmutableArray<int> origins)
-    {
-        Dictionary<int, int> distances = Distances(
-            index,
-            origins,
-            reverse: false);
-        var paths = origins.ToDictionary(
-            static origin => origin,
-            static _ => ImmutableArray<int>.Empty);
-        foreach ((int node, int distance) in distances
-            .Where(static item => item.Value > 0)
-            .OrderBy(static item => item.Value)
-            .ThenBy(static item => item.Key))
-        {
-            ImmutableArray<int>? best = null;
-            foreach (InspectionGraphEdge edge in index.Incoming(node))
-            {
-                if (!distances.TryGetValue(
-                        edge.FromNodeId,
-                        out int predecessorDistance)
-                    || predecessorDistance != distance - 1)
-                {
-                    continue;
-                }
-
-                ImmutableArray<int> candidate =
-                    paths[edge.FromNodeId].Add(edge.Id);
-                if (best is null
-                    || CompareSequences(candidate, best.Value) < 0)
-                {
-                    best = candidate;
-                }
-            }
-            if (best is not null)
-                paths.Add(node, best.Value);
-        }
-        return paths;
-    }
-
-    static Dictionary<int, ImmutableArray<int>>
-        ShortestPathsToOrigins(
-        LocalEdgeIndex index,
-        ImmutableArray<int> origins)
-    {
-        Dictionary<int, int> distances = Distances(
-            index,
-            origins,
-            reverse: true);
-        var paths = origins.ToDictionary(
-            static origin => origin,
-            static _ => ImmutableArray<int>.Empty);
-        foreach ((int node, int distance) in distances
-            .Where(static item => item.Value > 0)
-            .OrderBy(static item => item.Value)
-            .ThenBy(static item => item.Key))
-        {
-            ImmutableArray<int>? best = null;
-            foreach (InspectionGraphEdge edge in index.Outgoing(node))
-            {
-                if (!distances.TryGetValue(
-                        edge.ToNodeId,
-                        out int successorDistance)
-                    || successorDistance != distance - 1)
-                {
-                    continue;
-                }
-
-                ImmutableArray<int> candidate =
-                    [edge.Id, .. paths[edge.ToNodeId]];
-                if (best is null
-                    || CompareSequences(candidate, best.Value) < 0)
-                {
-                    best = candidate;
-                }
-            }
-            if (best is not null)
-                paths.Add(node, best.Value);
-        }
-        return paths;
-    }
-
-    static Dictionary<int, int> Distances(
-        LocalEdgeIndex index,
-        ImmutableArray<int> origins,
-        bool reverse)
-    {
-        var distances = origins.ToDictionary(
-            static origin => origin,
-            static _ => 0);
-        var queue = new Queue<int>(origins);
-        while (queue.TryDequeue(out int node))
-        {
-            int nextDistance = distances[node] + 1;
-            IEnumerable<InspectionGraphEdge> edges = reverse
-                ? index.Incoming(node)
-                : index.Outgoing(node);
-            foreach (InspectionGraphEdge edge in edges)
-            {
-                int adjacent = reverse
-                    ? edge.FromNodeId
-                    : edge.ToNodeId;
-                if (distances.ContainsKey(adjacent))
-                    continue;
-
-                distances.Add(adjacent, nextDistance);
-                queue.Enqueue(adjacent);
-            }
-        }
-        return distances;
-    }
-
-    static int CompareSequences(
-        ImmutableArray<int> first,
-        ImmutableArray<int> second)
-    {
-        int length = Math.Min(first.Length, second.Length);
-        for (var index = 0; index < length; index++)
-        {
-            int comparison = first[index].CompareTo(second[index]);
-            if (comparison != 0)
-                return comparison;
-        }
-        return first.Length.CompareTo(second.Length);
-    }
-
     static void AddRoles(
         List<InspectionGraphCharacteristic> characteristics,
         ImmutableArray<int> origins,
@@ -827,94 +605,13 @@ public static class InspectionGraphFocusProjection
                 InspectionGraphCharacteristicDerivationKind.Derived,
                 [target]));
 
-    static InspectionGraphScopeMembership Membership(
+    static GraphScopeMembership Membership(
         InspectionGraphSubject subject,
         IReadOnlyDictionary<
             InspectionGraphSubject,
-            InspectionGraphScopeMembership> membership) =>
+            GraphScopeMembership> membership) =>
         membership.TryGetValue(subject, out var value)
             ? value
-            : InspectionGraphScopeMembership.Unknown;
+            : GraphScopeMembership.Unknown;
 
-    sealed class LocalEdgeIndex
-    {
-        readonly IReadOnlyDictionary<
-            int,
-            ImmutableArray<InspectionGraphEdge>> _outgoing;
-        readonly IReadOnlyDictionary<
-            int,
-            ImmutableArray<InspectionGraphEdge>> _incoming;
-
-        LocalEdgeIndex(
-            IReadOnlyDictionary<
-                int,
-                ImmutableArray<InspectionGraphEdge>> outgoing,
-            IReadOnlyDictionary<
-                int,
-                ImmutableArray<InspectionGraphEdge>> incoming)
-        {
-            _outgoing = outgoing;
-            _incoming = incoming;
-        }
-
-        internal ImmutableArray<InspectionGraphEdge> Outgoing(int node) =>
-            _outgoing.TryGetValue(node, out var edges)
-                ? edges
-                : [];
-
-        internal ImmutableArray<InspectionGraphEdge> Incoming(int node) =>
-            _incoming.TryGetValue(node, out var edges)
-                ? edges
-                : [];
-
-        internal static LocalEdgeIndex Create(
-            InspectionGraphDocument source,
-            IEnumerable<InspectionGraphEdge> edges,
-            IReadOnlyDictionary<
-                InspectionGraphSubject,
-                InspectionGraphScopeMembership> membership)
-        {
-            var outgoing =
-                new Dictionary<int, List<InspectionGraphEdge>>();
-            var incoming =
-                new Dictionary<int, List<InspectionGraphEdge>>();
-            foreach (InspectionGraphEdge edge in edges)
-            {
-                if (Membership(
-                        source.Nodes[edge.FromNodeId].Subject,
-                        membership)
-                        != InspectionGraphScopeMembership.Inside
-                    || Membership(
-                        source.Nodes[edge.ToNodeId].Subject,
-                        membership)
-                        != InspectionGraphScopeMembership.Inside)
-                {
-                    continue;
-                }
-                Add(outgoing, edge.FromNodeId, edge);
-                Add(incoming, edge.ToNodeId, edge);
-            }
-
-            return new LocalEdgeIndex(
-                outgoing.ToDictionary(
-                    static pair => pair.Key,
-                    static pair => pair.Value.ToImmutableArray()),
-                incoming.ToDictionary(
-                    static pair => pair.Key,
-                    static pair => pair.Value.ToImmutableArray()));
-        }
-
-        static void Add(
-            Dictionary<int, List<InspectionGraphEdge>> index,
-            int node,
-            InspectionGraphEdge edge)
-        {
-            if (!index.TryGetValue(node, out var edges))
-            {
-                edges = [];
-                index.Add(node, edges);
-            }
-            edges.Add(edge);
-        }
-    }
 }

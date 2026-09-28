@@ -38,6 +38,13 @@ public enum GraphDocumentScope
     Portable,
 }
 
+public sealed class GraphDocumentIdentity
+{
+    internal GraphDocumentIdentity()
+    {
+    }
+}
+
 public readonly record struct GraphTarget
 {
     private readonly bool _initialized;
@@ -366,6 +373,8 @@ public sealed class GraphDocument<
     where TLimit : notnull
     where TFailure : notnull
 {
+    GraphDocumentIdentity? _identity;
+
     public GraphDocument(
         GraphDocumentScope scope,
         IEnumerable<GraphNode<TSubject>> nodes,
@@ -400,7 +409,7 @@ public sealed class GraphDocument<
 
         IEqualityComparer<TSubject> admittedSubjectComparer =
             subjectComparer ?? EqualityComparer<TSubject>.Default;
-        IEqualityComparer<TRelationship> admittedRelationshipComparer =
+        RelationshipComparer =
             relationshipComparer ?? EqualityComparer<TRelationship>.Default;
 
         ValidateDenseIds(Nodes, static node => node.Id, nameof(nodes));
@@ -412,12 +421,16 @@ public sealed class GraphDocument<
             nameof(occurrences));
         ValidateNodeSubjects(admittedSubjectComparer);
         ValidateGroups();
-        ValidateEdgesAndOccurrences(admittedRelationshipComparer);
+        ValidateEdgesAndOccurrences(RelationshipComparer);
         ValidateCharacteristics();
         ValidateSeeds(admittedSubjectComparer);
         ValidateDiagnostics();
     }
 
+    public GraphDocumentIdentity Identity =>
+        LazyInitializer.EnsureInitialized(
+            ref _identity,
+            static () => new GraphDocumentIdentity());
     public GraphDocumentScope Scope { get; }
     public ImmutableArray<GraphNode<TSubject>> Nodes { get; }
     public ImmutableArray<GraphGroup<TSubject>> Groups { get; }
@@ -432,6 +445,8 @@ public sealed class GraphDocument<
     public ImmutableArray<GraphSeed<TSubject>> Seeds { get; }
     public ImmutableArray<GraphLimit<TLimit>> Limits { get; }
     public ImmutableArray<GraphFailure<TFailure>> Failures { get; }
+    public IEqualityComparer<TRelationship> RelationshipComparer
+    { get; }
 
     private void ValidateNodeSubjects(
         IEqualityComparer<TSubject> subjectComparer)
