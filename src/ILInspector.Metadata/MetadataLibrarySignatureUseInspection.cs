@@ -195,6 +195,7 @@ internal static class MetadataLibrarySignatureUseInspection
         private int _considered;
         private int _examined;
         private int _unavailable;
+        private int _siteLimited;
         private bool _limited;
         private int _currentInheritanceGeneration;
 
@@ -232,9 +233,10 @@ internal static class MetadataLibrarySignatureUseInspection
                 : _considered;
             int limited = _limited
                 ? considered - _examined - _unavailable
-                : 0;
+                : _siteLimited;
             if (!_limited
-                && _examined + _unavailable != considered)
+                && _examined + _unavailable + _siteLimited
+                    != considered)
             {
                 throw new InvalidOperationException(
                     "Library signature-use coverage did not settle every site.");
@@ -302,7 +304,7 @@ internal static class MetadataLibrarySignatureUseInspection
                         handle),
                     declaration.Name,
                     definitionKind,
-                    InitialClassification(
+                    SafeInitialClassification(
                         handle,
                         declaration.Name,
                         isCoreLibrary));
@@ -324,9 +326,50 @@ internal static class MetadataLibrarySignatureUseInspection
             foreach (TypeEntry entry in _types)
             {
                 entry.Classification |=
-                    InheritanceClassification(entry);
+                    SafeInheritanceClassification(entry);
             }
         }
+
+        private MetadataLibraryTypeClassification
+            SafeInitialClassification(
+                TypeDefinitionHandle handle,
+                MetadataTypeDefinitionName name,
+                bool isCoreLibrary)
+        {
+            try
+            {
+                return InitialClassification(
+                    handle,
+                    name,
+                    isCoreLibrary);
+            }
+            catch (Exception exception)
+                when (IsMalformedClassificationEvidence(exception))
+            {
+                return MetadataLibraryTypeClassification.None;
+            }
+        }
+
+        private MetadataLibraryTypeClassification
+            SafeInheritanceClassification(TypeEntry entry)
+        {
+            try
+            {
+                return InheritanceClassification(entry);
+            }
+            catch (Exception exception)
+                when (IsMalformedClassificationEvidence(exception))
+            {
+                return MetadataLibraryTypeClassification.None;
+            }
+        }
+
+        private static bool IsMalformedClassificationEvidence(
+            Exception exception) =>
+            exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException;
 
         private MetadataLibraryTypeClassification InheritanceClassification(
             TypeEntry entry)
@@ -836,8 +879,36 @@ internal static class MetadataLibrarySignatureUseInspection
                         exception.Message));
                 _unavailable++;
             }
+            catch (SiteLimitException exception)
+            {
+                _diagnostics.Add(
+                    new(
+                        MetadataLibrarySignatureUseDiagnosticKind.Limit,
+                        metadataToken,
+                        exception.Message,
+                        exception.Dimension,
+                        exception.Limit,
+                        exception.AttemptedCharge));
+                _siteLimited++;
+            }
             catch (SignatureOccurrenceRejectedException exception)
             {
+                if (exception.Dimension is { } dimension
+                    && exception.Limit is { } limit
+                    && exception.AttemptedCharge is { } attemptedCharge)
+                {
+                    _diagnostics.Add(
+                        new(
+                            MetadataLibrarySignatureUseDiagnosticKind.Limit,
+                            metadataToken,
+                            "The signature occurrence exceeded "
+                                + $"{exception.Reason}.",
+                            dimension,
+                            limit,
+                            attemptedCharge));
+                    _siteLimited++;
+                    return;
+                }
                 _diagnostics.Add(
                     new(
                         RejectionDiagnosticKind(exception.Reason),
@@ -1027,19 +1098,41 @@ internal static class MetadataLibrarySignatureUseInspection
             _operation.Charge(
                 MetadataOperationDimension.SignatureBytes,
                 length);
-            if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+            SignatureBlobGuard.CompleteValidationKind validation =
+                SignatureBlobGuard.ValidateComplete(
                     _reader,
                     signature,
                     kind,
-                    out SignatureBlobGuardMeasurements measurements))
+                    out SignatureBlobGuardMeasurements measurements);
+            provider.ObserveGuard(measurements);
+            if (validation
+                == SignatureBlobGuard.CompleteValidationKind
+                    .DepthBudgetExceeded)
             {
-                provider.ObserveGuard(measurements);
+                throw new SiteLimitException(
+                    MetadataOperationDimension.StructuredNodes,
+                    SignatureBlobGuard.DefaultMaxDepth,
+                    SignatureBlobGuard.DefaultMaxDepth + 1L,
+                    "The signature exceeded the structural-depth limit.");
+            }
+            if (validation
+                == SignatureBlobGuard.CompleteValidationKind
+                    .NodeBudgetExceeded)
+            {
+                throw new SiteLimitException(
+                    MetadataOperationDimension.StructuredNodes,
+                    MetadataSafetyPolicy.MaxSignatureTypeNodes,
+                    MetadataSafetyPolicy.MaxSignatureTypeNodes + 1L,
+                    "The signature exceeded the structural-node limit.");
+            }
+            if (validation
+                != SignatureBlobGuard.CompleteValidationKind.Valid)
+            {
                 throw new SiteUnavailableException(
                     MetadataLibrarySignatureUseDiagnosticKind
                         .MalformedMetadata,
                     "The signature is not safe and complete to decode.");
             }
-            provider.ObserveGuard(measurements);
         }
 
         private MetadataLibraryTypeClassification
@@ -1179,6 +1272,18 @@ internal static class MetadataLibrarySignatureUseInspection
             {
                 get;
             }
+        }
+
+        private sealed class SiteLimitException(
+            MetadataOperationDimension dimension,
+            long limit,
+            long attemptedCharge,
+            string detail) : Exception(detail)
+        {
+            internal MetadataOperationDimension Dimension { get; } =
+                dimension;
+            internal long Limit { get; } = limit;
+            internal long AttemptedCharge { get; } = attemptedCharge;
         }
     }
 }

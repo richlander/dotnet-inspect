@@ -164,14 +164,45 @@ internal sealed class SignatureOccurrenceWorkBudget(
         ArgumentOutOfRangeException.ThrowIfNegative(amount);
         metrics?.Observe(metric, amount);
         if (amount > ceiling - used)
-            throw new SignatureOccurrenceRejectedException(rejection);
+        {
+            throw new SignatureOccurrenceRejectedException(
+                rejection,
+                Dimension(metric),
+                ceiling,
+                checked((long)used + amount));
+        }
         used += amount;
         metrics?.SetUsage(_nodes, _copies, _work);
     }
+
+    private static MetadataOperationDimension Dimension(
+        SignatureOccurrenceMetric metric) =>
+        metric switch
+        {
+            SignatureOccurrenceMetric.TypeSpecificationBytes =>
+                MetadataOperationDimension.SignatureBytes,
+            SignatureOccurrenceMetric.TypeNameCharacters
+                or SignatureOccurrenceMetric.AssemblyReferenceNameBytes
+                or SignatureOccurrenceMetric
+                    .AssemblyReferenceCultureBytes
+                or SignatureOccurrenceMetric
+                    .AssemblyReferenceTokenBytes
+                or SignatureOccurrenceMetric
+                    .AssemblyReferenceFullKeyBytes
+                or SignatureOccurrenceMetric.ModuleReferenceNameBytes =>
+                MetadataOperationDimension.RetainedText,
+            _ => MetadataOperationDimension.StructuredNodes,
+        };
 }
 
 internal sealed class SignatureOccurrenceRejectedException(
-    SignatureOccurrenceRejectionReason reason) : Exception
+    SignatureOccurrenceRejectionReason reason,
+    MetadataOperationDimension? dimension = null,
+    long? limit = null,
+    long? attemptedCharge = null) : Exception
 {
     internal SignatureOccurrenceRejectionReason Reason { get; } = reason;
+    internal MetadataOperationDimension? Dimension { get; } = dimension;
+    internal long? Limit { get; } = limit;
+    internal long? AttemptedCharge { get; } = attemptedCharge;
 }

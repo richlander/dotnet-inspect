@@ -406,6 +406,91 @@ public sealed class MetadataLibrarySignatureUseTests
             Assert.Single(result.Diagnostics).Kind);
     }
 
+    [Theory]
+    [InlineData(HandleKind.TypeSpecification)]
+    [InlineData(HandleKind.TypeReference)]
+    public void MalformedBaseRetainsHealthyEvidence(
+        HandleKind malformedBaseKind)
+    {
+        byte[] image = BuildMalformedBaseImage(malformedBaseKind);
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(
+            new(
+                considered: 2,
+                examined: 1,
+                unavailable: 1,
+                limited: 0),
+            result.Coverage);
+        MetadataLibrarySignatureUseOccurrence occurrence =
+            Assert.Single(result.Occurrences);
+        Assert.Equal(
+            MetadataLibrarySignatureUseSiteKind.FieldType,
+            occurrence.SiteKind);
+        Assert.Equal(
+            MetadataLibrarySignatureUseDiagnosticKind.MalformedMetadata,
+            Assert.Single(result.Diagnostics).Kind);
+        Assert.Equal(
+            MetadataLibraryTypeClassification.None,
+            Assert.Single(
+                result.Types,
+                static type => type.Name.Segments is ["Owner"])
+                .Classification);
+    }
+
+    [Fact]
+    public void TypeNameBoundProducesTypedLimitedSite()
+    {
+        byte[] image = BuildLocallyBoundedFieldImage(
+            longTypeName: true);
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        AssertLocalLimit(
+            result,
+            MetadataOperationDimension.RetainedText,
+            MetadataSafetyPolicy.MaxTypeNameCharacters);
+    }
+
+    [Fact]
+    public void StructuralDepthBoundProducesTypedLimitedSite()
+    {
+        byte[] image = BuildLocallyBoundedFieldImage(
+            longTypeName: false);
+        using var stream = new MemoryStream(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream);
+
+        MetadataLibrarySignatureUseResult result =
+            Available(
+                session.LibrarySignatureUses(
+                    new(MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        AssertLocalLimit(
+            result,
+            MetadataOperationDimension.StructuredNodes,
+            SignatureBlobGuard.DefaultMaxDepth);
+    }
+
     [Fact]
     public void ForeignCoreLookalikesDoNotProducePositiveClassification()
     {
@@ -598,6 +683,34 @@ public sealed class MetadataLibrarySignatureUseTests
         Assert.True(
             Type(result, terminalName).Classification.HasFlag(
                 classification));
+
+    private static void AssertLocalLimit(
+        MetadataLibrarySignatureUseResult result,
+        MetadataOperationDimension dimension,
+        long limit)
+    {
+        Assert.Equal(
+            MetadataLibrarySignatureUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(
+            new(
+                considered: 2,
+                examined: 1,
+                unavailable: 0,
+                limited: 1),
+            result.Coverage);
+        Assert.Equal(
+            MetadataLibrarySignatureUseSiteKind.FieldType,
+            Assert.Single(result.Occurrences).SiteKind);
+        MetadataLibrarySignatureUseDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            MetadataLibrarySignatureUseDiagnosticKind.Limit,
+            diagnostic.Kind);
+        Assert.Equal(dimension, diagnostic.BudgetDimension);
+        Assert.Equal(limit, diagnostic.BudgetLimit);
+        Assert.Equal(limit + 1, diagnostic.AttemptedCharge);
+    }
 
     private static byte[] BuildMalformedSignatureImage()
     {
@@ -823,6 +936,112 @@ public sealed class MetadataLibrarySignatureUseTests
             foreignDelegate,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildMalformedBaseImage(
+        HandleKind malformedBaseKind)
+    {
+        var metadata = CreateMetadata("MalformedBase");
+        AddModuleType(metadata);
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        EntityHandle malformedBase;
+        if (malformedBaseKind == HandleKind.TypeSpecification)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(
+                    MetadataTokens.TypeDefinitionHandle(99)));
+            malformedBase =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+        }
+        else
+        {
+            malformedBase =
+                metadata.AddTypeReference(
+                    MetadataTokens.AssemblyReferenceHandle(99),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("BrokenBase"));
+        }
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            malformedBase,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AddTypeField(metadata, "Healthy", target);
+        return Serialize(metadata);
+    }
+
+    private static byte[] BuildLocallyBoundedFieldImage(
+        bool longTypeName)
+    {
+        var metadata = CreateMetadata("LocallyBoundedField");
+        AddModuleType(metadata);
+        TypeDefinitionHandle target =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Target"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        AddTypeField(metadata, "Healthy", target);
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x06);
+        if (longTypeName)
+        {
+            AssemblyReferenceHandle dependency =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Dependency"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            TypeReferenceHandle longName =
+                metadata.AddTypeReference(
+                    dependency,
+                    default,
+                    metadata.GetOrAddString(new string('N', 5_000)));
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(longName));
+        }
+        else
+        {
+            for (int depth = 0;
+                depth <= SignatureBlobGuard.DefaultMaxDepth;
+                depth++)
+            {
+                signature.WriteByte(0x1D);
+            }
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(target));
+        }
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Bounded"),
+            metadata.GetOrAddBlob(signature));
         return Serialize(metadata);
     }
 

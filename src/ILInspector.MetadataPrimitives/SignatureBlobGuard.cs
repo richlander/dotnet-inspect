@@ -214,14 +214,27 @@ public static class SignatureBlobGuard
         BlobHandle signature,
         Kind kind,
         int maxDepth = DefaultMaxDepth)
+        => ValidateComplete(
+            reader,
+            signature,
+            kind,
+            out _,
+            maxDepth);
+
+    internal static CompleteValidationKind ValidateComplete(
+        MetadataReader reader,
+        BlobHandle signature,
+        Kind kind,
+        out SignatureBlobGuardMeasurements measurements,
+        int maxDepth = DefaultMaxDepth)
     {
+        measurements = default;
         if (signature.IsNil)
             return CompleteValidationKind.Malformed;
 
         BlobReader blob = reader.GetBlobReader(signature);
         try
         {
-            SignatureBlobGuardMeasurements measurements = default;
             if (ExceedsDepth(
                     ref blob,
                     kind,
