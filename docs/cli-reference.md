@@ -314,10 +314,10 @@ dotnet-inspect ecosystem aspire -D
 dotnet-inspect ecosystem aspire -S @Ecosystem
 dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
-dotnet-inspect ecosystem azure -S "Core Packages"
+dotnet-inspect ecosystem aspire -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
 dotnet-inspect ecosystem maui -S "Core Packages"
-dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
+dotnet-inspect ecosystem microsoft-extensions -S "Namespace Hints"
 dotnet-inspect ecosystem runtime -S Pruning
 ```
 

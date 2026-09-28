@@ -58,7 +58,7 @@ public partial class CommandExecutionTests
             WriteReferenceFixtureAssembly(
                 path,
                 "Sample.Library",
-                "Aspire.Hosting.Azure.SignalR",
+                "Microsoft.Extensions.AI",
                 "ThirdParty.Client");
 
             var (exit, output, error) = await RunAppAsync(
@@ -74,13 +74,13 @@ public partial class CommandExecutionTests
                 exit == 0,
                 $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
             Assert.Empty(error);
-            Assert.Contains("Aspire", output, StringComparison.Ordinal);
-            Assert.Contains("Azure", output, StringComparison.Ordinal);
+            Assert.Contains("| Microsoft.Extensions |", output, StringComparison.Ordinal);
+            Assert.Contains("| AI |", output, StringComparison.Ordinal);
             Assert.Equal(
                 2,
                 output.Split('\n').Count(
                     line => line.Contains(
-                        "Aspire.Hosting.Azure.SignalR",
+                        "Microsoft.Extensions.AI",
                         StringComparison.Ordinal)));
             Assert.DoesNotContain(
                 "ThirdParty.Client",
@@ -110,7 +110,7 @@ public partial class CommandExecutionTests
             WriteReferenceFixtureAssembly(
                 path,
                 "Sample.Library",
-                "Aspire.Hosting.Azure.SignalR");
+                "Microsoft.Extensions.AI");
 
             var (headExit, headOutput, headError) = await RunAppAsync(
                 "library",
@@ -159,13 +159,13 @@ public partial class CommandExecutionTests
                     tailRecognition.GetProperty("dependencies")
                         .EnumerateArray());
             Assert.Equal(
-                "Aspire",
+                "Microsoft.Extensions",
                 headDependency.GetProperty("ecosystem").GetString());
             Assert.Equal(
-                "Azure",
+                "AI",
                 tailDependency.GetProperty("ecosystem").GetString());
             Assert.Equal(
-                "Aspire.Hosting.Azure.SignalR, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+                "Microsoft.Extensions.AI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
                 tailDependency.GetProperty("dependency").GetString());
             Assert.Equal(
                 2,
@@ -342,7 +342,7 @@ public partial class CommandExecutionTests
                 .ToArray();
             Assert.Contains("Microsoft.Extensions", ecosystems);
             Assert.Contains("Aspire", ecosystems);
-            Assert.Contains("Azure", ecosystems);
+            Assert.DoesNotContain("Azure", ecosystems);
         }
         finally
         {

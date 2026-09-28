@@ -611,9 +611,11 @@ with no prefixes completes as `Exhausted` after its core. Sources after the
 limit do not run; `CandidateLimitReached` is the visible signal that the
 population was not exhausted.
 
-A core package that cannot be resolved fails as that one candidate: the
-failure names the package, counts against the shared limit, and the other
-roots and prefixes still answer. A failed prefix search is source-wide and
+A core package with no eligible version (for example a prerelease-only root
+without prerelease enabled) contributes no candidate and is not a failure;
+failures are transport or resolution errors. A core package that fails that
+way fails as that one candidate: the failure names the package, counts against
+the shared limit, and the other roots and prefixes still answer. A failed prefix search is source-wide and
 completes the query as `Failed`, although later sources still run.
 
 Every match carries a `package.query.scope.ecosystem` scope evidence naming
@@ -621,10 +623,10 @@ the Ecosystem and the basis that admitted the package (`exact package <id>`
 or `package prefix <prefix>`). The summary and CLI title name the canonical
 Ecosystem identity.
 
-Both hosts adopt the population: the CLI through `--ecosystem` and
-`--where ecosystem=`, and the Browser package-query engine through an
-Ecosystem selection beside its free-text input. The Browser slice follows the
-CLI slice and reuses the same planner, execution, and evidence.
+The CLI adopts the population through `--ecosystem` and `--where ecosystem=`.
+The Browser package-query engine will adopt it in a follow-up slice through an
+Ecosystem selection beside its free-text input, reusing the same planner,
+execution, and evidence; until then the Browser has no Ecosystem population.
 
 ### Existing layering
 
