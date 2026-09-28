@@ -35,6 +35,7 @@ public class MemorySafetyDeclarationFixtures
     public int* PointerField;
     public unsafe int ContractField;
     public int Property { get; set; }
+    public int this[int index] { get => index; set { } }
     public static int StaticProperty { get; set; }
     public int CustomProperty { get => 1; set { } }
     public event Action? Event;
