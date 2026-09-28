@@ -37,20 +37,16 @@ import {
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
 
-test("retained Workspace clones drop live implementation callbacks", () => {
+test("retained Workspace clones drop live Type heat callbacks", () => {
   const clone = sourceText(
     functionDeclaration("cloneCanonicalWorkspaceSnapshotForRetention"),
   );
   assert.match(
     clone,
-    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*implementationProfiles:\s*\{\s*status:\s*"idle" as const\s*\},\s*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
+    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
   );
 
   const liveState = {
-    implementationProfiles: {
-      status: "ready",
-      selection: { isCurrent: () => true },
-    },
     typeHeat: {
       status: "ready",
       isCurrent: () => true,
@@ -63,11 +59,9 @@ test("retained Workspace clones drop live implementation callbacks", () => {
   assert.deepEqual(
     structuredClone({
       ...liveState,
-      implementationProfiles: { status: "idle" },
       typeHeat: { status: "idle" },
     }),
     {
-      implementationProfiles: { status: "idle" },
       typeHeat: { status: "idle" },
     },
   );
