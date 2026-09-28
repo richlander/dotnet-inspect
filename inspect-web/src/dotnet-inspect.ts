@@ -3869,21 +3869,7 @@ function applyView(view: WorkspaceView) {
   }
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && !state.atLibraryRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    const section = state.memberSection;
-    if (section === "source")
-      observeAsync(loadSelectedMemberSource(), "Loading member source");
-    else if (section === "annotated")
-      observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-    else if (section === "call-graph")
-      observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-    else if (section === "facts")
-      observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
-    else if (section === "overview")
-      observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-    else if (section === "compare")
-      render();
-    else
-      assertNever(section, "member section");
+    loadMemberSectionContent(state.memberSection);
   } else {
     render();
   }
@@ -6677,6 +6663,23 @@ function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
   }
 }
 
+function ordinaryMethodGroup(
+  group: {
+    readonly kind: string;
+    readonly overloads: readonly { readonly graphOnly?: boolean }[];
+  } | null | undefined,
+) {
+  return group?.kind === "method"
+    && group.overloads.every(overload => !overload.graphOnly);
+}
+
+function loadSelectedMemberOverview() {
+  return ordinaryMethodGroup(selectedMember(selectedType()))
+      && state.selectedOverloadIndex === null
+    ? loadSelectedMemberGroupDocument()
+    : loadSelectedMemberDocumentation();
+}
+
 function loadMemberSectionContent(id: MemberSection) {
   if (id === "source")
     observeAsync(loadSelectedMemberSource(), "Loading member source");
@@ -6687,7 +6690,7 @@ function loadMemberSectionContent(id: MemberSection) {
   else if (id === "facts")
     observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
   else if (id === "overview")
-    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+    observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
     render();
   else
@@ -6703,9 +6706,7 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
-  const ordinaryMethodGroup =
-    group?.kind === "method"
-    && group.overloads.every(overload => !overload.graphOnly);
+  const methodGroup = ordinaryMethodGroup(group);
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
@@ -6715,7 +6716,7 @@ function openMemberGroup(key: string) {
     clearMemberGroupDocumentCache();
   }
   state.selectedBodyTarget = graphOnlyTarget;
-  if (ordinaryMethodGroup || !preserveSection) {
+  if (methodGroup || !preserveSection) {
     state.memberSection = "overview";
   } else {
     const retainedSection = state.memberSection;
@@ -6734,17 +6735,7 @@ function openMemberGroup(key: string) {
       state.selectedBodyTarget = null;
     }
   }
-  const memberGroupSelected =
-    group?.kind === "method"
-    && state.selectedOverloadIndex === null;
-  if (memberGroupSelected) {
-    render();
-    observeAsync(
-      loadSelectedMemberGroupDocument(),
-      "Loading the member group");
-  } else {
-    loadMemberSectionContent(state.memberSection);
-  }
+  loadMemberSectionContent(state.memberSection);
 }
 
 function enterMemberScope(
@@ -6854,10 +6845,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      const ordinaryMethodGroup =
-        entry.group.kind === "method"
-        && entry.group.overloads.every(overload => !overload.graphOnly);
-      if (ordinaryMethodGroup) {
+      if (ordinaryMethodGroup(entry.group)) {
         state.memberSection = "overview";
         openMemberGroup(entry.group.key);
       } else if (entry.group.overloads.length === 1) {
@@ -13350,7 +13338,7 @@ async function pickSpotlightMember(
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
   render({ synchronizeUrl: rollbackSnapshot === null });
-  await loadSelectedMemberDocumentation();
+  await loadSelectedMemberOverview();
   focusTypeList(navigationGeneration, focusGeneration);
 }
 

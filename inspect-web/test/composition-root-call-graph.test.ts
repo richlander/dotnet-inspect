@@ -928,7 +928,7 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
     ?? "";
   assert.match(
     selection,
-    /entry\.group\.kind === "method"[\s\S]*entry\.group\.overloads\.every\(overload => !overload\.graphOnly\)/);
+    /ordinaryMethodGroup\(entry\.group\)/);
   assert.match(
     selection,
     /ordinaryMethodGroup[\s\S]*state\.memberSection = "overview";[\s\S]*openMemberGroup\(entry\.group\.key\)/);
@@ -938,10 +938,31 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
     ?? "";
   assert.match(
     openMemberGroup,
-    /const ordinaryMethodGroup =\s*group\?\.kind === "method"\s*&& group\.overloads\.every\(overload => !overload\.graphOnly\)/);
+    /const methodGroup = ordinaryMethodGroup\(group\)/);
   assert.match(
     openMemberGroup,
-    /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(ordinaryMethodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+    /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+});
+
+test("restored ordinary families load the shared document", () => {
+  const overview =
+    appSource.match(/function loadSelectedMemberOverview\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    overview,
+    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+
+  const applyView =
+    appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
+    ?? "";
+  assert.match(
+    applyView,
+    /state\.selectedMemberKey && member\) \{\s*loadMemberSectionContent\(state\.memberSection\)/);
+
+  const spotlight =
+    appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
+    ?? "";
+  assert.match(spotlight, /await loadSelectedMemberOverview\(\)/);
 });
 
 test("member navigation excludes graph-only projections from ordinary filters", () => {
