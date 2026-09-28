@@ -63,6 +63,9 @@ a separate axis: they are admitted and marked, as the default already does.
 - `--all` selects every bucket and admits hidden declarations into their
   buckets. Combined with an `accessibility` term, the term narrows the buckets
   and hidden declarations stay admitted.
+- `--spelling metadata` selects the metadata spelling defined below, and
+  `--spelling csharp` selects the default C# spelling. Spelling chooses the
+  row unit, so it is an option rather than a row predicate.
 
 Every admitted declaration belongs to exactly one bucket, so Counts over the
 buckets of one population are truthful. They cover the same declarations,
@@ -88,18 +91,41 @@ declaration wherever some consumer can see them as a single unit:
 - Each method overload stays its own declaration. A family of overloads is
   grouped by name, not composed.
 
-A composed declaration belongs to the bucket of its declared accessibility,
-which is its most visible part. A narrower accessor is part of that
-declaration's shape, not a separate member. An explicit interface
-implementation belongs to `public`, because the interface makes it reachable.
+A property's or event's accessibility is the widest of its accessors'
+accessibilities, joined in the ECMA-335 accessibility order: `private` is
+narrowest, `private protected` is narrower than both `protected` and
+`internal`, those two join to `protected internal`, and `public` is widest.
+This is C#'s declared accessibility for the property or event. The
+`api.accessibility` vocabulary then assigns the bucket. For example,
+`JsonConverter.RequiresReadAhead { internal get; private protected set; }` is
+`internal`. A narrower accessor is part of that declaration's shape, not a
+separate member.
+
+An explicit interface implementation is a private member whose MethodImpl
+declaration is a member of an interface. It keeps its member kind (method,
+property, or event) and belongs to the bucket of the interface it implements,
+because exactly the consumers who can see that interface can reach it. That
+bucket is the `api.accessibility` classification of the interface's declared
+accessibility. An interface referenced from another assembly is public to this
+assembly's consumers, so no other assembly is resolved. An
+implementation of a public interface, such as `IEnumerator.Current`, belongs to
+`public`. An implementation of a non-public interface in the same assembly,
+such as `JsonSerializerContext`'s implementation of the internal
+`IBuiltInJsonTypeInfoResolver.IsCompatibleWithOptions`, belongs to that
+interface's bucket, here `internal`. A non-private member keeps its own
+accessibility even when a MethodImpl also targets an interface member.
 A finalizer belongs to `protected`, its declared accessibility. A view shows
 each declaration with the parts visible at its selected accessibility:
 `public` shows `BytesPending { get; }`, and every bucket shows
 `BytesPending { get; private set; }`.
 
 **Metadata spelling** composes nothing. It shows one row per metadata record
-(method, property, event, or field), including accessor methods, and each
-record belongs to the bucket of its own accessibility flag.
+of the Type itself (method, property, event, or field), including accessor
+methods. A method or field record belongs to the bucket of its own
+accessibility flag. A property or event record, which has no flag of its own,
+takes its accessors' join defined above, not its interface's bucket. Attached extension
+declarations are records of their declaring Type, so they appear only under C#
+spelling.
 
 In both spellings the buckets partition that spelling's population, and every
 Count is in that spelling's unit: declarations for C# spelling, records for

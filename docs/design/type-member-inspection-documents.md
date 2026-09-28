@@ -1187,6 +1187,14 @@ The implementation sequence must add Release gates proving:
 - `Utf8JsonWriter.BytesPending` is one `public` declaration under C# spelling.
   Its `private set` accessor appears only in views that select both `public`
   and `private`, such as every bucket, and never counts as a separate member;
+- `JsonConverter.RequiresReadAhead { internal get; private protected set; }`
+  and the eight other System.Text.Json 10.0.0 properties with that shape count
+  in `internal` under C# spelling, and their property records count in
+  `internal` under metadata spelling;
+- `JsonSerializerContext`'s explicit implementation of the internal
+  `IBuiltInJsonTypeInfoResolver.IsCompatibleWithOptions` counts in `internal`
+  under C# spelling, never in `public`, while explicit implementations of
+  public interfaces such as `IEnumerator.Current` count in `public`;
 - `JsonDocument.Parse` is one Member-group row under `accessibility = public`
   with 5 overloads and one under `accessibility = private` with 2;
 - Type-subject documentation can complete without Member-group-row

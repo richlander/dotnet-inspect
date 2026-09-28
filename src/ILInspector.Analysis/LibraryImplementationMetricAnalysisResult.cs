@@ -31,6 +31,14 @@ internal sealed record ImplementationMetricControlFlow(
         1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
 }
 
+internal sealed record ImplementationMetricDirectCalls(
+    int InvocationCount,
+    int DistinctTargetCount,
+    string? IncompleteReason)
+{
+    internal bool IsComplete => IncompleteReason is null;
+}
+
 internal sealed record MethodImplementationMetricEvidence(
     MethodIdentity Method,
     MethodIdentity EvidenceMethod,
@@ -38,7 +46,13 @@ internal sealed record MethodImplementationMetricEvidence(
     ImplementationMetricExceptionRegionCounts? ExceptionRegions,
     ImplementationMetricLocalEvidence? Locals,
     ImplementationMetricInstructionShape? InstructionShape,
-    ImplementationMetricControlFlow? ControlFlow);
+    ImplementationMetricControlFlow? ControlFlow,
+    ImplementationMetricDirectCalls? DirectCalls)
+{
+    internal bool DirectCallCollectionAttempted { get; init; }
+
+    internal bool DirectCallCollectionComplete { get; init; }
+}
 
 internal sealed record ImplementationMetricStageParticipation(
     ImplementationMetricWorkStage Stage,
