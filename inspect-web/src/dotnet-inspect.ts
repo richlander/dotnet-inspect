@@ -6276,7 +6276,7 @@ function activateCompareMember(memberFingerprint: string) {
     subject.pkg,
     type,
     match.group,
-    match.group.overloads.length > 1 ? match.overloadIndex : null,
+    match.overloadIndex,
     null,
     "compare");
 }
@@ -6764,7 +6764,6 @@ function openOverload(index: number) {
 function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
   if (member
-    && member.overloads.length > 1
     && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
     state.selectedBodyTarget = graphOnlyBodyTarget(member.overloads[0]);
@@ -9467,6 +9466,12 @@ function drillToPerfMember(
   });
   if (!target) return;
   const { type: targetType, member } = target;
+  const group = memberGroups(targetType)
+    .find(candidate => candidate.overloads.includes(member));
+  if (!group) {
+    showToast("That ranked Member is no longer loaded in the selected Type.");
+    return;
+  }
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -9476,14 +9481,8 @@ function drillToPerfMember(
   state.namespaceFilter = "";
   resetMemberFilters();
   state.lens = "api";
-  const key = `${member.kind}:${member.name}`;
-  state.selectedMemberKey = key;
-  const group = memberGroups(targetType).find(candidate => candidate.key === key);
-  const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(
-      overload => overload.stableSelector === stableSelector)
-    : -1;
-  state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
+  state.selectedMemberKey = group.key;
+  state.selectedOverloadIndex = group.overloads.indexOf(member);
   resetMemberSectionState();
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
   observeAsync(

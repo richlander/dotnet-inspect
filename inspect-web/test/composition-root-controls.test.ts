@@ -712,9 +712,16 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     appSource,
     /function drillToPerfMember\([\s\S]*resetMemberSectionState\(\);[\s\S]*loadSelectedMemberDocumentation\(\)/);
+  const drillToPerfMember =
+    appSource.match(/function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(
+    drillToPerfMember,
+    /const group = memberGroups\(targetType\)\s*\.find\(candidate => candidate\.overloads\.includes\(member\)\)/);
   assert.doesNotMatch(
-    appSource.match(
-      /function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "",
+    drillToPerfMember,
+    /group\.overloads\.length > 1|selectedOverloadIndex = null/);
+  assert.doesNotMatch(
+    drillToPerfMember,
     /memberSection = "facts"|loadSelectedMemberFacts\(\)/);
   assert.doesNotMatch(
     appSource,

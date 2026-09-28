@@ -272,6 +272,9 @@ test("graph-only members open through the typed member surface", () => {
   const openMember =
     appSource.match(/function openMemberGroup\([\s\S]*?\n}(?=\n\nfunction enterMemberScope)/)?.[0]
     ?? "";
+  const applyMemberSection =
+    appSource.match(/function applyMemberSection\([\s\S]*?\n}(?=\n\n\/\/ Flattened)/)?.[0]
+    ?? "";
   assert.match(
     binding,
     /navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)/);
@@ -279,6 +282,12 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     openMember,
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+  assert.match(
+    applyMemberSection,
+    /member\s*&& state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex = 0/);
+  assert.doesNotMatch(
+    applyMemberSection,
+    /member\.overloads\.length > 1/);
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /\$requireManagedExports\(\)\["DotnetInspect"\]\["Web"\]\["Interop"\]\["Metadata"\]\["MetadataExports"\]\["QueryGraphMemberSurface\.-?\d+"\]/);
