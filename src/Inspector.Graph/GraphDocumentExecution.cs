@@ -229,7 +229,7 @@ public sealed class GraphFocusResult
     public GraphExecutionWorkReceipt Receipt { get; }
 }
 
-public static class GraphDocumentExecution
+public static partial class GraphDocumentExecution
 {
     public static GraphNeighborhoodResult Neighborhood<
         TSubject,
@@ -723,7 +723,6 @@ public static class GraphDocumentExecution
     }
 
     readonly record struct GraphTraversalStep(int EdgeId, int NodeId);
-
     sealed class GraphEdgeIndex<TRelationship>
         where TRelationship : notnull
     {
