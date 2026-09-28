@@ -511,7 +511,9 @@ import {
 } from "./platform-subject.ts";
 import {
   createSpotlight,
+  spotlightCapabilityDraftValue,
   type RemovableSpotlightResult,
+  type SpotlightCapabilityResult,
   type SpotlightPackageResult,
   type SpotlightPackageHit,
   type SpotlightResult,
@@ -710,7 +712,6 @@ import {
 } from "./type-explorer-view.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
-  BrowserCapabilityCatalogSearchResult,
   BrowserPackageChangesPackageSetDescriptor,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -12478,6 +12479,7 @@ function spotlightResults(): SpotlightResult[] {
     )) {
       results.push({
         kind: "capability",
+        query,
         capability,
         ranges: computeHighlightRanges(
           capability.resourceName,
@@ -12817,9 +12819,8 @@ async function switchPackageFramework(
 const PACKAGE_QUERY_BROWSER_BINDING_IDENTITY =
   "dotnet-inspect.web/package-query";
 
-function openSpotlightCapability(
-  capability: BrowserCapabilityCatalogSearchResult,
-): void {
+function openSpotlightCapability(result: SpotlightCapabilityResult): void {
+  const { capability } = result;
   const binding = capability.productionBindings.find(candidate =>
     candidate.consumerKind === "Browser"
     && candidate.identity === PACKAGE_QUERY_BROWSER_BINDING_IDENTITY);
@@ -12830,7 +12831,12 @@ function openSpotlightCapability(
   if (!openPackageQueryRoute("")) return;
   if (capability.resourceKind !== "QueryFacet") return;
   const termKey = capability.canonicalKeys[0];
-  if (termKey) addPackageQueryTerm(termKey);
+  if (termKey) {
+    addPackageQueryTerm(
+      termKey,
+      spotlightCapabilityDraftValue(result),
+    );
+  }
 }
 
 function pickSpotlightResult(result: SpotlightResult) {
@@ -12843,7 +12849,7 @@ function pickSpotlightResult(result: SpotlightResult) {
       openPackageActivityRoute();
       break;
     case "capability":
-      openSpotlightCapability(result.capability);
+      openSpotlightCapability(result);
       break;
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
     case "pkg-nuget":
@@ -16879,7 +16885,7 @@ function togglePackageQueryPreset(presetId: string, text: string) {
   submitPackageQueryRequest(togglePreset(current, preset));
 }
 
-function addPackageQueryTerm(termKey: string) {
+function addPackageQueryTerm(termKey: string, initialValue = "") {
   const descriptor = state.packageQueryTerms.find(
     candidate => candidate.key === termKey);
   if (!descriptor || descriptor.operators.length === 0) {
@@ -16892,7 +16898,7 @@ function addPackageQueryTerm(termKey: string) {
   state.packageQueryState.termDraft = {
     descriptor,
     operator: descriptor.operators[0] ?? "",
-    value: "",
+    value: initialValue,
   };
   state.packageQueryNavigationError = "";
   render();

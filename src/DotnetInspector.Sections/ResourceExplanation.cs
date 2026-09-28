@@ -659,6 +659,7 @@ public abstract record ResourceExplanationDetail
             IEnumerable<string> operators,
             string valueKind,
             IEnumerable<string> values,
+            IEnumerable<string> examples,
             IEnumerable<string> effects)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(identity);
@@ -673,6 +674,7 @@ public abstract record ResourceExplanationDetail
             Operators = NormalizeValues(operators, nameof(operators));
             ValueKind = valueKind;
             Values = NormalizeValues(values, nameof(values));
+            Examples = NormalizeValues(examples, nameof(examples));
             Effects = NormalizeValues(effects, nameof(effects));
         }
 
@@ -689,6 +691,8 @@ public abstract record ResourceExplanationDetail
         public string ValueKind { get; }
 
         public ImmutableArray<string> Values { get; }
+
+        public ImmutableArray<string> Examples { get; }
 
         public ImmutableArray<string> Effects { get; }
     }

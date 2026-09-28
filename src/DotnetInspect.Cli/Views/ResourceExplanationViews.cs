@@ -88,6 +88,9 @@ public sealed class ResourceExplanationView
     public List<string> Values { get; init; } = [];
 
     [MarkoutJoin(", ")]
+    public List<string> Examples { get; init; } = [];
+
+    [MarkoutJoin(", ")]
     public List<string> Effects { get; init; } = [];
 
     public string? ConsumerKind
@@ -166,6 +169,7 @@ public sealed class ResourceExplanationView
             Operators = details.Operators,
             ValueKind = details.ValueKind,
             Values = details.Values,
+            Examples = details.Examples,
             Effects = details.Effects,
             ConsumerKind = details.ConsumerKind,
             Gesture = details.Gesture,
@@ -224,6 +228,7 @@ public sealed class ResourceExplanationView
         List<string> Operators,
         string? ValueKind,
         List<string> Values,
+        List<string> Examples,
         List<string> Effects,
         string? ConsumerKind,
         string? Gesture)
@@ -261,6 +266,7 @@ public sealed class ResourceExplanationView
                         [.. value.Operators],
                         value.ValueKind,
                         [.. value.Values],
+                        [.. value.Examples],
                         [.. value.Effects],
                         null,
                         null),
@@ -292,6 +298,7 @@ public sealed class ResourceExplanationView
                 resultContract,
                 [],
                 null,
+                [],
                 [],
                 [],
                 consumerKind,

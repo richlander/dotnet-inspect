@@ -425,9 +425,12 @@ The result identity is the capability search result's canonical Resource Path.
 The shell does not reconstruct identity from the displayed name, metadata, or
 array position. Activation follows the typed available Browser binding. The
 first production binding opens Package Query without executing it; selecting a
-Query Facet also opens that exact owner-issued term's editor with an empty
-value. Capability search remains local and resource-free and runs
-independently of the network-backed package search.
+Query Facet also opens that exact owner-issued term's editor. An example-value
+match such as `https://` preserves the entered text as the draft value;
+conceptual matches such as `literal` open an empty editor. The typed match
+provenance, not Browser-authored syntax recognition, selects that behavior.
+Capability search remains local and resource-free and runs independently of
+the network-backed package search.
 
 This is deliberately host-specific interactive rendering over the generated
 Browser capability-search transport. Capability Catalog Search continues to

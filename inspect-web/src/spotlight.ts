@@ -69,6 +69,7 @@ interface PackageActivityResult {
 
 export interface SpotlightCapabilityResult {
   kind: "capability";
+  query: string;
   capability: BrowserCapabilityCatalogSearchResult;
   ranges: readonly HighlightRange[];
 }
@@ -272,6 +273,14 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
     default:
       throw new Error("Unknown Spotlight result.");
   }
+}
+
+export function spotlightCapabilityDraftValue(
+  result: SpotlightCapabilityResult,
+): string {
+  return result.capability.matchSource === "ExampleValue"
+    ? result.query
+    : "";
 }
 
 export function distinctSpotlightResults(

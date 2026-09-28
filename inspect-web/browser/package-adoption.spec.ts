@@ -946,7 +946,7 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 
     const search = page.locator("#spotlight-input");
     await expect(search).toBeVisible({ timeout: 120_000 });
-    await search.fill("literal");
+    await search.fill("https://");
 
     const result = page.locator(
       '[data-sl-capability="package-query/query/facets/library-literal"]',
@@ -965,6 +965,7 @@ test.describe("Capability Spotlight search over real Wasm", () => {
     const literalEditor = page.locator("[data-query-term-draft-value]");
     await expect(literalEditor).toBeVisible();
     await expect(literalEditor).toBeFocused();
+    await expect(literalEditor).toHaveValue("https://");
     await expect(
       page.locator('[data-query-term-form="draft"]'),
     ).toHaveAttribute("aria-label", "library literal");

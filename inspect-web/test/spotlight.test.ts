@@ -6,6 +6,7 @@ import {
   distinctSpotlightResults,
   nextSpotlightScope,
   nextSpotlightSelection,
+  spotlightCapabilityDraftValue,
   spotlightResultIdentity,
 } from "../src/spotlight.ts";
 import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
@@ -762,6 +763,7 @@ test("Spotlight renders installed resources in one Capabilities group", () => {
     query: "literal",
     searchResults: () => [{
       kind: "capability",
+      query: "literal",
       capability,
       ranges: [[8, 15]],
     }],
@@ -779,10 +781,34 @@ test("Spotlight renders installed resources in one Capabilities group", () => {
   assert.equal(
     spotlightResultIdentity({
       kind: "capability",
+      query: "literal",
       capability,
       ranges: [],
     }),
     '["capability","package-query/query/facets/library-literal"]',
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "https://",
+      capability: {
+        ...capability,
+        matchedTerm: "https://",
+        matchSource: "ExampleValue",
+        isSegment: false,
+      },
+      ranges: [],
+    }),
+    "https://",
+  );
+  assert.equal(
+    spotlightCapabilityDraftValue({
+      kind: "capability",
+      query: "literal",
+      capability,
+      ranges: [],
+    }),
+    "",
   );
 });
 

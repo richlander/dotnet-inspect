@@ -75,11 +75,11 @@ selection, Query Space predicates, or Resource Explanation.
 ## Production witness
 
 The first witness is the existing Package Query literal-string capability.
-An agent starts with the concept `literal`, not with prior knowledge of Package
-Query:
+An agent starts with the value shape `https://`, not with prior knowledge of
+Package Query:
 
 ```console
-dotnet-inspect explain literal
+dotnet-inspect explain https://
 ```
 
 The result includes at least:
@@ -231,10 +231,11 @@ that promises a next production gesture.
 Each searchable resource projects terms from the following composed fields:
 
 1. its stable owner-issued identity;
-2. its canonical Resource Explanation path;
-3. owner-issued canonical keys, including a Query Space facet key;
-4. its owner-issued name and summary; and
-5. the stable identities and owner-issued names of directly related routes
+2. owner-issued canonical keys, including a Query Space facet key;
+3. owner-issued example values accepted by a Query Space facet;
+4. its canonical Resource Explanation path;
+5. its owner-issued name and summary; and
+6. the stable identities and owner-issued names of directly related routes
    and available production bindings.
 
 The search adapter selects these fields explicitly for each adopted descriptor
@@ -251,7 +252,9 @@ Segmentation is a search projection, not a new identity. It never replaces the
 complete owner-issued value in results or Resource Explanation. The fixed
 separator set makes `literal` an exact search term projected from the
 canonical key `library-literal` without inventing a synonym or copying that
-facet into a search-only inventory.
+facet into a search-only inventory. The complete owner-issued example
+`https://` likewise makes value-shaped intent discover the same facet without
+a Browser-only URL heuristic.
 
 Terms are de-duplicated per resource with
 `StringComparer.OrdinalIgnoreCase`. The projection retains the strongest
@@ -261,10 +264,11 @@ more than one field.
 Search-term provenance is ordered from strongest to weakest:
 
 1. owner identity or canonical key;
-2. canonical resource path;
-3. owner-issued resource name;
-4. owner-issued summary; and
-5. related route or production-binding identity or name.
+2. owner-issued example value;
+3. canonical resource path;
+4. owner-issued resource name;
+5. owner-issued summary; and
+6. related route or production-binding identity or name.
 
 This order breaks equal similarity scores. It does not change the similarity
 algorithm or imply that one resource kind is semantically more important than
@@ -310,6 +314,7 @@ Examples:
 
 | Search | Candidate term | Score and outcome |
 | --- | --- | --- |
+| `https://` | complete example value `https://` from `library-literal` | `1.0`, included |
 | `literal` | segment `literal` from `library-literal` | `1.0`, included |
 | `litteral` | segment `literal` from `library-literal` | `0.875`, included |
 | `library-literal` | complete canonical key `library-literal` | `1.0`, included |
@@ -521,7 +526,10 @@ selected exact paths directly rather than reproducing CLI operand parsing, but
 its typed branch selection is equivalent. Search results can navigate to exact
 explanation and to available Browser bindings. The first production
 interaction follows the typed Package Query Browser binding without executing
-a query; a selected Query Facet opens the exact canonical term's empty editor.
+a query. A selected Query Facet opens the exact canonical term's editor. When
+the winning match provenance is an example value, Spotlight seeds the editor
+with the original bounded search text; conceptual matches such as `literal`
+continue to open an empty editor.
 The CLI and Browser may arrange controls differently, but equivalent request
 values over the same catalog generation must receive equal Content, Share, and
 diagnostics before lossless host transport projection.
@@ -560,6 +568,7 @@ publish a partially ranked prefix as complete.
 
 | Claim | Status and gate |
 | --- | --- |
+| `https://` discovers `library-literal` through its owner-issued example value | Implemented: host-neutral search and Browser transport tests over the composed Package Query capability graph |
 | `literal` discovers the `library-literal` query facet through its canonical key segment | Implemented: host-neutral search test over the composed Package Query capability graph |
 | A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
 | Search terms use owner-issued fields rather than adapter-authored explanation prose | Implemented: bounded-result regression proving generic Query Space and consumer-binding summaries do not participate |
@@ -574,7 +583,7 @@ publish a partially ranked prefix as complete.
 | The `explain` facade selects registered or canonical multi-segment paths and search text without failure fallback | Implemented: facade-level CLI matrix covering registered and unknown paths, single-segment search, misspelling, and noncanonical slash-bearing text |
 | Reusable-reference shapes select their owner before Resource Path classification | Pending: no reusable-reference classifier is currently registered with the facade |
 | CLI and Browser invoke the same host-neutral operation | Implemented: CLI facade tests plus Browser managed-export tests over host-composed catalogs |
-| Spotlight presents capability matches without adding persistent shell chrome and activates the typed Browser binding | Implemented: TypeScript renderer/coordinator tests and a published Browser test for `literal` → `library-literal` → Package Query term editor |
+| Spotlight presents capability matches without adding persistent shell chrome and activates the typed Browser binding | Implemented: TypeScript renderer/coordinator tests and a published Browser test for `https://` → `library-literal` → prefilled Package Query term editor |
 | Equal requests over the same catalog generation produce equal Content, Share, and diagnostics | Guaranteed by the single host-neutral operation; a cross-host shared-generation harness remains pending |
 | The real agent path reaches the production literal query | Implemented: CLI end-to-end test using `literal`, exact explanation, and `Microsoft.Azure.SignalR@1.33.1` at `net8.0` |
 | Capability search has an available portable Browser Share | Pending: the first adoption reports `InspectionShare.NonProjectable` explicitly |
