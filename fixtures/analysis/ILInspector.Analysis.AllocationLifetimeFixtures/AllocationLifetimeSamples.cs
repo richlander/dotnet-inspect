@@ -2,6 +2,8 @@ namespace ILInspector.Analysis.AllocationLifetimeFixtures;
 
 public static class AllocationLifetimeSamples
 {
+    static int[]? s_captured;
+
     public static string ConstructFromLocalChars(
         char first,
         char second,
@@ -28,6 +30,21 @@ public static class AllocationLifetimeSamples
 
     public static int PrimitiveLookalikeStaysLocal()
         => new global::System.UIntPtr[2].Length;
+
+    public static int ReadThroughRefLocal()
+    {
+        int[]? values = new int[1];
+        ref int[]? alias = ref values;
+        return alias!.Length;
+    }
+
+    public static void PassArrayByReference()
+    {
+        int[]? values = new int[1];
+        Capture(ref values);
+    }
+
+    static void Capture(ref int[]? values) => s_captured = values;
 
     public static int AllocateInsideLoop(int count)
     {
