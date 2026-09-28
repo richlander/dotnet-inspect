@@ -48,8 +48,8 @@ neither Ecosystem plan:
 
 | Definition | Named populations | Consumer today |
 | --- | --- | --- |
-| Platform Workspace plan | Runtime and ASP.NET Core platform families, plus the Microsoft.Extensions and ASP.NET Core core packages (5 on `main`) | Inspect Web default Workspace, CLI external call graph |
-| All-known Workspace plan | the above plus the Aspire, AI, Azure, Blazor, and .NET MAUI core packages | Find's locator path, as inert registrations only |
+| Platform Workspace plan | Runtime and ASP.NET Core platform families; the Microsoft.Extensions and ASP.NET Core core-package lists are empty | Inspect Web default Workspace, CLI external call graph |
+| All-known Workspace plan | the above plus the Aspire, AI, Blazor, and .NET MAUI core packages | Find's locator path, as inert registrations only |
 | Find's effective default | Runtime, ASP.NET Core, and .NET Standard frameworks | `find`, `implements`, `extensions`, type-mode `depends` |
 
 Each plan also registers package-prefix populations (`System.`,
@@ -69,9 +69,9 @@ Find uses the platform plan rather than the all-known plan named by #6761:
 the platform plan is the Browser's default, so both hosts search the same
 default definition, and a bare `find` should answer platform questions
 without also searching every registered Ecosystem's core packages. The core
-package lists are owned by the Ecosystem packs; package-set retirement slice
-3 empties the Microsoft.Extensions and ASP.NET Core lists, after which the
-default realizes the two platform families alone.
+package lists are owned by the Ecosystem packs; since package-set retirement
+slice 3 (#8818) the Microsoft.Extensions and ASP.NET Core lists are empty, so
+the default realizes the two platform families alone.
 
 ## Gesture model
 
@@ -120,11 +120,10 @@ may suggest the next scope (`Remove --platform to search the platform
 Workspace.`); scope never widens silently.
 
 An explicit Workspace whose named populations are empty fails before
-acquisition instead of reporting an empty success. For example, once
-retirement slice 3 empties the Microsoft.Extensions core and before slice 5
-gives it a platform population, `find Foo --ecosystem microsoft-extensions`
-fails and names the Ecosystem's prefix (`--package-prefix
-Microsoft.Extensions.` today).
+acquisition instead of reporting an empty success. For example, until
+retirement slice 5 gives Microsoft.Extensions a platform population, its core
+is empty and `find Foo --ecosystem microsoft-extensions` fails and names the
+Ecosystem's prefix (`--package-prefix Microsoft.Extensions.` today).
 
 ## Registered versus searched populations
 
@@ -169,8 +168,8 @@ CLI, macOS arm64, 2026-09-28, `perf-bounded.tsv`: median of 3 cold samples
 | Installed platform, today's default, new user | cold | 0.95 s | 1.00 s | 1.74 s | 43 MB written, all `NETStandard.Library.Ref` (3 MB transferred) |
 | Downloaded platform, today's default (Wasm-like) | cold | 1.36 s | 1.47 s | 2.17 s (399 rows) | 240 MB |
 | Downloaded platform, today's default | warm | 0.14 s | 0.27 s | 0.97 s | |
-| Current core packages (5, by name) | cold | 1.22 s | 1.22 s | 1.29 s | 7 MB |
-| Current core packages | warm | 0.05 s | 0.07 s | 0.06 s | |
+| Former core packages (5, by name) | cold | 1.22 s | 1.22 s | 1.29 s | 7 MB |
+| Former core packages | warm | 0.05 s | 0.07 s | 0.06 s | |
 | Package sets (`--platform --extensions --aspnetcore`) | cold | 14.4 s | 14.9 s | 14.2 s | 157 MB |
 | Package sets | warm | 0.50 s | 0.98 s | 1.57 s | |
 | `Avalonia@12.1.3` | cold | 0.73 s | 0.93 s | 0.71 s | 45 MB |
@@ -185,12 +184,14 @@ Avalonia). The Cache column is the size of the fresh `HOME` after the run
 the installed platform's 442 because it resolves a different ref-pack
 version, so the two rows compare cost, not identical answers.
 
-The default this design adopts (Runtime and ASP.NET Core families without
-.NET Standard, plus the core packages) has no gesture in 0.26.0, so it is not
+The former core packages are the five Microsoft.Extensions and ASP.NET Core
+roots the platform plan carried when this was measured; retirement slice 3
+removed them. The default this design adopts (Runtime and ASP.NET Core
+families without .NET Standard) has no gesture in 0.26.0, so it is not
 measured end to end. An estimate is the warm installed-platform row, which
-still includes .NET Standard, plus the core-packages row: about 1.4 s cold and
-0.2 s warm for a direct hit. Adoption step 1's merge gate measures the real
-figure.
+still includes .NET Standard: about 0.2 s warm for a direct hit, and about
+1.4 s cold even with the former core packages added. Adoption step 1's merge
+gate measures the real figure.
 
 `perf-prefix.tsv`, 2026-09-27, an earlier harness whose timings include one
 Python interpreter start (about 0.03 s, negligible at this scale): 1 cold and
@@ -236,11 +237,10 @@ cold and one warm sample per Package.
 
 ### What the evidence decides
 
-- The default as defined fits the CLI envelope cold and warm: the installed
-  platform families answer within the warm installed-platform time, and the
-  current core packages add 1.2 s cold and 0.06 s warm (about 1.4 s cold in
-  total for a direct hit). Retirement slice 3 removes
-  those core packages from the default altogether.
+- The default as defined is estimated to fit the CLI envelope cold and warm:
+  the installed platform families answer within the warm installed-platform
+  time. Even the five former core packages added only 1.2 s cold and 0.06 s
+  warm, and retirement slice 3 removed them from the default.
 - Dropping .NET Standard removes the new user's largest cold cost: the cold
   installed-platform row is the `NETStandard.Library.Ref` acquisition (3 MB
   transferred, 43 MB written).
@@ -290,8 +290,8 @@ the current default.
 
 Breaking under CLI change classification:
 
-- default `find` scope drops .NET Standard and adds the platform Workspace
-  plan's core packages (none once retirement slice 3 lands);
+- default `find` scope drops .NET Standard (the platform Workspace plan has no
+  core packages since retirement slice 3);
 - `--ecosystem` changes from inert registration to a selector: it now
   suppresses the default and adds the Ecosystem's named populations, so
   `find Foo --ecosystem ecosystem.aspire` searches `Aspire.Hosting` instead of
