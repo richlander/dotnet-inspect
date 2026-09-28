@@ -15,12 +15,12 @@ namespace ILInspector.Analysis.Planning;
 public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
-    readonly Dictionary<ProducerDeclaration, ProducerState> _states =
-        new(ReferenceEqualityComparer.Instance);
+    readonly ProducerState[] _states;
 
     MethodDefinitionExecution(WorkDescription description)
     {
         _description = description;
+        _states = new ProducerState[description.Producers.Length];
     }
 
     public WorkReceipt Receipt { get; private set; } = new(0, []);
@@ -40,20 +40,33 @@ public sealed class MethodDefinitionExecution
         ArgumentNullException.ThrowIfNull(peReader);
 
         var execution = new MethodDefinitionExecution(description);
-        foreach (ProducerDeclaration producer in description.Producers)
+        ImmutableArray<ProducerDeclaration> producers = description.Producers;
+        for (int i = 0; i < producers.Length; i++)
         {
-            if (producer is not IMethodDefinitionProducer declaration)
+            if (producers[i] is not IMethodDefinitionProducer declaration)
             {
                 throw new ProducerContractException(
-                    $"Producer '{producer.Identity}' is not a "
+                    $"Producer '{producers[i].Identity}' is not a "
                     + "method-definition producer.");
             }
 
-            execution._states[producer] = new ProducerState(
+            execution._states[i] = new ProducerState(
                 execution,
                 declaration,
-                declaration.CreateRun(),
-                description.TerminalOf(producer));
+                declaration.CreateRun(description.FactRetention[i]),
+                description.TerminalByIndex[i],
+                description.DependencyIndices[i]);
+        }
+
+        // Each dependent reads its dependencies' runs directly, aligned with
+        // its declared dependencies, so a same-unit read needs no lookup.
+        foreach (ProducerState state in execution._states)
+        {
+            var runs = new IMethodDefinitionProducerRun[state.Dependencies.Length];
+            for (int j = 0; j < runs.Length; j++)
+                runs[j] = execution._states[state.Dependencies[j]].Run;
+            state.DependencyRuns = runs;
+            execution.BindScopeGuards(state);
         }
 
         if (!peReader.HasMetadata)
@@ -63,41 +76,43 @@ public sealed class MethodDefinitionExecution
         }
 
         MetadataReader reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyAnalysisBuilder(
-            sourceName,
-            reader,
-            peReader);
-        var lookup = new LibraryMethodAnalysisRunner(builder);
-        var unit = new MethodDefinitionUnit(reader, peReader, lookup);
+
+        // The module lookup is execution-scoped and costly to build, so it
+        // exists only when a planned producer declared it.
+        bool lookupDeclared = false;
+        foreach (ProducerState state in execution._states)
+            lookupDeclared |= state.HasLookupLayer;
+        using LibraryBodyAnalysisBuilder? builder = lookupDeclared
+            ? new LibraryBodyAnalysisBuilder(sourceName, reader, peReader)
+            : null;
+        LibraryMethodAnalysisRunner? lookup =
+            builder is null ? null : new LibraryMethodAnalysisRunner(builder);
         int unitsVisited = 0;
 
-        for (int pass = 1; pass <= description.PassCount; pass++)
+        foreach (PlannedPass pass in description.Passes)
         {
-            List<ProducerState> visiting =
-            [
-                .. description.Producers
-                    .Where(producer =>
-                        description.VisitPassOf(producer) == pass)
-                    .Select(producer => execution._states[producer]),
-            ];
-            foreach (ProducerState state in visiting)
+            ProducerState[] visiting = new ProducerState[pass.Visits.Length];
+            bool anyActive = false;
+            for (int i = 0; i < visiting.Length; i++)
+            {
+                ProducerState state = execution._states[pass.Visits[i]];
                 execution.FailIfPrerequisiteFailed(state);
+                anyActive |= state.IsActive;
+                visiting[i] = state;
+            }
 
-            if (visiting.Any(static state => state.IsActive))
+            if (anyActive)
             {
                 int passUnits = execution.VisitUnits(
                     reader,
-                    unit,
+                    peReader,
+                    lookup,
                     visiting);
                 unitsVisited = Math.Max(unitsVisited, passUnits);
             }
 
-            foreach (ProducerDeclaration producer in description.CompletionOrder
-                         .Where(producer =>
-                             description.CompletionPassOf(producer) == pass))
-            {
-                execution.CompleteProducer(execution._states[producer]);
-            }
+            foreach (int completion in pass.Completions)
+                execution.CompleteProducer(execution._states[completion]);
         }
 
         execution.PropagateFailures();
@@ -113,13 +128,14 @@ public sealed class MethodDefinitionExecution
         ProducerDeclaration<TResult> producer)
     {
         ArgumentNullException.ThrowIfNull(producer);
-        if (!_states.TryGetValue(producer, out ProducerState? state))
+        if (!_description.TryGetIndex(producer, out int index))
         {
             throw new ProducerContractException(
                 $"Producer '{producer.Identity}' is not in this work "
                 + "description.");
         }
 
+        ProducerState state = _states[index];
         return state.Outcome switch
         {
             ProducerOutcome.Complete or ProducerOutcome.Stopped =>
@@ -136,40 +152,156 @@ public sealed class MethodDefinitionExecution
         };
     }
 
-    internal object? FactFor(ProducerDeclaration producer, int unitToken) =>
-        _states[producer].Run.TryGetFact(unitToken, out object? fact)
-            ? fact
-            : throw new ProducerContractException(
+    /// <summary>
+    /// Binds a producer's scope guards: same-pass visit dependencies on a
+    /// producer that classifies units.
+    /// </summary>
+    void BindScopeGuards(ProducerState state)
+    {
+        ImmutableArray<ProducerDependency> declared = state.Run.Producer.Dependencies;
+        var runs = new List<IMethodDefinitionProducerRun>();
+        var accepted = new List<ulong>();
+        var guardStates = new List<ProducerState>();
+        for (int j = 0; j < declared.Length; j++)
+        {
+            ProducerDependency dependency = declared[j];
+            if (!dependency.IsScopeGuard)
+                continue;
+            IMethodDefinitionProducerRun guard = state.DependencyRuns[j];
+            if (dependency.Kind != ProducerDependencyKind.VisitNeedsVisit
+                || !guard.ClassifiesUnits
+                || _description.VisitPassOf(dependency.Producer)
+                    != _description.VisitPassOf(state.Run.Producer))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{state.Run.Producer.Identity}' declares a scope guard on "
+                    + $"'{dependency.Producer.Identity}', which must be a same-pass visit "
+                    + "dependency on a producer that classifies units.");
+            }
+
+            runs.Add(guard);
+            accepted.Add(dependency.AcceptedUnitClasses!.Value);
+            guardStates.Add(_states[state.Dependencies[j]]);
+        }
+
+        state.GuardRuns = [.. runs];
+        state.GuardClasses = [.. accepted];
+        state.GuardStates = [.. guardStates];
+    }
+
+    /// <summary>
+    /// The same-unit fact of a declared visit dependency, found through the
+    /// dependent's own dependency runs.
+    /// </summary>
+    internal static TFact FactFor<TFact, TAccumulator, TResult>(
+        ProducerState reader,
+        MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
+        int unitToken)
+    {
+        ImmutableArray<ProducerDependency> declared = reader.Run.Producer.Dependencies;
+        for (int i = 0; i < declared.Length; i++)
+        {
+            if (!ReferenceEquals(declared[i].Producer, producer)
+                || declared[i].Kind != ProducerDependencyKind.VisitNeedsVisit)
+            {
+                continue;
+            }
+
+            if (reader.DependencyRuns[i] is MethodDefinitionProducer<TFact, TAccumulator, TResult>.Run run
+                && run.TryGetFact(unitToken, out TFact fact))
+            {
+                return fact;
+            }
+
+            throw new ProducerContractException(
                 $"Producer '{producer.Identity}' has no fact for unit "
                 + $"0x{unitToken:X8}.");
+        }
+
+        throw new ProducerContractException(
+            $"Producer '{reader.Run.Producer.Identity}' did not declare "
+            + $"a dependency on '{producer.Identity}'.");
+    }
 
     int VisitUnits(
         MetadataReader reader,
-        MethodDefinitionUnit unit,
-        List<ProducerState> visiting)
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        ProducerState[] visiting)
     {
+        var unit = new MethodDefinitionUnit(reader, peReader, lookup);
         int visited = 0;
         foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
         {
             TypeDefinition typeDefinition =
                 reader.GetTypeDefinition(typeHandle);
+
+            // Type scope: a producer's guards' type scopes, then its own
+            // type predicate, in visit order so guards are decided first. A
+            // type a guard excludes is not tested, so it cannot fail the
+            // producer. When no active producer has the type in scope, its
+            // methods are skipped as a whole; when no producer remains
+            // active, the pass stops before the next untrusted read.
+            bool anyInScope = false;
+            bool anyActiveProducer = false;
+            foreach (ProducerState state in visiting)
+            {
+                // A prerequisite that failed on an earlier producer's type
+                // predicate fails this producer before its own is asked.
+                if (state.HasDependencies)
+                    FailIfPrerequisiteFailed(state);
+                if (!state.IsActive)
+                    continue;
+                bool inScope = true;
+                foreach (ProducerState guard in state.GuardStates)
+                    inScope &= guard.TypeInScopeNow;
+                if (inScope)
+                    inScope = TypeInScope(state, reader, typeHandle, typeDefinition);
+                state.TypeInScopeNow = inScope;
+                anyInScope |= inScope && state.IsActive;
+                anyActiveProducer |= state.IsActive;
+            }
+
+            if (!anyActiveProducer)
+                return visited;
+            if (!anyInScope)
+                continue;
+
             foreach (MethodDefinitionHandle methodHandle
                      in typeDefinition.GetMethods())
             {
                 unit.MoveTo(typeHandle, typeDefinition, methodHandle);
                 visited++;
+                int unitToken = MetadataTokens.GetToken(methodHandle);
+                bool anyActive = false;
                 foreach (ProducerState state in visiting)
                 {
-                    FailIfPrerequisiteFailed(state);
+                    // Only a producer with dependencies can gain a failed
+                    // prerequisite between units; the plan says which do.
+                    if (state.HasDependencies)
+                        FailIfPrerequisiteFailed(state);
                     if (!state.IsActive)
                         continue;
-                    VisitUnit(unit, state);
+
+                    // A unit outside the producer's type scope or a declared
+                    // scope guard is not visited.
+                    if (!state.TypeInScopeNow
+                        || (state.GuardRuns.Length != 0 && !InScope(state, unitToken)))
+                    {
+                        anyActive = true;
+                        continue;
+                    }
+
+                    VisitUnit(ref unit, state);
+                    anyActive |= state.IsActive;
                 }
 
                 // Stop before advancing either enumerator: the next read is
                 // untrusted metadata that could throw and replace an answer
-                // or diagnostic that is already settled.
-                if (!visiting.Any(static state => state.IsActive))
+                // or diagnostic that is already settled. A visit changes only
+                // its own producer's state, so the loop above sees every
+                // producer's final activity for this unit.
+                if (!anyActive)
                     return visited;
             }
         }
@@ -177,13 +309,51 @@ public sealed class MethodDefinitionExecution
         return visited;
     }
 
-    void VisitUnit(MethodDefinitionUnit unit, ProducerState state)
+    static bool TypeInScope(
+        ProducerState state,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition)
+    {
+        if (!state.Run.HasTypeScope)
+            return true;
+        try
+        {
+            return state.Run.TypeInScope(reader, typeDefinition);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            state.Outcome = ProducerOutcome.Failed;
+            state.Failure = new ProducerFailure(
+                MetadataTokens.GetToken(typeHandle),
+                "(type scope)",
+                $"{ex.GetType().Name}: {ex.Message}");
+            state.IsActive = false;
+            return false;
+        }
+    }
+
+    static bool InScope(ProducerState state, int unitToken)
+    {
+        IMethodDefinitionProducerRun[] guards = state.GuardRuns;
+        ulong[] accepted = state.GuardClasses;
+        for (int i = 0; i < guards.Length; i++)
+        {
+            if (!guards[i].UnitClassIn(unitToken, accepted[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    void VisitUnit(ref MethodDefinitionUnit unit, ProducerState state)
     {
         state.UnitsAttempted++;
         bool settled;
         try
         {
-            settled = state.Run.Visit(new MethodDefinitionView(unit, state));
+            settled = state.Run.Visit(new MethodDefinitionView(ref unit, state));
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -216,9 +386,9 @@ public sealed class MethodDefinitionExecution
         {
             return;
         }
-        foreach (ProducerDependency dependency in state.Run.Producer.Dependencies)
+        foreach (int dependency in state.Dependencies)
         {
-            ProducerState target = _states[dependency.Producer];
+            ProducerState target = _states[dependency];
             if (target.Outcome is ProducerOutcome.Failed
                 or ProducerOutcome.PrerequisiteFailed)
             {
@@ -244,18 +414,17 @@ public sealed class MethodDefinitionExecution
         do
         {
             changed = false;
-            foreach (ProducerDeclaration producer in _description.Producers)
+            foreach (ProducerState state in _states)
             {
-                ProducerState state = _states[producer];
                 if (state.Outcome is ProducerOutcome.Failed
                     or ProducerOutcome.PrerequisiteFailed)
                 {
                     continue;
                 }
 
-                foreach (ProducerDependency dependency in producer.Dependencies)
+                foreach (int dependency in state.Dependencies)
                 {
-                    ProducerState target = _states[dependency.Producer];
+                    ProducerState target = _states[dependency];
                     if (target.Outcome is ProducerOutcome.Failed
                         or ProducerOutcome.PrerequisiteFailed)
                     {
@@ -304,49 +473,53 @@ public sealed class MethodDefinitionExecution
 
     void CompleteWithoutUnits()
     {
-        foreach (ProducerDeclaration producer in _description.CompletionOrder)
-            CompleteProducer(_states[producer]);
+        foreach (int completion in _description.CompletionIndices)
+            CompleteProducer(_states[completion]);
         PropagateFailures();
         Receipt = CreateReceipt(0);
     }
 
-    WorkReceipt CreateReceipt(int unitsVisited) =>
-        new(
-            unitsVisited,
-            [
-                .. _description.Producers.Select(producer =>
-                {
-                    ProducerState state = _states[producer];
-                    return new ProducerParticipation(
-                        producer.Identity,
-                        state.Outcome
-                        ?? throw new InvalidOperationException(
-                            $"Producer '{producer.Identity}' has no outcome."),
-                        state.UnitsAttempted,
-                        state.UnitsCompleted,
-                        state.UnitsFailed,
-                        [
-                            .. state.Declaration.Layers.HasFlag(
-                                MethodDefinitionLayers.Body)
-                                ? [new ProducerLayerParticipation(
-                                    nameof(MethodDefinitionLayers.Body),
-                                    state.BodyAcquisitions)]
-                                : Array.Empty<ProducerLayerParticipation>(),
-                            .. state.Declaration.Layers.HasFlag(
-                                MethodDefinitionLayers.ModuleLookup)
-                                ? [new ProducerLayerParticipation(
-                                    nameof(MethodDefinitionLayers.ModuleLookup),
-                                    state.LookupUses)]
-                                : Array.Empty<ProducerLayerParticipation>(),
-                        ]);
-                }),
-            ]);
+    WorkReceipt CreateReceipt(int unitsVisited)
+    {
+        var producers = ImmutableArray.CreateBuilder<ProducerParticipation>(
+            _states.Length);
+        foreach (ProducerState state in _states)
+        {
+            var layers = ImmutableArray.CreateBuilder<ProducerLayerParticipation>(2);
+            if (state.HasBodyLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.Body),
+                    state.BodyAcquisitions));
+            }
+
+            if (state.HasLookupLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.ModuleLookup),
+                    state.LookupUses));
+            }
+
+            producers.Add(new ProducerParticipation(
+                state.Run.Producer.Identity,
+                state.Outcome
+                ?? throw new InvalidOperationException(
+                    $"Producer '{state.Run.Producer.Identity}' has no outcome."),
+                state.UnitsAttempted,
+                state.UnitsCompleted,
+                state.UnitsFailed,
+                layers.ToImmutable()));
+        }
+
+        return new(unitsVisited, producers.MoveToImmutable());
+    }
 
     internal sealed class ProducerState(
         MethodDefinitionExecution execution,
         IMethodDefinitionProducer declaration,
         IMethodDefinitionProducerRun run,
-        ProducerTerminal terminal)
+        ProducerTerminal terminal,
+        ImmutableArray<int> dependencies)
     {
         public MethodDefinitionExecution Execution => execution;
 
@@ -355,6 +528,30 @@ public sealed class MethodDefinitionExecution
         public IMethodDefinitionProducerRun Run => run;
 
         public ProducerTerminal Terminal => terminal;
+
+        /// <summary>The dependency targets, by index into the execution's states.</summary>
+        public ImmutableArray<int> Dependencies => dependencies;
+
+        public bool HasDependencies { get; } = !dependencies.IsEmpty;
+
+        /// <summary>The dependencies' runs, aligned with the declared dependencies.</summary>
+        public IMethodDefinitionProducerRun[] DependencyRuns { get; set; } = [];
+
+        /// <summary>The scope guards' runs and the unit classes each accepts.</summary>
+        public IMethodDefinitionProducerRun[] GuardRuns { get; set; } = [];
+
+        public ulong[] GuardClasses { get; set; } = [];
+
+        public ProducerState[] GuardStates { get; set; } = [];
+
+        /// <summary>Whether the type being visited is in this producer's scope.</summary>
+        public bool TypeInScopeNow = true;
+
+        public bool HasBodyLayer { get; } =
+            (declaration.Layers & MethodDefinitionLayers.Body) != 0;
+
+        public bool HasLookupLayer { get; } =
+            (declaration.Layers & MethodDefinitionLayers.ModuleLookup) != 0;
 
         public bool IsActive { get; set; } = true;
 
@@ -391,19 +588,28 @@ public sealed class MethodDefinitionExecution
             count++;
         }
 
+        /// <summary>
+        /// Requires a declared dependency on <paramref name="dependency"/> of
+        /// kind <paramref name="kind"/> or, when given, <paramref name="alternative"/>.
+        /// </summary>
         public void Require(
             ProducerDeclaration dependency,
-            params ProducerDependencyKind[] kinds)
+            ProducerDependencyKind kind,
+            ProducerDependencyKind? alternative = null)
         {
             ArgumentNullException.ThrowIfNull(dependency);
-            if (!run.Producer.Dependencies.Any(declared =>
-                    ReferenceEquals(declared.Producer, dependency)
-                    && kinds.Contains(declared.Kind)))
+            foreach (ProducerDependency declared in run.Producer.Dependencies)
             {
-                throw new ProducerContractException(
-                    $"Producer '{run.Producer.Identity}' did not declare "
-                    + $"a dependency on '{dependency.Identity}'.");
+                if (ReferenceEquals(declared.Producer, dependency)
+                    && (declared.Kind == kind || declared.Kind == alternative))
+                {
+                    return;
+                }
             }
+
+            throw new ProducerContractException(
+                $"Producer '{run.Producer.Identity}' did not declare "
+                + $"a dependency on '{dependency.Identity}'.");
         }
     }
 }

@@ -113,6 +113,20 @@ Which work stops is declared, not an accident of ordering. A guard failure is
 a failed prerequisite, which is a different outcome from work stopped because
 a request was satisfied.
 
+**A scope guard narrows the work.** Three questions ask about the same
+methods: which are P/Invoke, how many are async, and whether any other
+signature carries a pointer. They share one classification, computed cheapest
+first: in scope, then P/Invoke, then async. A classifier producer computes it
+once per unit and publishes each unit's class. The three question producers
+declare scope guards on it, so each is visited only for units in the classes it
+accepts. The classifier also declares a type scope, so a compiler-generated
+type is out of scope for it and for every producer it guards, and the
+traversal skips that type as a whole. A unit outside a producer's scope is
+neither attempted nor failed; the receipt counts only the units the producer
+visited. Asked alone, each question costs only the classification it needs.
+Asked together, the questions share one pass without repeating the
+classification.
+
 **A consumer owns its interpretation.** The JS export surface's JSON
 wire-contract rules need field-store, field-load, and return-flow facts.
 Analysis publishes those facts through a flow producer. The wire-contract
@@ -181,8 +195,11 @@ level never merges them.
 
 A **unit** is what one visit covers; the first unit kind is one method
 definition. Its layers are its declaration metadata and, when it has a managed
-body, that body at the requested depth. A producer may also declare a **completion**, which runs after every unit
-in its scope has been visited and combines the per-unit facts into the
+body, that body at the requested depth. Each visited unit's fact folds into the
+producer's accumulator as the unit is visited, so a producer retains only what
+its result needs: an Exists or Count producer keeps a flag or a number, never
+the rows. A producer may also declare a **completion**, which runs after every
+unit in its scope has been visited and turns the accumulator into the
 published result. Whole-library facts such as leverage or a local call graph
 are completions, and a completion may depend on other producers' completed
 results.
@@ -252,7 +269,9 @@ producer discovers a new need while it runs; a conditional need is an optional
 request stated in the declaration.
 
 *Lets the lower levels:* compute collapse, cost, read demand, and pushdown
-before the first byte is read.
+before the first byte is read, and acquire only what some producer declared:
+an execution whose producers read only declarations never builds the module
+lookup.
 
 *Lesson:* LLVM's legacy pass manager and Roslyn's runtime callback
 registration show how much a scheduler loses when needs surface only during
@@ -283,7 +302,8 @@ optimizer for one consumer family. #8571 records today's drift.
 
 **Rule.** A producer does not mutate what it reads, does not keep state that
 spans units, and observes another producer only through that producer's
-declared result. Anything shared is a level 1 or level 2 input, never a
+declared result. The only state that spans units is its accumulator, which the
+executor holds and the producer only folds into. Anything shared is a level 1 or level 2 input, never a
 producer's lazily initialized field.
 
 *Lets the lower levels:* run units in parallel, visit independent producers
@@ -306,6 +326,36 @@ and schedule in parallel, all without producer changes.
 *Lesson:* Roslyn's operation callbacks and Go's shared `inspect` traversal give
 N analyzers one walk. Analyses that walk the program themselves cannot be
 interrupted, parallelized, or fused.
+
+### Scope is declared on the edge, not tested inside the visit
+
+**Rule.** A producer that applies to only some units says so in its
+declaration: a type scope for whole types, and a scope guard for units a
+classifier has classified. A scope guard is a same-unit dependency that names
+the unit classes it accepts, possibly all of them; naming them is what makes
+the edge a guard, and a guard always applies its classifier's type scope. A
+type the guard excludes is outside the dependent's scope before the
+dependent's own type scope is asked. Work that several producers need, such as a
+classification, is its own producer that the others depend on; it is never
+repeated inside each visit. A scope guard is not a failure guard: a unit
+outside scope is not attempted, and nothing about it is reported as failed.
+The accepted classes are part of the producer's meaning. A wrong set silently
+drops units, so it is reviewed like any other result-shaping code, and the
+receipt's attempted counts show its effect.
+
+*Lets the lower levels:* skip whole types and units before any visit, share
+one classification among every producer that needs it, and give a fused pass
+the cost of a hand-written loop for that combination without anyone writing
+that loop.
+
+*Lesson:* a monolith fuses by always answering every question.
+`ClassifiedMethods` classifies P/Invoke, async, and pointer signatures for
+every public method even when a consumer wants one count. Separate producers
+that each test scope inside their own visits fuse into one traversal but keep
+the duplicated work, so that pass costs nearly as much as separate ones. Scope
+guards and type scopes are the query model's scope predicates at method and
+type grain. When method bodies become a QuerySpace source, tracked by #8577,
+they move to level 2 as its vocabulary.
 
 ### Access is borrowed for the visit
 
