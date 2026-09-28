@@ -41,8 +41,9 @@ from its roots. This map does not add or change traversal.
 | --- | --- | --- |
 | Core packages and Libraries | Specific, authored roots a bounded operation may realize | 0-6 by guidance; at most 12, enforced by pack registration |
 | Package-prefix populations | Recorded literal prefixes that discover more packages | Optional; executed only by operations whose contract admits prefix populations |
-| Platform populations | Platform families, where the Ecosystem has one | Unchanged |
-| Namespace roots, tools, demos, scanner | Unchanged | Unchanged |
+| Platform populations | Platform families, where the Ecosystem has one | Unchanged until the partition slice |
+| Namespace roots | Descriptive namespace subtrees | Unchanged except AI's vector-data root and Azure's deletion |
+| Tools, demos, scanner | Unchanged | Unchanged |
 
 Core entries are roots, not an inventory. They are the entry points from
 which a bounded operation's call-graph and package-dependency traversal
@@ -169,7 +170,7 @@ and remain bounded by their own candidate limits and source page limits
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends` once each command has a working replacement (see slice 6) |
 | [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
-| [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | `package activity --ecosystem` and the Browser picker scope by the Ecosystem's prefixes through the existing `PackagePrefix` selection |
+| [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | A new Ecosystem-membership selection arm: core packages exactly plus every recorded prefix, the membership `PackageQueryEcosystemMembershipDeclaration` already models. The existing `PackagePrefix` arm holds one prefix and cannot express roots or several prefixes, so this changes the change-report selection contract; `package activity --ecosystem` and the Browser picker adopt the new arm |
 | [Platform library population declaration](platform-library-population-declaration.md) | Assembly-name selection within a platform family, so `Microsoft.Extensions*` assemblies partition out of both shared frameworks |
 | [Package-backed platform realization](package-backed-platform-realization.md) | Realization honors the selection for CLI and Browser |
 | [Ecosystem dependency recognition](ecosystem-dependency-recognition.md) | AI associations become `Microsoft.Extensions.AI` plus exact package and assembly associations for the seven roots, so community `Anthropic.SDK` stays unrecognized; Azure associations removed |
@@ -184,7 +185,8 @@ amends its owner's document with its code.
 2. **`depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
    its recorded prefixes. Results are unchanged today, because every current
    core entry and set member already matches its pack's prefix; only the
-   evidence basis for former set members changes. This lands before the data
+   evidence basis changes, from prefix to exact package, for core entries
+   and former set members. This lands before the data
    slice so AI's new roots match as soon as they exist.
 3. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions and
    ASP.NET Core cores; set the Aspire core; replace the AI core, reduce its
@@ -192,16 +194,24 @@ amends its owner's document with its code.
    namespace roots and summary; update the dependency-recognition profile;
    add the core bound to pack validation with a boundary test at twelve and
    thirteen entries. With slice 2 in place, `depends-ecosystem=ai` matches
-   the seven roots and the `Microsoft.Extensions.AI` prefix; packages only
-   the removed prefixes matched, such as `Microsoft.Extensions.VectorData.*`,
-   stop matching.
-4. **Package activity.** CLI and Browser adopt prefix scope; the Browser
+   the seven roots and the `Microsoft.Extensions.AI` prefix. Packages only
+   the removed prefixes matched stop matching: the
+   `Microsoft.Extensions.VectorData.*`, `Microsoft.Agents.AI.*`, and
+   `ModelContextProtocol.*` families other than the roots themselves. When
+   AI is registered, those packages also stop classifying as supply-chain
+   baseline; the baseline owner's contract is unchanged, only its data.
+4. **Package activity.** Add the Ecosystem-membership selection arm (core
+   packages exactly plus every recorded prefix) to the change report; CLI
+   `package activity --ecosystem` and the Browser picker adopt it, and the
    picker lists Ecosystems instead of package sets.
 5. **Partitioned platform populations.** Assembly-name selection in platform
    populations, honored by realization and carried by the share packet and
    definition JSON, adopted by Runtime, ASP.NET Core, and
    Microsoft.Extensions, with a gate that the platform Workspace contains no
-   assembly twice.
+   assembly twice. The slice's own design confirms that assembly reference
+   resolution does not depend on the partitioned population, so an
+   ASP.NET Core-only selection still resolves references to
+   `Microsoft.Extensions*` assemblies it no longer lists.
 6. **Search flags.** Today `--ecosystem` exists only on `find`, where it
    registers Ecosystems inertly and adds no search content, and
    `implements`, `extensions`, and `depends` have no `--ecosystem` at all.
@@ -226,5 +236,7 @@ lands: #8271 (flags to `--ecosystem` once it selects search content), #8285 (ver
 
 This composition does not add package-query predicates for owner,
 verification, deprecation, package type, or major line; change prefix query
-limits; define streaming Find; or change any Ecosystem's platform populations,
-namespace roots, tools, demos, or scanner.
+limits; define streaming Find; or change any Ecosystem's tools, demos, or
+scanner. It changes namespace roots only by removing AI's vector-data root
+and Azure's roots, and platform populations only through the partition
+slice.
