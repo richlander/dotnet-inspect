@@ -1,7 +1,11 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+
+using ILInspector.Metadata;
+using InertText;
 
 namespace ILInspector.Analysis.Planning;
 
@@ -24,6 +28,30 @@ public enum MethodDefinitionLayers
     /// unit. Its budget and caches are execution-scoped.
     /// </summary>
     ModuleLookup = 4,
+
+    /// <summary>Tier 1: the method's attribute and implementation flags.</summary>
+    Flags = 8,
+
+    /// <summary>Tier 1: in-place comparison of the method's and its type's names.</summary>
+    NameComparison = 16,
+
+    /// <summary>Tier 1: a memoized yes/no walk of the method's signature shape.</summary>
+    SignatureShape = 32,
+
+    /// <summary>
+    /// Tier 2: identity text (declaring type, signature, anchor, return type,
+    /// module) through the gate's budgeted identity decoder, as <c>InertString</c>.
+    /// Declaring it arms the gate's identity budget.
+    /// </summary>
+    IdentityText = 64,
+
+    /// <summary>
+    /// Tier 1: the method's kickoff relationship from the Metadata semantic
+    /// substrate <c>StateMachineRelationshipIndex</c>, built once per execution
+    /// and bounded by its own budgets. Its global budget exhaustion aborts; a
+    /// per-row rejection is a recoverable failure.
+    /// </summary>
+    StateMachineRelationship = 128,
 }
 
 /// <summary>
@@ -51,6 +79,16 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>The layers this producer may acquire; the declaration layer is always included.</summary>
     public MethodDefinitionLayers Layers { get; }
 
+    /// <summary>
+    /// Fields read only when the request's closing is
+    /// <see cref="ProducerTerminal.Rows"/>, such as identity text for projection.
+    /// </summary>
+    internal virtual MethodDefinitionLayers RowLayers => 0;
+
+    /// <summary>The fields and layers this producer reads under <paramref name="terminal"/>.</summary>
+    public MethodDefinitionLayers LayersFor(ProducerTerminal terminal) =>
+        terminal == ProducerTerminal.Rows ? Layers | RowLayers : Layers;
+
     /// <summary>Visits one unit and returns its fact. Throwing a recoverable failure fails the producer at this unit.</summary>
     internal abstract TFact Visit(scoped MethodDefinitionView view);
 
@@ -77,6 +115,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         MetadataReader reader,
         PEReader peReader,
         LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
         out int unitsVisited)
     {
         unitsVisited = 0;
@@ -95,8 +134,16 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>Whether this producer classifies units for dependents' scope guards.</summary>
     internal virtual bool ClassifiesUnits => false;
 
+    /// <summary>
+    /// A scope guard on the source's method-row gate, or null. It adds no
+    /// dependency, so a producer guarded only by the gate can run as a kernel.
+    /// </summary>
+    internal virtual SourceGateGuard? SourceGate => null;
+
     /// <summary>The unit's class, 0 to 63, derived from its fact; used only when <see cref="ClassifiesUnits"/>.</summary>
     internal virtual int UnitClass(TFact fact) => 0;
+
+    SourceGateGuard? IMethodDefinitionProducer.SourceGate => SourceGate;
 
     MethodDefinitionExecution.ProducerState IMethodDefinitionProducer.CreateState(
         MethodDefinitionExecution execution,
@@ -132,7 +179,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             ProducerTerminal terminal,
             ImmutableArray<int> dependencies,
             UnitFactRetention retention)
-            : base(execution, producer, producer.Layers, terminal, dependencies)
+            : base(execution, producer, producer.LayersFor(terminal), terminal, dependencies)
         {
             _producer = producer;
             _accumulator = producer.Seed();
@@ -140,7 +187,10 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             _factsByUnit = retention == UnitFactRetention.AllUnits ? [] : null;
             _classifies = producer.ClassifiesUnits;
             HasTypeScope = producer.HasTypeScope;
+            SourceGate = producer.SourceGate;
         }
+
+        public override SourceGateGuard? SourceGate { get; }
 
         /// <summary>Sets the folded accumulator; a kernel folds in its own loop.</summary>
         internal void SetAccumulator(TAccumulator accumulator) => _accumulator = accumulator;
@@ -162,8 +212,9 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             MetadataReader reader,
             PEReader peReader,
             LibraryMethodAnalysisRunner? lookup,
+            MethodRowGate gate,
             out int unitsVisited) =>
-            _producer.RunKernel(this, reader, peReader, lookup, out unitsVisited);
+            _producer.RunKernel(this, reader, peReader, lookup, gate, out unitsVisited);
 
         public override bool Visit(scoped MethodDefinitionView view)
         {
@@ -216,6 +267,10 @@ internal interface IMethodDefinitionProducer
 {
     MethodDefinitionLayers Layers { get; }
 
+    MethodDefinitionLayers LayersFor(ProducerTerminal terminal);
+
+    SourceGateGuard? SourceGate { get; }
+
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,
         ProducerTerminal terminal,
@@ -225,13 +280,19 @@ internal interface IMethodDefinitionProducer
 
 /// <summary>
 /// A scoped, read-only borrow of one method-definition unit, valid only while
-/// the visit runs (a snapshot-callback borrow). It exposes only the layers,
-/// same-unit facts, and results the visiting producer declared.
+/// the visit runs (a snapshot-callback borrow). It reads the row through the
+/// source's method-row gate, and exposes only the fields, layers, same-unit
+/// facts, and results its reader declared.
 /// </summary>
 public readonly ref struct MethodDefinitionView
 {
+    const MethodDefinitionLayers DomainLayers =
+        MethodDefinitionLayers.Body | MethodDefinitionLayers.ModuleLookup;
+
     readonly ref MethodDefinitionUnit _unit;
-    readonly MethodDefinitionExecution.ProducerState _producer;
+    readonly MethodDefinitionExecution.ProducerState? _producer;
+    readonly MethodDefinitionLayers _declared;
+    readonly string _owner;
 
     internal MethodDefinitionView(
         ref MethodDefinitionUnit unit,
@@ -239,18 +300,164 @@ public readonly ref struct MethodDefinitionView
     {
         _unit = ref unit;
         _producer = producer;
+        _declared = producer.Layers;
+        _owner = producer.Producer.Identity;
+    }
+
+    internal MethodDefinitionView(
+        ref MethodDefinitionUnit unit,
+        MethodRowClassifier classifier)
+    {
+        _unit = ref unit;
+        _producer = null;
+        _declared = classifier.Fields;
+        _owner = classifier.Identity;
     }
 
     /// <summary>The unit's MethodDef metadata token.</summary>
     public int Token => MetadataTokens.GetToken(_unit.MethodHandle);
 
-    internal TypeDefinitionHandle TypeHandle => _unit.TypeHandle;
+    /// <summary>The closing of the request the visiting producer serves.</summary>
+    internal ProducerTerminal Terminal => Producer.Terminal;
 
-    internal TypeDefinition TypeDefinition => _unit.TypeDefinition;
+    /// <summary>
+    /// The unit's position in the source's traversal order, which follows
+    /// MethodPtr indirection where present, so it can differ from token order.
+    /// </summary>
+    public int Ordinal => _unit.Ordinal;
 
-    internal MethodDefinitionHandle MethodHandle => _unit.MethodHandle;
+    // Raw rows are for producers with a domain layer, whose own probes read
+    // them; every other reader goes through the gate's accessors.
 
-    internal MethodDefinition MethodDefinition => _unit.MethodDefinition;
+    internal TypeDefinitionHandle TypeHandle
+    {
+        get
+        {
+            RequireDomain();
+            return _unit.TypeHandle;
+        }
+    }
+
+    internal TypeDefinition TypeDefinition
+    {
+        get
+        {
+            RequireDomain();
+            return _unit.TypeDefinition;
+        }
+    }
+
+    internal MethodDefinitionHandle MethodHandle
+    {
+        get
+        {
+            RequireDomain();
+            return _unit.MethodHandle;
+        }
+    }
+
+    internal MethodDefinition MethodDefinition
+    {
+        get
+        {
+            RequireDomain();
+            return _unit.MethodDefinition;
+        }
+    }
+
+    /// <summary>Tier 1: the method's attributes.</summary>
+    public MethodAttributes Attributes
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.Flags);
+            return _unit.Gate.Attributes;
+        }
+    }
+
+    /// <summary>Tier 1: the method's implementation attributes.</summary>
+    public MethodImplAttributes ImplAttributes
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.Flags);
+            return _unit.Gate.ImplAttributes;
+        }
+    }
+
+    /// <summary>Tier 1: whether the method's name starts with <paramref name="prefix"/>, compared in place.</summary>
+    public bool NameStartsWith(string prefix)
+    {
+        Require(MethodDefinitionLayers.NameComparison);
+        return _unit.Gate.NameStartsWith(prefix);
+    }
+
+    /// <summary>Tier 1: whether the declaring type's name starts with <paramref name="prefix"/>, compared in place.</summary>
+    public bool DeclaringTypeNameStartsWith(string prefix)
+    {
+        Require(MethodDefinitionLayers.NameComparison);
+        return _unit.Gate.DeclaringTypeNameStartsWith(prefix);
+    }
+
+    /// <summary>Tier 1: whether the method's return or a parameter type contains a pointer.</summary>
+    public bool SignatureHasPointer
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.SignatureShape);
+            return _unit.Gate.SignatureHasPointer();
+        }
+    }
+
+    /// <summary>Tier 1: the method's kickoff relationship from <c>StateMachineRelationshipIndex</c>.</summary>
+    public StateMachineRelationshipResult StateMachineByKickoff
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.StateMachineRelationship);
+            return _unit.Gate.StateMachineByKickoff();
+        }
+    }
+
+    /// <summary>Tier 2: the row's identity text, through the gate's identity budget.</summary>
+    public MethodRowIdentity Identity
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.IdentityText);
+            return _unit.Gate.Identity();
+        }
+    }
+
+    /// <summary>Tier 2: the row's P/Invoke import module, or null.</summary>
+    public InertString? PInvokeModuleName
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.IdentityText);
+            return _unit.Gate.PInvokeModuleName();
+        }
+    }
+
+    void Require(MethodDefinitionLayers field)
+    {
+        if ((_declared & field) == 0)
+            throw MethodRowGate.Undeclared(_owner, field);
+    }
+
+    void RequireDomain()
+    {
+        if ((_declared & DomainLayers) == 0)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare a domain layer, so it "
+                + "reads the row through the method-row gate.");
+        }
+    }
+
+    MethodDefinitionExecution.ProducerState Producer =>
+        _producer ?? throw new ProducerContractException(
+            $"Gate classifier '{_owner}' reads only Tier 1 fields.");
 
     /// <summary>
     /// The module-metadata lookup, an execution-scoped library input. A
@@ -260,14 +467,15 @@ public readonly ref struct MethodDefinitionView
     {
         get
         {
-            if (!_producer.HasLookupLayer)
+            MethodDefinitionExecution.ProducerState producer = Producer;
+            if (!producer.HasLookupLayer)
             {
                 throw new ProducerContractException(
-                    $"Producer '{_producer.Producer.Identity}' did not "
+                    $"Producer '{_owner}' did not "
                     + "declare the module lookup.");
             }
 
-            _producer.CountUnit(ref _producer.LastLookupUnit, Token, ref _producer.LookupUses);
+            producer.CountUnit(ref producer.LastLookupUnit, Token, ref producer.LookupUses);
             return _unit.Lookup;
         }
     }
@@ -284,14 +492,15 @@ public readonly ref struct MethodDefinitionView
     /// </summary>
     internal MethodBodyBlock GetBody()
     {
-        if (!_producer.HasBodyLayer)
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasBodyLayer)
         {
             throw new ProducerContractException(
-                $"Producer '{_producer.Producer.Identity}' did not "
+                $"Producer '{_owner}' did not "
                 + "declare the body layer.");
         }
 
-        _producer.CountUnit(ref _producer.LastBodyUnit, Token, ref _producer.BodyAcquisitions);
+        producer.CountUnit(ref producer.LastBodyUnit, Token, ref producer.BodyAcquisitions);
         return _unit.GetBody();
     }
 
@@ -300,17 +509,18 @@ public readonly ref struct MethodDefinitionView
         MethodDefinitionProducer<TFact, TAccumulator, TResult> dependency)
     {
         ArgumentNullException.ThrowIfNull(dependency);
-        return MethodDefinitionExecution.FactFor(_producer, dependency, Token);
+        return MethodDefinitionExecution.FactFor(Producer, dependency, Token);
     }
 
     /// <summary>The completed result of a declared result dependency.</summary>
     public ProducerResult<TResult> ResultOf<TResult>(
         ProducerDeclaration<TResult> dependency)
     {
-        _producer.Require(
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        producer.Require(
             dependency,
             ProducerDependencyKind.VisitNeedsResult);
-        return _producer.Execution.ResultOf(dependency);
+        return producer.Execution.ResultOf(dependency);
     }
 }
 
@@ -322,6 +532,9 @@ public readonly ref struct MethodDefinitionCompletionView
     internal MethodDefinitionCompletionView(
         MethodDefinitionExecution.ProducerState producer) =>
         _producer = producer;
+
+    /// <summary>The closing of the request the completing producer serves.</summary>
+    internal ProducerTerminal Terminal => _producer.Terminal;
 
     public ProducerResult<TResult> ResultOf<TResult>(
         ProducerDeclaration<TResult> dependency)
@@ -342,12 +555,19 @@ public readonly ref struct MethodDefinitionCompletionView
 internal struct MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
-    LibraryMethodAnalysisRunner? lookup)
+    LibraryMethodAnalysisRunner? lookup,
+    MethodRowGate gate)
 {
     readonly MetadataReader _reader = reader;
     readonly PEReader _peReader = peReader;
     readonly LibraryMethodAnalysisRunner? _lookup = lookup;
     MethodBodyBlock? _body;
+
+    /// <summary>The source's method-row gate, positioned on this unit.</summary>
+    public readonly MethodRowGate Gate = gate;
+
+    /// <summary>The unit's position in this pass's traversal, from 0.</summary>
+    public int Ordinal { get; private set; } = -1;
 
     public TypeDefinitionHandle TypeHandle { get; private set; }
 
@@ -372,15 +592,19 @@ internal struct MethodDefinitionUnit(
         MethodHandle = methodHandle;
         MethodDefinition = _reader.GetMethodDefinition(methodHandle);
         _body = null;
+        Ordinal++;
+        Gate.MoveTo(typeHandle, typeDefinition, methodHandle, MethodDefinition);
     }
 
     public MethodBodyBlock GetBody() =>
         _body ??= _peReader.GetMethodBody(
             MethodDefinition.RelativeVirtualAddress);
 
+    /// <summary>
+    /// A content-free label for a recoverable failure: the MethodDef token.
+    /// A failure is recorded without reading any name, so a hostile name
+    /// cannot inflate a diagnostic.
+    /// </summary>
     public readonly string Label =>
-        LibraryMethodAnalysisRunner.MethodLabel(
-            _reader,
-            TypeHandle,
-            MethodHandle);
+        $"MethodDef 0x{MetadataTokens.GetToken(MethodHandle):X8}";
 }

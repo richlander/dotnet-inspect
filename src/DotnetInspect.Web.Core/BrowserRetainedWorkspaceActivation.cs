@@ -139,6 +139,138 @@ internal sealed record BrowserRetainedWorkspacePlatformPresentation(
     string? RuntimeIdentifier,
     BrowserPackageSurfaceInfo Surface);
 
+[SupportedOSPlatform("browser")]
+internal sealed class BrowserRetainedNavigationPreparation
+{
+    readonly NavigationFacetAvailabilityProvider _availability;
+    readonly ApiSurfaceProjectionLimits _surfaceLimits;
+
+    BrowserRetainedNavigationPreparation(
+        NavigationFacetAvailabilityProvider availability,
+        ApiSurfaceProjectionLimits surfaceLimits)
+    {
+        _availability = availability;
+        _surfaceLimits = surfaceLimits;
+    }
+
+    internal static BrowserRetainedNavigationPreparation Create(
+        CompleteRestorationExecutionOptions options,
+        CompleteRestorationReadyProjection ready)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(ready);
+        return new(
+            options.FacetAvailability,
+            options.PackageSurfaceLimits);
+    }
+
+    internal ValueTask<NavigationPreparation> PrepareAsync(
+        WorkspaceRealizationOperationLease operation,
+        NavigationEvaluationRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(request);
+        if (!ReferenceEquals(operation.Realization, request.Workspace))
+        {
+            return ValueTask.FromResult<NavigationPreparation>(
+                new NavigationPreparation.Unavailable(
+                    "The Navigation action names a different Workspace realization."));
+        }
+        if (request.Occurrence is null)
+        {
+            return ValueTask.FromResult<NavigationPreparation>(
+                new NavigationPreparation.Ready(
+                new(
+                    operation.Scope,
+                    Package: null,
+                    _availability)));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var sources = ImmutableArray.CreateBuilder<Source>();
+        foreach (WorkspaceDeclarationContext context
+            in operation.Workspace.GetDeclarationContextsSnapshot())
+        {
+            if (context.ContextLoadOutcome
+                    is not WorkspaceContextLoadOutcome.Loaded loaded
+                || context.Receipt.Request
+                    is not WorkspaceDeclarationRequest.ContextLoad load)
+            {
+                continue;
+            }
+
+            int packageIndex = 0;
+            foreach (WorkspaceMemberCoordinate declared
+                in load.Input.Members)
+            {
+                if (declared
+                    is not WorkspaceMemberCoordinate.PackageMember)
+                {
+                    continue;
+                }
+                if (packageIndex >= loaded.PackageRoots.Length)
+                    break;
+
+                PackageRootBinding binding =
+                    loaded.PackageRoots[packageIndex++];
+                WorkspacePackageOccurrenceDescriptor? occurrence =
+                    operation.Scope.FindExactPackageOccurrence(binding);
+                if (!ReferenceEquals(
+                        occurrence?.Occurrence,
+                        request.Occurrence))
+                {
+                    continue;
+                }
+
+                sources.Add(
+                    new(
+                        binding,
+                        occurrence,
+                        loaded.Group,
+                        [
+                            .. loaded.Members.Where(
+                                member => ReferenceEquals(
+                                    member.Declared,
+                                    declared)),
+                        ]));
+            }
+        }
+
+        if (sources.Count != 1)
+        {
+            return ValueTask.FromResult<NavigationPreparation>(
+                new NavigationPreparation.Unavailable(
+                    sources.Count == 0
+                        ? "The exact retained Package binding is no longer available."
+                        : "The exact retained Package binding is ambiguous."));
+        }
+
+        Source source = sources[0];
+        NavigationPackageEvaluation evaluation =
+            NavigationPackageEvaluationFactory.CreateFromContextLoad(
+                source.Occurrence,
+                source.Binding,
+                source.Group,
+                source.Libraries,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                _surfaceLimits,
+                cancellationToken);
+        return ValueTask.FromResult<NavigationPreparation>(
+            new NavigationPreparation.Ready(
+                new(
+                    operation.Scope,
+                    evaluation,
+                    _availability)));
+    }
+
+    sealed record Source(
+        PackageRootBinding Binding,
+        WorkspacePackageOccurrenceDescriptor Occurrence,
+        AssemblyContextGroup Group,
+        ImmutableArray<WorkspaceContextMember> Libraries);
+}
+
 internal abstract record BrowserRetainedWorkspaceAdmissionResult<T>
     where T : class
 {
@@ -175,7 +307,8 @@ internal sealed record BrowserRetainedWorkspacePosting(
     ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms,
     BrowserRetainedWorkspacePredecessor? Predecessor,
     BrowserRetainedWorkspaceCleanupEvidence? Cleanup,
-    BrowserNavigationStateSlot NavigationState)
+    BrowserNavigationStateSlot NavigationState,
+    BrowserRetainedNavigationPreparation NavigationPreparation)
 {
     internal string? CanonicalPacket =>
         Projection is CompleteRestorationProjection.Projectable projectable
@@ -292,12 +425,14 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
     CommittedScenarioDefinitionSet Definition,
     NavigationOperationInitialization Navigation,
     ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
-    ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms)
+    ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms,
+    BrowserRetainedNavigationPreparation NavigationPreparation)
 {
     internal static BrowserRetainedWorkspacePostingDraft Create(
         BrowserRetainedWorkspaceActivationRequest request,
         CompleteWorkspaceActivation workspace,
-        CompleteRestorationReadyProjection ready)
+        CompleteRestorationReadyProjection ready,
+        CompleteRestorationExecutionOptions options)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(workspace);
@@ -383,7 +518,8 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                             platform.Family,
                             platform.RuntimeIdentifier,
                             BrowserPlatformSurfaceProjection.Project(platform))),
-            ]);
+            ],
+            BrowserRetainedNavigationPreparation.Create(options, ready));
     }
 
     internal BrowserRetainedWorkspacePosting Publish(
@@ -411,7 +547,8 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
             Platforms,
             predecessor,
             cleanup,
-            navigationState);
+            navigationState,
+            NavigationPreparation);
     }
 }
 
@@ -1596,12 +1733,6 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 _ => throw new InvalidOperationException(
                     "Unknown retained Workspace restoration source."),
             };
-        var projection =
-            new BrowserCompleteRestorationProjectionCapture(intent.Request);
-        var host = new BrowserCompleteRestorationHost(
-            _host,
-            intent,
-            projection);
         CompleteRestorationExecutionOptions options = _optionsFactory();
         if (preparation is CompleteRestorationPreparationResult.Ready ready)
         {
@@ -1610,11 +1741,20 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 ready.Plan.ConfiguredPackageSources,
                 intent.Request.PackageSourceCredentials);
         }
+        options = options with { CaptureInventory = true };
+        var projection =
+            new BrowserCompleteRestorationProjectionCapture(
+                intent.Request,
+                options);
+        var host = new BrowserCompleteRestorationHost(
+            _host,
+            intent,
+            projection);
         return await CompleteRestorationCoordinator.RestoreWithProjectionAsync(
                     preparation,
                     intent,
                     host,
-                    options with { CaptureInventory = true },
+                    options,
                     projection.CaptureAsync,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -1909,7 +2049,8 @@ internal sealed class BrowserRetainedWorkspaceActivationIntent(
 
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserCompleteRestorationProjectionCapture(
-    BrowserRetainedWorkspaceActivationRequest request)
+    BrowserRetainedWorkspaceActivationRequest request,
+    CompleteRestorationExecutionOptions options)
 {
     readonly object _gate = new();
     BrowserRetainedWorkspacePostingDraft? _posting;
@@ -1924,7 +2065,8 @@ internal sealed class BrowserCompleteRestorationProjectionCapture(
             BrowserRetainedWorkspacePostingDraft.Create(
                 request,
                 activation,
-                projection);
+                projection,
+                options);
         lock (_gate)
         {
             if (_posting is not null)

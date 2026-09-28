@@ -8,9 +8,9 @@ public sealed class EcosystemDependencyRecognitionProfileTests
         EcosystemDependencyRecognitionProfile profile =
             EcosystemPackCatalog.DependencyRecognitionProfile;
 
-        Assert.Equal(8, profile.Entries.Length);
-        Assert.Equal(18, profile.PackageAssociationCount);
-        Assert.Equal(23, profile.AssemblyAssociationCount);
+        Assert.Equal(7, profile.Entries.Length);
+        Assert.Equal(15, profile.PackageAssociationCount);
+        Assert.Equal(20, profile.AssemblyAssociationCount);
         Assert.Equal(
             [
                 EcosystemPackIds.Runtime,
@@ -18,7 +18,6 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.Aspire,
                 EcosystemPackIds.AI,
-                EcosystemPackIds.Azure,
                 EcosystemPackIds.Blazor,
                 EcosystemPackIds.Maui,
             ],
@@ -41,6 +40,30 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 && association.Kind
                     == EcosystemDependencyAssociationKind.Exact
                 && association.Value == "netstandard");
+
+        // AI recognizes its lab-published roots exactly, so community
+        // packages such as Anthropic.SDK stay unrecognized.
+        EcosystemDependencyProfileEntry ai = Assert.Single(
+            profile.Entries,
+            entry => entry.Ecosystem.Id == EcosystemPackIds.AI);
+        Assert.Equal(
+            [
+                "PackageId Family Microsoft.Extensions.AI",
+                "AssemblyName Family Microsoft.Extensions.AI",
+                "PackageId Exact OpenAI",
+                "PackageId Exact Anthropic",
+                "PackageId Exact Google.GenAI",
+                "PackageId Exact ModelContextProtocol",
+                "PackageId Exact Microsoft.Agents.AI",
+                "AssemblyName Exact OpenAI",
+                "AssemblyName Exact Anthropic",
+                "AssemblyName Exact Google.GenAI",
+                "AssemblyName Exact ModelContextProtocol",
+                "AssemblyName Exact Microsoft.Agents.AI",
+            ],
+            ai.Associations.Select(
+                association =>
+                    $"{association.Domain} {association.Kind} {association.Value}"));
     }
 
     [Fact]
@@ -53,7 +76,7 @@ public sealed class EcosystemDependencyRecognitionProfileTests
         var profile = new EcosystemDependencyRecognitionProfile(
             EcosystemPackCatalog.Discover(),
             [
-                new(EcosystemPackIds.Azure, mutable),
+                new(EcosystemPackIds.Blazor, mutable),
                 new(
                     EcosystemPackIds.Runtime,
                     [EcosystemDependencyAssociation.ExactAssemblyName("mscorlib")]),
@@ -63,7 +86,7 @@ public sealed class EcosystemDependencyRecognitionProfileTests
             EcosystemDependencyAssociation.PackageIdFamily("Replacement");
 
         Assert.Equal(EcosystemPackIds.Runtime, profile.Entries[0].Ecosystem.Id);
-        Assert.Equal(EcosystemPackIds.Azure, profile.Entries[1].Ecosystem.Id);
+        Assert.Equal(EcosystemPackIds.Blazor, profile.Entries[1].Ecosystem.Id);
         Assert.Equal("Contoso", profile.Entries[1].Associations[0].Value);
     }
 
@@ -87,10 +110,10 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 EcosystemPackCatalog.Discover(),
                 [
                     new(
-                        EcosystemPackIds.Azure,
+                        EcosystemPackIds.Blazor,
                         [EcosystemDependencyAssociation.PackageIdFamily("Azure")]),
                     new(
-                        EcosystemPackIds.Azure,
+                        EcosystemPackIds.Blazor,
                         [EcosystemDependencyAssociation.AssemblyNameFamily("Azure")]),
                 ]));
 
@@ -99,7 +122,7 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 EcosystemPackCatalog.Discover(),
                 [
                     new(
-                        EcosystemPackIds.Azure,
+                        EcosystemPackIds.Blazor,
                         [
                             EcosystemDependencyAssociation.PackageIdFamily(
                                 "Azure"),

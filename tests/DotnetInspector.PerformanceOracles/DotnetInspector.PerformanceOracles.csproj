@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The performance-oracle fixture for QuerySpace enablement: operators NLinq
+    lacks, written in NLinq style; struct sources over populations; and the
+    scorecard harness that checks and times Old, LINQ, NLinq, and Planner columns.
+    Test infrastructure only; see
+    docs/evidence-and-validation.md#performance-oracles-for-queryspace-enablement.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>DotnetInspector.PerformanceOracles</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NLinq.Oracle\NLinq.Oracle.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.PerformanceOracles.Tests" />
+  </ItemGroup>
+
+</Project>

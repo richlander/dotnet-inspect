@@ -15,7 +15,11 @@ Current-Workspace Package and package-origin Library execution is implemented by
 `BrowserSpotlightCurrentPackageActivation`. Fresh-Workspace managed execution
 now accepts one exact schema-version-3 Definitions request carried by the
 rendered descriptor and composes it with the real retained Browser owner;
-final interaction binding remains a later stage. The previously implemented
+production Spotlight now consumes managed Type Find candidates, submits only
+their opaque actions through the shared dispatcher, and installs exact Package
+or framework Type effects. Package and package-origin Library result
+publication still require the remaining interaction binding. The previously
+implemented
 `BrowserSpotlightCurrentPlatformActivation` and
 `BrowserSpotlightDestinationPresentation` types are retained staged artifacts,
 not production Browser adoption. Projection and execution must consume the
@@ -483,6 +487,16 @@ query, so the plan's traversal target supplies the context acquisition
 framework. Because schema version 3 does not encode a configured traversal
 target, this path accepts only the curated plan's product-default policy and
 retains that exact policy after restoration.
+
+The production Type slice consumes the managed locator envelope without
+reconstructing destination authority in TypeScript. Result-local answer and
+candidate ordinals join each displayed row to one opaque action, while stable
+typed candidate evidence owns rendered identity across asynchronous refresh.
+Package Type Navigation uses the active retained Workspace's exact effect
+authority lifecycle and selected declaration coordinate; framework Type
+activation installs the framework owner's exact detached surface. Package and
+package-origin Library Spotlight rows remain outside this production cutover.
+
 Scanner-bearing ecosystem registrations may make the completed definition
 nonprojectable, so the retained record preserves the Definitions request and
 typed projection evidence rather than fabricating a packet. Only a typed

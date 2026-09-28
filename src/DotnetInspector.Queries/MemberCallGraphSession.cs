@@ -281,7 +281,7 @@ public sealed class MemberCallGraphSession : IDisposable
     internal InspectionGraphDocument
         CrossLibraryCalleeNeighborhoodWithCancellation(
         MemberCallGraphCalleeNeighborhoodRequest request,
-        Func<CallGraphNode, InspectionGraphScopeMembership>
+        Func<CallGraphNode, GraphScopeMembership>
             classify,
         CancellationToken cancellationToken)
     {
@@ -419,7 +419,7 @@ public sealed class MemberCallGraphSession : IDisposable
     InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
         MemberCallGraphCalleeNeighborhoodRequest request,
         CancellationToken cancellationToken,
-        Func<CallGraphNode, InspectionGraphScopeMembership>?
+        Func<CallGraphNode, GraphScopeMembership>?
             classify)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -447,14 +447,14 @@ public sealed class MemberCallGraphSession : IDisposable
                             node,
                             out AssemblyImageIdentity image))
                     {
-                        return InspectionGraphScopeMembership.Unknown;
+                        return GraphScopeMembership.Unknown;
                     }
 
                     return image == root.ImageIdentity
-                        ? InspectionGraphScopeMembership.Inside
+                        ? GraphScopeMembership.Inside
                         : _fullAnalysesByImage.ContainsKey(image)
-                            ? InspectionGraphScopeMembership.Outside
-                            : InspectionGraphScopeMembership.Unknown;
+                            ? GraphScopeMembership.Outside
+                            : GraphScopeMembership.Unknown;
                 }),
                 request.MaxDepth,
                 request.MaxNodes,
