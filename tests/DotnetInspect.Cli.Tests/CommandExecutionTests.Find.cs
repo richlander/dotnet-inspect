@@ -903,7 +903,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_LocatorSimilarityCutoffPreservesInventoryOrder()
+    public async Task Find_LocatorSimilarityOrdersByScoreThenShortestName()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -922,11 +922,11 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
             [
-                "System.Text.Json.JsonDocument",
-                "System.Text.Json.JsonProperty",
-                "System.Text.Json.Schema.JsonSchema",
                 "System.Text.Json.Nodes.JsonNode",
                 "System.Text.Json.Nodes.JsonNodeOptions",
+                "System.Text.Json.Schema.JsonSchema",
+                "System.Text.Json.JsonDocument",
+                "System.Text.Json.JsonProperty",
             ],
             document.RootElement
                 .EnumerateArray()
