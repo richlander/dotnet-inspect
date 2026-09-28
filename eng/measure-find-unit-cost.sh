@@ -16,15 +16,17 @@ work=${3:?work dir}
 warm=${4:-3}
 mkdir -p "$work"
 
-now() { python3 -c 'import time; print(time.time())'; }
-
+# Times the child alone inside one Python process, excluding interpreter
+# startup from every sample.
 timed() {
   local home=$1; shift
-  local start end status=0
-  start=$(now)
-  HOME=$home NUGET_PACKAGES=$home/nuget "$bin" "$@" >/dev/null 2>"$work/err.txt" || status=$?
-  end=$(now)
-  printf '%.3f\t%s' "$(python3 -c "print($end - $start)")" "$status"
+  HOME=$home NUGET_PACKAGES=$home/nuget python3 -c '
+import subprocess, sys, time
+with open(sys.argv[1], "wb") as e:
+    t = time.perf_counter()
+    r = subprocess.run(sys.argv[2:], stdout=subprocess.DEVNULL, stderr=e)
+    print(f"{time.perf_counter() - t:.3f}\t{r.returncode}", end="")
+' "$work/err.txt" "$bin" "$@"
 }
 
 printf 'group\tpackage\tversion\tphase\tsample\tseconds\texit\tcache_kb\n'
