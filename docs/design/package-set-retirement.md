@@ -169,7 +169,7 @@ and remain bounded by their own candidate limits and source page limits
 | [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; AI namespace roots and summary drop vector data; core entries as traversal roots ("root the hub, prefix the fan-out"); Microsoft.Extensions and ASP.NET Core zero-root; Aspire core; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes reduced to `Microsoft.Extensions.AI` |
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends` once each command has a working replacement (see slice 6) |
-| [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
+| [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted. A new `ecosystem=` population term lists an Ecosystem's packages from the same membership |
 | [Ecosystem change report](ecosystem-change-report.md) and [package activity experience](package-activity-experience.md) | Package activity is prefix-specific: it scopes by an Ecosystem's recorded prefixes and never by its roots. The existing `PackagePrefix` arm, which holds one prefix, generalizes to an ordered prefix set (Blazor records two prefixes and .NET MAUI three) and replaces `EcosystemChangePackageSelection.PackageSet` and its `PackageSet` output scope kind. `package activity --ecosystem` and the Browser picker adopt it, and the Browser package-set catalog export, its contract, and the `package-list-changes-package-sets` Worker startup kind are replaced by an Ecosystem catalog. An Ecosystem is offered for package activity only when it records at least one prefix; the platform Ecosystems record `System.` and `Microsoft.AspNetCore.` |
 | [Platform library population declaration](platform-library-population-declaration.md) | Assembly-name selection within a platform family, so `Microsoft.Extensions*` assemblies partition out of both shared frameworks |
 | [Package-backed platform realization](package-backed-platform-realization.md) | Realization honors the selection for CLI and Browser |
@@ -182,7 +182,9 @@ Each slice lands independently from `main`, keeps every gate green, and
 amends its owner's document with its code.
 
 1. **This composition map.**
-2. **`depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
+2. **Ecosystem package membership.** Two PRs.
+
+   **2a. `depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
    its recorded prefixes. Results are unchanged today, because every current
    core entry and set member already matches its pack's prefix; only the
    evidence basis changes. Set members match as exact packages today, so
@@ -192,6 +194,17 @@ amends its owner's document with its code.
    .NET MAUI cores, and Azure's until slice 3 removes it. ASP.NET Core's and
    Aspire's core entries are already set members, and Runtime has no core. This lands before the data
    slice so AI's new roots match as soon as they exist.
+
+   **2b. `ecosystem=` population term.** `package query --where
+   ecosystem=<id>` lists the packages in an Ecosystem: its core packages
+   exactly plus every package under its recorded prefixes, under package
+   query's ordinary candidate limits. Package query today requires exactly one
+   population term (`package=` or `prefix=`), so a multi-source population
+   (several exact roots and several prefixes sharing one candidate limit)
+   changes the [package query](package-query-cli.md) population contract. It
+   lands as its own focused design and implementation for CLI and Browser,
+   using the same membership as 2a.
+
 3. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions and
    ASP.NET Core cores; set the Aspire core; replace the AI core, reduce its
    prefixes to `Microsoft.Extensions.AI`, and drop vector data from its
