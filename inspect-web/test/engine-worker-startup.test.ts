@@ -20,7 +20,7 @@ import {
 import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.d.ts";
 import type {
   BrowserHomeDemoCatalog,
-  BrowserVocabularyDocument,
+  BrowserVocabularyInspection,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
   BrowserPackageChangesEcosystemCatalog,
@@ -37,14 +37,19 @@ import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 const identity: BrowserBuildIdentity = {
   version: "1.0", commit: null, builtAtUtc: "2026-09-06T00:00:00Z", commitUrl: null,
 };
-const vocabulary: BrowserVocabularyDocument = {
-  schema_version: 2,
-  sections: [{
-    id: "api", name: "API", summary: "API vocabulary",
-    accepted_by: ["type"],
-    fields: [{ id: "name", label: "Name", summary: "Member name", type: "string", operators: ["="] }],
-    values: [{ value: "public", extensions: [null, 42, { label: "\u03BB" }] }],
-  }],
+const vocabulary: BrowserVocabularyInspection = {
+  content: {
+    formatVersion: 1,
+    catalog: { value: "dotnet-inspect.product" },
+    identity: { value: `sha256:${"0".repeat(64)}` },
+    vocabularies: [],
+  },
+  share: {
+    kind: "nonProjectable",
+    path: "vocabulary/share",
+    reason: "Static vocabulary has no Share projection.",
+  },
+  diagnostics: [],
 };
 const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "source", title: "Source", summary: "Show generated source." }],
@@ -84,8 +89,8 @@ const ecosystems: BrowserPackageChangesEcosystemCatalog = {
 const cases = [
   { operation: engineStartupOperations.buildIdentity, expected: identity, field: "version",
     read: (client: EngineStartupClient) => client.host.buildIdentity() },
-  { operation: engineStartupOperations.listVocabulary, expected: vocabulary, field: "sections",
-    read: (client: EngineStartupClient) => client.catalog.listVocabulary() },
+  { operation: engineStartupOperations.inspectVocabulary, expected: vocabulary, field: "content",
+    read: (client: EngineStartupClient) => client.catalog.inspectVocabulary() },
   { operation: engineStartupOperations.listHomeDemos, expected: demos, field: "demos",
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
   { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "presets",
@@ -117,7 +122,7 @@ function fixture(options: {
   const operations = new WorkerOperationCatalog();
   registerEngineWorkerStartupOperations(operations, {
     async buildIdentity() { calls.push("identity"); return identity; },
-    async listVocabulary() { calls.push("vocabulary"); return vocabulary; },
+    async inspectVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
     async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
     async listPackageActivityEcosystems() {
@@ -171,7 +176,15 @@ test("all five cold reads share readiness and preserve full generated-shaped res
   assert.deepEqual(
     state.calls,
     ["identity", "vocabulary", "demos", "catalog", "ecosystems"]);
-  assert.deepEqual(await Promise.all(cases.map(item => item.read(state.client))), cases.map(item => item.expected));
+  assert.deepEqual(
+    await Promise.all(cases.map(item => item.read(state.client))),
+    cases.map(item => item.expected));
+  assert.deepEqual(
+    state.calls,
+    [
+      "identity", "vocabulary", "demos", "catalog", "ecosystems",
+      "identity", "demos", "catalog", "ecosystems",
+    ]);
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);
   assert.deepEqual(state.diagnostics, []);
@@ -195,8 +208,8 @@ test("concurrent calls to the same method complete independently and out of orde
 });
 
 test("a managed exception rejects its read without failing neighboring reads", async () => {
-  const state = fixture({ reads: { async listVocabulary() { throw new Error("Vocabulary unavailable."); } } });
-  const failure = assert.rejects(state.client.catalog.listVocabulary(), /Vocabulary unavailable/);
+  const state = fixture({ reads: { async inspectVocabulary() { throw new Error("Vocabulary unavailable."); } } });
+  const failure = assert.rejects(state.client.catalog.inspectVocabulary(), /Vocabulary unavailable/);
   const neighbor = state.client.catalog.listHomeDemos();
   await state.environment.flushAsync();
   await failure;

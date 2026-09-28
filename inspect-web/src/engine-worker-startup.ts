@@ -20,7 +20,7 @@ import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 
 export interface EngineStartupClient {
   readonly host: Pick<EngineClient["host"], "buildIdentity">;
-  readonly catalog: Pick<EngineClient["catalog"], "listVocabulary" | "listHomeDemos">;
+  readonly catalog: Pick<EngineClient["catalog"], "inspectVocabulary" | "listHomeDemos">;
   readonly package: Pick<
     EngineClient["package"],
     "listPackageActivityEcosystems" | "listPackageQueryCatalog"
@@ -29,7 +29,7 @@ export interface EngineStartupClient {
 
 interface StartupReads {
   readonly buildIdentity: EngineStartupClient["host"]["buildIdentity"];
-  readonly listVocabulary: EngineStartupClient["catalog"]["listVocabulary"];
+  readonly inspectVocabulary: EngineStartupClient["catalog"]["inspectVocabulary"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
@@ -62,7 +62,7 @@ export function registerEngineWorkerStartupOperations(
     });
   }
   register(engineStartupOperations.buildIdentity, reads.buildIdentity);
-  register(engineStartupOperations.listVocabulary, reads.listVocabulary);
+  register(engineStartupOperations.inspectVocabulary, reads.inspectVocabulary);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
   register(
     engineStartupOperations.listPackageActivityEcosystems,
@@ -114,10 +114,27 @@ export function bindEngineWorkerStartupClient(
       }
     };
   }
+  const inspectVocabulary = bind(engineStartupOperations.inspectVocabulary);
+  type Vocabulary = Awaited<ReturnType<typeof inspectVocabulary>>;
+  let cachedVocabulary: Vocabulary | undefined;
+  let pendingVocabulary: Promise<Vocabulary> | undefined;
+  function readVocabulary(): Promise<Vocabulary> {
+    if (cachedVocabulary !== undefined)
+      return Promise.resolve(cachedVocabulary);
+    pendingVocabulary ??= inspectVocabulary()
+      .then(value => {
+        cachedVocabulary = value;
+        return value;
+      })
+      .finally(() => {
+        pendingVocabulary = undefined;
+      });
+    return pendingVocabulary;
+  }
   return {
     host: { buildIdentity: bind(engineStartupOperations.buildIdentity) },
     catalog: {
-      listVocabulary: bind(engineStartupOperations.listVocabulary),
+      inspectVocabulary: readVocabulary,
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
     },
     package: {
