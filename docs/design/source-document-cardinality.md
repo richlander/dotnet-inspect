@@ -20,9 +20,13 @@ progressively requests line segments instead of receiving the complete view
 before the viewer can open.
 
 The current implementation publishes the complete `SourceView.Lines`
-inventory. The progressive operation, adaptive physical execution, and host
-adoptions below are target contracts whose unverified gates remain listed in
-[Required evidence](#required-evidence).
+inventory through the shared Source line execution core. That core implements
+Complete and Cold Pull semantics, closed Rows/Count demand, forward predicates
+and Head, deterministic strategy selection, fixed Source bounds, cancellation,
+and typed work observations. No production delivery profile or threshold is
+yet accepted, so the current `SourceView` adopter selects Complete. Host
+continuation receipts, byte framing, CLI and Browser adoption, and production
+performance remain unverified in [Required evidence](#required-evidence).
 
 ## Authority and exact claim
 
@@ -253,6 +257,14 @@ Count rules, execution bounds, failures, envelope, and output contract. A host
 cannot request a strategy through portable query syntax, and a continuation
 does not encode which strategy produced it.
 
+`SourceLineExecution` is the shared host-neutral operation. It consumes a
+Source-owned line vocabulary, one QuerySpace forward plan, the closed Rows or
+Count terminal, the settled `DecodedTextDocument`, and an optional
+Source-recognized delivery profile. `SourceViewInspection` drains its Complete
+strategy to preserve the existing complete result. Cold Pull retains the
+document-bound value cursor and projects strings only for selected Rows; Count
+does not construct row strings.
+
 Adaptive execution applies only to the new House-backed Source path and only
 after acquisition, checksum verification, decoding, provider selection, and
 view settlement have completed. Legacy Source paths remain on their existing
@@ -320,7 +332,9 @@ For example, after `Head(10)` has accepted ten rows, a later oversized line is
 not observed. Complete must publish the same answer even if its physical scan
 already encountered that irrelevant tail; strategy choice cannot change
 success into failure. Rows and Count still surface a line-limit failure when
-that line prevents their semantic completion.
+that line prevents their semantic completion. Browser row-frame bounds do not
+prevent exact Count: Count emits no row text and therefore does not compute or
+enforce JSON row-text size.
 
 ### Measured basis
 
@@ -495,7 +509,9 @@ Implementation proceeds through focused slices:
    line-limit failure under #8319. Completed under #8640.
 3. Under #8766, lock and then implement Source's House-only adaptive selector,
    cold single-use execution, work observations, and semantic-equivalence
-   gates. Keep Complete as the small-input control.
+   gates. Keep Complete as the small-input control. The host-neutral execution
+   core is implemented in the current stack; production profiles, receipts,
+   framing, and host adoption remain in the following slices.
 4. Adopt the composed operation in CLI type and member `Source`, preserve
    complete default output, and retire the host-local source projection.
 5. Adopt the same operation in Inspect Web's type and member Source viewer,
@@ -515,14 +531,15 @@ acquisition, Query Space, or the viewer.
 | --- | --- | --- |
 | `SourceViewLinesReconstructExactDecodedText` | Every supported terminator, empty/final-empty line, line number, and UTF-16 start offset reconstruct the exact decoded view text. | Verified in Release by `SourceViewInspectionTests`. |
 | `SourceViewProjectionDistinguishesArtifactsAndPreservesEvidence` | The four view kinds are explicit; authored origins retain their physical artifact and member mapping; decompiled origins have no artifact; a declaration excerpt does not masquerade as its physical file; PDB/decompiled success and non-success preserve facts, Share, diagnostics, mapping, and typed failures. | Verified in Release by `SourceViewInspectionTests`. |
-| `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
-| `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
-| `SourceLineSegmentsRespectExecutionBounds` | Successful pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line fails visibly without returning a partial row or advancing its position. | Unverified until slices 2 and 3. |
+| `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Verified for the host-neutral operation in Release by `SourceLineExecutionTests`; host receipts remain unverified. |
+| `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Verified for in-process execution in Release by `SourceLineExecutionTests`; host continuation meaning remains unverified. |
+| `SourceLineSegmentsRespectExecutionBounds` | Successful pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded UTF-8 row-text bytes; an individually over-bound line fails visibly without returning a partial row or advancing its position. | Verified in Release by `SourceLineExecutionTests` and `Inspector.Text.Tests`. |
 | `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
-| `AdaptiveSelectionPreservesSourceMeaning` | Complete and Cold Pull produce the same rows, exact Count, completion, visible failure, envelope, and stable content check for every supported demand class and accepted policy threshold. | Unverified until slice 3. |
-| `ColdSourceExecutionStartsOnPositiveDemand` | Constructing a Cold Pull scans no line, projects no row, creates no result frame, and serializes no result bytes; the first positive delivery credit starts work. | Unverified until slice 3. |
+| `AdaptiveSelectionPreservesSourceMeaning` | Complete and Cold Pull produce the same rows, exact Count, completion, visible failure, envelope, and stable content check for every supported demand class and accepted policy threshold. | Core Rows/Count semantics and deterministic selection are verified in Release by `SourceLineExecutionTests`; production profiles, envelopes, and scorecards remain unverified. |
+| `ColdSourceExecutionStartsOnPositiveDemand` | Constructing a Cold Pull scans no line, projects no row, creates no result frame, and serializes no result bytes; the first positive delivery credit starts work. | Verified through the host-neutral operation in Release by `SourceLineExecutionTests`; byte framing remains unverified. |
 | `ColdSourceExecutionRetainsBoundedState` | Cold Pull retains the decoded document, execution position, closed plan, scalar facts, at most one partial bounded frame, and host-owned bounded reader storage, but no complete line inventory or complete encoded result. | Unverified until slice 3. |
-| `ClosedHeadDoesNotProcessUnrequestedTail` | Once bounded Head closes, a later line is not scanned, projected, serialized, or transferred, and a failure confined to that tail does not replace the successful answer. | Unverified until slice 3. |
+| `ClosedHeadDoesNotProcessUnrequestedTail` | Once bounded Head closes, a later line is not scanned, projected, serialized, or transferred, and a failure confined to that tail does not replace the successful answer. | Scan, projection, and typed-failure behavior are verified in Release by `SourceLineExecutionTests`; serialization and transfer remain unverified. |
+| `ColdSourceExecutionStopsOnCancellation` | Cancellation or disposal prevents further line production from retained Cold Pull state. | Verified in Release by `SourceLineExecutionTests`. |
 | `CliSourceDrainsContinuationWithoutChangingOutput` | CLI default output equals the pre-adoption decoded document, while Count and Rows observe source lines. | Unverified until slice 4. |
 | `BrowserSourceRequestsContinuedLines` | Published Browser/Wasm obtains the same envelope and document facts, requests later line segments instead of receiving complete text first, and keeps authored and decompiled views independently selectable and lazy. | Unverified until slice 5. |
 | `NpgsqlConnectionSourceRequiresContinuation` | The real checksum-verified Npgsql document requires and resumes at least one continuation in both production hosts. | Unverified until slice 6. |

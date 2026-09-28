@@ -612,45 +612,21 @@ public static class SourceViewInspection
     private static ImmutableArray<SourceViewLine> Lines(string text)
     {
         var document = new DecodedTextDocument(text);
-        DecodedTextBatch batch = document.Pull(
-            document.Start,
-            DecodedTextPullLimits.ForCandidateRows(int.MaxValue));
-        if (!batch.IsComplete)
+        using SourceLineExecution execution =
+            SourceLineExecution.Create(
+                document,
+                QuerySpace.Composition
+                    .QuerySpaceTerminalRequirement.Rows,
+                SourceLineVocabulary.EmptyPlan);
+        var lines = ImmutableArray.CreateBuilder<SourceViewLine>();
+        SourceLineExecutionBatch batch;
+        do
         {
-            throw new InvalidOperationException(
-                "Unbounded decoded-text projection did not complete.");
+            batch = execution.Pull();
+            lines.AddRange(batch.Rows);
         }
+        while (!batch.IsComplete);
 
-        return
-        [
-            .. batch.Lines.Select(
-                static line => new SourceViewLine(
-                    line.Number,
-                    line.Start,
-                    line.Content.ToString(),
-                    SourceTerminator(line.Terminator))),
-        ];
+        return lines.ToImmutable();
     }
-
-    private static SourceViewLineTerminator SourceTerminator(
-        DecodedTextLineTerminator terminator) =>
-        terminator switch
-        {
-            DecodedTextLineTerminator.None =>
-                SourceViewLineTerminator.None,
-            DecodedTextLineTerminator.CarriageReturnLineFeed =>
-                SourceViewLineTerminator.CarriageReturnLineFeed,
-            DecodedTextLineTerminator.CarriageReturn =>
-                SourceViewLineTerminator.CarriageReturn,
-            DecodedTextLineTerminator.LineFeed =>
-                SourceViewLineTerminator.LineFeed,
-            DecodedTextLineTerminator.NextLine =>
-                SourceViewLineTerminator.NextLine,
-            DecodedTextLineTerminator.LineSeparator =>
-                SourceViewLineTerminator.LineSeparator,
-            DecodedTextLineTerminator.ParagraphSeparator =>
-                SourceViewLineTerminator.ParagraphSeparator,
-            _ => throw new InvalidOperationException(
-                "Unknown decoded-text line terminator."),
-        };
 }
