@@ -11,6 +11,11 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class DotnetHostRoot
 {
+    private const UnixFileMode ExecuteBits =
+        UnixFileMode.UserExecute
+        | UnixFileMode.GroupExecute
+        | UnixFileMode.OtherExecute;
+
     /// <summary>
     /// Returns the directory of the first <c>dotnet</c> host found on
     /// <c>PATH</c>, following a symbolic link to the host's real location,
@@ -35,7 +40,9 @@ public static class DotnetHostRoot
             try
             {
                 string candidate = Path.Combine(entry, hostName);
-                if (!File.Exists(candidate))
+                if (!File.Exists(candidate)
+                    || !RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                        && (File.GetUnixFileMode(candidate) & ExecuteBits) == 0)
                     continue;
 
                 string host =
