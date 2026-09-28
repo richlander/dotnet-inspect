@@ -190,6 +190,54 @@ public sealed class ApiMemberBucketTests
             member => member.Name == "get_ICollectionCount");
     }
 
+    // An attached extension belongs to the narrower of its own accessibility
+    // and its declaring Type's: only consumers who can see the declaring Type
+    // can call it (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+    [Fact]
+    public void RealAttachedExtension_TakesTheNarrowerOfItsOwnAndItsDeclaringTypeAccess()
+    {
+        ApiSurface json = Extract(
+            Path.Combine(AppContext.BaseDirectory, "PinnedArtifacts", "runtime", "System.Text.Json.dll"),
+            includeAll: true);
+        ApiMember readWithVerify = Attached(
+            json, "System.Text.Json.Utf8JsonReader", "System.Text.Json.JsonHelpers", "ReadWithVerify");
+        Assert.Equal("internal", readWithVerify.Accessibility);
+
+        ApiSurface coreLib = Extract(
+            Path.Combine(AppContext.BaseDirectory, "PinnedArtifacts", "System.Private.CoreLib.dll"),
+            includeAll: true);
+        Assert.All(
+            AttachedAll(coreLib, "System.Type", "System.Reflection.SignatureTypeExtensions", "TryMakeArrayType"),
+            member => Assert.Equal("private", member.Accessibility));
+        Assert.All(
+            AttachedAll(coreLib, "System.String", "System.MemoryExtensions", "AsSpan"),
+            member => Assert.Null(member.Accessibility));
+    }
+
+    static ApiMember Attached(
+        ApiSurface surface,
+        string receiver,
+        string declaringType,
+        string name)
+        => Assert.Single(AttachedAll(surface, receiver, declaringType, name));
+
+    static IReadOnlyList<ApiMember> AttachedAll(
+        ApiSurface surface,
+        string receiver,
+        string declaringType,
+        string name)
+    {
+        ApiMember[] members =
+        [
+            .. surface.Types.Single(type => type.FullName == receiver).Members.Where(member =>
+                member.Kind == "extension-method"
+                && member.Name == name
+                && member.DeclaringType == declaringType),
+        ];
+        Assert.NotEmpty(members);
+        return members;
+    }
+
     static ApiType VbType(ApiSurface surface)
         => surface.Types.Single(type => type.Name == "VbImplementations");
 

@@ -73,10 +73,16 @@ public static partial class ApiSurfaceExtractor
                     continue;
                 }
 
+                // Only consumers who can see the declaring Type can call an
+                // attached extension (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
                 var attached = new ApiMember
                 {
                     Name = extension.Name,
                     Kind = "extension-method",
+                    Accessibility = GetAccessibility(
+                        NarrowerAccess(
+                            AccessOf(extension.Accessibility),
+                            AccessOf(declaringType.Accessibility))),
                     ReturnType = extension.ReturnType,
                     Signature = extension.Signature,
                     SignatureModel = extension.SignatureModel,
