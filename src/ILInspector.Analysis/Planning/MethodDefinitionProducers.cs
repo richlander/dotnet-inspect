@@ -68,6 +68,21 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>Whether a unit fact settles an Exists terminal for this producer.</summary>
     internal virtual bool Settles(TFact fact) => false;
 
+    /// <summary>Whether this producer declares a type-scope predicate.</summary>
+    internal virtual bool HasTypeScope => false;
+
+    /// <summary>
+    /// The type-scope predicate: units in a type outside it are out of this
+    /// producer's scope and of every producer guarded by it.
+    /// </summary>
+    internal virtual bool TypeInScope(MetadataReader reader, TypeDefinition type) => true;
+
+    /// <summary>Whether this producer classifies units for dependents' scope guards.</summary>
+    internal virtual bool ClassifiesUnits => false;
+
+    /// <summary>The unit's class, 0 to 63, derived from its fact; used only when <see cref="ClassifiesUnits"/>.</summary>
+    internal virtual int UnitClass(TFact fact) => 0;
+
     IMethodDefinitionProducerRun IMethodDefinitionProducer.CreateRun(
         UnitFactRetention retention) =>
         new Run(this, retention);
@@ -87,12 +102,33 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         int _currentToken;
         TFact _currentFact = default!;
 
+        readonly bool _classifies = producer.ClassifiesUnits;
+        int _classToken;
+        int _unitClass;
+
         public ProducerDeclaration Producer => producer;
+
+        public bool ClassifiesUnits => _classifies;
+
+        public bool HasTypeScope { get; } = producer.HasTypeScope;
+
+        public bool TypeInScope(MetadataReader reader, TypeDefinition type) =>
+            producer.TypeInScope(reader, type);
+
+        public bool UnitClassIn(int unitToken, ulong acceptedClasses) =>
+            _classToken == unitToken
+            && ((acceptedClasses >> _unitClass) & 1) != 0;
 
         public bool Visit(scoped MethodDefinitionView view)
         {
             TFact fact = producer.Visit(view);
             _accumulator = producer.Accumulate(_accumulator, fact);
+            if (_classifies)
+            {
+                _classToken = view.Token;
+                _unitClass = producer.UnitClass(fact);
+            }
+
             if (_keepCurrent)
             {
                 _currentToken = view.Token;
@@ -140,6 +176,15 @@ internal interface IMethodDefinitionProducer
 internal interface IMethodDefinitionProducerRun
 {
     ProducerDeclaration Producer { get; }
+
+    bool ClassifiesUnits { get; }
+
+    bool HasTypeScope { get; }
+
+    bool TypeInScope(MetadataReader reader, TypeDefinition type);
+
+    /// <summary>Whether this run classified <paramref name="unitToken"/> into one of <paramref name="acceptedClasses"/>.</summary>
+    bool UnitClassIn(int unitToken, ulong acceptedClasses);
 
     bool Visit(scoped MethodDefinitionView view);
 
