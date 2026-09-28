@@ -1,5 +1,6 @@
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures
+fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture
 fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures
@@ -44,7 +45,9 @@ fixtures/inspect-web/InspectWeb.DocumentationFixtures
 fixtures/inspect-web/InspectWeb.MethodBodyFixtures
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2
+fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures
 fixtures/js-export/ILInspector.JsExportSurface.Fixtures
+fixtures/js-export/ILInspector.JsExportSurface.JsonInputFixtures
 fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures
@@ -68,6 +71,7 @@ fixtures/js-export/TsJsExport.ContextFixtures.WrongContract
 fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1
 fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2
 fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures
+fixtures/metadata/ILInspector.Metadata.EnablementFixtures
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld
 fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts
@@ -80,10 +84,12 @@ fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
 fixtures/metadata/ILInspector.Metadata.TypeDependencyReference
+fixtures/presentation/LibraryApiDiff.ConstraintDependency
 fixtures/presentation/LibraryApiDiff.V1
 fixtures/presentation/LibraryApiDiff.V2
 fixtures/queries/DotnetInspector.CloneSearchFixtures
 fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures
+fixtures/queries/DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures
 fixtures/queries/DotnetInspector.RestoredProjectFixtures
 fixtures/queries/DotnetInspector.RestoredRidFixtures
 fixtures/queries/DotnetInspector.SourceDiff.V1
@@ -110,16 +116,10 @@ src/DotnetInspect.Web.Interop.Metadata
 src/DotnetInspect.Web.Interop.Package
 src/DotnetInspect.Web.Interop.Source
 src/DotnetInspector.DocumentationHouse.Direct
-src/DotnetInspector.DocumentationHouse.Packages
 src/DotnetInspector.DocumentationHouse.Platform
-src/DotnetInspector.DocumentationHouse.Source
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
-src/DotnetInspector.PackageHouse.Execution
-src/DotnetInspector.PackageQueries
-src/DotnetInspector.PlatformHouse
-src/DotnetInspector.PlatformHouse.Execution
 src/DotnetInspector.PlatformHouse.Execution.Installed
 src/DotnetInspector.PlatformHouse.Execution.Packages
 src/DotnetInspector.PlatformHouse.Installed
@@ -137,10 +137,12 @@ src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
 src/MsdlProxy
+src/QueryOverflow
 src/TsJsExport.Contracts
 src/mdi
 src/runfaster
 src/ts-jsexport
+tests/BinaryFetch.Tests
 tests/CSharpText.MemberSlicing.Tests
 tests/CSharpText.Tests
 tests/DecompilerHarness.Tests
@@ -202,9 +204,12 @@ tests/Inspector.Text.Tests
 tests/MsdlProxy.Tests
 tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
+tests/QueryOverflow.Consumer
+tests/QueryOverflow.Tests
 tests/QuerySpace.Consumer
 tests/TestExtensions
 tests/UntrustedDocuments.Tests
+tests/ZipFetch.Tests
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
 tests/nuget/PackageAssetSelection.BuildOracle/Consumer
@@ -218,4 +223,6 @@ tools/DiffHarnessCommon
 tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/InspectWebFixtureResolver
+tools/PackageHouse.CliBenchmarks
 tools/SectionRegistrySpike
+tools/SourceCorpusCensus
