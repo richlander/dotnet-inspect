@@ -38,6 +38,20 @@
       ]
     },
     {
+      "id": "inspector-graph-stays-independent",
+      "source": "docs/design/inspector-graph-library-boundary.md#dependency-boundary",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "Inspector.Graph"
+      ],
+      "allowOnly": [
+        "$platform"
+      ]
+    },
+    {
       "id": "engine-libraries-stay-below-tool-libraries",
       "source": "docs/design/inspection-layers.md#seam-rules",
       "graphs": [
@@ -139,7 +153,9 @@
         "*.Tests",
         "*Fixture*",
         "dotnet-inspect",
-        "DotnetInspect.Cli"
+        "DotnetInspect.Cli",
+        "DotnetInspect.Web.Interop.Catalog",
+        "DotnetInspect.Web.Interop.Package"
       ],
       "deny": [
         "DotnetInspector.Ecosystems"
@@ -234,7 +250,9 @@
       "allowOnly": [
         "$platform",
         "$repository",
+        "NuGet.Frameworks",
         "NuGet.Versioning",
+        "System.IO.Hashing",
         "System.Security.Cryptography.ProtectedData"
       ]
     },

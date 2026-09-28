@@ -25,6 +25,20 @@ public enum PackageHouseLibraryHandoffMode
     SelectedLibraries,
 }
 
+/// <summary>Optional package-local content needed by selected Library consumers.</summary>
+public enum PackageHouseLibraryCompanionDemand
+{
+    None,
+    ImplementationPortablePdb,
+}
+
+/// <summary>Additional package-authored evidence one realization reads.</summary>
+public enum PackageHouseEvidenceDemand
+{
+    None,
+    FrameworkReferences,
+}
+
 /// <summary>How the package target framework is selected.</summary>
 public enum PackageHouseTargetSelectionMode
 {
@@ -260,7 +274,15 @@ public sealed class PackageHouseRequest
         PackageHouseAssetSelectionKind? assetSelection = null,
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
-        PackageHouseRequestAssociation? association = null)
+        PackageHouseRequestAssociation? association = null,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation,
+        IEnumerable<string>? implementationNames = null,
+        PackageDocumentDemand? documentDemand = null,
+        PackageHouseEvidenceDemand evidenceDemand =
+            PackageHouseEvidenceDemand.None,
+        PackageHouseLibraryCompanionDemand libraryCompanionDemand =
+            PackageHouseLibraryCompanionDemand.None)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -268,6 +290,15 @@ public sealed class PackageHouseRequest
             throw new ArgumentOutOfRangeException(nameof(libraryHandoff));
         if (assetSelection is { } selection && !Enum.IsDefined(selection))
             throw new ArgumentOutOfRangeException(nameof(assetSelection));
+        if (!Enum.IsDefined(assetDemand))
+            throw new ArgumentOutOfRangeException(nameof(assetDemand));
+        if (!Enum.IsDefined(evidenceDemand))
+            throw new ArgumentOutOfRangeException(nameof(evidenceDemand));
+        if (!Enum.IsDefined(libraryCompanionDemand))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(libraryCompanionDemand));
+        }
 
         bool realizes =
             operation.Profile == PackageHouseOperationProfile.Realize;
@@ -286,12 +317,68 @@ public sealed class PackageHouseRequest
                 nameof(libraryHandoff));
         }
 
+        if (implementationNames is not null)
+        {
+            if (!realizes)
+            {
+                throw new ArgumentException(
+                    "Only a Realize operation can name implementation assemblies.",
+                    nameof(implementationNames));
+            }
+            if (assetDemand != PackageAssetDemand.SurfaceAndImplementation)
+            {
+                throw new ArgumentException(
+                    "Named implementation assemblies require the SurfaceAndImplementation demand.",
+                    nameof(implementationNames));
+            }
+        }
+
+        if (documentDemand is not null
+            && operation.Profile != PackageHouseOperationProfile.Acquire)
+        {
+            throw new ArgumentException(
+                "Only an Acquire operation carries a document demand.",
+                nameof(documentDemand));
+        }
+
+        if (evidenceDemand != PackageHouseEvidenceDemand.None
+            && (!realizes
+                || assetSelection != PackageHouseAssetSelectionKind.Compile))
+        {
+            throw new ArgumentException(
+                "Framework-reference evidence requires a compile Realize operation.",
+                nameof(evidenceDemand));
+        }
+        if (libraryCompanionDemand
+                != PackageHouseLibraryCompanionDemand.None
+            && (!realizes
+                || assetSelection
+                    != PackageHouseAssetSelectionKind.Compile
+                || libraryHandoff
+                    != PackageHouseLibraryHandoffMode.SelectedLibraries
+                || assetDemand
+                    != PackageAssetDemand.SurfaceAndImplementation))
+        {
+            throw new ArgumentException(
+                "Library companion demand requires a compile Realize operation with selected Library handoffs and implementation assets.",
+                nameof(libraryCompanionDemand));
+        }
+
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
         AssetSelection = assetSelection;
         LibraryHandoff = libraryHandoff;
         Association = association;
+        AssetDemand = assetDemand;
+        DocumentDemand = documentDemand;
+        EvidenceDemand = evidenceDemand;
+        LibraryCompanionDemand = libraryCompanionDemand;
+        ImplementationNames = implementationNames is null
+            ? null
+            : PackageImplementationNames.Create(
+                implementationNames,
+                nameof(implementationNames));
     }
 
     public PackageHouseDemand Demand { get; }
@@ -305,4 +392,40 @@ public sealed class PackageHouseRequest
     public PackageHouseLibraryHandoffMode LibraryHandoff { get; }
 
     public PackageHouseRequestAssociation? Association { get; }
+
+    /// <summary>
+    /// Which assets the consumer reads. A ranged Realize reads only these;
+    /// complete access acquires the whole archive regardless.
+    /// </summary>
+    public PackageAssetDemand AssetDemand { get; }
+
+    /// <summary>
+    /// The implementation assemblies the consumer names, by file name, or
+    /// <see langword="null"/> for every selected implementation asset. With
+    /// names, the realization selects only the named implementation assets,
+    /// and a ranged read fetches the aligned blocks that hold them
+    /// (docs/design/package-read-demand.md).
+    /// </summary>
+    public PackageImplementationNames? ImplementationNames { get; }
+
+    /// <summary>
+    /// The package documents an Acquire operation reads, or
+    /// <see langword="null"/>. It bounds a ranged read, which an Acquire
+    /// operation may take only with one, and every named entry and folder
+    /// must be listed by the acquired archive's directory
+    /// (docs/design/package-read-demand.md#document-demand).
+    /// </summary>
+    public PackageDocumentDemand? DocumentDemand { get; }
+
+    /// <summary>
+    /// Additional package-authored evidence this compile realization reads.
+    /// A ranged acquisition adds only the evidence entry to the selected
+    /// compile entries.
+    /// </summary>
+    public PackageHouseEvidenceDemand EvidenceDemand { get; }
+
+    /// <summary>
+    /// Optional package-local content retained for selected Library handoffs.
+    /// </summary>
+    public PackageHouseLibraryCompanionDemand LibraryCompanionDemand { get; }
 }

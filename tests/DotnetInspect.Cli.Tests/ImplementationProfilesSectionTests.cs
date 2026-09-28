@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -8,6 +9,8 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -173,6 +176,8 @@ public class MetricSectionTests
                 CompleteBodyCount: 2,
                 PresentCount: 0,
                 AbsentCount: 2),
+            TypeSummaries: [],
+            EntangledRelationships: [],
             Diagnostics: []);
         var view = new LibraryInspectionView(new LibraryInspection
         {
@@ -214,7 +219,6 @@ public class MetricSectionTests
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 MemberFilter =
                     ["Analyze"],
-                IncludeAll = true,
                 IncludeSections =
                     [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
@@ -228,6 +232,145 @@ public class MetricSectionTests
         Assert.Contains("Analyze(int, int)", result.Output);
         Assert.Contains("Analyze(string)", result.Output);
         Assert.DoesNotContain("Other(int)", result.Output);
+    }
+
+    [Fact]
+    public void
+        MemberImplementationProfileFamilySelection_PreservesFallbackShapes()
+    {
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        ApiSurface surface =
+            AssemblyReader.ExtractApiSurface(assemblyPath)
+            ?? throw new InvalidOperationException(
+                "Could not extract implementation-profile fixture API.");
+        ApiType type = Assert.Single(
+            surface.Types,
+            type => type.FullName
+                == "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample");
+        var familyOptions = new MemberOptions
+        {
+            MemberFilter = ["Analyze"],
+            IncludeSections = [SectionNames.MemberMetrics],
+        };
+
+        Assert.True(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions,
+                out ImplementationProfileFamilySelection? selection));
+        Assert.NotNull(selection);
+        Assert.Equal(
+            type.Members.Count(member =>
+                member.Name == "Analyze"
+                && member.Kind is "method" or "extension-method"),
+            selection.StableSelectors.Length);
+
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with { IncludeAll = true },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with { OverloadIndex = 1 },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with
+                {
+                    KindFilter =
+                        new HashSet<string>(
+                            ["method"],
+                            StringComparer.OrdinalIgnoreCase),
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with { MemberFilter = ["Value"] },
+                out _));
+    }
+
+    [Fact]
+    public async Task
+        AttachedMemberImplementationProfileFamily_SkipsCompatibilityAnalysis()
+    {
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        ApiSurface surface =
+            AssemblyReader.ExtractApiSurface(assemblyPath)
+            ?? throw new InvalidOperationException(
+                "Could not extract implementation-profile fixture API.");
+        ApiType type = Assert.Single(
+            surface.Types,
+            type => type.FullName
+                == "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample");
+        var options = new MemberOptions
+        {
+            MemberFilter = ["Analyze"],
+            IncludeSections = [SectionNames.MemberMetrics],
+            DllPath = "/does/not/exist.dll",
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        };
+        Assert.True(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                options,
+                out ImplementationProfileFamilySelection? selection));
+
+        var assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "CLI family profile test"));
+        var participant =
+            new AssemblyContextParticipant(
+                assembly,
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        assemblyPath)));
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        InspectionEnvelope<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>>
+            inspection =
+                ImplementationProfileFamilyInspectionOperation.Execute(
+                    group,
+                    participant,
+                    selection);
+        Assert.IsType<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>.Available>(
+                    inspection.Content);
+
+        using var output = new StringWriter();
+        int exitCode = await ApiCommand.WriteTypeOutputAsync(
+            type,
+            foundIn: assemblyPath,
+            packageName: null,
+            packageVersion: null,
+            apiSource: null,
+            selectedTfm: null,
+            options with
+            {
+                ImplementationProfileFamilyInspection = inspection,
+            },
+            output);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("## Member Metrics", output.ToString());
+        Assert.Contains("Analyze(int, int)", output.ToString());
+        Assert.DoesNotContain("Other(int)", output.ToString());
     }
 
     [Fact]
@@ -603,23 +746,251 @@ public class MetricSectionTests
 
     [Fact]
     public async Task
-        LibraryMetrics_RejectsDocumentJson()
+        LibraryMetrics_JsonAndEnvelopePreserveCompleteDocument()
     {
-        var result = await ConsoleCapture.RunAsync(
-            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+        string fixture =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var contentResult = await RunCommand(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--json");
+        var envelopeResult = await RunCommand(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--envelope");
+
+        Assert.Equal(0, contentResult.ExitCode);
+        Assert.Empty(contentResult.Error);
+        Assert.Equal(0, envelopeResult.ExitCode);
+        Assert.Empty(envelopeResult.Error);
+        using JsonDocument content =
+            JsonDocument.Parse(contentResult.Output);
+        using JsonDocument envelope =
+            JsonDocument.Parse(envelopeResult.Output);
+        JsonElement envelopeRoot = envelope.RootElement;
+        Assert.Equal(
+            "library-metrics",
+            envelopeRoot.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            1,
+            envelopeRoot.GetProperty("schema_version").GetInt32());
+        Assert.True(
+            JsonElement.DeepEquals(
+                content.RootElement,
+                envelopeRoot.GetProperty("content")));
+        Assert.Equal(
+            "nonProjectable",
+            envelopeRoot
+                .GetProperty("share")
+                .GetProperty("kind")
+                .GetString());
+
+        JsonElement root = content.RootElement;
+        Assert.Equal(
+            LibraryStructuralReport.CurrentMethodologyVersion,
+            root.GetProperty("methodologyVersion").GetString());
+        Assert.NotEmpty(
+            root.GetProperty("population")
+                .GetProperty("coverage")
+                .GetProperty("declaredMethods")
+                .EnumerateArray());
+        Assert.All(
+            root.GetProperty("distributions").EnumerateArray(),
+            static distribution =>
             {
-                AssemblyName =
-                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                IncludeSections =
-                    [SectionNames.LibraryMetrics],
-                JsonOutput = true,
-            }));
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    distribution
+                        .GetProperty("completeBodyCount")
+                        .ValueKind);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    distribution.GetProperty("maximum").ValueKind);
+            });
+
+        JsonElement[] typeSummaries =
+        [
+            .. root.GetProperty("typeSummaries").EnumerateArray(),
+        ];
+        Assert.NotEmpty(typeSummaries);
+        HashSet<string> typeKeys =
+        [
+            .. typeSummaries.Select(summary =>
+                summary.GetProperty("typeKey").GetString()!),
+        ];
+        Assert.Contains(
+            typeSummaries
+                .GroupBy(summary =>
+                    summary.GetProperty("display").GetString())
+                .Select(group => group
+                    .Select(summary =>
+                        summary.GetProperty("typeKey").GetString())
+                    .Distinct(StringComparer.Ordinal)
+                    .Count()),
+            count => count > 1);
+        JsonElement[] relationships =
+        [
+            .. root.GetProperty("entangledRelationships")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(relationships);
+        Assert.All(
+            relationships,
+            relationship =>
+            {
+                Assert.Contains(
+                    relationship
+                        .GetProperty("sourceTypeKey")
+                        .GetString()!,
+                    typeKeys);
+                Assert.Contains(
+                    relationship
+                        .GetProperty("targetTypeKey")
+                        .GetString()!,
+                    typeKeys);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    relationship
+                        .GetProperty("callSiteCount")
+                        .ValueKind);
+            });
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_CompleteJsonRejectsProjectionBeforeAcquisition()
+    {
+        var result = await RunCommand(
+            "library",
+            "missing-library.dll",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--json",
+            "--fields",
+            "Metric");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Library Metrics analysis.",
+            "Complete Library Metrics JSON does not support",
             result.Error);
+        Assert.DoesNotContain(
+            "does not exist",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_CompleteJsonRejectsCountBeforeAcquisition()
+    {
+        var result = await RunCommand(
+            "library",
+            "missing-library.dll",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--json",
+            "--count");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Complete Library Metrics JSON does not support",
+            result.Error);
+        Assert.DoesNotContain(
+            "does not exist",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    public async Task
+        LibraryMetrics_EnvelopeIgnoresAmbientFormat(string format)
+    {
+        string? previous =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                format);
+            var result = await RunCommand(
+                "library",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                "-S",
+                SectionNames.LibraryMetrics,
+                "--envelope");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using JsonDocument envelope =
+                JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "library-metrics",
+                envelope.RootElement
+                    .GetProperty("result_kind")
+                    .GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                previous);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_EnvelopeRejectsExplicitFormatBeforeAcquisition()
+    {
+        var result = await RunCommand(
+            "library",
+            "missing-library.dll",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--envelope",
+            "--markdown");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("--envelope", result.Error);
+        Assert.Contains("--markdown", result.Error);
+        Assert.DoesNotContain(
+            "does not exist",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void
+        LibraryMetrics_EnvelopeAcceptsExactPackageCoordinates()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] arguments =
+        [
+            "library",
+            "Markout.dll",
+            "--package",
+            "Markout@0.35.2",
+            "--tfm",
+            "net10.0",
+            "-S",
+            SectionNames.LibraryMetrics,
+            "--envelope",
+            "--compact",
+        ];
+
+        var result = root.Parse(
+            CommandLineBuilder.PreprocessArgs(arguments, root));
+
+        Assert.Empty(result.Errors);
     }
 
     [Fact]
@@ -643,4 +1014,16 @@ public class MetricSectionTests
             int.TryParse(result.Output.Trim(), out int count));
         Assert.True(count > 0);
     }
+
+    private static Task<(int ExitCode, string Output, string Error)>
+        RunCommand(params string[] args) =>
+        ConsoleCapture.RunAsync(() =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed =
+                CommandLineBuilder.PreprocessArgs(args, root);
+            return CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
 }

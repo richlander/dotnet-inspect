@@ -10,6 +10,7 @@ import type {
 import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
+  libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffSelection,
   type LibraryApiDiffState,
@@ -688,6 +689,40 @@ function withMembers(): BrowserLibraryApiDiffResult {
     memberName: "Run",
     display,
   });
+  const exploreEndpoint = (
+    version: string,
+    member: ReturnType<typeof identity> | null,
+  ) => {
+    const value = endpoint(version);
+    return {
+      packageId: value.packageId,
+      version: value.version,
+      framework: value.framework,
+      asset: value.asset,
+      assembly: value.assembly,
+      member,
+    };
+  };
+  const explore = (
+    before: ReturnType<typeof identity> | null,
+    after: ReturnType<typeof identity> | null,
+  ) => ({
+    kind: "member-diff" as const,
+    target: exploreEndpoint("1.0.0", before),
+    current: exploreEndpoint("2.0.0", after),
+  });
+  const changedBefore = identity(
+    "digest-before",
+    "void Run(int)",
+    "Run(int)",
+  );
+  const changedAfter = identity(
+    "digest-run",
+    "void Run(long)",
+    "Run(long)",
+  );
+  const addedAfter = identity("digest-new", "void New()", "New()");
+  const removedBefore = identity("digest-gone", "void Gone()", "Gone()");
   return {
     ...result,
     value: {
@@ -700,9 +735,10 @@ function withMembers(): BrowserLibraryApiDiffResult {
               documentIdentifier: "relation-changed",
               pairKind: "Changed",
               role: "Both",
-              before: identity("digest-before", "void Run(int)", "Run(int)"),
-              after: identity("digest-run", "void Run(long)", "Run(long)"),
+              before: changedBefore,
+              after: changedAfter,
               match: null,
+              explore: explore(changedBefore, changedAfter),
               changes: [
                 {
                   kind: "MemberSignatureChanged",
@@ -727,8 +763,9 @@ function withMembers(): BrowserLibraryApiDiffResult {
               pairKind: "Added",
               role: "After",
               before: null,
-              after: identity("digest-new", "void New()", "New()"),
+              after: addedAfter,
               match: null,
+              explore: explore(null, addedAfter),
               changes: [{
                 kind: "MemberAdded",
                 classification: "Additive",
@@ -742,9 +779,10 @@ function withMembers(): BrowserLibraryApiDiffResult {
               documentIdentifier: "relation-removed",
               pairKind: "Removed",
               role: "Before",
-              before: identity("digest-gone", "void Gone()", "Gone()"),
+              before: removedBefore,
               after: null,
               match: null,
+              explore: explore(removedBefore, null),
               changes: [],
             },
           ],
@@ -862,6 +900,60 @@ test("malformed change rows are rejected at the transport boundary", async () =>
     assert.match(outcome.error, /types\[0\]\.changes\[0\]\.classification is unsupported/);
 });
 
+test("Explore destinations cannot change endpoint coordinates", async () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget] = result.value.types;
+  const [member] = widget?.members ?? [];
+  if (widget === undefined || member?.explore === null
+      || member?.explore === undefined) {
+    throw new Error("Expected a destination-bearing Member.");
+  }
+  const malformed = {
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        members: [{
+          ...member,
+          explore: {
+            ...member.explore,
+            target: {
+              ...member.explore.target,
+              packageId: "Different.Package",
+            },
+          },
+        }, ...widget.members.slice(1)],
+      }, ...result.value.types.slice(1)],
+    },
+  };
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(malformed),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(state.libraryApiDiff.status, "failed");
+  if (state.libraryApiDiff.status === "failed") {
+    assert.match(
+      state.libraryApiDiff.error,
+      /explore\.target must match its Library API Diff endpoint coordinates/,
+    );
+  }
+});
+
 test("Library rows activate only joined current-side Types; removed Types stay visible and inert", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: { kind: "library" },
@@ -922,7 +1014,7 @@ test("Type Diff on an unchanged Type is a successful empty result inside the sam
   assert.match(html, /data-compare-mode="clone"/);
 });
 
-test("Member Diff presents the exact Member relation evidence and no Explore action", () => {
+test("Member Diff presents exact evidence without embedding its Explore action", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: {
       kind: "member",
@@ -950,6 +1042,58 @@ test("Member Diff presents the exact Member relation evidence and no Explore act
   });
   assert.match(removed, /Member removed\./);
   assert.match(removed, /<h2>After<\/h2>\s*<p class="library-api-diff-absent">Not present on this side\./);
+});
+
+test("Member Diff exposes only its exact owner-issued Explore destination", () => {
+  const state = readyState(withMembers());
+  const options = {
+    subject: {
+      kind: "member" as const,
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+    subjectLabel: "Example.Widget.Run",
+    targetText: "1.0.0 → 2.0.0",
+  };
+  const context = libraryApiDiffMemberExploreContext(state, options);
+  if (state.status !== "ready") throw new Error("Expected ready state.");
+  assert.equal(context?.destination.kind, "member-diff");
+  assert.equal(context?.destination.target.member?.fingerprint, "digest-before");
+  assert.equal(context?.destination.current.member?.fingerprint, "digest-run");
+  assert.equal(context?.packageModel, state.input.packageModel);
+  assert.equal(context?.result, state.result);
+
+  assert.equal(
+    libraryApiDiffMemberExploreContext(
+      { status: "loading", input: state.input },
+      options,
+    ),
+    null,
+  );
+  assert.equal(libraryApiDiffMemberExploreContext(state, {
+    ...options,
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+  }), null);
+  const withoutDestination = withMembers();
+  if (withoutDestination.value === null)
+    throw new Error("Expected success.");
+  const member = withoutDestination.value.types[0]?.members[0];
+  if (member === undefined) throw new Error("Expected changed Member.");
+  const members = [
+    { ...member, explore: null },
+    ...withoutDestination.value.types[0]!.members.slice(1),
+  ];
+  const value = {
+    ...withoutDestination.value,
+    types: [
+      { ...withoutDestination.value.types[0]!, members },
+      ...withoutDestination.value.types.slice(1),
+    ],
+  };
+  assert.equal(libraryApiDiffMemberExploreContext(
+    readyState({ ...withoutDestination, value }),
+    options,
+  ), null);
 
   const unchanged = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: {
@@ -1042,6 +1186,7 @@ function withMovedMember(): BrowserLibraryApiDiffResult {
     after: moved("after-widget", "Example.Widget"),
     changes: [],
     match: { tier: "signature", confidence: 80 },
+    explore: null,
   });
   return {
     ...result,

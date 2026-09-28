@@ -47,7 +47,6 @@ public sealed record SectionQueryCatalog(
             "package query" => [],
             "find" => [],
             "depends" => [],
-            "graph libraries" => [],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
@@ -143,26 +142,6 @@ public sealed record SectionQueryCatalog(
                     IntegrationQueryOptions.QueryKeys));
             }
         }
-        if (command == "graph libraries")
-        {
-            foreach (string section in new[]
-            {
-                LibraryCallUseCommand.ConsumerUseSitesSection,
-                LibraryCallUseCommand.ProviderApiTypesSection,
-                LibraryCallUseCommand.DirectUseClustersSection,
-                LibraryCallUseCommand.CallSitesSection,
-                LibraryCallUseCommand.PublicRootPathsSection,
-            })
-            {
-                queries.Add(new(
-                    section,
-                    section == LibraryCallUseCommand.PublicRootPathsSection
-                        ? "An exact Cluster=... equality predicate selects one direct-use component before public roots and local paths are inspected. Name this section explicitly; wildcard selection does not opt into it."
-                        : "An exact Cluster=... equality predicate scopes the pair occurrence population "
-                            + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
-                    LibraryCallUseQueryOptions.QueryKeys(section)));
-            }
-        }
 
         ImmutableArray<string> sections = command switch
         {
@@ -179,14 +158,6 @@ public sealed record SectionQueryCatalog(
             [
                 DependsTypeSections.DependencyGraph,
                 DependsAssetSections.DependencyHierarchy,
-            ],
-            "graph libraries" =>
-            [
-                LibraryCallUseCommand.ConsumerUseSitesSection,
-                LibraryCallUseCommand.ProviderApiTypesSection,
-                LibraryCallUseCommand.DirectUseClustersSection,
-                LibraryCallUseCommand.CallSitesSection,
-                LibraryCallUseCommand.PublicRootPathsSection,
             ],
             _ => [.. projections.SelectMany(projection => projection.Schema.SectionNames)
                 .Concat(queries.Select(query => query.Section))

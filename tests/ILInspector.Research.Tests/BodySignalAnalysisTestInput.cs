@@ -18,6 +18,7 @@ internal static class BodySignalAnalysisTestInput
             index.Diagnostics);
         return new(
             receipt,
+            index.CallGraphAnalysis,
             index.Methods,
             index.GeneratedFrameworkTypes,
             index.GetMethodSignals(),

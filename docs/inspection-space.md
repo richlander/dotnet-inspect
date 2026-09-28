@@ -95,10 +95,11 @@ will be composed.
 assembly workspace query. It streams bounded typed match, failure, and
 completion events from source-owned search metadata and exact manifests.
 Search supplies owners and candidate provenance; the manifest supplies authors
-and declared dependency groups. A network-free `PackageManifestFactsQuery`
-validates each bounded manifest and projects one immutable fact model that both
-package-profile and package-content dependency queries consume. In addition to
-the 1 MiB transport and 512 KiB decoded-document bounds, that projection admits
+and declared dependency groups. Package-owned
+`PackageManifestFactsProjection` validates each bounded manifest and projects
+one immutable fact model; the network-free `PackageManifestFactsQuery` facade
+and direct package consumers share it. In addition to the 1 MiB transport and
+512 KiB decoded-document bounds, that projection admits
 at most 32,768 UTF-16 code units per scalar value, 128 package types, 1,024
 dependency groups, and 4,096 dependencies; a violation is an invalid-manifest
 failure rather than a partial fact set. Root and metadata elements accept the
@@ -1002,97 +1003,43 @@ roster retention, relationship containment, visible invalid selections, and
 participant isolation. `ImplementationProfileFamilyInspectionOperationTests`
 gate completed envelope Share, diagnostic, and failure behavior.
 
-`AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
-two explicitly selected assembly participants while both immutable snapshots
-remain borrowed. Its input names the seed and candidate groups and
-participants, selects the seed by a MethodDef token or an exact structured type
-plus `MemberAnchor`, and declares either one exact candidate type or an explicit
-whole-assembly population. A-vs-A uses one reader only when both selections
-refer to the same participant in the same group. Every other request uses
-independent readers, including equal-MVID content acquired under separate
-registrations, so reader-local identity is never inferred from module identity.
+`AssemblyContextTypeImplementationHeatQuery` is the Type-scoped sibling used for
+Inspect Web member-list heat. For one metadata Type definition identity it
+selects every eligible overload family (at least two public overloads, all of
+member kind `method`), adds every same-name method the Type declares regardless
+of accessibility, and measures all of them in one Analysis execution. It issues
+a compact record per family: each method's size (logical body plus attributed
+generated bodies), trivial and complete flags, same-name call relationships, and
+scoped coverage, plus the execution's receipt. Raw metrics stay with the family
+query. `TypeImplementationHeatInspectionOperation` hands it to hosts as an
+`InspectionEnvelope` with a non-projectable Share result; the normative owner is
+`docs/design/inspect-web-implementation-profiles.md`, and
+`AssemblyContextTypeImplementationHeatQueryTests` gate it on fixture,
+System.Text.Json, and Dapper assets.
 
-The query resolves only exact metadata identities, enumerates the full selected
-population without query-side truncation, and dispatches one mutually exclusive
-same-image or cross-image Analysis path. The exactly-once Analysis call count is
-unverified beyond direct inspection. The returned
-`StructuralCloneRetrievalResult` is not projected or reconstructed: ranks,
-score components, method outcomes, blockers, receipts, MVID-scoped method
-addresses, and the four product dispositions remain owned by Analysis.
-Acquisition rejection, missing or ambiguous exact targets, and pre-retrieval
-metadata failure are separate typed query outcomes. The query is `Unbounded`;
-whole-assembly scope is explicit, and Analysis method, result, and
-body-production limits remain the visible work controls. Exact selection still
-uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
-and custom-attribute work ceilings, so malformed metadata fails visibly before
-retrieval rather than multiplying per-row work. Each candidate type-name
-attempt consumes structural-name work, and decode failures also count against
-the decode-failure ceiling. Method projection is validated once per image
-rather than at each projection site: the query admits a reader only after
-confirming that no TypeDef method range reports a negative length and that
-the ranges cover the MethodDef table exactly once, and seed and population
-resolution accept only an image carrying that confirmation. Those two
-requirements bound the underlying `MethodList` column jointly, which is why
-neither is redundant: a negative length is what makes the starts
-non-decreasing, and coverage is what forces the first non-null start to row 1
-and holds every later start within one past the projected table. A null start
-sits outside that chain: ECMA-335 II.22.37 permits it and the reader reports
-its range as length zero rather than as the difference to the next start.
-A repeated or out-of-range row, a `MethodPtr` table
-that aliases one MethodDef row into two types, a descending range, and a
-`MethodList` start past the table -- which SRM reports as an empty or
-negative-length range rather than an error -- are all typed
-metadata failures in the participant role that read the image, instead of
-reaching Analysis as untyped argument errors, being reported as a member
-ambiguity, or returning a success-shaped empty population. The check is a
-single pass over the image's own tables and reads no raw table bytes; it is not
-a claim that every malformed image is diagnosed before Analysis. It introduces
-no network, source, Research, Finding, Decompiler, or presentation capability.
-`AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
-product-result preservation, type and whole-assembly population behavior,
-exact-member, extension-member, and token selection, ambiguity, limit
-separation, unsupported bodies, seed-before-candidate failure precedence,
-malformed acquisition and metadata-neighbor isolation, and same-MVID
-independent-reader handling. Its virtual-token, repeated-long-leaf,
-repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
-repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
-pre-retrieval work ceilings and visible metadata-failure boundary. Its
-type-name decode-failure case gates the decode-failure ceiling, paired with a
-below-ceiling case that proves isolated malformed neighbors remain tolerable.
-Fifteen cases gate whole-image method ownership across the type-scoped,
-whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
-covering duplicate, out-of-range, cross-type aliased, and silently empty
-projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
-metadata declaring no TypeDef rows. The descending cases pin the check on both
-metadata shapes -- a `MethodPtr`-free image and a reordered `MethodPtr`
-permutation -- and each is rejected at the module row, before any row is
-projected. A further case pushes every start past the end of the projected
-table so the earlier ranges report length zero and enumerate nothing, isolating
-the one path that reaches the end of the derived bound with a negative final
-range. Every fixture in this group pins its per-row range lengths, so the shape
-it claims to exercise is gated rather than asserted in prose. A further case starts
-the column past MethodDef row 1 while every range keeps a non-negative length,
-so it is rejected by coverage alone and pins the half of the ordering proof the
-range-length check cannot supply. A further case carries a null start *after* a
-populated run, which ECMA-335 II.22.37 cannot express because each run is
-delimited by the following start, so the negative length lands on the preceding
-row. Those fifteen are all rejections; a
-sixteenth case gates that a null
-`MethodList`, which ECMA-335 permits and the runtime reader projects as an
-empty run, is accepted rather than reported as malformed. A seventeenth gates
-uniqueness of the exact seed member, which a rejected sibling leaves unproven,
-and an eighteenth gates that matching a candidate leaf charges the
-declaring-chain traversal it performs rather than only the names it compares;
-that case pins its fixture's declaring depth, because a shallow fixture would
-exhaust the same budget while leaving the traversal unexercised.
-
-`WorkspaceStructuralCloneSearchQuery` composes that single-pair retrieval into
-one Library, Type, or Member search over an exact caller-supplied participant
-snapshot. Its request binds the seed subject, one candidate breadth (`Self`,
-`SelfAndRegisteredEcosystems`, or `Everything`), one candidate discovery value
-(`SimilarNames` or `All`), and its result and work bounds; the default is
-`Everything` plus `SimilarNames`. The normative contract is
+`WorkspaceStructuralCloneSearchQuery` is the single structural-clone retrieval
+query over retained inspection-space content. It accepts Library, Type, Member,
+or exact MethodDef seeds; an every-method or containing-library exact-Type
+candidate population; one candidate breadth (`Self`,
+`SelfAndRegisteredEcosystems`, or `Everything`); one candidate discovery value
+(`SimilarNames` or `All`); and independent result and work bounds. The default
+is every method plus `Everything` plus `SimilarNames`. An exact-Type candidate
+population requires `Self`, so a point scope cannot be silently reinterpreted
+in other participants. The normative contract is
 [Structural clone search scope](design/structural-clone-search-scope.md).
+
+The query validates each image once through
+`StructuralCloneValidatedImage`, resolves exact metadata identities through the
+shared bounded metadata-selection helpers, and dispatches the common
+same-image or cross-image Analysis retrieval path. Summary consumers retain
+global rows and coverage only. A detailed consumer may opt into the unmodified
+per-call `StructuralCloneRetrievalResult`, preserving method outcomes,
+blockers, receipts, and MVID-scoped addresses without rerunning retrieval or
+making every consumer retain that evidence. `StructuralMatchDiscoveryInspection`
+uses that detailed mode with one participant, one exact MethodDef seed,
+`Discovery=All`, and one retrieval chunk; this preserves root `match --similar`
+method evidence while combining its work counts with the query's globally
+bounded rank counts, and removes the former parallel assembly-context query.
 
 Registration-derived participant realization is not yet adopted by this query,
 so breadth membership is supplied rather than inferred: each snapshot entry carries its own
@@ -1291,7 +1238,8 @@ fixes inputs and names **existing product section(s)**
 format-aware: Markdown keeps Call Graph + Callers; table/tsv/jsonl keep Callers
 when the demo has caller scope so the re-add stays one section, otherwise Call
 Graph so package-local entry points still emit rows; mermaid keeps Call Graph;
-document JSON fails closed until graph projection lands). The CLI host runs
+document JSON keeps Call Graph alone and emits its complete typed graph
+document). The CLI host runs
 them through the normal type/member section pipelines (`DemoScenarioRunner` →
 `TypeCommand` / `MemberCommand`) and returns those sections in ordinary
 formats. Demos must not call past sections into ad hoc inspection APIs; a
@@ -1301,8 +1249,8 @@ generated TypeScript binding of that engine surface) must be encodings of the
 same preset—not parallel demo systems. Ecosystem grouping does not select or
 activate the pack's package set, prefixes, or scanner, and is never inferred
 from package coordinates or display text. Residual: minted view-facet ids,
-`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
-structured-JSON projection (see workspace-definitions). Detail:
+`WorkspaceContextLoader` as the shared group-run owner and browser restoration
+of Call Graph Share (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
@@ -1439,10 +1387,14 @@ whose projection was omitted by a limit. Both sides are attempted independently.
 The same caller-declared budget applies separately to each endpoint, not to
 their combined population.
 
-The query compares only two fully projected surfaces. Rejection, failure,
-projection truncation, an API-row inspection failure, or a degraded member
-signature on either side prevents comparison, while retaining both endpoint
-outcomes and any available facts.
+The query compares only two fully projected surfaces. It uses metadata-only
+projection because compatibility compares exact type- and method-parameter
+constraint names alongside member signature identities; it does not need the
+class-or-interface classification of an external generic-constraint
+definition. Rejection, failure, projection truncation, an API-row inspection
+failure produced by that projection, or a degraded member signature on either
+side prevents comparison, while retaining both endpoint outcomes and any
+available facts.
 In particular, a participant can be available while some API rows failed:
 `AssemblyContextApiSurfaceResult.IsComplete` alone does not establish that its
 surface is eligible for this comparison. Guarded signature substitution is
@@ -1467,8 +1419,11 @@ query and its CLI consumer remain unchanged.
 `AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
 selected-participant projection, complete and empty comparisons, independent
 budgets, unavailable neighbors, row-level failure admission, and degraded
-signature admission. `AssemblyContextApiSurfaceQueryTests` owns
-extraction-bound enforcement;
+signature admission. `LibraryApiDiffInspectionTests` gates that forwarded
+generic constraints do not trigger external dependency resolution or consume
+the inspection-failure budget, and that method-constraint replacements remain
+visible when their defining dependency is absent.
+`AssemblyContextApiSurfaceQueryTests` owns extraction-bound enforcement;
 `ApiComparisonQueryTests` owns the Metadata-comparison seam.
 
 [#6119](https://github.com/richlander/dotnet-inspect/issues/6119) is the

@@ -7,6 +7,7 @@ internal sealed record TypeScriptFunctionSignature(
     string PublicReturnType,
     bool IsAsync,
     bool ParsesJson,
+    bool ReturnsJsonText,
     bool JsonEnvelopeMayBeNull);
 
 internal readonly record struct TypeScriptParameterSignature(

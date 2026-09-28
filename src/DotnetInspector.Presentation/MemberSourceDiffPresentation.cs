@@ -98,7 +98,8 @@ public sealed record MemberSourceDiffPresentation(
     string AfterText,
     AnalysisDiff<string> Analysis,
     MemberSourceDiffStatistics Statistics,
-    MappedTextDiff Diff);
+    MappedTextDiff Diff,
+    TextDiffCharacterization? Characterization = null);
 
 /// <summary>The closed outcome of presenting one member source-comparison query result.</summary>
 public abstract record MemberSourceDiffPresentationResult(
@@ -179,9 +180,12 @@ public static class MemberSourceDiffPresentationAdapter
             TextFindings.CreateAnalysisDiff(beforeText, afterText!, Subject);
         MemberSourceDiffStatistics statistics =
             MemberSourceDiffStatistics.Create(analysis);
+        TextDiffCharacterization characterization =
+            TextDiffCharacterization.Create(analysis, beforeText, afterText!);
         MappedTextDiff diff =
-            TextAnalysisDiffPresentation.CreateMappedTextDiff(
+            TextAnalysisDiffPresentation.CreateLabeledMappedTextDiff(
                 analysis,
+                characterization,
                 BeforeLabel,
                 TextDiffLineTerminator.Absent,
                 AfterLabel,
@@ -196,7 +200,8 @@ public static class MemberSourceDiffPresentationAdapter
                 afterText!,
                 analysis,
                 statistics,
-                diff));
+                diff,
+                characterization));
     }
 
     static BoundaryResult FindBoundary(string text, string typeName)

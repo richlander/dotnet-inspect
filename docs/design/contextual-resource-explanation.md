@@ -3,8 +3,8 @@
 ## Status
 
 This document is the normative design for **Contextual Resource Explanation**,
-the composition behind command-local `--explain` and the reusable
-`--references` projection proposed by
+the composition behind top-level `explain` dispatch, command-local `--explain`,
+and the reusable `--references` projection proposed by
 [#8148](https://github.com/richlander/dotnet-inspect/issues/8148).
 
 The composition is designed but not implemented. Product-resource explanation
@@ -26,13 +26,18 @@ inventing a second contextual-explanation path.
 > operation without reconstructing identity from command text, rendered
 > output, or a serialized reference. Separately, project the reusable
 > inspection references already issued for selected semantic rows in that
-> selected order. Direct explanation and reference projection preserve the
-> command owner's exact resolution and visible failure outcomes.
+> selected order. For the top-level `explain` facade, distinguish an exact
+> product-resource path, reusable inspection reference, or capability-search
+> text by syntax before dispatch. Direct explanation, facade dispatch, and
+> reference projection preserve each selected owner's Content and visible
+> failure outcomes without fallback.
 
 This owner defines:
 
 - the distinction between direct contextual explanation and reusable-reference
   projection;
+- syntax-selected top-level dispatch among exact resource paths, reusable
+  references, and capability-search text;
 - the command-level and exact-subject meanings of `--explain`;
 - the row-preserving meaning of `--references`;
 - the typed handoff sequence among command resolution, adjacent explanation
@@ -41,8 +46,8 @@ This owner defines:
 - the staged CLI and Browser/Wasm adoption path.
 
 It does not define product-resource paths, subject or occurrence identity,
-reference syntax, acquisition policy, row-selection semantics, explanation
-Content, or presentation formats.
+reference syntax, capability-search matching or Content, acquisition policy,
+row-selection semantics, explanation Content, or presentation formats.
 
 ## Product role
 
@@ -84,6 +89,19 @@ The direct path is primary. A user does not need to request, serialize, and
 reparse a public reference merely to explain the subject the same invocation
 has already resolved.
 
+Capability Catalog Search adds the orientation path for a user or agent that
+does not yet know a resource path:
+
+```text
+explain unfamiliar text
+  -> ranked resource candidates
+      -> explain selected exact path
+```
+
+The shared facade is convenient; the operations remain distinct. Search never
+turns its highest-ranked candidate into an explanation without an explicit
+exact-path handoff.
+
 ## Basis and deliberate difference
 
 `kubectl` provides nearby but incomplete precedents:
@@ -117,6 +135,7 @@ row predicate, presentation format, destination, or decoration modifier.
 | --- | --- |
 | Command owner | Parser admission, acquisition authorization, exact command and subject resolution, semantic rows, diagnostics, and the mapping to owner-issued explanation inputs |
 | [Resource Explanation](resource-explanation.md) | Product-resource paths, installed descriptor adaptation, bounded explanation Document, and completed explanation envelope |
+| [Capability Catalog Search](capability-catalog-search.md) | Search-text validation, canonical term projection, similarity ranking, candidate Content, and complete-empty meaning |
 | Reusable Inspection Reference ([#7916](https://github.com/richlander/dotnet-inspect/issues/7916)) | Reference identity, qualification, shell-safe spelling, parsing, occurrence semantics, and the affordance descriptor used for subject explanation |
 | [Inspection Subject Navigation](inspection-subject-navigation.md) | Workspace-rooted structural subject identity and routes where a Workspace-backed command consumes those values |
 | [Output Shapes](output-shapes.md) | Semantic row selection, scalar/list projection boundaries, structured projection, presentation, and output destination |
@@ -191,20 +210,47 @@ affordance vocabulary or add subject facts to the installed-capability
 
 ### Explain facade dispatch
 
-The top-level `explain` facade accepts two distinct typed operand families:
+The top-level `explain` facade accepts three distinct typed operand families:
 
 - a `ResourcePath`, dispatched to Resource Explanation; or
 - an owner-issued reusable inspection reference, dispatched to the
-  subject-affordance explanation owned under #7916.
+  subject-affordance explanation owned under #7916; or
+- any other non-empty bounded text, dispatched to
+  [Capability Catalog Search](capability-catalog-search.md).
 
-The reference owner must provide an unambiguous parser outcome that cannot be
-mistaken for a registered product-resource path. This composition does not
-choose the distinguishing syntax.
+Resource Explanation supplies the exact registered path and alias set. The
+reference owner supplies unambiguous reference-shape recognition. The facade
+combines those facts with canonical multi-segment `ResourcePath` recognition
+before classifying a remaining operand as search text. This composition does
+not choose the registered paths, aliases, or reference grammar.
 
-The two operations may return different typed Content contracts through
-`InspectionEnvelope<TContent>`. The facade does not force installed capability
-and resolved-subject explanation into one universal Document merely because
-they share a command name and presentation style.
+Dispatch is syntax-first and never failure-based:
+
+- an operand equal to a registered path or alias selects Resource Explanation,
+  including a registered single-segment root;
+- otherwise a reference-shaped operand selects reusable-reference
+  explanation, including a slash-bearing reference syntax;
+- otherwise an operand that `ResourcePath.TryCreate` accepts and that contains
+  `/` selects Resource Explanation exact resolution; and
+- every other non-empty bounded operand becomes capability-search text.
+
+`ResourcePath` grammar by itself is not the facade discriminator because it
+admits any canonical single segment. An unregistered `literal` therefore
+selects search rather than unknown-path resolution. A noncanonical
+slash-bearing value such as `https://` also selects search. An unknown
+canonical multi-segment path remains an exact Resource Explanation failure.
+An invalid shaped reference remains the reference owner's exact failure.
+Neither exact failure falls through to similarity search.
+
+The three operations may return different typed Content contracts through
+`InspectionEnvelope<TContent>`. The facade does not force capability search,
+installed-resource explanation, and resolved-subject explanation into one
+universal Document merely because they share a command name and presentation
+style.
+
+Capability search returns ranked candidates and never silently invokes exact
+explanation for its highest-ranked result. The selected or copied canonical
+path is the explicit handoff back through the facade's `ResourcePath` branch.
 
 Contextual subject-level `--explain` invokes the same subject-affordance
 operation with its already resolved typed input. It bypasses public reference
@@ -217,6 +263,7 @@ Operand-specific options are admitted before acquisition or dispatch:
 | --- | --- | --- |
 | `ResourcePath` | Resource Explanation traversal options, including `--depth`, plus shared presentation and destination options | Subject-reference operations and options |
 | Reusable inspection reference | Options declared by the reference owner's explanation affordance, plus shared presentation and destination options | Resource Explanation traversal options, including `--depth` |
+| Capability-search text | Search result limit plus shared presentation and destination options | Resource Explanation traversal, subject-reference operations, acquisition, section/query, and inspection options |
 
 An invalid operand, an option outside the selected operand's row, or an
 ambiguous operand fails before either explanation owner is invoked. The facade
@@ -378,6 +425,8 @@ Every unavailable boundary remains visible:
 | Selected row set has no reference projection | Reject `--references` before stdout |
 | One selected row cannot produce its required reference | Fail the complete projection with no partial list |
 | Reusable reference cannot be parsed or reopened | `explain` returns the reference owner's exact invalid, unavailable, or failed outcome |
+| Capability-search text has no matching resource | Return the complete empty `CapabilityCatalogSearchDocument` |
+| Capability search fails or is incomplete | Return its exact typed failure; do not invoke either exact explanation operation |
 
 Diagnostics may include inert display text and actionable next gestures. They
 never mint a fallback identity.
@@ -435,7 +484,7 @@ The pathological neighboring cases are:
 | Exact-subject explanation preserves the command owner's resolved subject, parses and resolves once, acquires each required source at most once, and does not execute ordinary section producers. | First-adopter integration test with counting command-preprocessing, resolution, and acquisition collaborators, fail-fast ordinary producers, and a real `System.Text.Json` command. |
 | Direct explanation does not serialize and parse a reusable reference. | Host-neutral composition test whose reference serializer and parser fail if called. |
 | Zero, multiple, unavailable, and failed subject outcomes remain distinct and visible. | Cardinality and failure matrix over the first adopter. |
-| The top-level `explain` facade distinguishes product-resource paths from reusable references, admits only operand-specific options, invokes the exact typed owner, and preserves each owner's Content and failures. | Facade-level CLI gate covering one registered `ResourcePath`, one reusable reference, a close grammar-boundary negative case, the complete operand-specific option matrix including `--depth`, rejection before acquisition or dispatch, exact typed dispatcher and Content selection, and invalid, unavailable, and reopening-failure reference outcomes. |
+| The top-level `explain` facade distinguishes registered or canonical multi-segment product-resource paths, reusable references, and capability-search text before operation invocation, admits only operand-specific options, invokes the exact typed owner, and preserves each owner's Content and failures without fallback. | Facade-level CLI gate covering a registered single-segment root or alias, unregistered `literal`, misspelled and `https://` search text, a registered multi-segment `ResourcePath`, an unknown canonical multi-segment path, noncanonical slash-bearing text, slash-bearing reusable-reference syntax, invalid shaped references, close grammar-boundary negatives, the complete operand-specific option matrix including `--depth` and result limit, rejection before acquisition or dispatch, exact typed dispatcher and Content selection, complete-empty search, and invalid, unavailable, and reopening-failure exact outcomes. |
 | `--explain` and `--references` admit only their declared subject, selection, traversal, presentation, and destination combinations; conflicting content operations fail before acquisition. | First-adopter CLI option-matrix test covering every accepted family, mutual exclusion, representative competing section/row/payload/Count operations, and fail-fast acquisition for every rejected combination. |
 | `--references` observes the exact post-selection row sequence. | Row-selection integration tests covering predicate, order, head/tail, and absolute range selection. |
 | `--references` emits the exact owner-issued reference attached to each selected row without reconstructing identity or resolving or acquiring the subject again. | First-adopter projection test with independently retained references, misleading and colliding display fields, and fail-fast subject-resolution and acquisition collaborators; each output record must equal its row's retained reference. |
@@ -470,10 +519,14 @@ replacement, retry, or scheduling semantics.
 7. Add a Browser/Wasm consumer over the shared contextual-explanation input
    and completed explanation envelope.
 8. Update the shipped skill after production behavior exists so it teaches
-   direct `--explain` first and reusable-reference composition second.
+   capability search for unfamiliar text, exact-path explanation, direct
+   `--explain`, and reusable-reference composition.
 
 Steps 2 through 8 are separately owned implementation efforts. This document
 does not authorize one PR to change all participating owners.
+The separately tracked #8424 adoption adds Capability Catalog Search as a
+third top-level facade branch after its host-neutral operation exists; it does
+not reorder or block the command-local and reusable-reference steps above.
 
 ## Non-claims
 
@@ -484,6 +537,8 @@ This design does not:
 - add live-subject facts to `ResourceExplanationDocument`;
 - define reusable-reference identity, grammar, parsing, reopening, versioning,
   or occurrence semantics;
+- define capability-search term projection, similarity, ranking, result
+  bounds, Content, or completion;
 - define Inspection Subject Navigation identity or routes;
 - make a reusable reference equal to a Workspace occurrence, physical path,
   URL, digest, selector, acquisition coordinate, or portable scenario;

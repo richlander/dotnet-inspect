@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.CommandLine;
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Reflection.Metadata;
@@ -314,31 +315,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:79:095589655392]",
+                "ApiMember[schema:78:B24E7AB4A368]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:79:095589655392]",
+                "ApiMember[schema:78:B24E7AB4A368]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:94:0F776B0EF07E]",
+                "ApiMemberOverload[schema:92:1B249EE7CC60]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:72:24E2F5E0B8D2]",
+                "ApiMemberDetail[schema:70:817DAEE384CD]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:190:333C5803E1B0]",
+                "ApiType[schema:187:366C2AA0A209]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];
@@ -752,9 +753,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Equal(0, tree.ExitCode);
         Assert.Empty(tree.Error);
 
-        var observations = new ConcurrentQueue<BreadcrumbObservation>();
-        using var subscription = BreadcrumbTelemetry.Subscribe(
-            new BreadcrumbObserver(observations));
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         var root = CommandLineBuilder.CreateRootCommand();
         var parsed = root.Parse(routedArgs);
         Assert.Empty(parsed.Errors);
@@ -770,8 +769,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Empty(routed.Error);
 
         Assert.DoesNotContain(
-            observations,
-            observation => observation.Stage == "router-rewrite");
+            decisions.Decisions,
+            decision => decision.Stage == "router-rewrite");
 
         return new RouteObservation(
             "hidden-router",
@@ -1105,20 +1104,4 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         string Full,
         string Summary,
         string Focused);
-
-    private sealed class BreadcrumbObserver(
-        ConcurrentQueue<BreadcrumbObservation> observations)
-        : IObserver<BreadcrumbObservation>
-    {
-        public void OnCompleted()
-        {
-        }
-
-        public void OnError(Exception error)
-        {
-        }
-
-        public void OnNext(BreadcrumbObservation value)
-            => observations.Enqueue(value);
-    }
 }

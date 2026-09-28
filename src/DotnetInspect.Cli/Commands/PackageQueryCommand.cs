@@ -188,14 +188,14 @@ internal static class PackageQueryCommand
     {
         PackageQueryPlan plan = options.Plan;
         InspectionEnvelope<PackageQueryDocument> envelope =
-            await PackageQueryInspection.ExecuteAsync(
-                source,
-                plan,
-                contentProvider,
-                dependencyTraversalServices,
-                assemblySemanticExecution,
-                nonterminalSink: null,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+            await PackageQueryCommandCapability.Binding.ExecuteAsync(
+                new(
+                    source,
+                    plan,
+                    contentProvider,
+                    dependencyTraversalServices,
+                    assemblySemanticExecution),
+                cancellationToken).ConfigureAwait(false);
         PackageQueryDocument document = envelope.Content;
         PackageQuerySummary summary = document.Summary;
         if (options.EnvelopeOutput || options.IsContentJson)

@@ -194,6 +194,98 @@ public partial class ApiCommand
            && sections.Contains(SectionNames.Calls)
            && HasOnlyExplicitCallsSelectors(options);
 
+    private static bool IsCallGraphTransport(MemberOptions options) =>
+        RequestsCompleteCallGraphTransport(options)
+        && HasExactCallGraphDocumentSelection(options);
+
+    internal static bool HasExactCallGraphDocumentSelection(
+        MemberOptions options) =>
+        (options.EnvelopeOutput
+            || options.JsonOutput && !options.Count)
+        && options.IncludeSections is { Count: 1 } sections
+        && sections.Contains(SectionNames.CallGraph)
+        && HasOnlyExplicitCallGraphSelectors(options);
+
+    internal static bool ValidateCallGraphTransport(MemberOptions options)
+    {
+        bool hasExplicitCallGraph = HasExplicitCallGraphSelector(options);
+        if (!options.EnvelopeOutput
+            && !(options.JsonOutput
+                && !options.Count
+                && !IsProjectionRequested(options)
+                && !IsColumnProjectionRequested(options)
+                && hasExplicitCallGraph))
+        {
+            return true;
+        }
+
+        if (options.IncludeSections is not { Count: 1 } sections
+            || !sections.Contains(SectionNames.CallGraph)
+            || !HasOnlyExplicitCallGraphSelectors(options))
+        {
+            CommandError.Write(
+                options.EnvelopeOutput
+                    ? "--envelope on member requires exactly -S \"Call Graph\"."
+                    : "Call Graph --json requires exactly -S \"Call Graph\".");
+            return false;
+        }
+
+        if (options.Count
+            || options.EnvelopeOutput
+                && (options.JsonOutput
+                    || options.FormatFlagExplicitlySet)
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.Tree
+            || options.MermaidOutput
+            || options.EmbeddedMermaid
+            || options.PlainText
+            || options.NoHeader
+            || IsProjectionRequested(options)
+            || options.PrintRow is not null
+            || options.JsonArray
+            || IsColumnProjectionRequested(options)
+            || options.Limit is not null
+            || IsMemberLineWindowRequested(options)
+            || options.Rows is not null)
+        {
+            CommandError.Write(
+                "Complete Call Graph JSON does not support row, line, field, column, count, or presentation projections.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool RequestsCompleteCallGraphTransport(
+        MemberOptions options) =>
+        options.EnvelopeOutput
+        || options.JsonOutput
+        && !options.Count
+        && !IsProjectionRequested(options)
+        && !IsColumnProjectionRequested(options);
+
+    private static bool HasOnlyExplicitCallGraphSelectors(
+        MemberOptions options) =>
+        options.MemberSectionsPreResolved
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.CallGraph)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitCallGraphSelector);
+
+    private static bool HasExplicitCallGraphSelector(
+        MemberOptions options) =>
+        options.MemberSectionsPreResolved
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.CallGraph) == true
+            : options.Select?.Any(IsExplicitCallGraphSelector) == true;
+
+    private static bool IsExplicitCallGraphSelector(string selector) =>
+        selector.Equals(
+            SectionNames.CallGraph,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool HasOnlyExplicitCallsSelectors(ApiOptions options)
         => options is MemberOptions { MemberSectionsPreResolved: true }
             ? options.ExactIncludeSections is { Count: 1 } exactSections

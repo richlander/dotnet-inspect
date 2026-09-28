@@ -1,9 +1,11 @@
 # Progressive disclosure model
 
-dotnet-inspect uses progressive disclosure to control noise, latency, and
-network use. The core rule is: start with cheap evidence in the command's base
+dotnet-inspect uses progressive disclosure to control noise, output bulk, and
+latency. The core rule is: start with cheap evidence in the command's base
 scope, then require an explicit gesture for broader domains or larger probe
-budgets.
+budgets. Network dependence is governed separately by the
+[network policy](#network-policy): `--offline` is the only no-network
+guarantee.
 
 The model combines five mechanisms:
 
@@ -31,6 +33,11 @@ they do not require `--all` for completeness. A follow-up API command may
 still need `--all` to resolve a non-public result identified by an aggregate
 analysis. These are separate gestures with separate contracts.
 
+An implementation operation that accepts a named Type or Member has both
+boundaries in one command. `--all` may widen the API lookup used to resolve a
+non-public root, but it does not widen the resulting body population, graph
+traversal, relationship set, or work bounds.
+
 See [API and implementation population scope](api-population-scope.md) for
 the normative distinction and the boundaries between API visibility,
 implementation completeness, and package-library selection.
@@ -44,7 +51,7 @@ unrelated domain categories.
 | --- | --- | --- |
 | Quiet | `-v:q` | Compact identity/context only |
 | Minimal | `-v:m` | One high-value base section |
-| Normal | `-v:n` | Fixed, terse, and informative network-free base sections |
+| Normal | `-v:n` | Fixed, terse, and informative base sections |
 | Detailed | `-v:d` | All applicable bounded-cost base sections |
 
 Minimal views should remain close to one screenful. Prefer compact fields,
@@ -57,8 +64,8 @@ Forwarders, P/Invoke Methods, and Union Types are measured or structurally
 category remain available; explicit selection promotes the effective verbosity
 needed to render the requested inventory. Inspection Failures remains `Terse`
 and visible at `-v:n`; hiding failed producers from the normal view would allow
-partial inspection to look clean. Bare `-S` remains the fixed overview:
-Library Info, Symbols, and Signals.
+partial inspection to look clean. Select `@Library` explicitly when that
+broader base composition is required.
 
 Library domain categories remain explicit. Their target-growing audit,
 dependency, integration, SourceLink file, performance, resource-lifecycle,
@@ -152,29 +159,31 @@ and `@SourceLink`; the resolved broad, overload, or exact-member catalog
 determines which authored members each door exposes.
 Diff uses `@Diff` as its base category for the composable `Changes`, `Analysis
 Diff`, and `Implementation Diff` views. Its focused, non-composable
-`Complexity Context`, `Structural Context`, and `Finding Transitions` views
-remain standalone exact-name sections.
+`Complexity Context` and `Structural Context` views remain standalone
+exact-name sections, as do the `Summary` and `Transitions` views of an
+`--analysis` result.
 Project uses `@Project` as its base category for package-authored `Skills` and
-`Package README file` documents from restored direct dependencies. Bare `-S`
-retains `Skills`; selecting `@Project` explicitly requests both inventories.
+`Package README file` documents from restored direct dependencies. Selecting
+`@Project` explicitly requests both inventories.
 Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
-select the vocabularies consumed by those query families; bare output and bare
-`-S` retain the `Vocabulary Sections` index.
+select the vocabularies consumed by those query families; bare output retains
+the `Vocabulary Sections` index.
 Ecosystem uses a route-specific `@Ecosystem` base category. The optional focus
 operand first chooses the catalog-wide, focused-pack, or focused-Platform
 section set; `@Ecosystem` then composes that complete set. Exact
 `Integrations` selects the product-configured bindings. Ecosystem has no
 single-member `@Integrations` category. Ordinary output retains `Ecosystems`
-or `Ecosystem Info`, while bare `-S` retains the complete route-specific
-composition.
+or `Ecosystem Info`.
 `graph libraries` uses `@Libraries` as its base category for the pair-wide
 `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, and `Provider API
-Types` projections. Ordinary output remains `Call Sites`, while bare `-S`
-retains the two summary projections. Coordinate-gated `Public Root Paths`
-remains exact-name-only and outside the category.
+Types` projections. Ordinary output is `Direct Use Clusters`.
+`graph cluster N` uses the same catalog for one focused component and ordinary
+output is `Call Sites`. Select `Consumer Use Sites;Provider API Types`
+explicitly for the two summary projections on either route. Coordinate-gated
+`Public Root Paths` remains exact-name-only and outside the category.
 Package Query uses `@Query` as its base category for `Packages` and
-`Query Summary`. Ordinary output remains adaptive, while bare `-S` retains
-the non-adaptive `Packages` preset.
+`Query Summary`. Ordinary output remains adaptive; exact `Packages` selection
+retains the non-adaptive package result.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
@@ -256,24 +265,12 @@ Selecting `Reference Hierarchy` authorizes resolved transitive traversal.
 `--tree` changes only its projection. Omitting `--depth` traverses the complete
 resolvable hierarchy.
 
-### Bare `-S`
+### Missing selector
 
-Bare `-S` renders the command's compact network-free overview:
-
-```text
-Base union AND Fixed AND NetworkFree AND Effective
-```
-
-This is a stable candidate rule, not a promise of an identical rendered set
-for every target. A missing README or unavailable symbol record legitimately
-removes that section.
-
-Member contexts use focused presets within `@Member`: member-kind summaries for
-a broad type view, the matching inventory for a member name, and `Signature`
-for one selected overload. See [Bare `-S` default view](info-view.md).
-Package Query's authored `Packages` preset and `graph libraries`' authored
-summary pair are deliberate command-specific bare-`-S` projections rather than
-automatic verbosity presets.
+`-S`, `-s`, `--select`, and `--section` require exactly one section, category,
+or wildcard argument. A selection option without that argument is a parse
+error; it does not imply a command-specific overview. Use `-D` to discover
+available selectors and name the intended scope explicitly.
 
 ## Discovery
 
@@ -348,8 +345,7 @@ section scope; there is no `-S Section -Q` spelling. `--schema` and
 data. Query execution flags such as `--where`, `--order-by`, and `--top` are
 rejected rather than run against the metadata or silently discarded.
 
-The initial commands are `library`, `type`, `member`, `package`, `find`, and
-`graph libraries`.
+The initial commands are `library`, `type`, `member`, `package`, and `find`.
 Discovery describes command capabilities, including contexts requiring a
 selected type or member, rather than target-dependent applicability. A target
 may accompany the request, but it is not acquired or inspected. Commandless
@@ -361,8 +357,8 @@ diagnostic. Bare `-Q` omits sections without query operators.
 Each companion has the deterministic name `Query: <canonical section name>`.
 Its typed descriptor retains the owning section independently of that display
 name. Companions live outside the ordinary evidence catalog: normal verbosity,
-bare `-S`, data wildcards, categories, and ordinary `-D --schema` do not acquire
-them. Explicit companion selection may use `Query:` wildcards but cannot mix
+data wildcards, categories, and ordinary `-D --schema` do not acquire them.
+Explicit companion selection may use `Query:` wildcards but cannot mix
 metadata and evidence sections in one request. Companion schema discovery
 (`-D "Query: Section"`) requires one resolved section.
 On `find`, `-S` accepts query companions only; ordinary data-section selection
@@ -404,6 +400,48 @@ turn discovery into target acquisition, or advertise deferred work.
 
 ## Network and source capabilities
 
+### Network policy
+
+dotnet-inspect accepts network dependence in exchange for better data. Ranged
+package reads make acquisition cheap enough that network access no longer
+decides what a default view shows.
+
+- `--offline` is the only way to guarantee no network dependence. It is
+  enforced once, where HTTP clients are created: `HttpClientFactory` adds an
+  `OfflineHandler` that rejects every request. A package, PDB, or source
+  acquisition therefore fails rather than reaching the network.
+- Otherwise, acquiring a missing PDB (`PdbAcquire`) is a default capability.
+  Any gesture whose producers want PDB facts may request it.
+- Verbosity presets are defined by size and value, as described in
+  [Verbosity](#verbosity), not by whether a section's producer uses the
+  network.
+- Fixed and `Verbose` (unbounded) sections keep their disclosure rules. A
+  bounded section can appear by default even when its producer uses the
+  network, and an unbounded inventory stays out of the default views even when
+  it needs no network.
+- Source and documentation content is a matter of disclosure, not network
+  dependence. Source is bulky, so it is not shown for every member by default.
+  A single subject may show its own descriptive text by default: a package
+  description, or the docs for a type in a single-type overview. A list of
+  subjects does not show per-row docs or source by default. This matches the
+  website treatment.
+- Plain `-D` stays network-free, so discovery still returns quickly for a
+  local target (see [Discovery](#discovery)).
+
+The rest of this section describes the capability machinery that carries this
+policy. Its rules about request provenance and host preflight still apply.
+Only the policy that decides which capabilities a gesture requests has
+changed.
+
+Adoption status: this policy leads the implementation. Today the CLI requests
+`PdbAcquire` only on exact section selection, `-v:d`, or explicit effective
+discovery. Package descriptions already show by default; a single type's docs
+and a single subject's source do not yet. Until adoption
+([#8729](https://github.com/richlander/dotnet-inspect/issues/8729)) lands,
+the current behavior is what ships.
+
+### Capability machinery
+
 Package acquisition and symbol/source acquisition are separate.
 
 In Browser and CLI Package Query, selecting a product-issued package-content
@@ -442,18 +480,19 @@ probe policy.
 For example, plain library discovery may request `LocalPdbRead` for its bounded
 SourceLink-door probe, while named/category type/member discovery requests none
 of the three. An explicit effective-discovery policy may request more.
-Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
-source-audit work where the selected section's bound query and disclosure
-policy permit it, but it does not request `SourceContent` merely because code
-promoted the effective verbosity. Query definitions alone declare producer
+Outside `--offline`, any gesture may request `PdbAcquire` where the selected
+section's bound query declares it. Detailed verbosity may also request bounded
+source-audit work where the disclosure policy permits it. Neither requests
+`SourceContent` merely because code promoted the effective verbosity. Query definitions alone declare producer
 requirements and conditional successors. Section descriptors bind typed
 queries and apply disclosure/request policy to gesture provenance; they
 neither restate producer requirements nor grant authority. Artifact
 admission/query leases revalidate the authorized closure at content access.
 
 - A package may be downloaded to resolve the requested target.
-- Default gestures must not automatically acquire PDBs or access source
-  content.
+- Outside `--offline`, default gestures may acquire PDBs. Whether they show
+  source content is decided by disclosure (see
+  [Network policy](#network-policy)).
 - Embedded, adjacent, or cached symbols avoid network cost, but may be used
   only when the host-preflight-authorized plan includes `LocalPdbRead` for that
   producer and coordinate. Availability is not authority.
@@ -559,7 +598,8 @@ dotnet-inspect library System.Text.Json -S @Performance
 
 ## Maintenance guidance
 
-- Preserve cheap, network-free defaults.
+- Preserve cheap, bounded defaults. Keep `--offline` the only no-network
+  guarantee, and keep plain `-D` network-free.
 - Put unrelated domains behind authored category doors.
 - Keep selection backpressure wired through producer demand.
 - Add structural and effective discovery coverage for new sections.

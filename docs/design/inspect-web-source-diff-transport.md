@@ -128,14 +128,22 @@ Unknown versions, case tags, enum values, or fields are rejected rather than
 silently dropped. The codec is a feature-owned projection of the existing
 types, not their default object-graph serialization.
 
-The managed facade emits one bounded JSON string because the generated
-JSExport facade cannot expose this nested closed union directly. The existing
-ordinary Worker envelope carries that bounded string; the operation-selected
-`BoundedPayloadDecoder` unwraps the ordinary tuple, enforces the 1 MiB UTF-8
-ceiling before parsing, and admits the exact typed shape. There is no unbounded
-intermediate parse or generic DTO trust. The JSON byte limit is an encoding
-budget, not a claim about the browser engine's internal structured-clone byte
-layout.
+The managed facade emits one bounded JSON string. Its authenticated
+`JsExportJsonOutput` declaration uses deferred parsing, so `ts-jsexport`
+projects the boundary as
+`JsonText<BrowserSourceComparisonResult>` without calling `JSON.parse`.
+The existing ordinary Worker envelope carries that complete branded string;
+the operation-selected `BoundedPayloadDecoder` unwraps the ordinary tuple,
+enforces the 1 MiB UTF-8 ceiling before parsing, and admits the exact typed
+shape. The page-facing operation publishes
+`BrowserSourceComparisonResult` only after that decoder succeeds. There is no
+unbounded intermediate parse or generic DTO trust. The JSON byte limit is an
+encoding budget, not a claim about the browser engine's internal
+structured-clone byte layout.
+
+This is complete-document deferred realization, not progressive realization.
+The feature defines no stream, chunk, page, cursor, ordering, backpressure, or
+partial-result contract.
 
 One Compared value contains:
 

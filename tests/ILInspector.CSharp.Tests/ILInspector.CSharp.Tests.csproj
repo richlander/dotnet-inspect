@@ -14,6 +14,14 @@
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
+                     Version="[11.0.0-rc.1.26425.128]" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Private.CoreLib.dll"
+          Link="PinnedArtifacts\System.Private.CoreLib.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

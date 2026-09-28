@@ -12,6 +12,30 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed class PackageArchiveValidatorTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    public void ZipCrc32_MatchesKnownVectorAcrossAppendSizes(
+        int appendSize)
+    {
+        ReadOnlySpan<byte> bytes = "123456789"u8;
+        var crc = new ZipCrc32();
+
+        for (int offset = 0; offset < bytes.Length; offset += appendSize)
+        {
+            crc.Append(
+                bytes.Slice(
+                    offset,
+                    Math.Min(
+                        appendSize,
+                        bytes.Length - offset)));
+        }
+
+        Assert.Equal(0xCBF43926u, crc.Value);
+    }
+
     [Fact]
     public void Validate_AcceptsAnOrdinaryPackage()
     {
@@ -276,6 +300,32 @@ public sealed class PackageArchiveValidatorTests
                 "lib/net10.0/Sample.dll",
                 maxExpandedBytes: 16,
                 out _));
+    }
+
+    [Fact]
+    public void CheckedPullRead_RejectsContentBeyondTheDeclaredLength()
+    {
+        byte[] archive = WithZeroedUncompressedSize(
+            ArchiveWithNames(
+                ("lib/net10.0/Sample.dll", [1, 2, 3, 4])));
+
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits { MaxExpandedBytes = 16 },
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            valid.Archive.TryOpenEntryPull(
+                "lib/net10.0/Sample.dll",
+                maxExpandedBytes: 16,
+                out Stream? stream));
+        Assert.NotNull(stream);
+        using (stream)
+        {
+            Assert.Throws<InvalidDataException>(
+                () => stream.CopyTo(Stream.Null));
+        }
     }
 
     /// <summary>

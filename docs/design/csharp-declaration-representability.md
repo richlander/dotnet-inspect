@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-Issue [#4852][issue-4852] defines this proposed
+Issue [#4852][issue-4852] defines this
 `ILInspector.CSharp` contract. This document is its sole normative owner.
 
 The exact claim is:
@@ -13,17 +13,17 @@ The exact claim is:
 > unavailability. It does not reopen metadata, reconstruct relationships from
 > display text or flags, or publish a partial declaration.
 
-This proposal does not describe current product support. The first
-implementation depends on the ordinary MethodDef declaration evidence in
-[#7886][issue-7886] and the containing TypeDef declaration evidence in
-[#8348][issue-8348]. MethodImpl relationship evidence from
-[#7887][issue-7887] and InterfaceImpl association evidence from
-[#7897][issue-7897] are already available supporting inputs.
+The first product slice implements the canonical static explicit-interface
+operator path. It consumes the ordinary MethodDef evidence from
+[#7886][issue-7886], containing TypeDef evidence from [#8348][issue-8348], the
+exact local declaration-owner address from [#8399][issue-8399], MethodImpl
+relationship evidence from [#7887][issue-7887], and InterfaceImpl association
+evidence from [#7897][issue-7897].
 
 ## Consumer and adoption
 
 The first production consumer is DecompilerHarness/ReturnToSender through the
-eighteen-step migration in [#6199][issue-6199]. CSharp produces the accepted
+nineteen-step migration in [#6199][issue-6199]. CSharp produces the accepted
 declaration request. ReturnToSender separately owns target population, artifact
 scope, compilation, comparison, fidelity, and reporting.
 
@@ -135,7 +135,8 @@ required by the declaration category:
 - the complete MethodImpl result for the selected body;
 - one explicitly paired InterfaceImpl request and result for each MethodImpl
   declaration owner whose interface association participates in the decision;
-- the containing type shape needed by the requested C# form;
+- the containing type shape needed by the requested C# form, including
+  authoritative ref-likeness;
 - complete signature, modifier-marker, declaration-category, accessibility,
   modifier, and special-name evidence required by that form; and
 - for property, indexer, or event forms, one complete MethodSemantics
@@ -150,6 +151,11 @@ context, lease, callback that can reopen evidence, or mutable budget. Metadata
 coordinates may remain as detached evidence and body bindings, but they do not
 become semantic cross-session identity.
 
+The public post is capture-only: callers provide one live declaration session
+to the CSharp producer, and only the resulting detached graph is publicly
+consumable. This prevents unrelated observations from being assembled into a
+success-shaped post with value-equal coordinates.
+
 ## Composition and join invariants
 
 The MethodImpl result is consumed as a whole. A body with multiple physical
@@ -163,15 +169,24 @@ For each MethodImpl relationship that requires interface association:
    InterfaceImpl request identity;
 2. the relationship's exact declaring `Type` is the InterfaceImpl request
    type;
-3. the request and its detached result remain paired with that exact
+3. a locally resolved declaration's exact owner TypeDef address is the request
+   for its paired TypeDef declaration post;
+4. that TypeDef post's structured definition identity equals the definition
+   carried by `DeclarationOwner`, and its category is `Interface`;
+5. the request and its detached result remain paired with that exact
    relationship occurrence; and
-4. the post contains neither an unpaired relationship nor an extra association
+6. the post contains neither an unpaired relationship nor an extra association
    result.
 
 Structured type identity is the semantic join currency. MVIDs and row handles
 remain coordinates within the observation that issued them. Qualified names,
 simple names, rendered C#, row ordering, and value-equal Boolean flag sets are
 not join currencies.
+
+Metadata also owns the safe inert-text rendering needed to cross the enforced
+assembly-dependency boundary. CSharp applies identifier admission and spelling
+policy to those rendered strings; the rendering does not classify declarations
+or become semantic identity.
 
 An exact InterfaceImpl `Absent` result proves only the absence defined by its
 owner. It does not prove that the declaration owner is a class, that an
@@ -211,6 +226,8 @@ preserves:
 - the selected declaration category;
 - the exact accepted identifier and type spellings or structured spelling
   plans;
+- the structured containing-type, explicit-interface-owner, and method
+  signature identities behind those spellings;
 - accessibility and declaration modifiers;
 - generic arity, parameters, return/value type, and required constraints;
 - explicit-interface owner identity and member category when applicable;
@@ -238,18 +255,40 @@ spelling, and later declaration forms.
 
 ## Initial implementation boundary
 
-The first implementation is a method-like proof slice after
-[#7886][issue-7886] and [#8348][issue-8348] land. It may cover:
+The first implementation is a method-like proof slice for one directly
+associated static explicit-interface `op_Addition` operator:
 
-- ordinary methods and constructors with complete posted MethodDef facts;
-- operators and conversions with authenticated candidate, signature, and
-  language-profile evidence; and
-- directly associated explicit-interface methods or operators whose complete
-  MethodImpl and InterfaceImpl evidence is posted.
+- the MethodImpl declaration owner is locally resolved and its separately
+  posted TypeDef is an interface with the same structured definition identity;
+- exactly one physical MethodImpl and one exact InterfaceImpl association
+  participate;
+- the declaration is an authenticated two-operand `op_Addition` with a
+  non-void return, a containing-type operand, plain complete parameter
+  evidence, and a C# 11-or-later profile;
+- a ref-like containing declaration requires a C# 13-or-later profile; and
+- the containing declaration is not a static class, and no spelled type
+  position contains `void` or a C# restricted runtime type; and
+- the accepted immutable request carries qualified type spellings, parameter
+  spellings, exact body binding, and enough information to render a complete
+  stub declaration without reopening metadata.
 
-It must return `Unavailable` rather than infer through an unresolved external
-declaration, missing interface reachability, incomplete containing shape, or
-another unposted prerequisite.
+Multiple complete physical MethodImpl or InterfaceImpl occurrences produce a
+stable language refusal because one C# declaration cannot preserve that
+multiplicity. Rejected, absent, unresolved, mismatched, or unposted evidence
+produces `Unavailable` atomically. Method-like categories and type shapes
+outside this first proof boundary also remain `Unavailable`; the implementation
+does not misstate an unimplemented but potentially valid C# form as a language
+impossibility. In particular, an otherwise valid explicit-interface operator
+whose operands do not include the implementing containing type is outside this
+slice rather than a language refusal. Distinct named definitions that collapse
+at any complete or enclosing qualified C# type spelling are also unavailable.
+An emitted qualifier that denotes a namespace in one spelling and a named type
+in another is likewise unavailable. These cases remain outside the boundary
+until a later scope-aware alias plan can preserve their roles and identities.
+
+Ordinary methods, constructors, conversions, checked operators, generic
+method-like declarations, and broader explicit-interface methods remain later
+expansions of this same contract.
 
 Properties, indexers, events, and accessor-level requests remain outside the
 first slice. They require the complete MethodSemantics work in
@@ -324,7 +363,8 @@ open Metadata prerequisites are implemented.
 
 The first implementation slice is complete only when [#7886][issue-7886] has
 posted the required ordinary MethodDef facts, [#8348][issue-8348] has posted
-the required containing TypeDef facts, the method-like producer and accepted
+the required containing TypeDef facts, [#8399][issue-8399] has posted the exact
+local declaration-owner TypeDef address, the method-like producer and accepted
 request land together, `CDR001` through `CDR007` pass in Release, and the RTS
 adoption remains deferred to [#7888][issue-7888] and [#7889][issue-7889].
 
@@ -341,6 +381,7 @@ adoption remains deferred to [#7888][issue-7888] and [#7889][issue-7889].
 [issue-7890]: https://github.com/richlander/dotnet-inspect/issues/7890
 [issue-7897]: https://github.com/richlander/dotnet-inspect/issues/7897
 [issue-8348]: https://github.com/richlander/dotnet-inspect/issues/8348
+[issue-8399]: https://github.com/richlander/dotnet-inspect/issues/8399
 [roslyn-error-type]: https://github.com/dotnet/roslyn/blob/main/src/Compilers/CSharp/Portable/Symbols/ErrorTypeSymbol.cs
 [roslyn-pe-method]: https://github.com/dotnet/roslyn/blob/main/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEMethodSymbol.cs
 [roslyn-pe-type]: https://github.com/dotnet/roslyn/blob/main/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PENamedTypeSymbol.cs

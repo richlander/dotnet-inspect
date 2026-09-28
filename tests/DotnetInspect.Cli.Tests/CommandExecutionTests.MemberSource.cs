@@ -1776,7 +1776,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_CountCountsCoordinateRows()
+    public async Task LibraryAddressFile_CountCountsCoordinateRows()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
@@ -1788,7 +1788,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath, "--count", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -1808,7 +1808,7 @@ public partial class CommandExecutionTests
     [InlineData(new[] { "--rows", "2..3" }, 2)]
     [InlineData(new[] { "--rows", "3.." }, 1)]
     [InlineData(new[] { "-n", "9" }, 3)]
-    public async Task LibraryCoordinateFile_CountCountsTheWindowItRenders(
+    public async Task LibraryAddressFile_CountCountsTheWindowItRenders(
         string[] window,
         int expected)
     {
@@ -1827,7 +1827,7 @@ public partial class CommandExecutionTests
         try
         {
             string[] head =
-                ["library", "coordinate", "--file", path, "--library", TestAssemblyPath];
+                ["library", "address", "--file", path, "--library", TestAssemblyPath];
             string[] tail = ["--tips", "q"];
 
             var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
@@ -1856,7 +1856,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_CountWindowsTheSameRowsTheTableKeeps()
+    public async Task LibraryAddressFile_CountWindowsTheSameRowsTheTableKeeps()
     {
         // A count can match the rendered row total while describing different rows.
         // Head and tail must therefore be shown to select genuinely different labels,
@@ -1871,11 +1871,11 @@ public partial class CommandExecutionTests
         try
         {
             var (headExit, headOut, _) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-n", "1", "--head", "--tips", "q");
             var (tailExit, tailOut, _) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-n", "1", "--tail", "--tips", "q");
 
@@ -1893,7 +1893,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_CountDoesNotRequireASectionFilter()
+    public async Task LibraryAddressFile_CountDoesNotRequireASectionFilter()
     {
         // --count here counts coordinate rows, not section rows, so demanding -S would force
         // the caller to name a section the batch does not render.
@@ -1902,7 +1902,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath, "--count", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -1916,7 +1916,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_RefusesExplicitSectionSelection()
+    public async Task LibraryAddressFile_RefusesExplicitSectionSelection()
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -1928,7 +1928,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-S", "References",
                 "--count",
@@ -1937,7 +1937,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                "-S/--select is not available with library coordinate --file",
+                "-S/--select is not available with library address --file",
                 error);
         }
         finally
@@ -1947,19 +1947,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCoordinateFile_ShapeProjectionIsRefusedWithItsActualReason()
+    public async Task LibraryAddressFile_ShapeProjectionIsRefusedWithItsActualReason()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path, "only 0x06000001+0x1\n", TestContext.Current.CancellationToken);
         try
         {
             var (exit, _, error) = await RunAppAsync(
-                "library", "coordinate", "--file", path,
+                "library", "address", "--file", path,
                 "--library", TestAssemblyPath, "--value", "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Contains(
-                "--value is not available with library coordinate --file",
+                "--value is not available with library address --file",
                 error);
             // Not the section-count complaint, which is not the actual problem here.
             Assert.DoesNotContain("requires -S/--select", error);
@@ -3158,15 +3158,16 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
-        Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Source", output);
-        Assert.Contains("## Annotated Source", output);
+        Assert.Contains("## PDB Source", output);
+        Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+        Assert.DoesNotContain("## IL", output);
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_SourceCategory_IncludesIlAndNoLoweredSource()
+    public async Task Member_SelectedOverload_SourceCategory_ExcludesDecompilerAnalysisViews()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -3174,58 +3175,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
-        Assert.Contains("## Decompiled Source", output);
         Assert.Contains("## Source", output);
-        Assert.Contains("## Annotated Source", output);
-        Assert.Contains("## IL", output);
+        Assert.Contains("## PDB Source", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.DoesNotContain("## Lowered Source", output);
-    }
-
-    [Fact]
-    public async Task Member_SelectDecompiledSource_RequestTrace_RecordsDecompileOutcome()
-    {
-        // The app converts the decompiler's telemetry-free trace shape into a
-        // request-trace breadcrumb: a decompile.method stage carrying the
-        // fidelity outcome and the symbol source the render actually consulted.
-        using var diagram = RequestMermaidDiagram.Start();
-
-        var options = new MemberOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            TypeName = "JsonSerializer",
-            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
-            OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source" }
-        };
-
-        var (exit, _, _) = await ConsoleCapture.RunAsync(
-            () => MemberCommand.ExecuteAsync(options));
-
-        Assert.Equal(0, exit);
-        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
-        Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
-    }
-
-    [Fact]
-    public async Task Member_SelectDecompiledSourceAndFacts_RequestTraceKeepsDecompileOutcome()
-    {
-        using var diagram = RequestMermaidDiagram.Start();
-
-        var options = new MemberOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            TypeName = "JsonSerializer",
-            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
-            OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source", "Facts" }
-        };
-
-        var (exit, _, _) = await ConsoleCapture.RunAsync(
-            () => MemberCommand.ExecuteAsync(options));
-
-        Assert.Equal(0, exit);
-        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
-        Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
     }
 
     [Fact]

@@ -318,14 +318,22 @@ public sealed class PackageHouseAcquisitionReceipt
         ConfiguredPackageAuthority authority,
         PackageSourceResultIdentity source,
         PackagePayloadOrigin origin,
-        PackageContentGenerationIdentity generation)
+        PackageContentGenerationIdentity generation,
+        PackageTransferReceipt transfer)
     {
         ArgumentNullException.ThrowIfNull(decision);
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(transfer);
         if (!Enum.IsDefined(origin))
             throw new ArgumentOutOfRangeException(nameof(origin));
+        if (!transfer.AgreesWith(origin))
+        {
+            throw new ArgumentException(
+                "The transfer receipt's path must agree with the payload origin.",
+                nameof(transfer));
+        }
         if (decision.Request.Operation.Profile
             == PackageHouseOperationProfile.Settle)
         {
@@ -360,6 +368,7 @@ public sealed class PackageHouseAcquisitionReceipt
         Source = source;
         Origin = origin;
         Generation = generation;
+        Transfer = transfer;
     }
 
     public PackageHouseDecisionReceipt Decision { get; }
@@ -375,6 +384,9 @@ public sealed class PackageHouseAcquisitionReceipt
     public PackagePayloadOrigin Origin { get; }
 
     public PackageContentGenerationIdentity Generation { get; }
+
+    /// <summary>What the acquisition transferred; its path agrees with <see cref="Origin"/>.</summary>
+    public PackageTransferReceipt Transfer { get; }
 }
 
 /// <summary>
@@ -494,6 +506,22 @@ public abstract class PackageHouseRealizationReceipt
 
     internal abstract PackageHouseRealizationCompletion Completion { get; }
 
+    /// <summary>
+    /// The implementation names of the request that select no implementation
+    /// asset; any leaves the realization unmatched
+    /// (docs/design/package-read-demand.md#named-implementation-and-aligned-blocks).
+    /// </summary>
+    public IReadOnlyList<string> UnmatchedImplementationNames { get; private protected init; } = [];
+
+    private protected static IReadOnlyList<string> Unmatched(
+        PackageHouseAcquisitionReceipt acquisition,
+        bool selected,
+        IEnumerable<string> implementationPaths) =>
+        selected
+        && acquisition.Decision.Request.ImplementationNames is { } names
+            ? names.Unmatched(implementationPaths)
+            : [];
+
     public abstract ImmutableArray<PackageHouseLibraryHandoff>
         LibraryHandoffs { get; }
 
@@ -511,8 +539,17 @@ public abstract class PackageHouseRealizationReceipt
             PackageHouseRequest request = acquisition.Decision.Request;
 
             Receipt = receipt;
+            UnmatchedImplementationNames = Unmatched(
+                acquisition,
+                receipt.Selection.Status
+                    is PackageCompileAssetSelectionStatus.Selected
+                    or PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+                receipt.Selection.ImplementationAssets.Select(
+                    static asset => asset.Path));
             Completion = receipt.Selection.Status switch
             {
+                _ when UnmatchedImplementationNames.Count > 0 =>
+                    PackageHouseRealizationCompletion.NoMatch,
                 PackageCompileAssetSelectionStatus.Selected
                     or PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
                     PackageHouseRealizationCompletion.Settled,
@@ -525,6 +562,7 @@ public abstract class PackageHouseRealizationReceipt
             LibraryHandoffs =
                 request.LibraryHandoff
                     == PackageHouseLibraryHandoffMode.SelectedLibraries
+                && Completion == PackageHouseRealizationCompletion.Settled
                 && receipt.Selection.IsSelected
                     ? [
                         .. receipt.Selection.Assets.Select(asset =>
@@ -562,8 +600,17 @@ public abstract class PackageHouseRealizationReceipt
                 receipt);
 
             Receipt = receipt;
+            UnmatchedImplementationNames = Unmatched(
+                acquisition,
+                receipt.Selection is PackageAssetSelection.Selected,
+                receipt.Selection is PackageAssetSelection.Selected universe
+                    ? universe.Universe.Assets.Select(
+                        static asset => asset.EntryPath)
+                    : []);
             Completion = receipt.Selection switch
             {
+                _ when UnmatchedImplementationNames.Count > 0 =>
+                    PackageHouseRealizationCompletion.NoMatch,
                 PackageAssetSelection.Selected =>
                     PackageHouseRealizationCompletion.Settled,
                 PackageAssetSelection.NoMatch =>
@@ -575,6 +622,7 @@ public abstract class PackageHouseRealizationReceipt
             LibraryHandoffs =
                 acquisition.Decision.Request.LibraryHandoff
                     == PackageHouseLibraryHandoffMode.SelectedLibraries
+                && Completion == PackageHouseRealizationCompletion.Settled
                 && receipt.Selection
                     is PackageAssetSelection.Selected selected
                     ? [

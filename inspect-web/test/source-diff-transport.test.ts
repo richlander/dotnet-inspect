@@ -27,6 +27,14 @@ function endpoint(version: string): BrowserSourceComparisonEndpoint {
 }
 
 function exactResult(): BrowserSourceComparisonResult {
+  const endpointRequest = {
+    typeIdentity: "Example.Widget",
+    stableSelector: "Run()",
+    canonicalSignature: "void Example.Widget.Run()",
+    fingerprint: "0123456789",
+    typeFullName: "Example.Widget",
+    memberName: "Run",
+  };
   return {
     version: 1,
     kind: "Succeeded",
@@ -37,10 +45,8 @@ function exactResult(): BrowserSourceComparisonResult {
         afterVersion: "2.0.0",
         framework: "net10.0",
         assembly: "Example",
-        typeIdentity: "Example.Widget",
-        memberName: "Run",
-        selectorKey: "Run()",
-        metadataToken: 0x06000001,
+        before: endpointRequest,
+        after: endpointRequest,
       },
       status: "Compared",
       isExact: true,
@@ -134,6 +140,19 @@ void describe("Source diff transport decoder", () => {
     });
   });
 
+  test("decodes a one-sided endpoint request without inventing absence", () => {
+    const value = changed(candidate => {
+      set(candidate, ["value", "request", "after"], null);
+      set(candidate, ["value", "status"], "Unavailable");
+      set(candidate, ["value", "isExact"], false);
+      set(candidate, ["value", "diff"], null);
+      set(candidate, ["value", "after", "memberIdentity"], null);
+      set(candidate, ["value", "after", "metadataToken"], null);
+      set(candidate, ["value", "after", "state"], "Unrequested");
+    });
+    assert.equal(decode(encoded(value)).kind, "decoded");
+  });
+
   test("admits exact aggregate coordinate and mapped-change capacities", () => {
     const value = changed(candidate => {
       set(candidate, ["value", "diff", "before", "lines"],
@@ -164,6 +183,16 @@ void describe("Source diff transport decoder", () => {
     }],
     ["unknown result kind", (value: unknown) => {
       set(value, ["kind"], "Deferred");
+    }],
+    ["unknown endpoint request field", (value: unknown) => {
+      set(value, ["value", "request", "before", "unknown"], true);
+    }],
+    ["no requested endpoint", (value: unknown) => {
+      set(value, ["value", "request", "before"], null);
+      set(value, ["value", "request", "after"], null);
+    }],
+    ["missing endpoint anchor field", (value: unknown) => {
+      set(value, ["value", "request", "before", "fingerprint"], "");
     }],
     ["unknown diff version", (value: unknown) => {
       set(value, ["value", "diff", "version"], 2);
@@ -366,7 +395,7 @@ void describe("Source diff transport decoder", () => {
       }]);
     }],
     ["auxiliary text", (value: unknown) => {
-      set(value, ["value", "request", "typeIdentity"],
+      set(value, ["value", "request", "before", "typeIdentity"],
         "x".repeat(16 * 1_024 + 1));
     }],
     ["failure diagnostic text", (value: unknown) => {

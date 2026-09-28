@@ -35,12 +35,49 @@ public sealed class PackageHouseContractTests
         Assert.Equal("linux-x64", request.TargetContext.RuntimeIdentifier);
         Assert.Same(association, request.Association);
         Assert.Equal(
+            PackageHouseEvidenceDemand.None,
+            request.EvidenceDemand);
+        Assert.Equal(
             ["Candidate", "Exact", "Selecting"],
             typeof(PackageHouseDemand)
                 .GetNestedTypes(BindingFlags.Public)
                 .Select(type => type.Name)
                 .Order(StringComparer.Ordinal)
                 .ToArray());
+    }
+
+    [Fact]
+    public void FrameworkReferenceDemandRequiresCompileRealization()
+    {
+        var demand = new PackageHouseDemand.Exact(Coordinate);
+        var operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+
+        var request = new PackageHouseRequest(
+            demand,
+            operation,
+            PackageHouseTargetContext.Exact("net10.0"),
+            PackageHouseAssetSelectionKind.Compile,
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences);
+
+        Assert.Equal(
+            PackageHouseEvidenceDemand.FrameworkReferences,
+            request.EvidenceDemand);
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
+            demand,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences));
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
+            demand,
+            operation,
+            PackageHouseTargetContext.Exact("net10.0"),
+            PackageHouseAssetSelectionKind.Runtime,
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences));
     }
 
     [Fact]
@@ -841,6 +878,67 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void RequestScopesLibraryCompanionDemandToImplementationHandoffs()
+    {
+        PackageHouseDemand demand = new PackageHouseDemand.Exact(Coordinate);
+        PackageHouseLibraryCompanionDemand companion =
+            PackageHouseLibraryCompanionDemand
+                .ImplementationPortablePdb;
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                libraryCompanionDemand:
+                    (PackageHouseLibraryCompanionDemand)42));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire),
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Runtime,
+                PackageHouseLibraryHandoffMode.SelectedLibraries,
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Compile,
+                libraryCompanionDemand: companion));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRequest(
+                demand,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageHouseAssetSelectionKind.Compile,
+                PackageHouseLibraryHandoffMode.SelectedLibraries,
+                assetDemand: PackageAssetDemand.Surface,
+                libraryCompanionDemand: companion));
+
+        PackageHouseRequest request = new(
+            demand,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries,
+            libraryCompanionDemand: companion);
+
+        Assert.Equal(companion, request.LibraryCompanionDemand);
+    }
+
+    [Fact]
     public void OperationPreservesIdentityAndDeadlineDurations()
     {
         PackageHouseOperation operation = PackageHouseOperation.Create(
@@ -931,7 +1029,65 @@ public sealed class PackageHouseContractTests
                 authority,
                 otherSource,
                 PackagePayloadOrigin.Cache,
-                new PackageContentGenerationIdentity()));
+                new PackageContentGenerationIdentity(),
+                PackageTransferReceipt.Cache));
+    }
+
+    /// <summary>
+    /// Transfer receipt design gate 6: the House acquisition receipt's origin
+    /// agrees with its transfer receipt's path — Cache with Cache, Download
+    /// with Download or RangedThenDownload, Ranged with Ranged.
+    /// </summary>
+    [Fact]
+    public void AcquisitionRequiresOriginToAgreeWithTransferPath()
+    {
+        AcquisitionBundle bundle = Acquisition(
+            Request(PackageHouseOperationProfile.Acquire));
+        PackageTransferReceipt download = PackageTransferReceipt.Create(
+            PackageTransferPath.Download,
+            null,
+            [new(PackageTransferRequestPurpose.Complete, null,
+                PackageTransferRequestOutcome.Completed, 10, 10)]);
+        PackageTransferReceipt fellBack = PackageTransferReceipt.Create(
+            PackageTransferPath.RangedThenDownload,
+            PackageTransferFallbackReason.RangeIgnored,
+            [new(PackageTransferRequestPurpose.DirectoryTail, new(null, 64),
+                PackageTransferRequestOutcome.RangeIgnored, 10, 0),
+             new(PackageTransferRequestPurpose.Complete, null,
+                PackageTransferRequestOutcome.Completed, 10, 10)]);
+        PackageTransferReceipt ranged = PackageTransferReceipt.Create(
+            PackageTransferPath.Ranged,
+            null,
+            [new(PackageTransferRequestPurpose.DirectoryTail, new(null, 64),
+                PackageTransferRequestOutcome.Completed, 10, 10)]);
+
+        PackageHouseAcquisitionReceipt Create(
+            PackagePayloadOrigin origin,
+            PackageTransferReceipt transfer) =>
+            new(
+                bundle.Decision,
+                bundle.Authority,
+                bundle.Source,
+                origin,
+                bundle.Generation,
+                transfer);
+
+        Assert.Same(
+            PackageTransferReceipt.Cache,
+            Create(PackagePayloadOrigin.Cache, PackageTransferReceipt.Cache).Transfer);
+        Assert.Same(download, Create(PackagePayloadOrigin.Download, download).Transfer);
+        Assert.Same(fellBack, Create(PackagePayloadOrigin.Download, fellBack).Transfer);
+        Assert.Same(ranged, Create(PackagePayloadOrigin.Ranged, ranged).Transfer);
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Cache, download));
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Download, PackageTransferReceipt.Cache));
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Download, ranged));
+        Assert.Throws<ArgumentException>(
+            () => Create(PackagePayloadOrigin.Ranged, fellBack));
+        Assert.Throws<ArgumentNullException>(
+            () => Create(PackagePayloadOrigin.Cache, null!));
     }
 
     [Fact]
@@ -2220,7 +2376,8 @@ public sealed class PackageHouseContractTests
             authority,
             source,
             PackagePayloadOrigin.Cache,
-            generation);
+            generation,
+            PackageTransferReceipt.Cache);
         return new AcquisitionBundle(
             decision,
             candidate,

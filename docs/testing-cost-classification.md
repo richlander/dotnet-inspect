@@ -78,19 +78,24 @@ public void SomeExpensiveTheory(string assemblyName)
   entries: five select non-overlapping class-name prefix ranges, and the
   sixth selects their complement. The complement makes the partition
   exhaustive even when a future test class uses an unexpected identifier.
-  `deep-inspect.yml` runs both suites fully unfiltered, so a newly tagged test
-  automatically keeps running daily.
+  `deep-inspect.yml` runs both suites fully unfiltered once on Linux, so a newly
+  tagged test automatically keeps running daily. Its Windows/macOS lane uses
+  the same fast CLI population as PR CI.
 - The CSharp text and inspection-query suites use the same PR filter. Deep
-  Inspect's daily platform lane runs both suites fully unfiltered.
+  Inspect's exhaustive Linux lane runs both suites fully unfiltered; the
+  Windows/macOS platform lane also runs the full inspection-query suite because
+  runtime layout and filesystem behavior reach that owner.
 - The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR
-  CI. The daily platform lane retains the offline boundary but does not exclude
-  `Speed=Slow`. The focused repository guard selects the legacy
-  source-identity method directly, so that method remains a pre-merge gate for
-  changed C# paths even though ordinary Linux test runs exclude it.
+  CI. Deep Inspect's exhaustive Linux lane and Windows/macOS platform lane
+  retain the offline boundary but do not exclude `Speed=Slow`. The focused
+  repository guard selects the legacy source-identity method directly, so that
+  method remains a pre-merge gate for changed C# paths even though ordinary
+  Linux test runs exclude it.
 - The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
   selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
-  its full suite, including the pinned custom-attribute package gate, and
-  retains that gate's per-platform evidence report.
+  its full suite on the exhaustive Linux lane and the Windows/macOS platform
+  lane, including the pinned custom-attribute package gate, and retains that
+  gate's per-platform evidence report.
 - The decompiler suite uses the same MTP trait options behind discoverable
   presets: `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
   -- --gate fast` expands to `--filter-not-trait "Speed=Slow"`, while `--gate
@@ -101,6 +106,11 @@ public void SomeExpensiveTheory(string assemblyName)
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its
   `--gate fast`/`--gate slow` equivalents.
+
+  Deep Inspect runs that complete non-corpus population once on Linux.
+  Windows and macOS retain the fast decompiler population as a low-cost
+  boundary canary for newline, runtime-layout, and external-tool differences;
+  slow and corpus coverage is not repeated on those hosts.
 
   #6889 is the scale reference for this policy: measurement found 247 cases at
   or above two seconds plus policy-defined corpus, fidelity, compile-back, and

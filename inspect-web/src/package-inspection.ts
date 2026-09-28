@@ -113,7 +113,8 @@ export interface PackageInspectionState {
 export interface PackageInspectionDependencies {
   state: PackageInspectionState;
   queryDependencies(
-    packageModel: PackageIdentity & { assemblyId: string },
+    packageModel: PackageIdentity
+      & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
   ): Promise<BrowserPackageDependencies>;
   queryPruning(
     packageModel: AppPackage,
@@ -363,6 +364,9 @@ export function createPackageInspectionCoordinator(
         version: packageModel.version,
         activeFramework: packageModel.activeFramework,
         assemblyId: packageModel.assemblyId,
+        ...(packageModel.selectedCompileAssetId
+          ? { selectedCompileAssetId: packageModel.selectedCompileAssetId }
+          : {}),
       };
       const workspaceKey = workspaceDependencyKey(packageRequest);
       try {

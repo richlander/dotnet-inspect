@@ -27,18 +27,6 @@ try
     if (offline)
         args = args.Where(a => a != "--offline").ToArray();
 
-    // Parse --info early (before command parsing) to install counting writer
-    bool showInfo = args.Contains("--info")
-        || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_INFO"), "1");
-    if (showInfo)
-        args = args.Where(a => a != "--info").ToArray();
-
-    // Parse --trace-mermaid early to subscribe before any request/cache/network breadcrumbs.
-    bool showTraceMermaid = args.Contains("--trace-mermaid")
-        || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_TRACE_MERMAID"), "1");
-    if (showTraceMermaid)
-        args = args.Where(a => a != "--trace-mermaid").ToArray();
-
     // Parse --isolated <name> and --no-nuget-cache early
     string? sessionName = null;
     var argList = new List<string>(args);
@@ -126,12 +114,6 @@ try
     // Wire the tool-tier SourceLink index cache into the engine's dependency-inversion seam.
     ILInspector.SourceLink.SourceLinkService.DefaultCache = DotnetInspector.Services.CoreSourceLinkIndexCache.Instance;
 
-    // Start info tracking (installs counting writer on Console.Out)
-    if (showInfo)
-    {
-        InfoTracker.Start();
-    }
-
     #if DEBUG
     // Log every managed HTTP request with its traffic kind; offline mode
     // enforces the no-network boundary separately.
@@ -139,10 +121,7 @@ try
         DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpIdentifier.ContainRenderedText);
     #endif
 
-    using var traceMermaid = showTraceMermaid ? RequestMermaidDiagram.Start() : null;
     using var requestScope = RequestTelemetry.Scope(string.Join(' ', args), "cli invocation");
-    if (showTraceMermaid)
-        RequestTelemetry.Breadcrumb("request", string.Join(' ', args));
 
     // Handle --version explicitly to show short commit hash
     if (args.Length == 1 && args[0] == "--version")
@@ -191,59 +170,13 @@ try
     }
 
     // Pre-process args for implicit package command (also expands -NN → -n NN)
-    var argsBeforePreprocess = args;
     args = CommandLineBuilder.PreprocessArgs(args, rootCommand);
-    if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault() != args[0])
-        RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
 
     var result = rootCommand.Parse(args);
 
     int exitCode = await CommandLineBuilder.InvokeWithLineWindowAsync(
         result,
         args);
-
-    // Write info metrics to stderr if --info was requested
-    if (showInfo)
-    {
-        Console.Out.Flush();
-
-        var elapsed = InfoTracker.Elapsed;
-        var timeStr = elapsed.TotalSeconds >= 1
-            ? $"{elapsed.TotalSeconds:F2}s"
-            : $"{elapsed.TotalMilliseconds:F0}ms";
-
-        var view = new InfoView
-        {
-            Output = CacheOutputFormatter.FormatSize(InfoTracker.CharsWritten),
-            Time = timeStr,
-            HTTP = InfoTracker.HttpRequests > 0
-                ? $"{InfoTracker.HttpRequests} {(InfoTracker.HttpRequests == 1 ? "request" : "requests")}"
-                : null,
-            Cache = InfoTracker.CacheHits > 0 || InfoTracker.CacheMisses > 0
-                ? $"{InfoTracker.CacheHits} {(InfoTracker.CacheHits == 1 ? "hit" : "hits")}, {InfoTracker.CacheMisses} {(InfoTracker.CacheMisses == 1 ? "miss" : "misses")}"
-                : null,
-            // A readme detail is a path out of the package archive, so it is
-            // untrusted text on a view that goes to stderr through a serializer
-            // sink rather than through the writer. Contained where the row is
-            // built, which is the same place tips contain theirs.
-            Readme = InfoTracker.GetDetail("readme") is string readme
-                ? CSharpIdentifier.ContainRenderedText(readme)
-                : null
-        };
-
-        CommandError.WriteBlankLine();
-        #pragma warning disable RS0030 // An accounted stderr sink: the --info view is tool-composed, and InfoViewContext contains what it renders (issue #3319).
-        MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
-        #pragma warning restore RS0030
-    }
-
-    if (traceMermaid != null)
-    {
-        CommandError.WriteBlankLine();
-        #pragma warning disable RS0030 // An accounted stderr sink: WriteTo applies the containment passed to it to every line (issue #3319).
-        traceMermaid.WriteTo(Console.Error, CSharpIdentifier.ContainRenderedText);
-        #pragma warning restore RS0030
-    }
 
     _ = PersistentCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 

@@ -193,7 +193,7 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
     buildDependencyGraphMermaid, resolveMermaidCssVariables,
     depGraphRenderSequence: createDependencyGraphRenderSequence(),
     bindPackageDependencyListEvents: () => { bindings++; },
-    mermaidModule: Promise.resolve({ default: {
+    loadMermaidModule: () => Promise.resolve({ default: {
       initialize() {},
       render: (_id: string, definition: string) => {
         diagrams.push(definition);

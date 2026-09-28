@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -121,9 +122,11 @@ public static class ApiOutputFormatter
         if (api.TypeForwarders.Count > 0)
         {
             view.TypeForwarders = api.TypeForwarders
-                .GroupBy(f => f.TargetAssembly)
-                .OrderBy(g => g.Key)
-                .Select(g => new ForwarderSummaryRow(g.Key, g.Count().ToString()))
+                .Select(
+                    forwarder =>
+                        new ApiTypeForwarderRow(
+                            forwarder.TypeName,
+                            forwarder.TargetAssembly))
                 .ToList();
         }
 
@@ -154,6 +157,136 @@ public static class ApiOutputFormatter
 
         return (view, truncatedCount);
     }
+
+    internal static CliApiSurface BuildLibraryTypeView(
+        LibraryDocument document,
+        ImmutableArray<LibraryTypeShape> declarations)
+    {
+        var view =
+            new CliApiSurface(
+                document.Assembly.Name,
+                descriptionText: null,
+                libraryText: null,
+                sourceText: null,
+                versionText: null,
+                tfmText: null);
+
+        foreach (LibraryTypeShape declaration in declarations)
+        {
+            switch (declaration.DeclarationKind)
+            {
+                case LibraryTypeDeclarationKind.Definition:
+                    AddDefinition(view, declaration);
+                    break;
+                case LibraryTypeDeclarationKind.Forwarder:
+                    AddForwarder(view, declaration);
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Library Type declaration kind.");
+            }
+        }
+
+        int definitions =
+            declarations.Count(
+                static declaration =>
+                    declaration.DeclarationKind
+                    == LibraryTypeDeclarationKind.Definition);
+        int forwarders = declarations.Length - definitions;
+        if (document.Types!.Binding.DeclarationSelection
+                == LibraryTypeDeclarationSelection
+                    .DefinitionsAndForwarders
+            && definitions == 0)
+        {
+            view.DescriptionText =
+                ApiViewText.Field(
+                    forwarders == 0
+                        ? "This library contains no public types."
+                        : "This is a type-forwarding library. Forwarded "
+                            + "declarations are listed without resolving "
+                            + "their targets.");
+        }
+
+        return view;
+    }
+
+    private static void AddDefinition(
+        CliApiSurface view,
+        LibraryTypeShape declaration)
+    {
+        ApiTypeInventoryKind kind =
+            declaration.DefinitionKind
+            ?? throw new InvalidOperationException(
+                "A Library Type definition row requires a kind.");
+        int memberCount =
+            declaration.MemberCount
+                is LibraryTypeMemberCountOutcome.Counted counted
+                    ? counted.Value
+                    : throw new InvalidOperationException(
+                        "A Library Type definition row requires Member "
+                            + "Count.");
+        var row =
+            new TypeSummaryRow(
+                ApiViewText.Field(TypeKind(kind)),
+                MarkoutInline.CodeText(declaration.DisplayName),
+                ApiViewText.Field(
+                    memberCount.ToString(
+                        CultureInfo.InvariantCulture)),
+                Description: null);
+
+        switch (kind)
+        {
+            case ApiTypeInventoryKind.Class:
+                (view.Classes ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Struct:
+                (view.Structs ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Interface:
+                (view.Interfaces ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Enum:
+                (view.Enums ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Delegate:
+                (view.Delegates ??= []).Add(row);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown API Type inventory kind.");
+        }
+    }
+
+    private static void AddForwarder(
+        CliApiSurface view,
+        LibraryTypeShape declaration)
+    {
+        LibraryTypeForwardingEvidence forwarding =
+            declaration.Forwarding
+            ?? throw new InvalidOperationException(
+                "A Library Type forwarder row requires forwarding "
+                    + "evidence.");
+        (view.TypeForwarders ??= [])
+            .Add(
+                new ApiTypeForwarderRow(
+                    declaration.DisplayName.ToString(),
+                    AssemblyIdentityFormatter.Format(
+                        forwarding.TargetAssembly)));
+    }
+
+    private static string TypeKind(ApiTypeInventoryKind kind) =>
+        kind switch
+        {
+            ApiTypeInventoryKind.Class => "class",
+            ApiTypeInventoryKind.Struct => "struct",
+            ApiTypeInventoryKind.Interface => "interface",
+            ApiTypeInventoryKind.Enum => "enum",
+            ApiTypeInventoryKind.Delegate => "delegate",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown API Type inventory kind."),
+        };
 
     internal static bool RendersInspectionFailures(
         ApiSurface api,
@@ -1578,7 +1711,6 @@ public static class ApiOutputFormatter
 
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
             var callsByCaller = analysisInspection
                 .CallGraph
                 .DirectCallsByCaller;
@@ -1611,7 +1743,6 @@ public static class ApiOutputFormatter
 
         if (requestedSections.Contains(SectionNames.ExceptionRegions) && singleMethodList is [{ MetadataToken: { } exceptionToken } exceptionMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.exception-regions", exceptionMethod.Name);
             var regions = analysisInspection.ResolveExceptionRegions(exceptionToken, out var error)
                 .Select(region => new ExceptionRegionRow(
                     region.Region,
@@ -1632,7 +1763,6 @@ public static class ApiOutputFormatter
 
         if (request.Callers && bodyMethods.Count > 0)
         {
-            RequestTelemetry.Breadcrumb("il-analysis.callers", $"{bodyMethods.Count} member(s)");
             var edges = new List<(
                 string Source,
                 Analysis.DirectCall Call)>();
@@ -1673,7 +1803,6 @@ public static class ApiOutputFormatter
 
         if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken } graphMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
             // One bidirectional graph: inbound callers and outbound callees around the selected
             // member. The projection collapses the two trees onto shared node identity, so a member
             // that is both a caller and a callee is one node rather than two unrelated subtrees.
@@ -1681,6 +1810,11 @@ public static class ApiOutputFormatter
                 analysisInspection.BuildCallGraph(graphToken);
             view.CallGraphIncomplete =
                 analysisInspection.CallGraphDiagnostics.IsIncomplete;
+            memberCode.CallGraphInspection =
+                MemberCallGraphInspection.Execute(
+                    CallGraphInspectionGraphAdapter.Create(
+                        projection,
+                        analysisInspection.CallGraphDiagnostics));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
             memberCode.CallGraphRowCount = selectedRows.Count;
             bool loweringNeedsSelectedGraph =
@@ -1702,6 +1836,7 @@ public static class ApiOutputFormatter
                     loweringNeedsSelectedGraph ? selectedRows : null;
                 CallGraphSectionOutput graphOutput =
                     CallGraphSectionAdapter.ToGraph(
+                        memberCode.CallGraphInspection.Content,
                         projection,
                         FormatCallee,
                         analysisInspection.CallGraphFields,
@@ -1731,7 +1866,6 @@ public static class ApiOutputFormatter
 
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
             var evidence = InspectSafetyFindings(
                     analysisInspection.Safety,
                     analysisInspection.CallGraph,
@@ -1776,7 +1910,6 @@ public static class ApiOutputFormatter
 
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
-            RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
                 var rows = Analysis.SemanticFactProjection.AllocationFacts(
@@ -1825,12 +1958,6 @@ public static class ApiOutputFormatter
                 }
             }
         }
-
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay
-            || request.SemanticsOverlay || request.IL || request.Attributes
-            || request.Facts || request.FidelityCauses || request.AppliedTaste
-            || request.SourceDocument || request.FindingCensus)
-            RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(
             type,
@@ -1883,7 +2010,6 @@ public static class ApiOutputFormatter
 
             if ((code.ILText ?? code.ILDiagnostic) is { } ilText)
             {
-                RequestTelemetry.Breadcrumb("il-render", member.Name);
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;
             }
@@ -2001,7 +2127,6 @@ public static class ApiOutputFormatter
 
         if (code.DecompiledResult is { } decompiledResult)
         {
-            EmitDecompileBreadcrumb(member.Name, decompiledResult.Trace);
             if (!decompiledResult.Succeeded)
                 memberCode.DecompiledSourceFailure = decompiledResult;
             memberCode.DecompiledSourceCode = FormatCSharpResult(
@@ -2017,7 +2142,6 @@ public static class ApiOutputFormatter
 
         if (code.AnnotatedResult is { } annotatedResult)
         {
-            EmitDecompileBreadcrumb(member.Name, annotatedResult.Trace);
             memberCode.AnnotatedSourceCode = FormatCSharpResult(
                 type,
                 member,
@@ -2033,7 +2157,6 @@ public static class ApiOutputFormatter
 
         if (code.CostOverlayResult is { } costOverlayResult)
         {
-            EmitDecompileBreadcrumb(member.Name, costOverlayResult.Trace);
             memberCode.CostOverlayCode = FormatCSharpResult(
                 type,
                 member,
@@ -2047,7 +2170,6 @@ public static class ApiOutputFormatter
 
         if (code.SemanticsOverlayResult is { } semanticsOverlayResult)
         {
-            EmitDecompileBreadcrumb(member.Name, semanticsOverlayResult.Trace);
             memberCode.SemanticsOverlayCode = FormatCSharpResult(
                 type,
                 member,
@@ -2484,10 +2606,10 @@ public static class ApiOutputFormatter
     internal static void PopulateCalledTypes(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryCallGraphAnalysisResult callGraph,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var rows = index
+        var rows = callGraph
             .CalledTypes(method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
@@ -2569,7 +2691,7 @@ public static class ApiOutputFormatter
     internal static void PopulateOptimizationOpportunities(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryOptimizationAnalysisResult optimization,
         IReadOnlySet<string>? explicitSections = null,
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
@@ -2582,7 +2704,7 @@ public static class ApiOutputFormatter
             ? typeMemberTokens
             : null;
         LibraryMetadataService.ReportOptimizationDiagnostics(
-            index,
+            optimization.Receipt.Diagnostics,
             diagnostic =>
                 (diagnostic.SourceDeclaringType
                     ?? diagnostic.DeclaringType) is { } diagnosticType
@@ -2594,14 +2716,14 @@ public static class ApiOutputFormatter
                         diagnostic.SourceMethodToken
                             ?? diagnostic.MethodToken)));
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
-                LibraryMetadataService.TriageOpportunities(index, options)
+                LibraryMetadataService.TriageOpportunities(optimization, options)
                     .Where(opportunity => ApiAnalysisInspection.SameType(
                         (opportunity.SourceOwner ?? opportunity.Method)
                             .DeclaringType,
                         type))
                     .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
                         opportunity,
-                        index.GeneratedFrameworkTypes))
+                        optimization.GeneratedFrameworkTypes))
                     .Where(opportunity => memberTokens is null
                         || memberTokens.Contains(
                             (opportunity.SourceOwner ?? opportunity.Method)
@@ -2857,7 +2979,7 @@ public static class ApiOutputFormatter
         }
     }
 
-    internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryBodyIndex index, bool restrictToModelMembers = false)
+    internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryLeverageAnalysisResult leverage, bool restrictToModelMembers = false)
     {
         var drillByToken = BuildMemberDrillMap(type);
 
@@ -2866,12 +2988,12 @@ public static class ApiOutputFormatter
         // limiter (`-n`/`--rows`) trims the rendered table. In member-detail/overload
         // contexts `type.Members` is narrowed to the selected member(s), so restrict the
         // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
-        var rows = index.TopLeverage(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
+        var rows = leverage.Top(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypes);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, leverage.GeneratedFrameworkTypes);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),
@@ -2892,32 +3014,38 @@ public static class ApiOutputFormatter
     internal static void PopulateImplementationProfiles(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryImplementationProfileAnalysisResult profiles,
         bool memberScope,
         bool restrictToModelMembers = false,
         int? selectedMethodToken = null)
     {
+        if (!profiles.WasRequested)
+        {
+            throw new InvalidOperationException(
+                "Implementation profiles were not requested for this body index.");
+        }
+
         var drillByToken = BuildMemberDrillMap(type);
         LibraryMetadataService.ReportImplementationProfileDiagnostics(
-            index,
+            profiles.Receipt.Diagnostics,
             diagnostic => IncludesImplementationProfileDiagnostic(
                 diagnostic,
                 type,
                 drillByToken,
                 restrictToModelMembers,
                 selectedMethodToken));
-        var relationshipsByBody = index.OverloadRelationships()
+        var relationshipsByBody = profiles.OverloadRelationships
             .GroupBy(relationship => (
                 relationship.Caller.MetadataToken,
                 relationship.EvidenceMethod.MetadataToken))
             .ToDictionary(
                 group => group.Key,
                 group => group.ToArray());
-        var rows = index.ImplementationProfiles(
-                scope: method =>
-                    ApiAnalysisInspection.SameType(
-                        method.DeclaringType,
-                        type))
+        var rows = profiles.Profiles
+            .Where(profile =>
+                ApiAnalysisInspection.SameType(
+                    profile.Method.DeclaringType,
+                    type))
             .Where(profile =>
                 selectedMethodToken is { } selected
                     ? profile.Method.MetadataToken == selected
@@ -2940,7 +3068,7 @@ public static class ApiOutputFormatter
                     drill,
                     LibraryMetadataService.IsGeneratedMethod(
                         profile.Method,
-                        index.GeneratedFrameworkTypes),
+                        profiles.GeneratedFrameworkTypes),
                     includeDeclaringType: false);
             })
             .ToList();
@@ -2951,6 +3079,45 @@ public static class ApiOutputFormatter
             else
                 view.TypeMetricRows = rows;
         }
+    }
+
+    internal static void PopulateImplementationProfiles(
+        TypeView view,
+        ApiType type,
+        AssemblyImplementationProfileFamilyInspection inspection)
+    {
+        var drillByToken = BuildMemberDrillMap(type);
+        var relationshipsByBody = inspection.OverloadRelationships
+            .GroupBy(relationship => (
+                relationship.Caller.MetadataToken,
+                relationship.EvidenceMethod.MetadataToken))
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToArray());
+        List<ImplementationProfileRow> rows =
+        [
+            .. inspection.Profiles.Select(profile =>
+            {
+                drillByToken.TryGetValue(
+                    profile.Profile.Method.MetadataToken,
+                    out var drill);
+                relationshipsByBody.TryGetValue(
+                    (
+                        profile.Profile.Method.MetadataToken,
+                        profile.Profile.EvidenceMethod.MetadataToken),
+                    out var relationships);
+                return ToImplementationProfileRow(
+                    profile.Profile,
+                    relationships ?? [],
+                    drill,
+                    LibraryMetadataService.IsGeneratedMethod(
+                        profile.Profile.Method,
+                        inspection.GeneratedFrameworkTypes),
+                    includeDeclaringType: false);
+            }),
+        ];
+        if (rows.Count > 0)
+            view.MemberMetricRows = rows;
     }
 
     internal static bool IncludesImplementationProfileDiagnostic(
@@ -3157,37 +3324,6 @@ public static class ApiOutputFormatter
             name += $"<{string.Join(", ", typeArgs.Select(t => t.ToQualifiedDisplayString()))}>";
         string signature = $"{name}({string.Join(", ", parameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
         return declaringType is null ? signature : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
-    }
-
-    /// <summary>
-    /// Converts the decompiler's telemetry-free <see cref="Decompiler.DecompilerTrace"/>
-    /// shape into a request-trace breadcrumb: a <c>decompile.method</c> stage on
-    /// success or <c>decompile.fallback</c> on failure, with the fidelity outcome,
-    /// the symbol source used, and (on failure) the leading diagnostic id. Falls
-    /// back to a bare crumb when no trace is available.
-    /// </summary>
-    private static void EmitDecompileBreadcrumb(string member, Decompiler.DecompilerTrace? trace)
-    {
-        if (trace is null)
-        {
-            RequestTelemetry.Breadcrumb("decompile.method", member);
-            return;
-        }
-
-        var symbols = trace.Symbols switch
-        {
-            Decompiler.DecompilerSymbolSource.Embedded => "pdb:embedded",
-            Decompiler.DecompilerSymbolSource.Sidecar => "pdb:sidecar",
-            Decompiler.DecompilerSymbolSource.External => "pdb:external",
-            _ => "pdb:none",
-        };
-
-        var stage = trace.Succeeded ? "decompile.method" : "decompile.fallback";
-        var detail = $"{member} ({trace.Fidelity}, {symbols})";
-        if (!trace.Succeeded && trace.Diagnostics.Count > 0)
-            detail += $" [{trace.Diagnostics[0].Id}]";
-
-        RequestTelemetry.Breadcrumb(stage, detail);
     }
 
     private static string DiagnosticComment(Decompiler.DecompilerResult result)

@@ -778,11 +778,9 @@ public static class ApiMemberSectionPipelines
     private static readonly string[] SourceSections =
     [
         SectionNames.Source,
-        SectionNames.DecompiledSource,
-        SectionNames.AnnotatedSource,
         SectionNames.PdbSource,
+        SectionNames.DecompiledSource,
         SectionNames.SourceDiff,
-        SectionNames.IL,
     ];
 
     private static readonly string[] SourceLinkSections =

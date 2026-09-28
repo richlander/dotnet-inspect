@@ -43,6 +43,7 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
       <div class="compare-head-copy">
         <p class="compare-kicker">Compare · ${escapeHtml(subjectKindLabel(options.subjectKind))}</p>
         <h1 id="compare-title">${escapeHtml(options.subjectLabel)}</h1>
+        <p class="compare-status" role="status">${escapeHtml(options.status)}</p>
       </div>
       <div class="compare-mode-tabs" role="tablist" aria-label="Compare modes">${tabs}</div>
     </header>
@@ -51,7 +52,6 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
       <span class="compare-target-value">${escapeHtml(options.targetText)}</span>
       <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
     </div>
-    <p class="compare-status" role="status">${escapeHtml(options.status)}</p>
     <div id="compare-panel" class="compare-panel" role="tabpanel" aria-labelledby="compare-mode-${mode}">${options.content}</div>
   </section>`;
 }

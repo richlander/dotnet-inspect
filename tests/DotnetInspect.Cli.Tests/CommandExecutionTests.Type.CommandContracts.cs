@@ -32,23 +32,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SelectWithSignatureColumn_RendersProjection()
+    public async Task Type_ExactSelectionPromotesRequestedColumnVerbosity()
     {
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Select = ["Properties"],
-            Columns = ["Signature"]
+            Columns = ["Signature"],
+            TipLevel = TipLevel.Quiet,
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
+        Assert.Empty(error);
         Assert.Contains("| Signature |", output);
-        Assert.DoesNotContain("not found", error);
-        Assert.DoesNotContain("no data", error);
+        Assert.Contains(
+            "`public static bool IsReflectionEnabledByDefault { get; }`",
+            output);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ import type {
   BrowserLibraryApiDiffChange,
   BrowserLibraryApiDiffEndpoint,
   BrowserLibraryApiDiffMember,
+  BrowserLibraryApiDiffMemberExploreDestination,
   BrowserLibraryApiDiffMemberIdentity,
   BrowserLibraryApiDiffRequest,
   BrowserLibraryApiDiffResult,
@@ -332,7 +333,10 @@ function validateEndpointIssue(value: unknown, description: string): void {
   }
 }
 
-function validateEndpoint(value: unknown, description: string): void {
+function validateEndpoint(
+  value: unknown,
+  description: string,
+): asserts value is BrowserLibraryApiDiffEndpoint {
   const endpoint = requireRecord(value, description);
   requireString(endpoint.packageId, `${description}.packageId`);
   requireString(endpoint.version, `${description}.version`);
@@ -420,7 +424,10 @@ function validateChanges(value: unknown, description: string): void {
   }
 }
 
-function validateMemberIdentity(value: unknown, description: string): void {
+function validateMemberIdentity(
+  value: unknown,
+  description: string,
+): asserts value is BrowserLibraryApiDiffMemberIdentity {
   const identity = requireRecord(value, description);
   for (const property of [
     "declaringTypeIdentifier",
@@ -435,7 +442,12 @@ function validateMemberIdentity(value: unknown, description: string): void {
   }
 }
 
-function validateMembers(value: unknown, description: string): void {
+function validateMembers(
+  value: unknown,
+  description: string,
+  target: BrowserLibraryApiDiffEndpoint,
+  current: BrowserLibraryApiDiffEndpoint,
+): void {
   if (!Array.isArray(value))
     throw new Error(`${description} must be an array.`);
   for (const [index, entry] of value.entries()) {
@@ -454,11 +466,13 @@ function validateMembers(value: unknown, description: string): void {
       "After",
       "Both",
     ]);
-    if (member.before !== null)
-      validateMemberIdentity(member.before, `${description}[${index}].before`);
-    if (member.after !== null)
-      validateMemberIdentity(member.after, `${description}[${index}].after`);
-    if (member.before === null && member.after === null)
+    const before = member.before;
+    const after = member.after;
+    if (before !== null)
+      validateMemberIdentity(before, `${description}[${index}].before`);
+    if (after !== null)
+      validateMemberIdentity(after, `${description}[${index}].after`);
+    if (before === null && after === null)
       throw new Error(`${description}[${index}] has no side.`);
     validateChanges(member.changes, `${description}[${index}].changes`);
     if (member.match !== null) {
@@ -474,7 +488,100 @@ function validateMembers(value: unknown, description: string): void {
         );
       }
     }
+    if (member.explore !== null) {
+      validateMemberExploreDestination(
+        member.explore,
+        `${description}[${index}].explore`,
+        before,
+        after,
+        target,
+        current,
+      );
+    }
   }
+}
+
+function validateMemberExploreDestination(
+  value: unknown,
+  description: string,
+  before: BrowserLibraryApiDiffMemberIdentity | null,
+  after: BrowserLibraryApiDiffMemberIdentity | null,
+  target: BrowserLibraryApiDiffEndpoint,
+  current: BrowserLibraryApiDiffEndpoint,
+): void {
+  const destination = requireRecord(value, description);
+  requireEnum(destination.kind, `${description}.kind`, ["member-diff"]);
+  validateMemberExploreEndpoint(
+    destination.target,
+    `${description}.target`,
+    before,
+    target,
+  );
+  validateMemberExploreEndpoint(
+    destination.current,
+    `${description}.current`,
+    after,
+    current,
+  );
+}
+
+function validateMemberExploreEndpoint(
+  value: unknown,
+  description: string,
+  expectedMember: BrowserLibraryApiDiffMemberIdentity | null,
+  expectedEndpoint: BrowserLibraryApiDiffEndpoint,
+): void {
+  const endpoint = requireRecord(value, description);
+  requireString(endpoint.packageId, `${description}.packageId`);
+  requireString(endpoint.version, `${description}.version`);
+  requireString(endpoint.framework, `${description}.framework`);
+  const asset = requireRecord(endpoint.asset, `${description}.asset`);
+  requireString(asset.id, `${description}.asset.id`);
+  requireString(asset.path, `${description}.asset.path`);
+  requireString(asset.assemblyName, `${description}.asset.assemblyName`);
+  validateAssembly(endpoint.assembly, `${description}.assembly`);
+  const assembly = requireRecord(endpoint.assembly, `${description}.assembly`);
+  if (endpoint.packageId !== expectedEndpoint.packageId
+    || endpoint.version !== expectedEndpoint.version
+    || endpoint.framework !== expectedEndpoint.framework
+    || asset.id !== expectedEndpoint.asset.id
+    || asset.path !== expectedEndpoint.asset.path
+    || asset.assemblyName !== expectedEndpoint.asset.assemblyName
+    || assembly.name !== expectedEndpoint.assembly.name
+    || assembly.version !== expectedEndpoint.assembly.version
+    || assembly.culture !== expectedEndpoint.assembly.culture
+    || assembly.publicKeyToken !== expectedEndpoint.assembly.publicKeyToken) {
+    throw new Error(
+      `${description} must match its Library API Diff endpoint coordinates.`,
+    );
+  }
+  const member = endpoint.member;
+  if (member !== null)
+    validateMemberIdentity(member, `${description}.member`);
+  if (!sameMemberIdentity(
+    member,
+    expectedMember,
+  )) {
+    throw new Error(
+      `${description}.member must match its Library API Diff endpoint.`,
+    );
+  }
+}
+
+function sameMemberIdentity(
+  left: BrowserLibraryApiDiffMemberIdentity | null,
+  right: BrowserLibraryApiDiffMemberIdentity | null,
+): boolean {
+  return left === right
+    || (left !== null
+      && right !== null
+      && left.declaringTypeIdentifier === right.declaringTypeIdentifier
+      && left.stableSelector === right.stableSelector
+      && left.canonicalSignature === right.canonicalSignature
+      && left.fingerprint === right.fingerprint
+      && left.typeFullName === right.typeFullName
+      && left.memberName === right.memberName
+      && left.display === right.display);
 }
 
 function validateSucceeded(value: unknown): void {
@@ -487,8 +594,10 @@ function validateSucceeded(value: unknown): void {
     succeeded.libraryDisplay,
     "Library API Diff success.libraryDisplay",
   );
-  validateEndpoint(succeeded.target, "Library API Diff success.target");
-  validateEndpoint(succeeded.current, "Library API Diff success.current");
+  const target = succeeded.target;
+  const current = succeeded.current;
+  validateEndpoint(target, "Library API Diff success.target");
+  validateEndpoint(current, "Library API Diff success.current");
   const aggregate = requireRecord(
     succeeded.aggregate,
     "Library API Diff success.aggregate",
@@ -542,6 +651,8 @@ function validateSucceeded(value: unknown): void {
     validateMembers(
       type.members,
       `Library API Diff success.types[${index}].members`,
+      target,
+      current,
     );
     validateChanges(
       type.changes,
@@ -1106,7 +1217,7 @@ function classificationClass(
   return `library-api-diff-change-${String(classification).toLowerCase()}`;
 }
 
-function changeChips(
+export function renderLibraryApiDiffChangeChips(
   changes: readonly BrowserLibraryApiDiffChange[],
   escapeHtml: (value: unknown) => string,
 ): string {
@@ -1144,7 +1255,9 @@ function renderChangeRows(
   }).join("")}</ol>`;
 }
 
-function memberStateLabel(member: BrowserLibraryApiDiffMember): string {
+export function libraryApiDiffMemberStateLabel(
+  member: BrowserLibraryApiDiffMember,
+): string {
   switch (member.pairKind) {
     case "Changed": return "Changed";
     case "Added": return "Added";
@@ -1213,12 +1326,12 @@ function renderMemberRow(
     : "";
   const copy = `<span class="library-api-diff-type-copy">
       <strong>${escapeHtml(display)}</strong>
-      ${changeChips(member.changes, escapeHtml)}
+      ${renderLibraryApiDiffChangeChips(member.changes, escapeHtml)}
       ${movedFrom}
       ${signatures}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
-  const state = `<span class="library-api-diff-state library-api-diff-state-${String(member.pairKind).toLowerCase()}">${escapeHtml(memberStateLabel(member))}</span>`;
+  const state = `<span class="library-api-diff-state library-api-diff-state-${String(member.pairKind).toLowerCase()}">${escapeHtml(libraryApiDiffMemberStateLabel(member))}</span>`;
   // The counterpart action is a sibling of the inert row, not a child of it,
   // so the row's disabled state never disables the one live control.
   return `<li class="library-api-diff-member${activatable ? "" : " library-api-diff-member-inert"}" data-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" data-member-before-fingerprint="${attributeText(member.before?.fingerprint ?? "", escapeHtml)}">${
@@ -1267,6 +1380,46 @@ function findMember(
   return type.members.find(member => member.after?.fingerprint === fingerprint)
     ?? type.members.find(member =>
       member.after === null && member.before?.fingerprint === fingerprint);
+}
+
+export interface LibraryApiDiffMemberExploreContext {
+  readonly packageModel: object;
+  readonly result: BrowserLibraryApiDiffResult;
+  readonly document: BrowserLibraryApiDiffSucceeded;
+  readonly type: BrowserLibraryApiDiffType;
+  readonly member: BrowserLibraryApiDiffMember;
+  readonly destination: BrowserLibraryApiDiffMemberExploreDestination;
+  readonly subjectLabel: string;
+  readonly targetText: string;
+}
+
+export function libraryApiDiffMemberExploreContext(
+  state: LibraryApiDiffState,
+  options: LibraryApiDiffRenderOptions,
+): LibraryApiDiffMemberExploreContext | null {
+  if (state.status !== "ready"
+    || state.result.kind !== "Succeeded"
+    || state.result.value === null
+    || options.subject?.kind !== "member") {
+    return null;
+  }
+
+  const type = findType(state.result.value, options.subject.typeIdentifier);
+  const member = type === undefined
+    ? undefined
+    : findMember(type, options.subject.memberFingerprint);
+  if (type === undefined || member?.explore == null) return null;
+
+  return {
+    packageModel: state.input.packageModel,
+    result: state.result,
+    document: state.result.value,
+    type,
+    member,
+    destination: member.explore,
+    subjectLabel: options.subjectLabel ?? "Member",
+    targetText: options.targetText ?? "",
+  };
 }
 
 interface RenderedContent {
@@ -1397,7 +1550,7 @@ function renderMemberSubject(
     };
   }
   const classification = [
-    `${memberStateLabel(member)} Member`,
+    `${libraryApiDiffMemberStateLabel(member)} Member`,
     `Relation ${String(member.role)}`,
     ...member.changes.map(change =>
       `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`),
@@ -1413,19 +1566,13 @@ function renderMemberSubject(
   const correspondenceHtml = correspondence.length === 0
     ? ""
     : `<p class="library-api-diff-note library-api-diff-correspondence">${correspondence.map(escapeHtml).join(" · ")}</p>`;
-  // A Member inside an added or removed Type carries no change of its own:
-  // the classified change belongs to the Type entry.
-  const carriedByType = member.changes.length === 0
-    && (type.state === "Addition" || type.state === "Deletion");
-  const changes = member.changes.length > 0
-    ? renderChangeRows(member.changes, escapeHtml, "What changed")
-    : `<p class="library-api-diff-note">${escapeHtml(carriedByType
-      ? `No Member-level change is classified: the containing Type was ${type.state === "Addition" ? "added" : "removed"} as a whole.`
-      : "No classified compatibility change is recorded for this Member.")}</p>`;
-  // Explore opens only an owner-issued immersive destination. None is issued
-  // for Member Diff today, so no Explore action is rendered.
+  const changes = renderLibraryApiDiffMemberChanges(
+    type,
+    member,
+    escapeHtml,
+  );
   return {
-    status: `Comparison complete. Member ${memberStateLabel(member).toLowerCase()}.`,
+    status: `Comparison complete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`,
     content: `<div class="library-api-diff-metrics">${classification.map(metric =>
       `<span>${escapeHtml(metric)}</span>`).join("")}</div>
       ${correspondenceHtml}
@@ -1438,6 +1585,20 @@ function renderMemberSubject(
         ${memberIdentityEvidence("After", member.after, escapeHtml)}
       </div>`,
   };
+}
+
+export function renderLibraryApiDiffMemberChanges(
+  type: BrowserLibraryApiDiffType,
+  member: BrowserLibraryApiDiffMember,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (member.changes.length > 0) {
+    return renderChangeRows(member.changes, escapeHtml, "What changed");
+  }
+  const carriedByType = type.state === "Addition" || type.state === "Deletion";
+  return `<p class="library-api-diff-note">${escapeHtml(carriedByType
+    ? `No Member-level change is classified: the containing Type was ${type.state === "Addition" ? "added" : "removed"} as a whole.`
+    : "No classified compatibility change is recorded for this Member.")}</p>`;
 }
 
 function renderSucceeded(

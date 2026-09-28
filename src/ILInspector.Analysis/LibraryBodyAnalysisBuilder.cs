@@ -54,6 +54,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly Action? _parallelBuildStarting;
+    readonly ImplementationMetricWorkBudget?
+        _implementationMetricWork;
+    readonly ImplementationMetricExecutionRecorder?
+        _implementationMetricRecorder;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -61,6 +65,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         PEReader peReader,
         IAssemblyReferenceResolver? resolver = null,
         LibraryBodyRootSnapshot? rootSnapshot = null,
+        IAssemblyBindingPolicy? bindingPolicy = null,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
         Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
@@ -69,7 +74,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         Action? asyncStateMachineTypesBuilt = null,
         Action? parallelBuildStarting = null,
         Action<MetadataReader, MethodDefinitionHandle>?
-            asyncSiblingMethodScanned = null)
+            asyncSiblingMethodScanned = null,
+        ImplementationMetricWorkBudget?
+            implementationMetricWork = null,
+        ImplementationMetricExecutionRecorder?
+            implementationMetricRecorder = null)
     {
         _path = path;
         _reader = reader;
@@ -88,6 +97,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 null,
                 null);
         _parallelBuildStarting = parallelBuildStarting;
+        _implementationMetricWork =
+            implementationMetricWork;
+        _implementationMetricRecorder =
+            implementationMetricRecorder;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
                 reader,
@@ -135,20 +148,25 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _primaryMetadataResolver,
                 _methodReferenceResolver,
                 _asyncSourceResolver,
-                methodBodyReferenceIndexed);
+                methodBodyReferenceIndexed,
+                implementationMetricWork,
+                implementationMetricRecorder);
         _declaredSourceResolver =
             new LibraryBodyDeclaredSourceResolver(
                 reader,
                 _primaryMetadataResolver,
                 liftedSourceOwnerResolver,
-                _asyncSourceResolver);
-        if (resolver is not null && reader.IsAssembly)
+                _asyncSourceResolver,
+                implementationMetricWork);
+        if ((resolver is not null || bindingPolicy is not null)
+            && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
                     path,
                     reader,
                     resolver,
-                    rootSnapshot);
+                    rootSnapshot,
+                    bindingPolicy);
         _asyncSiblingMethodIndex =
             new LibraryBodyAsyncSiblingMethodIndex(
                 asyncSiblingMethodScanned);
@@ -495,7 +513,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     public LibraryBodyAnalysisResult Build(
         LibraryBodyAnalysisPlan plan)
     {
+        using ImplementationMetricExecutionRecorder.StageAttempt?
+            sourceAttribution =
+                _implementationMetricRecorder?.Start(
+                    ImplementationMetricWorkStage
+                        .SourceAttribution);
         plan = _declaredSourceResolver.ExpandEvidenceScope(plan);
+        sourceAttribution?.Complete();
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
         bool includeOpportunities = plan.Includes(
@@ -511,7 +535,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 plan.Includes(LibraryBodyAnalysisFeatures.LocalThrows)
                     ? new LibraryBodyExceptionTypeClassifier(
                         _reader, ResolveExternalTypeDefinition)
-                    : null);
+                    : null,
+                _implementationMetricWork,
+                _implementationMetricRecorder);
         var accumulator =
             new LibraryBodyAnalysisAccumulator(
                 _reader,
@@ -589,7 +615,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             _declaredSourceResolver.MergeScopeExpansionDiagnostics(
                 accumulator.Build(results),
                 plan);
-        if (includeMethodEvidence)
+        if (includeMethodEvidence
+            || plan.ImplementationMetrics is not null)
         {
             analysis = _declaredSourceResolver
                 .PublishDeclaredSources(
@@ -597,43 +624,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     plan);
         }
         analysis = PublishResourceOccurrences(analysis, plan, results);
-        return PublishResourceLifecycle(analysis, plan, results);
-    }
-
-    internal bool HasUnsafeEvidence()
-    {
-        var methodRunner =
-            new LibraryMethodAnalysisRunner(this);
-
-        foreach (var typeHandle in _reader.TypeDefinitions)
+        analysis = PublishResourceOwnership(analysis, plan, results);
+        analysis = PublishResourceLifecycle(analysis, plan, results);
+        return analysis with
         {
-            var typeDefinition =
-                _reader.GetTypeDefinition(typeHandle);
-            foreach (var methodHandle in typeDefinition.GetMethods())
-            {
-                UnsafeEvidencePresenceMethodResult result =
-                    methodRunner.ProbeUnsafeEvidence(
-                    typeHandle,
-                    typeDefinition,
-                    methodHandle);
-                ThrowIfIncomplete(result.Diagnostic);
-                if (result.HasEvidence)
-                    return true;
-            }
-        }
-
-        return false;
-
-        static void ThrowIfIncomplete(
-            AnalysisDiagnostic? diagnostic)
-        {
-            if (diagnostic is null)
-                return;
-
-            throw new InvalidDataException(
-                $"Unsafe evidence presence is incomplete because {diagnostic.Method} " +
-                $"could not be analyzed: {diagnostic.Message}");
-        }
+            ImplementationMetricWork =
+                _implementationMetricWork?.Snapshot(),
+            ImplementationMetricParticipation =
+                _implementationMetricRecorder?.Snapshot(),
+        };
     }
 
     // Assemblies with at least this many methods use the parallel per-method analysis path.

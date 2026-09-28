@@ -15,14 +15,17 @@ public interface IPackageArchiveRangeSource
     /// Opens one exact coordinate's archive by reading its directory. The
     /// returned reader makes every later transfer under the same operation
     /// context, credential, and source identity, and must be disposed before
-    /// the operation ends.
+    /// the operation ends. When <paramref name="requestLog"/> is supplied,
+    /// every ranged request attempt of this open and of the returned reader
+    /// is recorded in it.
     /// </summary>
     Task<PackageArchiveReadResult<PackageArchiveReader>> OpenArchiveAsync(
         string packageId,
         string version,
         ZipReadLimits limits,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null);
+        NuGetOperationContext? operationContext = null,
+        PackageArchiveRequestLog? requestLog = null);
 }
 
 /// <summary>The range-specific ways a read can be refused; each is owned by the capability.</summary>

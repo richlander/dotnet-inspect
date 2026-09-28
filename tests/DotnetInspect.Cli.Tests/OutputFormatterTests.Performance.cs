@@ -41,7 +41,7 @@ public partial class OutputFormatterTests
             type,
             ApiAnalysisInspection.OpenTypeAnalysis(
                 typeof(OutputFormatterTests).Assembly.Location)
-                .CompatibilityIndex(),
+                .Optimization,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage });
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
@@ -90,7 +90,7 @@ public partial class OutputFormatterTests
             type,
             ApiAnalysisInspection.OpenTypeAnalysis(
                 typeof(OutputFormatterTests).Assembly.Location)
-                .CompatibilityIndex(),
+                .Optimization,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 SectionNames.PerformanceTriage
@@ -137,7 +137,7 @@ public partial class OutputFormatterTests
             type,
             ApiAnalysisInspection.OpenTypeAnalysis(
                 typeof(OutputFormatterTests).Assembly.Location)
-                .CompatibilityIndex(),
+                .Optimization,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage },
             new PerformanceTriageOptions { Shapes = ["allocation-fanout"] });
 

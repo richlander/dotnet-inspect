@@ -46,6 +46,11 @@ public static class TsJsExportCommand
                     "Additional file or directory used to resolve rooted assemblies.",
                 AllowMultipleArgumentsPerToken = false,
             };
+        var warningsAsErrorsOption = new Option<bool>("--warnings-as-errors")
+        {
+            Description =
+                "Reject JS exports whose complete JSON input/output contract cannot be certified.",
+        };
 
         var rootCommand = new RootCommand(
             "Generates typed TypeScript facades from authenticated [JSExport] surfaces.")
@@ -55,6 +60,7 @@ public static class TsJsExportCommand
             outputOption,
             contextTypeOption,
             assemblySearchPathOption,
+            warningsAsErrorsOption,
         };
 
         rootCommand.SetAction(parseResult =>
@@ -66,6 +72,8 @@ public static class TsJsExportCommand
             string? contextType = parseResult.GetValue(contextTypeOption);
             string[] searchPaths =
                 parseResult.GetValue(assemblySearchPathOption) ?? [];
+            bool warningsAsErrors =
+                parseResult.GetValue(warningsAsErrorsOption);
             if (string.IsNullOrWhiteSpace(runtimeModule))
             {
                 stderr.WriteLine(
@@ -108,6 +116,7 @@ public static class TsJsExportCommand
                         runtimeModule,
                         "ts-jsexport",
                         stderr,
+                        warningsAsErrors,
                         out ImmutableArray<GeneratedJsExportFacade> facades))
                 {
                     return 1;
@@ -136,6 +145,14 @@ public static class TsJsExportCommand
                     stderr,
                     out global::ILInspector.JsExportSurface.JsExportSurface?
                         surface))
+            {
+                return 1;
+            }
+            if (!JsExportCertificationReporter.Report(
+                    surface!,
+                    "ts-jsexport",
+                    stderr,
+                    warningsAsErrors))
             {
                 return 1;
             }

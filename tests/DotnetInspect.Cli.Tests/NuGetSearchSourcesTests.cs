@@ -1945,14 +1945,18 @@ public class NuGetSearchSourcesTests
             authorization.Authorities,
             first =>
             {
-                Assert.Null(first.PersistentCacheKey);
+                Assert.NotNull(first.PersistentCacheKey);
                 Assert.True(
                     authorization.TryGetAuthority(
                         first.Association,
                         out ConfiguredPackageAuthority? recovered));
                 Assert.Same(first, recovered);
             },
-            second => Assert.Null(second.PersistentCacheKey));
+            second => Assert.NotNull(second.PersistentCacheKey));
+        // Query-distinct endpoints are distinct durable authorities.
+        Assert.NotEqual(
+            authorization.Authorities[0].PersistentCacheKey,
+            authorization.Authorities[1].PersistentCacheKey);
         ConfiguredPackageAuthority first = authorization.Authorities[0];
         ConfiguredPackageAuthority second = authorization.Authorities[1];
         using IPackageSourceClient firstClient =
@@ -1976,6 +1980,23 @@ public class NuGetSearchSourcesTests
 
     [Fact]
     public void PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey()
+    {
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [
+                    new PackageSource(
+                        "credentialed",
+                        IndexUrl,
+                        new PackageSourceCredential("user", "token")),
+                ]);
+
+        Assert.All(
+            authorization.Authorities,
+            authority => Assert.Null(authority.PersistentCacheKey));
+    }
+
+    [Fact]
+    public void PackageSourceAuthorization_PathSecretAuthoritiesHaveDistinctKeysWithoutEndpointText()
     {
         const string firstSecret = "first-secret";
         const string secondSecret = "second-secret";
@@ -2005,23 +2026,33 @@ public class NuGetSearchSourcesTests
             firstClient.Source.Producer,
             secondClient.Source.Producer);
         Assert.NotSame(first, second);
-        Assert.Null(first.PersistentCacheKey);
-        Assert.Null(second.PersistentCacheKey);
+        // A path secret is part of the endpoint, so each endpoint is its own
+        // durable authority, and the key is a digest that carries no secret.
+        Assert.NotNull(first.PersistentCacheKey);
+        Assert.NotNull(second.PersistentCacheKey);
+        Assert.NotEqual(first.PersistentCacheKey, second.PersistentCacheKey);
+        Assert.DoesNotContain(firstSecret, first.PersistentCacheKey!, StringComparison.Ordinal);
+        Assert.DoesNotContain(secondSecret, second.PersistentCacheKey!, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey()
+    public void PackageSourceAuthorization_CredentialFreeHttpAuthorityHasPersistentKey()
     {
         PackageSourceAuthorization authorization =
             PackageSourceAuthorization.Authorize(
-                [new PackageSource("online", IndexUrl)]);
+                [
+                    new PackageSource("online", IndexUrl),
+                    new PackageSource("query", IndexUrl + "?tenant=a"),
+                ]);
 
-        ConfiguredPackageAuthority authority =
-            Assert.Single(authorization.Authorities);
+        ConfiguredPackageAuthority authority = authorization.Authorities[0];
+        ConfiguredPackageAuthority query = authorization.Authorities[1];
         Assert.Equal(ConfiguredPackageAuthorityKind.Http, authority.Kind);
         Assert.NotNull(authority.HttpEndpoint);
         Assert.Null(authority.LocalIdentity);
-        Assert.Null(authority.PersistentCacheKey);
+        Assert.StartsWith("authority-v1-", authority.PersistentCacheKey, StringComparison.Ordinal);
+        Assert.NotEqual(authority.PersistentCacheKey, query.PersistentCacheKey);
+        Assert.DoesNotContain("example", authority.PersistentCacheKey!, StringComparison.Ordinal);
     }
 
     [Fact]

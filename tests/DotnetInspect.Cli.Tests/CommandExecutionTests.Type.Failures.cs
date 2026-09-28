@@ -12,21 +12,14 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
-    public async Task ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands()
+    public async Task ConstraintResolutionFailure_IsVisibleAndNonfatalForSelectedTypeCommands()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
             $"constraint-diagnostic-{Guid.NewGuid():N}.dll");
-        WriteModuleConstraintAssembly(path);
+        WriteUnresolvedConstraintAssembly(path);
         try
         {
-            var listing = await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
-                    new TypeOptions
-                    {
-                        AssemblyPath = path,
-                        Verbosity = Verbosity.Normal,
-                    }));
             var selectedType = await ConsoleCapture.RunAsync(
                 () => TypeCommand.ExecuteAsync(
                     new TypeOptions
@@ -44,14 +37,6 @@ public partial class CommandExecutionTests
                         Verbosity = Verbosity.Normal,
                     }));
 
-            Assert.Equal(0, listing.ExitCode);
-            Assert.Contains(
-                "Generic-constraint classification",
-                listing.Error);
-            Assert.DoesNotContain(
-                "rejected",
-                listing.Error,
-                StringComparison.OrdinalIgnoreCase);
             Assert.Equal(0, selectedType.ExitCode);
             Assert.Contains(
                 "Generic-constraint classification",
@@ -223,11 +208,9 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("m")]
-    [InlineData("d")]
-    public async Task TypeListing_RendersInspectionFailuresAtRaisedVerbosity(
-        string verbosity)
+    [Fact]
+    public async Task
+        TypeListing_DetailedRendersInspectionFailuresFromAssemblyAdjacency()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -241,7 +224,7 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                $"-v:{verbosity}",
+                "-v:d",
                 "--tips",
                 "q");
 
@@ -262,8 +245,12 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task TypeListing_NormalOmitsInspectionFailuresButKeepsWarning()
+    [Theory]
+    [InlineData("m")]
+    [InlineData("n")]
+    public async Task
+        TypeListing_OrdinaryRowsDoNotResolveAssemblyAdjacency(
+            string verbosity)
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -277,19 +264,16 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                "-v:n",
+                $"-v:{verbosity}",
                 "--tips",
                 "q");
 
-            Assert.Equal(1, result.Exit);
+            Assert.Equal(0, result.Exit);
             Assert.DoesNotContain(
                 "## Inspection Failures",
                 result.Output,
                 StringComparison.Ordinal);
-            Assert.Contains(
-                "rejected 1 metadata row",
-                result.Error,
-                StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(result.Error);
         }
         finally
         {
@@ -383,7 +367,7 @@ public partial class CommandExecutionTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"constraint-tabular-{Guid.NewGuid():N}.dll");
-        WriteModuleConstraintAssembly(path);
+        WriteUnresolvedConstraintAssembly(path);
         try
         {
             var result = await RunAppAsync(

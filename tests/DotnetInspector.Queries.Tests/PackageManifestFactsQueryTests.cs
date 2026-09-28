@@ -1,5 +1,5 @@
 using System.Text;
-using DotnetInspector.Services;
+using DotnetInspector.Packages;
 using InertText;
 using NuGetFetch;
 
@@ -7,6 +7,50 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class PackageManifestFactsQueryTests
 {
+    [Fact]
+    public void QueryFacade_UsesPackageOwnedFrameworkReferenceProjection()
+    {
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(
+            """
+            <package>
+              <metadata>
+                <id>Example.Package</id>
+                <version>1.0.0</version>
+                <frameworkReferences>
+                  <group targetFramework="net8.0">
+                    <frameworkReference name="Microsoft.AspNetCore.App" />
+                  </group>
+                </frameworkReferences>
+              </metadata>
+            </package>
+            """);
+        PackageManifestFacts direct = Available(
+            PackageManifestFactsProjection.ExecuteSelfAttested(
+                manifestBytes));
+        PackageManifestFacts query = Available(
+            PackageManifestFactsQuery.ExecuteSelfAttested(
+                manifestBytes));
+
+        AssertEquivalentFacts(direct, query);
+        PackageManifestFrameworkReferenceGroup directGroup = Assert.Single(
+            Assert.IsType<
+                PackageManifestFrameworkReferenceFactsResult.Available>(
+                    direct.FrameworkReferences).Value.Groups);
+        PackageManifestFrameworkReferenceGroup queryGroup = Assert.Single(
+            Assert.IsType<
+                PackageManifestFrameworkReferenceFactsResult.Available>(
+                    query.FrameworkReferences).Value.Groups);
+        Assert.Equal(
+            directGroup.SourceTargetFramework,
+            queryGroup.SourceTargetFramework);
+        Assert.Equal(
+            directGroup.CanonicalTargetFramework,
+            queryGroup.CanonicalTargetFramework);
+        Assert.Equal(
+            directGroup.References.Select(reference => reference.Name),
+            queryGroup.References.Select(reference => reference.Name));
+    }
+
     [Fact]
     public void Execute_ProjectsImmutableValidatedFacts()
     {

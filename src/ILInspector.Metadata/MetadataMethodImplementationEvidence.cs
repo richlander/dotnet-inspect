@@ -155,6 +155,7 @@ public abstract record MetadataDeclarationDefinitionDisposition
     }
 
     public sealed record LocalResolved(
+        MetadataTypeDefinitionAddress Owner,
         MetadataMethodAddress Definition,
         MethodAttributes Attributes)
         : MetadataDeclarationDefinitionDisposition;
@@ -660,6 +661,11 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
             new MetadataDeclarationDefinitionDisposition.LocalResolved(
                 Read(
                     retentionSite,
+                    () => MetadataTypeDefinitionAddress.FromHandle(
+                        _reader,
+                        declarationOwner)),
+                Read(
+                    retentionSite,
                     () => MetadataMethodAddress.Create(
                         _reader,
                         declarationHandle)),
@@ -829,6 +835,11 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
             MethodAttributes attributes = definition.Attributes;
             disposition =
                 new MetadataDeclarationDefinitionDisposition.LocalResolved(
+                    Read(
+                        retentionSite,
+                        () => MetadataTypeDefinitionAddress.FromHandle(
+                            _reader,
+                            owner.LocalDefinition)),
                     Read(
                         retentionSite,
                         () => MetadataMethodAddress.Create(

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
 using InertText;
 using NuGetFetch;
 

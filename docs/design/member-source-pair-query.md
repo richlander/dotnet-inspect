@@ -4,10 +4,10 @@
 
 `DotnetInspector.Queries` owns this explicit two-endpoint operation.
 
-> Resolve the requested metadata member independently in two retained images,
-> acquire each endpoint's PDB source without decompilation, and compare only
-> complete verified declarations while retaining both endpoint associations
-> and non-success outcomes.
+> Resolve each requested metadata member in its own retained image, acquire
+> each endpoint's PDB source without decompilation, and compare only complete
+> verified declarations while retaining both endpoint associations and
+> non-success outcomes.
 
 This implements the bounded composition permitted by
 [Research authored-source comparison](implementation-diff.md#research-authored-source-comparison).
@@ -18,12 +18,19 @@ absence, admission, or producer completion.
 
 ## Request and result
 
-The request names one exact metadata type and member anchor, two participants
-with their owning context groups, and explicit source capabilities. Each
-endpoint resolves that anchor in its own retained image. A physical token from
-one image is never reused to resolve the other. A missing or ambiguous
-MethodDef is `NotFound`, not positive member absence; unsupported non-method
-targets also have no source comparison.
+The request names an exact metadata type and member anchor independently for
+each requested endpoint, two participants with their owning context groups,
+and explicit source capabilities. At least one endpoint is requested. The
+same-member convenience request supplies the same logical anchor to both
+endpoints; callers that already own correspondence may instead supply
+different exact anchors or leave one endpoint unrequested. Each requested
+endpoint resolves only its own anchor in its own retained image. A physical
+token from one image is never reused to resolve the other.
+
+An unrequested endpoint is retained as `Unrequested`; it is not
+query-established positive member absence. A requested missing or ambiguous
+MethodDef is `NotFound`, also not positive member absence. Unsupported
+non-method targets have no source comparison.
 
 Each endpoint retains its acquisition registration, assembly identity, and
 provenance. A resolved endpoint also retains its actual exact member request
@@ -31,13 +38,14 @@ and typed PDB source attempt. Unresolved, rejected, and failed inspection
 outcomes remain explicit. PDB unavailability or acquisition failure does not
 suppress the other endpoint's attempt.
 
-The pair is `Compared` only when both endpoints have complete verified member
-source. It retains the native `FindingComparison<string>` and both endpoint
-records, including an exact comparison with no edit rows. Otherwise it is
-`Unavailable`, preserving endpoint acquisition reasons, or `Failed` when
-query validation or comparison itself failed. An unavailable comparison may
-contain a failed acquisition attempt; that attempt is not rewritten as missing
-source or success.
+The pair is `Compared` only when both endpoints were requested and have
+complete verified member source. It retains the native
+`FindingComparison<string>` and both endpoint records, including an exact
+comparison with no edit rows. Otherwise it is `Unavailable`, preserving
+unrequested and acquisition outcomes, or `Failed` when query validation or
+comparison itself failed. An unavailable comparison may contain a failed
+acquisition attempt; that attempt is not rewritten as missing source or
+success.
 
 No empty text, decompiled fallback, or generic one-sided line addition/removal
 stands in for unavailable source. Exactness concerns the supplied declaration
@@ -119,6 +127,10 @@ Accessor selections that cannot retain that anchor stay on the existing
 enrichment path rather than being promoted to their owning declaration.
 The shared query also supplies the
 [browser two-version Source facade](inspect-web-source-comparison.md).
+That facade accepts the complete logical anchor for each requested endpoint so the
+Member Diff Explore adopter can preserve relation-issued anchors and
+one-sidedness. Its `Unrequested` endpoint remains request state; the caller's
+relation evidence, not this query, owns any positive absence claim.
 The former Source Diff dialog is retired; this adoption serves the published
 generated facade, not a restored UI.
 Existing broader CLI enrichment
@@ -174,11 +186,12 @@ transport or interaction contract is defined here.
 
 ## Outcome gates
 
-The query and CLI Release gates cover compiler-produced Source-only changes, equal
-source, unavailable and failed PDB source, missing targets, same-token
-different-image association, cancellation, and binding invalidation while the
-other endpoint is acquired. Source-only execution does not invoke local
-producers. Ordinary PDB-first/decompiled-fallback behavior is retained.
+The query and CLI Release gates cover compiler-produced Source-only changes,
+equal source, unavailable and failed PDB source, missing targets, distinct
+per-endpoint anchors, each one-sided request, same-token different-image
+association, cancellation, and binding invalidation while the other endpoint
+is acquired. Source-only execution does not invoke local producers. Ordinary
+PDB-first/decompiled-fallback behavior is retained.
 
 ```bash
 dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
@@ -201,7 +214,8 @@ tests do not fabricate successful source endpoints.
 The motivating real repository asset is dotnet-inspect's compiled
 `CSharpText.MemberSlicing`, its matching external PDB, and actual
 `MemberTextSlicer.cs`: `SourcePair_RealRepositoryMemberUsesAuthoredHouse`
-compares its exact declaration through both independent endpoint adapters.
+compares exact declarations through both independent endpoint adapters,
+including requests with different methods and one unrequested side.
 The versioned Counter fixtures preserve source-only edits and neighboring
 unchanged/moved declarations. `SourcePair_SourceHouseByteBoundIsVisibleAndExact`
 gates one byte below and exactly at the larger source document's length;

@@ -408,6 +408,170 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        ImplementationMetrics_GuardRejectedLocalSignaturePublishesLimitation()
+    {
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: 100,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: 100);
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "DeepLocal.dll",
+                EmitGuardRejectedLocalSignatureAssembly(),
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.Locals,
+                        limits,
+                        new HashSet<int>
+                        {
+                            MetadataTokens.GetToken(
+                                MetadataTokens
+                                    .MethodDefinitionHandle(1)),
+                        }));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies);
+        ImplementationMetricLocalEvidence locals =
+            Assert.IsType<ImplementationMetricLocalEvidence>(
+                body.Locals);
+        Assert.Equal(1, locals.DeclaredCount);
+        Assert.False(locals.IsComplete);
+        Assert.Contains(
+            "local signature",
+            locals.IncompleteReason,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            execution.ImplementationMetrics
+                .Participation!.ActualStages,
+            stage => stage.Stage
+                == ImplementationMetricWorkStage
+                    .CanonicalMethodContext);
+    }
+
+    [Fact]
+    public void
+        ImplementationMetrics_MalformedLocalsPreserveCompletedHeaderEvidence()
+    {
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: 100,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: 100);
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedLocal.dll",
+                EmitMalformedLocalSignatureAssembly(),
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.BodySize
+                            | ImplementationMetricEvidenceKind
+                                .Locals,
+                        limits,
+                        new HashSet<int>
+                        {
+                            MetadataTokens.GetToken(
+                                MetadataTokens
+                                    .MethodDefinitionHandle(1)),
+                        }));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies);
+        Assert.Equal(1, body.ILBytes);
+        Assert.Null(body.Locals);
+        Assert.Contains(
+            execution.ImplementationMetrics.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                nameof(BadImageFormatException),
+                StringComparison.Ordinal));
+        ImplementationMetricStageParticipation decode =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .LocalSignatureDecode);
+        Assert.Equal(1, decode.AttemptedBodies);
+        Assert.Equal(0, decode.CompletedBodies);
+        Assert.Equal(1, decode.FailedBodies);
+        Assert.DoesNotContain(
+            execution.ImplementationMetrics
+                .Participation.ActualStages,
+            stage => stage.Stage
+                == ImplementationMetricWorkStage
+                    .CanonicalMethodContext);
+    }
+
+    [Fact]
+    public void
+        ImplementationMetrics_MalformedInstructionsPreserveEarlierEvidence()
+    {
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: 100,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: 100);
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedInstruction.dll",
+                EmitMalformedInstructionAssembly(),
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricEvidenceKind.BodySize
+                            | ImplementationMetricEvidenceKind.Locals
+                            | ImplementationMetricEvidenceKind
+                                .InstructionShape,
+                        limits,
+                        new HashSet<int>
+                        {
+                            MetadataTokens.GetToken(
+                                MetadataTokens
+                                    .MethodDefinitionHandle(1)),
+                        }));
+
+        MethodImplementationMetricEvidence body =
+            Assert.Single(
+                execution.ImplementationMetrics.Bodies);
+        Assert.Equal(1, body.ILBytes);
+        ImplementationMetricLocalEvidence locals =
+            Assert.IsType<ImplementationMetricLocalEvidence>(
+                body.Locals);
+        Assert.Equal(0, locals.DeclaredCount);
+        Assert.True(locals.IsComplete);
+        Assert.Null(body.InstructionShape);
+        Assert.Contains(
+            execution.ImplementationMetrics.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                nameof(BadImageFormatException),
+                StringComparison.Ordinal));
+        ImplementationMetricStageParticipation context =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .CanonicalMethodContext);
+        Assert.Equal(1, context.AttemptedBodies);
+        Assert.Equal(0, context.CompletedBodies);
+        Assert.Equal(1, context.FailedBodies);
+        Assert.DoesNotContain(
+            execution.ImplementationMetrics
+                .Participation.ActualStages,
+            stage => stage.Stage
+                is ImplementationMetricWorkStage
+                    .DirectCallCollection
+                    or ImplementationMetricWorkStage
+                        .AllocationSignalCollection
+                    or ImplementationMetricWorkStage
+                        .BodySignalCollection
+                    or ImplementationMetricWorkStage
+                        .SafetyCollection);
+    }
+
+    [Fact]
     public void ImplementationProfiles_AttributeAsyncBodiesToSourceMethods()
     {
         var index = LibraryBodyIndex.Open(

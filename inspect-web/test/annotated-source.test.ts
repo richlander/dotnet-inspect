@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  annotatedSourcePresentationText,
   annotatedFocusSelector,
   bindAnnotatedSource,
   renderAnnotatedSource,
@@ -238,6 +239,7 @@ function escapeHtml(value: unknown) {
 
 const result: AnnotatedSourceResult = {
   document: sampleDocument,
+  signature: inertStringFixture("public void Sample()"),
   viewerCatalog: sampleViewerCatalog,
   findingEvidenceDocuments: [],
   findingEvidence: [],
@@ -263,6 +265,29 @@ function modalHtml(source: AnnotatedSourceResult = result): string {
     escapeHtml,
   });
 }
+
+test("annotated source renders the selected API signature", () => {
+  const html = embeddedHtml();
+
+  assert.match(html, /annotated-source-signature/);
+  assert.match(html, /public void Sample\(\)/);
+});
+
+test("presentation text follows visible media and includes the signature", () => {
+  const model = createAnnotatedSourceViewerModel(result);
+  const session = createEmbeddedSession(model);
+  const copied = annotatedSourcePresentationText(result, session);
+
+  assert.ok(copied.startsWith("public void Sample()\n"));
+  assert.ok(copied.includes("return"));
+  assert.ok(!copied.includes("IL_"));
+
+  const withIl = annotatedSourcePresentationText(result, {
+    ...session,
+    visibleMedia: ["CSharp", "Il"],
+  });
+  assert.ok(withIl.includes("IL_"));
+});
 
 function invocationResult(): AnnotatedSourceResult {
   return {
@@ -390,6 +415,7 @@ function callCycleRelationshipResult(
     factId,
     source: {
       document,
+      signature: inertStringFixture("public void Sample()"),
       viewerCatalog: {
         ...sampleViewerCatalog,
         callRelationships: {
@@ -1895,6 +1921,7 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
       facts: [],
       targets: [],
     },
+    signature: inertStringFixture("public void Sample()"),
     viewerCatalog: {
       defaultFindingIds: [],
       supportedMedia: ["CSharp", "Il"],
@@ -1970,6 +1997,7 @@ test("source text is escaped while source actions and chrome remain separate", (
       facts: [],
       targets: [],
     },
+    signature: inertStringFixture("<img src=x onerror=alert(1)>"),
     viewerCatalog: csharpOnlyEmptyViewerCatalog,
     findingEvidenceDocuments: [],
     findingEvidence: [],
@@ -1980,7 +2008,9 @@ test("source text is escaped while source actions and chrome remain separate", (
   const html = embeddedHtml(source);
 
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.doesNotMatch(html, /<script>alert/);
+  assert.doesNotMatch(html, /<img src=x/);
   assert.doesNotMatch(html, /data-annotated-action="(?:copy|explore)"/);
 });
 
@@ -2067,10 +2097,10 @@ test("Annotated Source composition requires a concrete overload and validated se
     /class="contextual-actions annotated-contextual-actions"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
+    /contextualActionsHtml: !loadingPackageContent && \(memberDiffExploreTarget \|\| annotatedPageContext \|\| sourcePageKind \|\| packageDependenciesWorkingSurface \|\| metadataWorkingSurface\)/);
   assert.match(
     appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
@@ -2096,16 +2126,61 @@ test("Annotated Source destination actions use typed graph routes and exact sect
 
   assert.match(
     appSource,
-    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
-    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
-    /case "finding-evidence-open":[\s\S]*model\.findingEvidenceByFactId\.get\(action\.factId\)[\s\S]*callGraphTargetBinding\([\s\S]*evidence\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+    /case "finding-evidence-open":[\s\S]*model\.findingEvidenceByFactId\.get\(action\.factId\)[\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*evidence\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
+  assert.match(
+    appSource,
+    /function showGraphNavigationFailureOutsideCallGraph\([\s\S]*switch \(failureSurface\) \{[\s\S]*case "call-graph":[\s\S]*return false;[\s\S]*case "annotated":[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\);[\s\S]*case "retained":[\s\S]*showRetainedGraphNavigationError\(message\);[\s\S]*assertNever\([\s\S]*"graph navigation failure surface"\)/,
+  );
+  assert.match(
+    appSource,
+    /function showRetainedGraphNavigationError\(message: string\) \{\s*appendQueryNotice\(message\);\s*render\(\);\s*afterCurrentNavigationFrame\(\(\) => focusLevelOneHeading\(\)\);\s*\}/,
+  );
+  const blockedGraphBinding =
+    /function blockedCallGraphNodeBinding\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    blockedGraphBinding,
+    /showGraphNavigationFailureOutsideCallGraph\(\s*message,\s*failureSurface\)/,
+  );
+  assert.match(blockedGraphBinding, /invalidateGraphMemberNavigation\(\)/);
+  const graphMemberFailure =
+    /function showGraphMemberNavigationError\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    graphMemberFailure,
+    /showGraphNavigationFailureOutsideCallGraph\(message, failureSurface\)/,
+  );
+  assert.match(
+    graphMemberFailure,
+    /state\.graphMemberNavigationError = message/,
+  );
+  const platformNavigation =
+    /async function navigateOrDrillPlatform\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.equal(
+    platformNavigation.match(
+      /showGraphNavigationFailureOutsideCallGraph\(/g)?.length,
+    2,
+  );
+  assert.match(platformNavigation, /state\.platformDrillError = message/);
+  assert.match(platformNavigation, /await renderMermaidCallGraph\(\)/);
+  const platformFailure =
+    /async function showPlatformTargetError\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    platformFailure,
+    /showGraphNavigationFailureOutsideCallGraph\(\s*message,\s*failureSurface\)/,
+  );
+  assert.match(platformFailure, /state\.platformDrillError = message/);
   assert.match(
     appSource,
     /const loadedSection = destination === "source" \? "source" : "overview"/,
@@ -2128,7 +2203,7 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   );
   assert.match(
     appSource,
-    /failureSurface === "annotated"[\s\S]*state\.annotatedDestinationError[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\)/,
+    /state\.memberAnnotatedModal !== null[\s\S]*state\.annotatedDestinationError[\s\S]*renderAndFocusAnnotated\(\s*"#annotated-destination-error",\s*"modal"/,
   );
   assert.match(
     appSource,

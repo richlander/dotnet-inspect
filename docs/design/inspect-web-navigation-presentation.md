@@ -111,7 +111,11 @@ presentations before the primary content:
    Interaction-owned product-navigation control and its history, Search, and
    Application menu controls.
 2. Row two renders the icon-backed ordered active subject path before any
-   page-level contextual working-surface actions.
+   page-level contextual working-surface actions. A Package root in that path
+   carries its resolved target framework as a quiet, non-shrinking qualifier
+   immediately after the Package name. The Package name keeps its copy action;
+   activating the target-framework qualifier opens the Package subject and its
+   framework inventory.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
@@ -745,6 +749,15 @@ surface across Package inspectors. Neither control appears in Workspace, Type,
 or Member, and Package Overview does not repeat a target-framework selector.
 Library Metadata does not repeat Package Version or Framework controls.
 
+The persistent subject path discloses that exact active framework after the
+Package name across Package, Library, Type, and Member. The qualifier is
+navigation rather than another selector: activating it opens Package with the
+framework inventory visible and focused. It stays visible before the Package
+name yields space at narrow widths. Page-level actions such as `Explore` retain
+the separate trailing action region. When a narrow Type Source surface cannot
+fit both regions on one line, the inspected target takes the first line and the
+complete Source action region takes a second line below it.
+
 At a narrow viewport the content-navigation action is labelled `Frameworks`
 and opens the same complete TFM inventory. A pending TFM change retains the
 Package shell and moves focus to the content-loading status; success or failure
@@ -834,7 +847,25 @@ respective owners.
 ## Type navigation
 
 This owner renders product-issued Type inventory rows and their activation
-descriptors. Package and Library navigation may also expose Types where their
+descriptors.
+
+Inventory rows are a directed display, not a data list: a row says what its
+subject is rather than repeating which kind it is, because the kind icon
+already carries the kind.
+
+- A Type row shows its display name and its member count.
+- A single-member row shows a method's compact parameter list (the member
+  name and unqualified parameter types, as nested overload rows spell them)
+  or a property's, field's, or event's unqualified value type.
+- An overload family's parent row shows its overload count and family-level
+  status, and colors its name differently from single-member rows. The name
+  color marks a row that holds overloads, together with the overload count, so
+  it does not rely on color alone. It uses its own token, distinct from heat's
+  background tint and from the parent row's heat-status tokens. Its nested rows
+  follow
+  [Overload rows](inspect-web-implementation-profiles.md#overload-rows).
+- A row without structured detail, such as a graph-only target, keeps its
+  kind word. Package and Library navigation may also expose Types where their
 owning lens requires it, but no second Library filter is introduced. Placement
 beside Type and Member working surfaces and replacement by the narrow
 inventory/detail push state are owned by

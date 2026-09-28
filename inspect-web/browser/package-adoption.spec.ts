@@ -224,6 +224,11 @@ const healthy: FixtureCoordinate = {
   version,
   archive: healthyArchive,
 };
+const retainedWorkspace: FixtureCoordinate = {
+  packageId: "InspectWeb.Workspace.Retention",
+  version,
+  archive: healthyArchive,
+};
 const malformed: FixtureCoordinate = {
   packageId: "InspectWeb.Adoption.Malformed",
   version,
@@ -509,6 +514,7 @@ async function installGalleryRoutes(
 
 declare global {
   interface Window {
+    __spotlightPressedResult?: Element;
     __adoption?: {
       queryPackage(
         packageId: string,
@@ -1781,6 +1787,304 @@ test.describe("Package Activity website over real Wasm", () => {
 test.describe("artifact-backed package scope adoption over real Wasm", () => {
   test.describe.configure({ timeout: 240_000 });
 
+  test("preserves a pressed Spotlight result across package search publication", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    const searchRequested = deferred<void>();
+    const releaseSearch = deferred<void>();
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequested.resolve();
+      await releaseSearch.promise;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({
+          totalHits: 1,
+          data: [{
+            id: "InspectWeb.Adoption.Neighbor",
+            version,
+            description: "Result publication fixture.",
+            owners: ["Fixture"],
+            totalDownloads: 1,
+            verified: false,
+          }],
+        }),
+      });
+    });
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("InspectWeb.Adoption");
+    await searchRequested.promise;
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    const box = await recent.boundingBox();
+    if (!box) throw new Error("Recent package result has no browser geometry.");
+    await page.mouse.move(
+      box.x + box.width / 2,
+      box.y + box.height / 2,
+    );
+    await page.mouse.down();
+    releaseSearch.resolve();
+
+    await expect(page.locator(
+      '[data-sl-pkg-load="InspectWeb.Adoption.Neighbor"]',
+    )).toBeVisible();
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await page.mouse.up();
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.get("package"))
+      .toBe(healthy.packageId);
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("preserves a Space-pressed Spotlight result across package search publication", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    const searchRequested = deferred<void>();
+    const releaseSearch = deferred<void>();
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      searchRequested.resolve();
+      await releaseSearch.promise;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({
+          totalHits: 1,
+          data: [{
+            id: "InspectWeb.Adoption.Neighbor",
+            version,
+            description: "Result publication fixture.",
+            owners: ["Fixture"],
+            totalDownloads: 1,
+            verified: false,
+          }],
+        }),
+      });
+    });
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("InspectWeb.Adoption");
+    await searchRequested.promise;
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.focus();
+    await expect(recent).toBeFocused();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    await page.keyboard.down("Space");
+    releaseSearch.resolve();
+
+    await expect(page.locator(
+      '[data-sl-pkg-load="InspectWeb.Adoption.Neighbor"]',
+    )).toBeVisible();
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await expect(recent).toBeFocused();
+    await page.keyboard.up("Space");
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.get("package"))
+      .toBe(healthy.packageId);
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("preserves Space activation and focus across whole-app rendering", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill(healthy.packageId);
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.focus();
+    await expect(recent).toBeFocused();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    await page.keyboard.down("Space");
+
+    await page.evaluate(() => {
+      const theme = document.querySelector<HTMLButtonElement>("#home-theme");
+      if (!theme) throw new Error("Home theme control is unavailable.");
+      theme.click();
+    });
+
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await expect(recent).toBeFocused();
+    await page.keyboard.up("Space");
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("modal whole-app rendering does not steal a pending Space activation", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([healthy]);
+    await installGalleryRoutes(context, registry);
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
+
+    await page.goto("/demos");
+    await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+      .toBeVisible({ timeout: 120_000 });
+    await page.keyboard.press("Control+p");
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    await recent.focus();
+    await expect(recent).toBeFocused();
+    await recent.evaluate(element => {
+      window.__spotlightPressedResult = element;
+    });
+    await page.keyboard.down("Space");
+
+    await page.evaluate(() => {
+      const theme = document.querySelector<HTMLButtonElement>("#home-theme");
+      if (!theme) throw new Error("Demos theme control is unavailable.");
+      theme.click();
+    });
+    await page.evaluate(() => new Promise<void>(complete =>
+      requestAnimationFrame(() => requestAnimationFrame(() => complete()))));
+
+    expect(await recent.evaluate(element =>
+      element === window.__spotlightPressedResult)).toBe(true);
+    await expect(recent).toBeFocused();
+    await page.keyboard.up("Space");
+
+    await expect(page.locator(".inspected-target"))
+      .toContainText(healthy.packageId, { timeout: 180_000 });
+    expect(registry.downloadCount(healthy)).toBe(1);
+  });
+
+  test("does not transfer a pressed Spotlight result after its identity disappears", async ({
+    page,
+    context,
+  }) => {
+    await context.addInitScript(entry => {
+      localStorage.setItem("inspect-recent-packages", JSON.stringify([entry]));
+    }, {
+      id: healthy.packageId,
+      version: healthy.version,
+      framework: fixtureFramework,
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
+
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill(healthy.packageId);
+    const recent = page.locator(
+      `[data-sl-pkg-recent="${healthy.packageId}"]`,
+    );
+    await expect(recent).toBeVisible();
+    const box = await recent.boundingBox();
+    if (!box) throw new Error("Recent package result has no browser geometry.");
+    await page.mouse.move(
+      box.x + box.width / 2,
+      box.y + box.height / 2,
+    );
+    await page.mouse.down();
+    await search.evaluate(element => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new TypeError("Spotlight input is not an input element.");
+      }
+      const input = element;
+      input.value = "NoMatchingPackage";
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+      }));
+    });
+    await expect(recent).toHaveCount(0);
+    await page.mouse.up();
+
+    await expect(page.locator(".inspected-target")).toHaveCount(0);
+    await expect(page.locator("#package-query-heading")).toHaveCount(0);
+    expect(new URL(page.url()).pathname).toBe("/");
+  });
+
   test("returns compact typed platform documentation through the production Worker", async ({
     page,
     context,
@@ -1803,6 +2107,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(outcome.kind).toBe("available");
     if (outcome.kind !== "available") {
       throw new Error(`Expected available documentation, received ${outcome.kind}.`);
+    }
+    if (!outcome.source || !outcome.documentation) {
+      throw new Error("Available documentation omitted its payload.");
     }
     expect(outcome.source.kind).toBe("Platform");
     expect(outcome.documentation.summary)
@@ -2279,11 +2586,25 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveAttribute("aria-selected", "false");
     await expect(panel.locator(".compare-target-value"))
       .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
-    await expect(panel.locator(".compare-status"))
+    await expect(panel.locator(".compare-head .compare-status"))
       .toContainText("Comparison complete", { timeout: 60_000 });
-    await expect(panel.locator(".library-api-diff-type")).toHaveCount(7);
+    await expect(frame.locator(":scope > .compare-status")).toHaveCount(0);
+    const headerBox = await frame.locator(".compare-head").boundingBox();
+    const targetBox = await frame.locator(".compare-target").boundingBox();
+    const resultBox = await frame.locator(".compare-panel").boundingBox();
+    expect(headerBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    expect(resultBox).not.toBeNull();
+    expect(Math.abs(targetBox!.y - headerBox!.y - headerBox!.height))
+      .toBeLessThanOrEqual(1);
+    expect(Math.abs(resultBox!.y - targetBox!.y - targetBox!.height))
+      .toBeLessThanOrEqual(1);
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(8);
     await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
     await expect(panel).toContainText("LibraryApiDiffFixture.AddedType");
+    await expect(panel).toContainText(
+      "LibraryApiDiffFixture.MethodConstraintChange",
+    );
     await expect(panel).toContainText(
       "LibraryApiDiffFixture.TypeDefinitionOnly",
     );
@@ -2295,12 +2616,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     )).toHaveAttribute("data-before-type-id", "");
     // Every current-side Type row is a navigation item; the removed Type
     // remains visible with Before-side evidence and is not activatable.
-    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(6);
+    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(7);
     await expect(panel.locator(
       '[data-before-type-id="LibraryApiDiffFixture.RemovedType"] [aria-disabled="true"]',
     )).toHaveCount(1);
     await expect(panel.locator(".library-api-diff-type button[data-compare-type-id]"))
-      .toHaveCount(6);
+      .toHaveCount(7);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
 
@@ -2349,7 +2670,50 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel).toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );
-    await expect(panel).not.toContainText("Explore");
+    const explore = page.locator("#member-diff-explore");
+    await expect(explore).toBeVisible();
+    const memberLocation = page.url();
+    const memberHistoryLength = await page.evaluate(() => history.length);
+    await explore.focus();
+    await explore.click();
+    const memberDiffExplorer = page.locator("dialog.member-diff-explorer");
+    await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
+      .toBeFocused();
+    expect(page.url()).toBe(memberLocation);
+    expect(await page.evaluate(() => history.length))
+      .toBe(memberHistoryLength);
+    await page.keyboard.press("ArrowDown");
+    await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
+      .toContainText("First");
+    expect(page.url()).toBe(memberLocation);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-pane"))
+      .toHaveCount(3);
+    await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
+      .toContainText("First");
+    await expect(memberDiffExplorer).toContainText(
+      "No Member-level change is classified: the containing Type was added as a whole.",
+    );
+    await expect(memberDiffExplorer.locator(".member-diff-declaration-unavailable"))
+      .toBeVisible();
+    await expect(memberDiffExplorer.locator(
+      ".member-diff-source-endpoint",
+    ).first()).toContainText("Not present on this side.");
+    await expect(memberDiffExplorer.locator(".member-diff-source-unavailable"))
+      .toBeVisible({ timeout: 120_000 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollWidth - window.innerWidth,
+      explorer: (document.querySelector(".member-diff-explorer")?.scrollWidth
+        ?? window.innerWidth) - window.innerWidth,
+    }));
+    expect(overflow.document).toBeLessThanOrEqual(0);
+    expect(overflow.explorer).toBeLessThanOrEqual(0);
+    await memberDiffExplorer.locator("[data-member-diff-close]").click();
+    await expect(memberDiffExplorer).toHaveCount(0);
+    await expect(explore).toBeFocused();
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
@@ -2373,7 +2737,29 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("Breaking");
     await expect(changeRows.first().locator(".library-api-diff-change-category"))
       .toHaveText("Signature");
-    await page.locator("#nav-back").click();
+    await expect(explore).toBeVisible();
+    await explore.click();
+    await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator(
+      ".member-diff-explorer-source .member-diff-source-endpoint",
+    ))
+      .toHaveCount(2);
+    await expect(memberDiffExplorer).not.toContainText(
+      "Not present on this side.",
+    );
+    await expect(memberDiffExplorer.locator(".member-diff-source-unavailable"))
+      .toBeVisible({ timeout: 120_000 });
+    await page.keyboard.press("Escape");
+    await expect(memberDiffExplorer).toHaveCount(0);
+    await expect(explore).toBeFocused();
+
+    await explore.click();
+    await expect(memberDiffExplorer).toBeVisible();
+    await page.locator("#nav-back")
+      .evaluate((button: HTMLButtonElement) => button.click());
+    await expect(memberDiffExplorer).toHaveCount(0);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    await expect(panel.locator("#compare-title")).toBeFocused();
     await page.locator("#nav-back").click();
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
 
@@ -2438,7 +2824,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator('[data-compare-mode="clone"]'))
       .toHaveAttribute("aria-selected", "true");
     await panel.locator('[data-compare-mode="diff"]').click();
-    await expect(panel.locator(".library-api-diff-type")).toHaveCount(7, {
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(8, {
       timeout: 60_000,
     });
 
@@ -2457,32 +2843,62 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
   });
 });
 
-test.describe("bounded network-backed two-host demo", () => {
+test.describe("deterministic two-host Workspace demo", () => {
   test.describe.configure({ timeout: 240_000 });
 
-  test("saves and reopens System.Text.Json through retained production activation", async ({
+  test("saves and reopens a package through retained production activation", async ({
     page,
+    context,
   }) => {
+    const registry = new GalleryFixtureRegistry([retainedWorkspace]);
+    await installGalleryRoutes(context, registry);
+    const savedWorkspaceName =
+      `${retainedWorkspace.packageId} ${retainedWorkspace.version}`;
+    const resavedWorkspaceName = `Re-saved ${savedWorkspaceName}`;
+
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     const search = page.locator("#spotlight-input");
     await expect(search).toBeVisible({ timeout: 120_000 });
-    await search.fill("System.Text.Json@9.0.4");
-    await page.locator('[data-sl-pkg-load="System.Text.Json"]').click();
+    await search.fill(
+      `${retainedWorkspace.packageId}@${retainedWorkspace.version}`,
+    );
+    const exactPackage = page.locator(
+      `[data-sl-pkg-load="${retainedWorkspace.packageId}"]`
+        + `[data-sl-pkg-version="${retainedWorkspace.version}"]`,
+    );
+    await expect(exactPackage)
+      .toContainText(
+        `${retainedWorkspace.version} · exact coordinate · listed or unlisted`,
+      );
+    await exactPackage.dispatchEvent("click");
     await expect(page.locator(".inspected-target"))
-      .toContainText("System.Text.Json", { timeout: 180_000 });
+      .toContainText(retainedWorkspace.packageId, { timeout: 180_000 });
+    await expect(page.getByTitle(
+      `${retainedWorkspace.packageId}@${retainedWorkspace.version}`,
+      { exact: true },
+    ))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(page.locator("#app"))
+      .not.toHaveAttribute("aria-busy", "true", { timeout: 180_000 });
 
-    await page.locator("[data-product-navigation-button]").click();
-    await page.locator('[data-product-destination="workspace"]').click();
+    await page.locator("[data-product-navigation-button]")
+      .dispatchEvent("click");
+    await page.locator(
+      '[data-product-navigation-menu]:not([hidden])'
+        + ':has([data-product-destination="query"]:not([aria-disabled="true"])) '
+        + '[data-product-destination="workspace"]',
+    )
+      .dispatchEvent("click");
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
-    ).click();
+    ).dispatchEvent("click");
     await page.getByLabel("Workspace name", { exact: true })
-      .fill("System.Text.Json 9.0.4");
+      .fill(savedWorkspaceName);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     const open = page.getByRole("button", {
-      name: "Open saved Workspace System.Text.Json 9.0.4",
+      name: `Open saved Workspace ${savedWorkspaceName}`,
       exact: true,
     });
     await expect(open).toBeVisible({ timeout: 180_000 });
@@ -2521,7 +2937,7 @@ test.describe("bounded network-backed two-host demo", () => {
     expect(persisted.version).toBe(2);
     expect(persisted.entries).toHaveLength(1);
     expect(persisted.entries[0]).toMatchObject({
-      name: "System.Text.Json 9.0.4",
+      name: savedWorkspaceName,
       kind: "complete",
     });
 
@@ -2530,15 +2946,15 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(open).toBeFocused();
     await open.click();
     await expect(page.locator("[data-navigation-order]"))
-      .toContainText("System.Text.Json", { timeout: 180_000 });
+      .toContainText(retainedWorkspace.packageId, { timeout: 180_000 });
     await expect(page.locator("[data-navigation-order]"))
-      .toContainText("9.0.4");
+      .toContainText(retainedWorkspace.version);
     await expect(page.locator(".workspace-row")
-      .filter({ hasText: "System.Text.Json 9.0.4" })
+      .filter({ hasText: savedWorkspaceName })
       .locator("small"))
       .toHaveText("Active", { timeout: 180_000 });
     await expect(page.getByRole("button", {
-      name: "Delete System.Text.Json 9.0.4",
+      name: `Delete ${savedWorkspaceName}`,
       exact: true,
     })).toBeEnabled({ timeout: 180_000 });
     await expect(page.locator('[data-workspace-select]').first())
@@ -2548,11 +2964,11 @@ test.describe("bounded network-backed two-host demo", () => {
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
-    ).click();
+    ).dispatchEvent("click");
     await page.getByLabel("Workspace name", { exact: true })
-      .fill("Re-saved System.Text.Json 9.0.4");
+      .fill(resavedWorkspaceName);
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    const resavedPacket = await page.evaluate<string | null>(() => {
+    const resavedPacket = await page.evaluate<string | null, string>(name => {
       const raw = localStorage.getItem("inspect-saved-workspaces");
       if (raw === null) return null;
       const value: unknown = JSON.parse(raw);
@@ -2565,14 +2981,14 @@ test.describe("bounded network-backed two-host demo", () => {
         typeof candidate === "object"
         && candidate !== null
         && "name" in candidate
-        && candidate.name === "Re-saved System.Text.Json 9.0.4");
+        && candidate.name === name);
       return entry
         && typeof entry === "object"
         && "packet" in entry
         && typeof entry.packet === "string"
         ? entry.packet
         : null;
-    });
+    }, resavedWorkspaceName);
     expect(resavedPacket).toBe(persisted.entries[0]!.packet);
     await expect.poll(
       () => new URL(page.url()).searchParams.get("w"),
@@ -2591,7 +3007,7 @@ test.describe("bounded network-backed two-host demo", () => {
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
     await expect(page.locator("[data-navigation-order]"))
-      .toContainText("System.Text.Json");
+      .toContainText(retainedWorkspace.packageId);
     await expect(page.locator("#package-query-heading")).toHaveCount(0);
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(2);
@@ -2611,15 +3027,18 @@ test.describe("bounded network-backed two-host demo", () => {
       .toHaveText("Package Activity");
     const productNavigationButton =
       page.locator("[data-product-navigation-button]");
-    await productNavigationButton.click();
-    await page.locator('[data-product-destination="workspace"]').focus();
+    await productNavigationButton.dispatchEvent("click");
+    const workspaceDestination =
+      page.locator('[data-product-destination="workspace"]');
+    await workspaceDestination.focus();
+    await expect(workspaceDestination).toBeFocused();
     await expect(page.locator(".product-navigation-menu")).toBeVisible();
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
     await expect(page.locator(".product-navigation-menu")).toBeHidden();
     await expect(productNavigationButton).toBeFocused();
     await expect(page.locator("[data-navigation-order]"))
-      .toContainText("System.Text.Json");
+      .toContainText(retainedWorkspace.packageId);
     await expect(page.locator("#package-changes-heading")).toHaveCount(0);
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(2);
@@ -2639,7 +3058,7 @@ test.describe("bounded network-backed two-host demo", () => {
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
     await expect(page.locator("[data-navigation-order]"))
-      .toContainText("System.Text.Json");
+      .toContainText(retainedWorkspace.packageId);
     await expect(page.locator("#spotlight-input")).toHaveCount(0);
     await page.evaluate(() => history.forward());
     await expect(page).toHaveURL(/\/$/);
@@ -2654,7 +3073,7 @@ test.describe("bounded network-backed two-host demo", () => {
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
     await expect(page.locator("[data-navigation-order]"))
-      .toContainText("System.Text.Json");
+      .toContainText(retainedWorkspace.packageId);
     await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
       .toHaveCount(0);
     await page.evaluate(() => history.forward());
@@ -2664,18 +3083,34 @@ test.describe("bounded network-backed two-host demo", () => {
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
 
-    await page.evaluate(() => history.back());
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="activity"]').click();
+    await expect(page).toHaveURL(/\/activity$/);
+    await page.evaluate(() => {
+      window.addEventListener("popstate", () => {
+        queueMicrotask(() => history.back());
+      }, { once: true });
+      history.back();
+    });
     await expect.poll(() => page.url()).toBe(compatibilityUrl);
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(1, { timeout: 180_000 });
     await expect(page.locator(".workspace-occurrence-row"))
-      .toContainText("System.Text.Json");
+      .toContainText(retainedWorkspace.packageId);
 
     await page.evaluate(() => history.forward());
     await expect(page.locator(".toast"))
       .toContainText("That retained Workspace is no longer available.");
     await expect.poll(() => page.url()).toBe(compatibilityUrl);
+    await page.evaluate(() => new Promise<void>(complete => {
+      requestAnimationFrame(() => requestAnimationFrame(() => complete()));
+    }));
+    await expect(productNavigationButton).not.toBeFocused();
   });
+});
+
+test.describe("bounded network-backed Worker smoke", () => {
+  test.describe.configure({ timeout: 240_000 });
 
   test("opens an unlisted package through visible exact-coordinate search", async ({
     page,
@@ -2783,5 +3218,20 @@ test.describe("bounded network-backed two-host demo", () => {
     const flattened = signalNames.join(" ");
     expect(flattened).toContain("IHttpClientFactory");
     expect(flattened).toContain("AddHttpClient");
+  });
+
+  test("opens Avalonia over the ordinary Worker boundary", async ({ page }) => {
+    await boot(page);
+    // This real result crosses both former ordinary Worker limits.
+    const surface = await driver(page).queryCoordinate(
+      "Avalonia",
+      "12.1.3",
+      "net8.0",
+    );
+    expect(surface.package).toBe("Avalonia");
+    expect(surface.version).toBe("12.1.3");
+    expect(surface.activeFramework).toBe("net8.0");
+    expect(surface.assemblies.length).toBeGreaterThan(0);
+    expect(surface.types.length).toBeGreaterThan(0);
   });
 });

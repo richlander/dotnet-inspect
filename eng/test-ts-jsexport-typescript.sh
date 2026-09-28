@@ -34,6 +34,9 @@ fi
 
 fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
 fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixtures/release/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
+directional_json_value_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures/ILInspector.JsExportSurface.DirectionalJsonValueFixtures.csproj"
+directional_json_value_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.DirectionalJsonValueFixtures/release/ILInspector.JsExportSurface.DirectionalJsonValueFixtures.dll"
+directional_json_value_context="ILInspector.JsExportSurface.DirectionalJsonValueFixtures.ConditionalJsonValueExportContext"
 polymorphic_fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.PolymorphicExportFixtures/ILInspector.JsExportSurface.PolymorphicExportFixtures.csproj"
 polymorphic_fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicExportFixtures/release/ILInspector.JsExportSurface.PolymorphicExportFixtures.dll"
 polymorphic_contracts_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicContractsFixtures/release/ILInspector.JsExportSurface.PolymorphicContractsFixtures.dll"
@@ -46,6 +49,25 @@ polymorphic_contracts_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.
   "$fixture_dll" \
   --runtime-module ./dotnet.js \
   --output "$scratch/facade.ts"
+
+directional_json_value_output="$scratch/directional-json-value"
+"$dotnet_exe" build \
+  "$directional_json_value_project" \
+  -c Release \
+  --nologo >/dev/null
+"$dotnet_exe" run \
+  --project "$repo_root/src/ts-jsexport" \
+  -c Release \
+  -- \
+  "$directional_json_value_dll" \
+  --context "$directional_json_value_context" \
+  --assembly-search-path "$(dirname "$directional_json_value_dll")" \
+  --runtime-module ./dotnet.js \
+  --warnings-as-errors \
+  --output "$directional_json_value_output"
+cp \
+  "$directional_json_value_output/ILInspector.JsExportSurface.DirectionalJsonValueFixtures.ts" \
+  "$scratch/directional-json-value-facade.ts"
 
 "$dotnet_exe" build "$polymorphic_fixture_project" -c Release --nologo >/dev/null
 "$dotnet_exe" run \
@@ -214,6 +236,74 @@ export const invalidConditionalNullableJson: ConditionalOutputDto = {
   ...output,
   nullablePayload: undefined,
 };
+TS
+
+cat > "$scratch/directional-usage.ts" <<'TS'
+import {
+  addServerNote,
+  getDirectionalChoice,
+  reemitDirectionalEnvelope,
+  reemitDirectionalOuter,
+} from "./facade.js";
+import type {
+  DirectionalBox,
+  DirectionalChoice,
+  DirectionalEnvelopeDtoInput,
+  DirectionalEnvelopeDtoOutput,
+  DirectionalOuterDtoInput,
+  DirectionalOuterDtoOutput,
+  DirectionalServerNoteDtoInput,
+  DirectionalServerNoteDtoOutput,
+} from "./facade.js";
+
+export function addManagedServerNote(): DirectionalServerNoteDtoOutput {
+  const input: DirectionalServerNoteDtoInput = { name: "client" };
+  return addServerNote(input);
+}
+
+export function useDirectionalEnvelope(
+  input: DirectionalEnvelopeDtoInput,
+): DirectionalEnvelopeDtoOutput {
+  const boxed: DirectionalBox<DirectionalServerNoteDtoInput> = input.box;
+  const recursive: DirectionalEnvelopeDtoInput | null = input.next;
+  void boxed;
+  void recursive;
+  return reemitDirectionalEnvelope(input);
+}
+
+export function useDirectionalChoice(): DirectionalChoice {
+  return getDirectionalChoice();
+}
+
+export function useDirectionalOuter(
+  input: DirectionalOuterDtoInput,
+): DirectionalOuterDtoOutput {
+  return reemitDirectionalOuter(input);
+}
+
+// The reader ignores this output-only member, so it is not accepted as input.
+export const invalidInput: DirectionalServerNoteDtoInput = {
+  name: "client",
+  // @ts-expect-error
+  serverNote: "not consumed",
+};
+TS
+
+cat > "$scratch/directional-json-value-usage.ts" <<'TS'
+import { reemitConditionalJsonValue } from "./directional-json-value-facade.js";
+import type {
+  ConditionalJsonValueDtoInput,
+  ConditionalJsonValueDtoOutput,
+  JsonValue,
+} from "./directional-json-value-facade.js";
+
+const input: ConditionalJsonValueDtoInput = {
+  payload: { source: "client" },
+};
+const output: ConditionalJsonValueDtoOutput =
+  reemitConditionalJsonValue(input);
+const payload: JsonValue | undefined = output.payload;
+void payload;
 TS
 
 cat > "$scratch/union-usage.ts" <<'TS'
@@ -494,6 +584,9 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "polymorphic-facade.ts",
     "callback-usage.ts",
     "conditional-usage.ts",
+    "directional-json-value-facade.ts",
+    "directional-json-value-usage.ts",
+    "directional-usage.ts",
     "inert-usage.ts",
     "timestamp-usage.ts",
     "typed-input-usage.ts",
@@ -503,6 +596,43 @@ cat > "$scratch/tsconfig.json" <<'JSON'
 JSON
 cp "$dotnet_dts" "$scratch/dotnet.d.ts"
 "$tsc" -p "$scratch/tsconfig.json"
+
+json_value_mutation="$scratch/missing-directional-json-value"
+mkdir "$json_value_mutation"
+cp \
+  "$scratch/dotnet.d.ts" \
+  "$scratch/directional-json-value-usage.ts" \
+  "$json_value_mutation/"
+cat > "$json_value_mutation/tsconfig.json" <<'JSON'
+{
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "lib": ["DOM", "ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noUncheckedIndexedAccess": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": [],
+    "verbatimModuleSyntax": true
+  },
+  "include": ["*.ts"]
+}
+JSON
+perl -0pe \
+  's/export type JsonValue =\n  \| null\n  \| boolean\n  \| number\n  \| string\n  \| readonly JsonValue\[\]\n  \| \{ readonly \[key: string\]: JsonValue \};\n//' \
+  "$scratch/directional-json-value-facade.ts" \
+  > "$json_value_mutation/directional-json-value-facade.ts"
+if cmp -s \
+  "$scratch/directional-json-value-facade.ts" \
+  "$json_value_mutation/directional-json-value-facade.ts"; then
+  echo "directional JsonValue mutation did not remove the helper." >&2
+  exit 1
+fi
+if "$tsc" -p "$json_value_mutation/tsconfig.json" >/dev/null 2>&1; then
+  echo "directional facade unexpectedly compiled without JsonValue." >&2
+  exit 1
+fi
 
 grep -F 'from "./dotnet.js"' "$scratch/out/facade.js" >/dev/null
 if grep -F 'inertStringBrand' "$scratch/out/facade.js" >/dev/null; then

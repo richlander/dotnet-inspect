@@ -400,9 +400,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using var client = new HttpClient(new RejectNetworkHandler(new HttpClientHandler()));
         try
         {
+            // A credentialed authority keeps caller-owned temporary roots.
+            string config = WriteConfig([("first", FirstFeed, "*")], credentialedSource: "first");
             await using (var range = await DesktopPackageExtractor.OpenPackageRangeAsync(
                 client, ParseRange($"{Id}@1.0.0..2.0.0"),
-                sourceOptions: new NuGetSourceOptions { Sources = [FirstFeed] },
+                sourceOptions: new NuGetSourceOptions { ConfigFile = config },
                 createComposition: () => CreateComposition((source, _) =>
                     new SelectionFeedHandler(source.Url, Id, ["1.0.0", "2.0.0"],
                         version => CreatePackage(Id, version, version: version), requests))))

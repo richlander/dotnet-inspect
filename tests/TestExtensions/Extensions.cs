@@ -44,3 +44,16 @@ public static class TaskExtensions
         public bool IsSuccessful => task.IsCompletedSuccessfully;
     }
 }
+
+public static class DualScopeExtensions
+{
+    extension<T>(IEnumerable<T> source) where T : class
+    {
+        public bool ReferenceItems => source.Any();
+    }
+
+    extension<T>(IEnumerable<T> source) where T : struct
+    {
+        public bool ValueItems => source.Any();
+    }
+}

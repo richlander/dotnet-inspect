@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Text;
 
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
@@ -14,9 +15,15 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class LibraryInspectionOperation
 {
+    private const byte ContinuationVersion = 5;
+    private const int ContinuationHeaderLength = 28;
     private const string SharePath = "library-inspection/share";
     private const string ShareReason =
         "A complete portable Workspace scenario was not supplied.";
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
 
     public static InspectionEnvelope<LibraryInspectionOutcome> Execute(
         LibraryInspectionRequest request,
@@ -28,26 +35,123 @@ public static class LibraryInspectionOperation
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            RowsPreparation rows = PrepareRows(request.Plan.Types);
-            LibraryTypeDeclarationInventoryInspectionOutcome outcome =
-                LibraryTypeDeclarationInventoryInspection.Execute(
-                    new(
-                        request.Library,
-                        InventoryBounds(request.Plan.Bounds),
-                        SourceRows(request.Plan.Types, rows)),
-                    lease,
-                    cancellationToken);
-            return Project(
-                outcome,
-                request,
-                rows,
-                cancellationToken);
+            InspectionEnvelope<LibraryInspectionOutcome> envelope =
+                request.Plan.Types is { } types
+                    ? WithFacts(
+                        ExecuteTypes(request, types, lease, cancellationToken),
+                        request,
+                        lease,
+                        cancellationToken)
+                    : ExecuteFactsOnly(request, lease, cancellationToken);
+            return request.Plan.Enablements is null
+                || envelope.Content
+                    is not LibraryInspectionOutcome.Available available
+                ? envelope
+                : Replace(
+                    envelope,
+                    available.Document with
+                    {
+                        Enablements = LibraryEnablementsInspection.Execute(
+                            request.Library,
+                            lease,
+                            cancellationToken),
+                    });
         }
         finally
         {
             lease.Dispose();
         }
     }
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> ExecuteTypes(
+        LibraryInspectionRequest request,
+        LibraryTypePopulationRequest types,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken)
+    {
+        RowsPreparation rows = PrepareRows(types);
+        LibraryTypeDeclarationInventoryInspectionOutcome outcome =
+            LibraryTypeDeclarationInventoryInspection.Execute(
+                new(
+                    request.Library,
+                    InventoryBounds(request.Plan.Bounds),
+                    SourceRows(types, rows)),
+                lease,
+                cancellationToken);
+        return Project(outcome, request, rows, cancellationToken);
+    }
+
+    /// <summary>
+    /// Answers a plan without a Type population: identity, MVID, and the
+    /// requested fact groups, with no declaration inventory work.
+    /// </summary>
+    private static InspectionEnvelope<LibraryInspectionOutcome> ExecuteFactsOnly(
+        LibraryInspectionRequest request,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken) =>
+        LibraryFactsInspection.Execute(request.Library, lease, cancellationToken) switch
+        {
+            LibraryFactsInspectionOutcome.Available facts => new(
+                new LibraryInspectionOutcome.Available(
+                    Facts(
+                        new LibraryDocument(
+                            PortableIdentity(facts.AssemblyIdentity),
+                            facts.ModuleVersionId,
+                            Types: null,
+                            new(facts.AssemblyBytes, 0, 0, 0),
+                            request.Plan.Bounds),
+                        facts,
+                        request)),
+                new InspectionShare.NonProjectable(SharePath, ShareReason),
+                ImmutableArray<InspectionDiagnostic>.Empty),
+            LibraryFactsInspectionOutcome.Rejected rejected => Rejected(rejected.Kind),
+            LibraryFactsInspectionOutcome.Failed failed => Failed(failed.Kind),
+            _ => throw new InvalidOperationException("Unknown Library facts outcome."),
+        };
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> WithFacts(
+        InspectionEnvelope<LibraryInspectionOutcome> envelope,
+        LibraryInspectionRequest request,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken)
+    {
+        if (request.Plan.Image is null && request.Plan.Description is null
+            || envelope.Content is not LibraryInspectionOutcome.Available available)
+        {
+            return envelope;
+        }
+
+        return LibraryFactsInspection.Execute(request.Library, lease, cancellationToken) switch
+        {
+            LibraryFactsInspectionOutcome.Available facts =>
+                Replace(envelope, Facts(available.Document, facts, request)),
+            LibraryFactsInspectionOutcome.Rejected rejected => Rejected(rejected.Kind),
+            LibraryFactsInspectionOutcome.Failed failed => Failed(failed.Kind),
+            _ => throw new InvalidOperationException("Unknown Library facts outcome."),
+        };
+    }
+
+    private static LibraryDocument Facts(
+        LibraryDocument document,
+        LibraryFactsInspectionOutcome.Available facts,
+        LibraryInspectionRequest request) =>
+        document with
+        {
+            Image = request.Plan.Image is null
+                ? null
+                : LibraryImageFacts.From(facts.AssemblyBytes, facts.Facts),
+            Description = request.Plan.Description is null
+                ? null
+                : LibraryDescriptionFacts.From(facts.Facts),
+        };
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> Replace(
+        InspectionEnvelope<LibraryInspectionOutcome> envelope,
+        LibraryDocument document) =>
+        new(
+            new LibraryInspectionOutcome.Available(document),
+            envelope.Share,
+            envelope.Diagnostics);
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Project(
         LibraryTypeDeclarationInventoryInspectionOutcome outcome,
@@ -84,27 +188,30 @@ public static class LibraryInspectionOperation
         var diagnostics =
             ImmutableArray.CreateBuilder<InspectionDiagnostic>();
         LibraryTypePopulationCountOutcome? count = null;
-        if (request.Plan.Types.Count is not null)
+        if (request.Plan.Types!.Count is not null)
         {
             (
                 count,
                 ImmutableArray<InspectionDiagnostic> countDiagnostics) =
                 Count(
                     correspondence.Inventory,
-                    request.Plan.Types.DeclarationSelection,
+                    request.Plan.Types!.DeclarationSelection,
+                    request.Plan.Types!.DefinitionKinds,
+                    request.Plan.Types!.Namespace,
+                    request.Plan.Types!.NamespaceMatch,
                     request.Plan.Bounds,
                     cancellationToken);
             diagnostics.AddRange(countDiagnostics);
         }
         LibraryTypePopulationRowsOutcome? rowResult = null;
-        if (request.Plan.Types.Rows is { } rowRequest)
+        if (request.Plan.Types!.Rows is { } rowRequest)
         {
             (
                 rowResult,
                 ImmutableArray<InspectionDiagnostic> rowDiagnostics) =
                 Rows(
                     correspondence,
-                    request.Plan.Types,
+                    request.Plan.Types!,
                     rowRequest,
                     request.Plan.Bounds,
                     rows,
@@ -175,7 +282,7 @@ public static class LibraryInspectionOperation
         var diagnostics =
             ImmutableArray.CreateBuilder<InspectionDiagnostic>();
         LibraryTypePopulationCountOutcome? count = null;
-        if (request.Plan.Types.Count is not null)
+        if (request.Plan.Types!.Count is not null)
         {
             count = new LibraryTypePopulationCountOutcome.Incomplete(
                 countBound,
@@ -189,7 +296,7 @@ public static class LibraryInspectionOperation
         }
 
         LibraryTypePopulationRowsOutcome? rowResult = null;
-        if (request.Plan.Types.Rows is not null)
+        if (request.Plan.Types!.Rows is not null)
         {
             LibraryTypePopulationRowsRejection? rejection =
                 ContinuationRejection(
@@ -242,8 +349,11 @@ public static class LibraryInspectionOperation
             PortableIdentity(subject.AssemblyIdentity);
         var binding = new LibraryTypePopulationBinding(
             subject.ModuleVersionId,
-            request.Plan.Types.Accessibility,
-            request.Plan.Types.DeclarationSelection);
+            request.Plan.Types!.Accessibility,
+            request.Plan.Types!.DeclarationSelection,
+            request.Plan.Types!.DefinitionKinds,
+            request.Plan.Types!.Namespace,
+            request.Plan.Types!.NamespaceMatch);
         var document = new LibraryDocument(
             portableIdentity,
             subject.ModuleVersionId,
@@ -307,6 +417,9 @@ public static class LibraryInspectionOperation
                                 correspondence.ModuleVersionId,
                                 population.Accessibility,
                                 population.DeclarationSelection,
+                                population.DefinitionKinds,
+                                population.Namespace,
+                                population.NamespaceMatch,
                                 request.Ordering,
                                 request.MemberCount is not null,
                                 next)
@@ -520,6 +633,9 @@ public static class LibraryInspectionOperation
         Count(
             AssemblyTypeDeclarationInventory inventory,
             LibraryTypeDeclarationSelection selection,
+            ApiTypeInventoryKinds definitionKinds,
+            string? @namespace,
+            MetadataNamespaceMatch namespaceMatch,
             ApiSurfaceExtractionBounds bounds,
             CancellationToken cancellationToken)
     {
@@ -534,11 +650,25 @@ public static class LibraryInspectionOperation
             in inventory.GetDeclarations())
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (@namespace is not null
+                && !declaration.Name.IsInNamespace(
+                    @namespace,
+                    namespaceMatch))
+            {
+                continue;
+            }
             switch (declaration.Kind)
             {
                 case AssemblyTypeDeclarationKind.Definition:
-                    if (!IncludesDefinitions(selection))
+                    if (!IncludesDefinitions(selection)
+                        || !IncludesDefinitionKind(
+                            definitionKinds,
+                            declaration.DefinitionKind
+                            ?? throw new InvalidOperationException(
+                                "A Type definition declaration omitted its kind.")))
+                    {
                         break;
+                    }
                     switch (
                         declaration.DefinitionKind
                         ?? throw new InvalidOperationException(
@@ -572,10 +702,14 @@ public static class LibraryInspectionOperation
                     {
                         if (selection
                             != LibraryTypeDeclarationSelection
-                                .DefinitionsAndForwarders)
+                                .DefinitionsAndForwarders
+                            || definitionKinds
+                                != ApiTypeInventoryKinds.All)
                         {
                             break;
                         }
+                        if (@namespace is not null)
+                            break;
                         const LibraryTypePopulationCountUnavailableReason
                             reason =
                                 LibraryTypePopulationCountUnavailableReason
@@ -660,6 +794,14 @@ public static class LibraryInspectionOperation
         if (payload.Accessibility != population.Accessibility
             || payload.DeclarationSelection
                 != population.DeclarationSelection
+            || payload.DefinitionKinds
+                != population.DefinitionKinds
+            || !string.Equals(
+                payload.Namespace,
+                population.Namespace,
+                StringComparison.Ordinal)
+            || payload.NamespaceMatch
+                != population.NamespaceMatch
             || payload.Ordering != rows.Ordering
             || payload.IncludeMemberCount
                 != (rows.MemberCount is not null))
@@ -691,7 +833,13 @@ public static class LibraryInspectionOperation
                         population.DeclarationSelection),
                 includeForwarders:
                     IncludesForwarders(
-                        population.DeclarationSelection));
+                        population.DeclarationSelection),
+                definitionKinds:
+                    population.DefinitionKinds,
+                @namespace:
+                    population.Namespace,
+                namespaceMatch:
+                    population.NamespaceMatch);
     }
 
     private static LibraryTypePopulationRowsRejection?
@@ -711,25 +859,45 @@ public static class LibraryInspectionOperation
         Guid moduleVersionId,
         LibraryTypeAccessibility accessibility,
         LibraryTypeDeclarationSelection declarationSelection,
+        ApiTypeInventoryKinds definitionKinds,
+        string? @namespace,
+        MetadataNamespaceMatch namespaceMatch,
         LibraryTypePopulationOrdering ordering,
         bool includeMemberCount,
         int nextOrdinal)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(nextOrdinal);
-        Span<byte> payload = stackalloc byte[25];
-        payload[0] = 2;
-        if (!moduleVersionId.TryWriteBytes(payload[1..17]))
+        int namespaceByteCount =
+            @namespace is null
+                ? 0
+                : StrictUtf8.GetByteCount(@namespace);
+        byte[] payload =
+            GC.AllocateUninitializedArray<byte>(
+                checked(
+                    ContinuationHeaderLength
+                    + namespaceByteCount));
+        payload[0] = ContinuationVersion;
+        if (!moduleVersionId.TryWriteBytes(payload.AsSpan(1, 16)))
         {
             throw new InvalidOperationException(
                 "The Library MVID could not be encoded.");
         }
         payload[17] = checked((byte)accessibility);
         payload[18] = checked((byte)declarationSelection);
-        payload[19] = checked((byte)ordering);
-        payload[20] = includeMemberCount ? (byte)1 : (byte)0;
+        payload[19] = checked((byte)definitionKinds);
+        payload[20] = checked((byte)ordering);
+        payload[21] = includeMemberCount ? (byte)1 : (byte)0;
+        payload[22] = @namespace is null ? (byte)0 : (byte)1;
+        payload[23] = checked((byte)namespaceMatch);
         BinaryPrimitives.WriteInt32LittleEndian(
-            payload[21..25],
+            payload.AsSpan(24, 4),
             nextOrdinal);
+        if (@namespace is not null)
+        {
+            StrictUtf8.GetBytes(
+                @namespace,
+                payload.AsSpan(ContinuationHeaderLength));
+        }
         return new(
             new InertString(
                 TextPolicy.Field,
@@ -741,14 +909,21 @@ public static class LibraryInspectionOperation
         out ContinuationPayload payload)
     {
         payload = default;
-        Span<byte> bytes = stackalloc byte[25];
-        if (!Convert.TryFromBase64String(
-                continuation.Value.ToString(),
-                bytes,
-                out int written)
-            || written != bytes.Length
-            || bytes[0] != 2
-            || bytes[20] > 1)
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(
+                continuation.Value.ToString());
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        if (bytes.Length < ContinuationHeaderLength
+            || bytes[0] != ContinuationVersion
+            || bytes[21] > 1
+            || bytes[22] > 1)
         {
             return false;
         }
@@ -757,13 +932,56 @@ public static class LibraryInspectionOperation
             (LibraryTypeAccessibility)bytes[17];
         var declarationSelection =
             (LibraryTypeDeclarationSelection)bytes[18];
+        var definitionKinds =
+            (ApiTypeInventoryKinds)bytes[19];
         var ordering =
-            (LibraryTypePopulationOrdering)bytes[19];
+            (LibraryTypePopulationOrdering)bytes[20];
+        var namespaceMatch =
+            (MetadataNamespaceMatch)bytes[23];
         int nextOrdinal =
-            BinaryPrimitives.ReadInt32LittleEndian(bytes[21..25]);
+            BinaryPrimitives.ReadInt32LittleEndian(
+                bytes.AsSpan(24, 4));
+        string? @namespace = null;
+        if (bytes[22] == 0)
+        {
+            if (bytes.Length != ContinuationHeaderLength)
+                return false;
+        }
+        else
+        {
+            try
+            {
+                @namespace = StrictUtf8.GetString(
+                    bytes.AsSpan(ContinuationHeaderLength));
+            }
+            catch (DecoderFallbackException)
+            {
+                return false;
+            }
+
+            if (@namespace.Length
+                > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            {
+                return false;
+            }
+        }
         if (!Enum.IsDefined(accessibility)
             || !Enum.IsDefined(declarationSelection)
             || !Enum.IsDefined(ordering)
+            || !Enum.IsDefined(namespaceMatch)
+            || !IsValidDefinitionKinds(
+                declarationSelection,
+                definitionKinds)
+            || (@namespace is null
+                && namespaceMatch
+                    is not MetadataNamespaceMatch.Exact)
+            || (namespaceMatch
+                    is MetadataNamespaceMatch.Suffix
+                && (@namespace!.Length < 2
+                    || @namespace[0] != '.'))
+            || (namespaceMatch
+                    is MetadataNamespaceMatch.ExactOrDescendant
+                && @namespace!.Length == 0)
             || nextOrdinal < 0)
         {
             return false;
@@ -773,8 +991,11 @@ public static class LibraryInspectionOperation
             new Guid(bytes[1..17]),
             accessibility,
             declarationSelection,
+            definitionKinds,
+            @namespace,
+            namespaceMatch,
             ordering,
-            bytes[20] == 1,
+            bytes[21] == 1,
             nextOrdinal);
         return payload.ModuleVersionId != Guid.Empty;
     }
@@ -826,6 +1047,9 @@ public static class LibraryInspectionOperation
         Guid ModuleVersionId,
         LibraryTypeAccessibility Accessibility,
         LibraryTypeDeclarationSelection DeclarationSelection,
+        ApiTypeInventoryKinds DefinitionKinds,
+        string? Namespace,
+        MetadataNamespaceMatch NamespaceMatch,
         LibraryTypePopulationOrdering Ordering,
         bool IncludeMemberCount,
         int NextOrdinal);
@@ -839,6 +1063,55 @@ public static class LibraryInspectionOperation
         LibraryTypeDeclarationSelection selection) =>
         selection is LibraryTypeDeclarationSelection.Forwarders
             or LibraryTypeDeclarationSelection.DefinitionsAndForwarders;
+
+    private static bool IncludesDefinitionKind(
+        ApiTypeInventoryKinds selection,
+        AssemblyTypeDefinitionKind kind) =>
+        kind switch
+        {
+            AssemblyTypeDefinitionKind.Class =>
+                (selection
+                    & ApiTypeInventoryKinds.Classes)
+                != 0,
+            AssemblyTypeDefinitionKind.ValueType =>
+                (selection
+                    & ApiTypeInventoryKinds.Structs)
+                != 0,
+            AssemblyTypeDefinitionKind.Interface =>
+                (selection
+                    & ApiTypeInventoryKinds.Interfaces)
+                != 0,
+            AssemblyTypeDefinitionKind.Enum =>
+                (selection
+                    & ApiTypeInventoryKinds.Enums)
+                != 0,
+            AssemblyTypeDefinitionKind.Delegate =>
+                (selection
+                    & ApiTypeInventoryKinds.Delegates)
+                != 0,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown Type definition kind."),
+        };
+
+    private static bool IsValidDefinitionKinds(
+        LibraryTypeDeclarationSelection declarationSelection,
+        ApiTypeInventoryKinds definitionKinds)
+    {
+        if ((definitionKinds
+                & ~ApiTypeInventoryKinds.All)
+            != 0)
+        {
+            return false;
+        }
+
+        return IncludesDefinitions(declarationSelection)
+            ? definitionKinds
+                != ApiTypeInventoryKinds.None
+            : definitionKinds
+                == ApiTypeInventoryKinds.None;
+    }
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Rejected(
         LibraryTypeDeclarationInventoryInspectionRejectionKind rejection)

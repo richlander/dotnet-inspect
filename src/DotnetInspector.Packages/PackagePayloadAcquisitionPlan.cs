@@ -26,13 +26,20 @@ public sealed class PackagePayloadAcquisitionPlan
         PackageStoreProvider getStore,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PackagePayloadAccess access = PackagePayloadAccess.Complete,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
     {
         ArgumentNullException.ThrowIfNull(getStore);
+        if (!Enum.IsDefined(access))
+            throw new ArgumentOutOfRangeException(nameof(access));
         _getStore = getStore;
         Limits = limits;
         TransferPolicy = transferPolicy;
         Log = log;
+        Access = access;
+        ArgumentOutOfRangeException.ThrowIfNegative(rangedSizeCut);
+        RangedSizeCut = rangedSizeCut;
     }
 
     public PackagePayloadLimits? Limits { get; }
@@ -40,6 +47,19 @@ public sealed class PackagePayloadAcquisitionPlan
     public IPackagePayloadTransferPolicy? TransferPolicy { get; }
 
     public Action<string>? Log { get; }
+
+    /// <summary>
+    /// How an uncached payload is transferred. <see cref="PackagePayloadAccess.Ranged"/>
+    /// requires a Realize operation, whose selection bounds the read, or an
+    /// Acquire operation carrying a <see cref="PackageDocumentDemand"/>.
+    /// </summary>
+    public PackagePayloadAccess Access { get; }
+
+    /// <summary>
+    /// Under ranged access, archives at or under this advertised length are
+    /// acquired complete and cached; larger ones are read by range.
+    /// </summary>
+    public long RangedSizeCut { get; }
 
     /// <summary>
     /// Gets the caller-owned store for one authority and producer.

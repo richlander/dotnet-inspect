@@ -72,7 +72,12 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         bool includeMemberCount,
         Guid? expectedModuleVersionId,
         bool includeDefinitions = true,
-        bool includeForwarders = true)
+        bool includeForwarders = true,
+        ApiTypeInventoryKinds definitionKinds =
+            ApiTypeInventoryKinds.All,
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
@@ -81,11 +86,74 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
             throw new ArgumentException(
                 "A declaration Rows request must include definitions, forwarders, or both.");
         }
+        if ((definitionKinds
+                & ~ApiTypeInventoryKinds.All)
+            != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(definitionKinds),
+                definitionKinds,
+                "Unknown declaration definition-kind selection.");
+        }
+        if (includeDefinitions
+            && definitionKinds
+                == ApiTypeInventoryKinds.None)
+        {
+            throw new ArgumentException(
+                "A declaration Rows request that includes definitions must select at least one definition kind.",
+                nameof(definitionKinds));
+        }
+        if (!includeDefinitions)
+        {
+            if (definitionKinds
+                is not ApiTypeInventoryKinds.All
+                    and not ApiTypeInventoryKinds.None)
+            {
+                throw new ArgumentException(
+                    "A forwarder-only declaration Rows request cannot select definition kinds.",
+                    nameof(definitionKinds));
+            }
+
+            definitionKinds =
+                ApiTypeInventoryKinds.None;
+        }
         if (expectedModuleVersionId == Guid.Empty)
         {
             throw new ArgumentException(
                 "A continuation MVID cannot be empty.",
                 nameof(expectedModuleVersionId));
+        }
+        if (@namespace?.Length
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(@namespace),
+                @namespace.Length,
+                $"A declaration namespace cannot exceed "
+                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} "
+                    + "characters.");
+        }
+        if (!Enum.IsDefined(namespaceMatch))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(namespaceMatch),
+                namespaceMatch,
+                "Unknown declaration namespace match.");
+        }
+        if (@namespace is null
+            && namespaceMatch is not MetadataNamespaceMatch.Exact)
+        {
+            throw new ArgumentException(
+                "An unqualified declaration Rows request cannot select a namespace match.",
+                nameof(namespaceMatch));
+        }
+        if (namespaceMatch is MetadataNamespaceMatch.Suffix
+            && (@namespace!.Length < 2
+                || @namespace[0] != '.'))
+        {
+            throw new ArgumentException(
+                "A declaration namespace suffix must start with '.' and contain a suffix.",
+                nameof(@namespace));
         }
 
         StartOrdinal = startOrdinal;
@@ -93,6 +161,9 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         IncludeMemberCount = includeMemberCount;
         IncludeDefinitions = includeDefinitions;
         IncludeForwarders = includeForwarders;
+        DefinitionKinds = definitionKinds;
+        Namespace = @namespace;
+        NamespaceMatch = namespaceMatch;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
@@ -101,7 +172,39 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
     public bool IncludeMemberCount { get; }
     public bool IncludeDefinitions { get; }
     public bool IncludeForwarders { get; }
+    public ApiTypeInventoryKinds DefinitionKinds { get; }
+    public string? Namespace { get; }
+    public MetadataNamespaceMatch NamespaceMatch { get; }
     public Guid? ExpectedModuleVersionId { get; }
+
+    internal bool Includes(AssemblyTypeDefinitionKind kind) =>
+        kind switch
+        {
+            AssemblyTypeDefinitionKind.Class =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Classes)
+                != 0,
+            AssemblyTypeDefinitionKind.ValueType =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Structs)
+                != 0,
+            AssemblyTypeDefinitionKind.Interface =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Interfaces)
+                != 0,
+            AssemblyTypeDefinitionKind.Enum =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Enums)
+                != 0,
+            AssemblyTypeDefinitionKind.Delegate =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Delegates)
+                != 0,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown Type definition kind."),
+        };
 }
 
 public enum LibraryTypeDeclarationRowsInspectionUnavailableReason
@@ -532,6 +635,9 @@ public static class LibraryTypeDeclarationInventoryInspection
             [.. inventory.GetDeclarations()];
         if (request.IncludeDefinitions
             && request.IncludeForwarders
+            && request.DefinitionKinds
+                == ApiTypeInventoryKinds.All
+            && request.Namespace is null
             && allDeclarations.Any(
                 static declaration =>
                     declaration.Kind
@@ -545,14 +651,22 @@ public static class LibraryTypeDeclarationInventoryInspection
             [
                 .. allDeclarations.Where(
                     declaration =>
-                        declaration.Kind switch
-                        {
-                            AssemblyTypeDeclarationKind.Definition =>
-                                request.IncludeDefinitions,
-                            AssemblyTypeDeclarationKind.Forwarder =>
-                                request.IncludeForwarders,
-                            _ => false,
-                        })
+                        (request.Namespace is null
+                            || declaration.Name.IsInNamespace(
+                                request.Namespace,
+                                request.NamespaceMatch))
+                        && (declaration.Kind switch
+                            {
+                                AssemblyTypeDeclarationKind.Definition =>
+                                    request.IncludeDefinitions
+                                    && request.Includes(
+                                        declaration.DefinitionKind
+                                        ?? throw new InvalidOperationException(
+                                            "A Type definition declaration omitted its kind.")),
+                                AssemblyTypeDeclarationKind.Forwarder =>
+                                    request.IncludeForwarders,
+                                _ => false,
+                            }))
             ];
 
         if (request.StartOrdinal > declarations.Length

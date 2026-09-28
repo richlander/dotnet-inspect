@@ -1,7 +1,7 @@
 # Method Body Inspection
 
 > Design north-star for raising `member` body sections and the
-> `library coordinate` child onto one service model. This complements the
+> `library address` child onto one service model. This complements the
 > assembly acquisition/session seam
 > in the [assembly inspection query model](assembly-inspection-query.md):
 > assembly inspection opens and identifies an assembly; method-body inspection
@@ -9,7 +9,7 @@
 
 ## Problem
 
-`member` and `library coordinate` expose peer facts about method bodies:
+`member` and `library address` expose peer facts about method bodies:
 
 - source and decompiled source
 - IL
@@ -34,7 +34,7 @@ opcode heuristics. It was no longer just a source query.
 Both paths have useful pieces, but neither is the target architecture:
 
 - `member` uses the normal command pipeline, but its formatter constructs facts.
-- `library coordinate` needs a thin command query over a Research-owned
+- `library address` needs a thin command query over a Research-owned
   projection.
 - Both paths construct overlapping method-body facts differently.
 
@@ -145,10 +145,10 @@ public sealed record ILCoordinateSelector(
     int ILOffset);
 ```
 
-This is the `library coordinate` selector shape. It is not a separate command
+This is the `library address` selector shape. It is not a separate command
 architecture; it establishes the child request while remaining another
 selector for the same method-body inspection pipeline.
-[Coordinate child command](coordinate-child-command.md) owns that CLI
+[Address child command](coordinate-child-command.md) owns that CLI
 placement.
 
 ## Facets
@@ -945,7 +945,7 @@ Move in reviewable slices.
 4. **Raise remaining semantic construction.** Move any classification,
    matching, or aggregation still implemented in CLI code to its canonical
    owner. Thin CLI row mapping is presentation, not a second semantic surface.
-5. **Converge selectors.** Route member and `library coordinate` selection
+5. **Converge selectors.** Route member and `library address` selection
    through shared metadata/Analysis query identities while preserving their
    command-specific error behavior.
 6. **Unify overlays and lifetime.** Compose Research/source/decompiler facts
@@ -957,13 +957,13 @@ comparison, implementation comparison, and PDB-source target indexing remain
 named compatibility consumers. Diff History Analysis uses shared PackageHouse
 cell inspection and the method-body session path.
 Separate `diff` phases may retain distinct executions and capability policies;
-`diff --finding analysis.*` still delegates path-backed acquisition to
-`ResearchDiff` until its focused migration.
+`diff --analysis` body analyses still delegate path-backed acquisition to
+`ResearchDiff` until their focused migration.
 
 ## Acceptance tests for the architecture
 
 - Adding a new method-body fact requires changing one producer/service, not both
-  `member` and `library coordinate`.
+  `member` and `library address`.
 - Adding a neutral Analysis query does not require a
   `MethodBodyInspectionSession` forwarding method.
 - One command performs one service execution with the requested capability and
@@ -984,7 +984,7 @@ Separate `diff` phases may retain distinct executions and capability policies;
 
 - Should missing facts be represented as empty lists, diagnostics, or
   unavailable-facet reasons? `member` sections often render empty-state notes;
-  `library coordinate` returns command errors for required contexts while its
+  `library address` returns command errors for required contexts while its
   bare child requires a useful bounded result.
 - How should caller-scope assembly resolution move behind assembly inspection
   while source attribution and cross-index composition remain session concerns?

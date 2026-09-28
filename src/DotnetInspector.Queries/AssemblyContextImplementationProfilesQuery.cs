@@ -107,8 +107,8 @@ public static class AssemblyContextImplementationProfilesQuery
             LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(),
                 resolver);
 
         ImplementationProfilesResult.Available profiles =

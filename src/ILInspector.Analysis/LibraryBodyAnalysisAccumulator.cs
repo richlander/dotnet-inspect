@@ -13,7 +13,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly MetadataReader _reader;
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
-    readonly bool _includeLeakTriage;
     readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
@@ -26,8 +25,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
         _primaryMetadataResolver = primaryMetadataResolver;
         _includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
-        _includeLeakTriage = plan.Includes(
-            LibraryBodyAnalysisFeatures.LeakTriage);
         _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
@@ -65,15 +62,12 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var suppressedOpportunityTokens = new HashSet<int>();
         var scopeExcludedOpportunityTokens =
             new HashSet<int>();
-        var leakFindings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
-        var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
-        var exceptionPathCandidates =
-            ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
-        var leakFailures =
-            ImmutableArray.CreateBuilder<LeakTriageFailure>();
-        var ownershipFlow =
-            ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
+        var implementationMetrics =
+            ImmutableArray
+                .CreateBuilder<MethodImplementationMetricEvidence>();
+        var implementationMetricDiagnostics =
+            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         int none = 0, impl = 0, expl = 0, unavailable = 0;
 
         foreach (var result in results)
@@ -107,21 +101,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
         {
             if (r.LocalThrows is { } methodLocalThrows)
                 localThrows.Add(methodLocalThrows);
-            if (r.LeakTriage is { } leakTriage)
-            {
-                leakFindings.AddRange(leakTriage.Findings);
-                leakCandidates.AddRange(leakTriage.Candidates);
-                exceptionPathCandidates.AddRange(
-                    leakTriage.ExceptionPathCandidates);
-                leakFailures.AddRange(leakTriage.Failures);
-            }
-            if (r.OwnershipFlow is { } methodOwnership
-                && (!methodOwnership.Rents.IsEmpty
-                    || !methodOwnership.Parameters.IsEmpty
-                    || !methodOwnership.IsComplete))
-            {
-                ownershipFlow.Add(methodOwnership);
-            }
             if (!r.HasCaller)
             {
                 if (r.HasBody
@@ -149,8 +128,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     r.Calls,
                     methodMap,
                     methodsByToken);
-            if (!r.UnsafeEvidence.IsDefaultOrEmpty
-                || !normalizedCalls.IsDefaultOrEmpty)
+            if (_includeMethodEvidence
+                && (!r.UnsafeEvidence.IsDefaultOrEmpty
+                    || !normalizedCalls.IsDefaultOrEmpty))
             {
                 unsafeEvidence.AddRange(
                     ReconcileCallSafetyEvidence(
@@ -262,6 +242,10 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 scopeExcludedOpportunityTokens.Add(r.Token);
             if (r.HasSignals)
                 bodySignals[r.Token] = r.Signals;
+            if (r.ImplementationMetrics is { } implementationMetric)
+                implementationMetrics.Add(implementationMetric);
+            if (r.ImplementationMetricDiagnostic is { } metricDiagnostic)
+                implementationMetricDiagnostics.Add(metricDiagnostic);
             if (r.ImplementationProfile is { } implementationProfile)
             {
                 if (r.Diagnostic is { } profileDiagnostic)
@@ -306,16 +290,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var nonHeapNewObjOperandTokens = _includeMethodEvidence
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
-        LeakTriageResult? leakTriageResult = _includeLeakTriage
-            ? new LeakTriageResult(
-                leakFindings.ToImmutable(),
-                leakCandidates.ToImmutable())
-            {
-                ExceptionPathCandidates =
-                    exceptionPathCandidates.ToImmutable(),
-                Failures = leakFailures.ToImmutable(),
-            }
-            : null;
         return new(
             Methods: new(
                 DeclaredMethods: declaredMethods.ToImmutable(),
@@ -327,6 +301,10 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 FieldLoads: fieldLoads.ToImmutable(),
                 ReturnFlows: returnFlows.ToImmutable(),
                 BodySignals: bodySignals,
+                ImplementationMetrics:
+                    implementationMetrics.ToImmutable(),
+                ImplementationMetricDiagnostics:
+                    implementationMetricDiagnostics.ToImmutable(),
                 ImplementationProfiles:
                     implementationProfiles.ToImmutable(),
                 InAssemblyTypeIsException: _includeMethodEvidence
@@ -357,8 +335,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 ScopeExcludedMethodTokens:
                     scopeExcludedOpportunityTokens,
                 ExceptionTypeNames: _exceptionTypeNames),
-            OwnershipFlow: new(ownershipFlow.ToImmutable()),
-            Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
     }
 

@@ -52,8 +52,13 @@ internal static class TypeScriptFacadeEmitter
         ];
         ValidateRuntimeIdentities(functions);
 
+        DtsEmitter.WireDeclarationPlan declarationPlan =
+            DtsEmitter.CreateWireDeclarationPlan(surface);
         TypeScriptNameAllocator names =
-            TypeScriptNameAllocator.Create(surface, functions);
+            TypeScriptNameAllocator.Create(
+                surface,
+                declarationPlan,
+                functions);
         var signatures = new Dictionary<JsExportFunction, TypeScriptFunctionSignature>();
         foreach (JsExportFunction function in functions)
         {
@@ -62,9 +67,11 @@ internal static class TypeScriptFacadeEmitter
                     surface,
                     function,
                     diagnostics,
+                    declarationPlan,
                     names.TypeNames,
                     names.InertStringName,
-                    names.DateTimeOffsetName);
+                    names.DateTimeOffsetName,
+                    names.JsonTextName);
             signatures.Add(
                 function,
                 names.Apply(function, signature));
@@ -77,11 +84,14 @@ internal static class TypeScriptFacadeEmitter
         sb.Append(DtsEmitter.EmitWireDeclarations(
             surface,
             diagnostics,
+            declarationPlan,
             names.TypeNames,
             names.InertStringName,
             names.InertStringBrandName,
             names.DateTimeOffsetName,
-            names.DateTimeOffsetBrandName));
+            names.DateTimeOffsetBrandName,
+            names.JsonTextName,
+            names.JsonTextBrandName));
 
         ExportPathNode exportTree = BuildExportTree(functions);
         EmitManagedExportsType(sb, exportTree, signatures);
@@ -408,7 +418,7 @@ internal static class TypeScriptFacadeEmitter
             .Append(signature.PublicReturnType)
             .Append(" {\n");
 
-        if (signature.ParsesJson)
+        if (signature.ParsesJson || signature.ReturnsJsonText)
         {
             sb.Append("  const $result = ")
                 .Append(signature.IsAsync ? "await " : "")
@@ -425,12 +435,23 @@ internal static class TypeScriptFacadeEmitter
                     .Append(");\n")
                     .Append("  }\n");
             }
-            sb.Append("  const $parsed: unknown = JSON.parse($result);\n")
-                .Append("  return $parsed as ")
-                .Append(signature.IsAsync
-                    ? UnwrapPromise(signature.PublicReturnType)
-                    : signature.PublicReturnType)
-                .Append(";\n");
+            if (signature.ParsesJson)
+            {
+                sb.Append("  const $parsed: unknown = JSON.parse($result);\n")
+                    .Append("  return $parsed as ")
+                    .Append(signature.IsAsync
+                        ? UnwrapPromise(signature.PublicReturnType)
+                        : signature.PublicReturnType)
+                    .Append(";\n");
+            }
+            else
+            {
+                sb.Append("  return $result as ")
+                    .Append(signature.IsAsync
+                        ? UnwrapPromise(signature.PublicReturnType)
+                        : signature.PublicReturnType)
+                    .Append(";\n");
+            }
         }
         else
         {
@@ -475,23 +496,30 @@ internal static class TypeScriptFacadeEmitter
     private sealed class TypeScriptNameAllocator
     {
         private readonly HashSet<string> _moduleBindings;
-        private readonly Dictionary<ApiType, string> _typeNames;
+        private readonly Dictionary<
+            DtsEmitter.WireDeclarationIdentity,
+            string> _typeNames;
         private readonly Dictionary<JsExportFunction, string> _operationNames;
         private readonly Dictionary<JsExportFunction, string[]> _parameterNames;
         private readonly string? _inertStringName;
         private readonly string? _inertStringBrandName;
         private readonly string? _dateTimeOffsetName;
         private readonly string? _dateTimeOffsetBrandName;
+        private readonly string? _jsonTextName;
+        private readonly string? _jsonTextBrandName;
 
         private TypeScriptNameAllocator(
             HashSet<string> moduleBindings,
-            Dictionary<ApiType, string> typeNames,
+            Dictionary<DtsEmitter.WireDeclarationIdentity, string>
+                typeNames,
             Dictionary<JsExportFunction, string> operationNames,
             Dictionary<JsExportFunction, string[]> parameterNames,
             string? inertStringName,
             string? inertStringBrandName,
             string? dateTimeOffsetName,
-            string? dateTimeOffsetBrandName)
+            string? dateTimeOffsetBrandName,
+            string? jsonTextName,
+            string? jsonTextBrandName)
         {
             _moduleBindings = moduleBindings;
             _typeNames = typeNames;
@@ -501,10 +529,13 @@ internal static class TypeScriptFacadeEmitter
             _inertStringBrandName = inertStringBrandName;
             _dateTimeOffsetName = dateTimeOffsetName;
             _dateTimeOffsetBrandName = dateTimeOffsetBrandName;
+            _jsonTextName = jsonTextName;
+            _jsonTextBrandName = jsonTextBrandName;
         }
 
         public static TypeScriptNameAllocator Create(
             global::ILInspector.JsExportSurface.JsExportSurface surface,
+            DtsEmitter.WireDeclarationPlan declarationPlan,
             IReadOnlyList<JsExportFunction> functions)
         {
             var moduleBindings = new HashSet<string>(
@@ -557,25 +588,34 @@ internal static class TypeScriptFacadeEmitter
                         "brand",
                         dateTimeOffsetIdentity + "#brand",
                         TypeScriptIdentifier.IsStrictModeBindingIdentifier);
-            var typeNames = new Dictionary<ApiType, string>();
-            foreach (ApiType type in surface.Records
-                .Concat(surface.Enums)
-                .Concat(surface.Unions
-                    .Where(union => !surface.WireDirections.TryGetValue(union.Definition, out var direction)
-                        || direction != JsonWireDirection.None)
-                    .Select(union => union.Definition))
-                .Concat(surface.PolymorphicUnions
-                    .Where(union => !surface.WireDirections.TryGetValue(
-                            union.Definition,
-                            out JsonWireDirection direction)
-                        || direction != JsonWireDirection.None)
-                    .SelectMany(union =>
-                        new[] { union.Definition }
-                            .Concat(union.Cases.Select(
-                                @case => @case.Definition))))
-                .Distinct()
-                .OrderBy(CanonicalTypeIdentity, StringComparer.Ordinal))
+            bool usesJsonText = DtsEmitter.UsesJsonText(surface);
+            string? jsonTextName =
+                !usesJsonText
+                    ? null
+                    : Allocate(
+                        moduleBindings,
+                        "JsonText",
+                        "type",
+                        "ts-jsexport#JsonText",
+                        TypeScriptIdentifier.IsTypeDeclarationIdentifier);
+            string? jsonTextBrandName =
+                !usesJsonText
+                    ? null
+                    : Allocate(
+                        moduleBindings,
+                        "jsonTextBrand",
+                        "brand",
+                        "ts-jsexport#JsonText#brand",
+                        TypeScriptIdentifier.IsStrictModeBindingIdentifier);
+            var typeNames = new Dictionary<
+                DtsEmitter.WireDeclarationIdentity,
+                string>();
+            foreach (DtsEmitter.WireDeclarationIdentity declaration
+                in declarationPlan.Declarations.OrderBy(
+                    CanonicalTypeIdentity,
+                    StringComparer.Ordinal))
             {
+                ApiType type = declaration.Type;
                 string preferredName =
                     surface.PolymorphicUnions.Any(union =>
                         union.Cases.Any(@case =>
@@ -583,7 +623,8 @@ internal static class TypeScriptFacadeEmitter
                         && type.DefinitionName is { } definition
                             ? StripMetadataArity(
                                 definition.Segments[^1])
-                            : DtsEmitter.PreferredTypeName(type);
+                            : DtsEmitter.PreferredDeclarationName(
+                                declaration);
                 if (!TypeScriptIdentifier.IsIdentifierName(preferredName))
                 {
                     throw new UnsupportedWireContractException(
@@ -594,12 +635,12 @@ internal static class TypeScriptFacadeEmitter
                 }
 
                 typeNames.Add(
-                    type,
+                    declaration,
                     Allocate(
                         moduleBindings,
                         preferredName,
                         "type",
-                        CanonicalTypeIdentity(type),
+                        CanonicalTypeIdentity(declaration),
                         TypeScriptIdentifier.IsTypeDeclarationIdentifier));
             }
 
@@ -649,7 +690,9 @@ internal static class TypeScriptFacadeEmitter
                 inertStringName,
                 inertStringBrandName,
                 dateTimeOffsetName,
-                dateTimeOffsetBrandName);
+                dateTimeOffsetBrandName,
+                jsonTextName,
+                jsonTextBrandName);
         }
 
         static string StripMetadataArity(string name)
@@ -658,7 +701,9 @@ internal static class TypeScriptFacadeEmitter
             return separator < 0 ? name : name[..separator];
         }
 
-        public IReadOnlyDictionary<ApiType, string> TypeNames =>
+        public IReadOnlyDictionary<
+            DtsEmitter.WireDeclarationIdentity,
+            string> TypeNames =>
             _typeNames;
 
         public string? InertStringName => _inertStringName;
@@ -669,6 +714,10 @@ internal static class TypeScriptFacadeEmitter
 
         public string? DateTimeOffsetBrandName =>
             _dateTimeOffsetBrandName;
+
+        public string? JsonTextName => _jsonTextName;
+
+        public string? JsonTextBrandName => _jsonTextBrandName;
 
         public TypeScriptFunctionSignature Apply(
             JsExportFunction function,
@@ -718,14 +767,20 @@ internal static class TypeScriptFacadeEmitter
             throw new UnreachableException();
         }
 
-        static string CanonicalTypeIdentity(ApiType type) =>
-            type.FullName
+        static string CanonicalTypeIdentity(
+            DtsEmitter.WireDeclarationIdentity declaration)
+        {
+            string identity = declaration.Type.FullName
             + "|"
-            + (type.MetadataName ?? "")
+            + (declaration.Type.MetadataName ?? "")
             + "|"
-            + (type.DefinitionName?.ToString() ?? "")
+            + (declaration.Type.DefinitionName?.ToString() ?? "")
             + "|"
-            + type.Kind;
+            + declaration.Type.Kind;
+            return declaration.IsSplit
+                ? identity + "|" + declaration.Direction
+                : identity;
+        }
 
         static string CanonicalExternalTypeIdentity(
             ApiTypeReferenceIdentity identity) =>

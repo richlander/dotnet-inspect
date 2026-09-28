@@ -101,7 +101,8 @@ public class FindCommand
                     patterns,
                     logger,
                     context.HttpClient,
-                    cancellationToken);
+                    cancellationToken,
+                    context);
             List<TypeFindResult> results = search.Rows;
             int observedRowCount = results.Count;
             if (!TrySelectRows(

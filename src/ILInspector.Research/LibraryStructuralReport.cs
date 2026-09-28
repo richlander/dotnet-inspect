@@ -43,7 +43,25 @@ public sealed record LibraryStructuralReportDocument(
     LibraryStructuralPopulationReceipt Population,
     ImmutableArray<LibraryStructuralMetricDistribution> Distributions,
     LibraryStructuralBooleanDisposition AsyncStateMachinePresence,
+    ImmutableArray<LibraryStructuralTypeSummary> TypeSummaries,
+    ImmutableArray<LibraryStructuralTypeRelationship> EntangledRelationships,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
+
+public sealed record LibraryStructuralTypeSummary(
+    TypeRef Type,
+    int BodyCount,
+    int InstructionCount,
+    int ComplexityTotal,
+    int LoopCount,
+    int DirectCallCount,
+    int AllocationCount);
+
+public sealed record LibraryStructuralTypeRelationship(
+    TypeRef Source,
+    TypeRef Target,
+    int CallSiteCount,
+    int SourceDegree,
+    int TargetDegree);
 
 public sealed record LibraryStructuralPopulationReceipt(
     ImplementationProfilePopulationCoverageReceipt Coverage,
@@ -85,9 +103,24 @@ public sealed record LibraryStructuralBooleanDisposition(
 public static class LibraryStructuralReport
 {
     public const string CurrentMethodologyVersion = "library-metrics.v1";
+    public const int MaximumEntangledTypeCount = 24;
 
     public static LibraryStructuralReportResult Execute(
-        LibraryImplementationProfileAnalysisResult analysis)
+        LibraryBodyAnalysisExecution analysis)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        return Execute(
+            analysis.ImplementationProfiles,
+            analysis.CallGraph);
+    }
+
+    public static LibraryStructuralReportResult Execute(
+        LibraryImplementationProfileAnalysisResult analysis) =>
+        Execute(analysis, callGraph: null);
+
+    static LibraryStructuralReportResult Execute(
+        LibraryImplementationProfileAnalysisResult analysis,
+        LibraryCallGraphAnalysisResult? callGraph)
     {
         ArgumentNullException.ThrowIfNull(analysis);
 
@@ -129,6 +162,8 @@ public static class LibraryStructuralReport
             profiles.Length - completeProfiles.Length,
             CountIncompleteReasons(profiles),
             CountUnavailableReasons(analysis.Coverage));
+        ImmutableArray<LibraryStructuralTypeRelationship> relationships =
+            EntangledRelationships(completeProfiles, callGraph);
         var document = new LibraryStructuralReportDocument(
             analysis.Receipt,
             CurrentMethodologyVersion,
@@ -164,8 +199,173 @@ public static class LibraryStructuralReport
                 completeProfiles.Length,
                 completeProfiles.Count(static profile => profile.Async),
                 completeProfiles.Count(static profile => !profile.Async)),
+            TypeSummaries(completeProfiles, relationships),
+            relationships,
             analysis.Receipt.Diagnostics);
         return new LibraryStructuralReportResult.Available(document);
+    }
+
+    static ImmutableArray<LibraryStructuralTypeSummary> TypeSummaries(
+        ImmutableArray<MethodImplementationProfile> profiles,
+        ImmutableArray<LibraryStructuralTypeRelationship> relationships)
+    {
+        List<LibraryStructuralTypeSummary> summaries =
+        [
+            .. profiles
+            .GroupBy(static profile => profile.Method.DeclaringType)
+            .Select(group => new LibraryStructuralTypeSummary(
+                group.Key,
+                group.Count(),
+                group.Sum(static profile => profile.InstructionCount),
+                group.Sum(static profile =>
+                    profile.NormalFlowCyclomaticComplexity),
+                group.Sum(static profile => profile.LoopCount),
+                group.Sum(static profile => profile.DirectCallCount),
+                group.Sum(static profile => profile.AllocationCount)))
+        ];
+        HashSet<TypeRef> represented =
+            summaries.Select(static summary => summary.Type).ToHashSet();
+        foreach (TypeRef endpoint in relationships.SelectMany(
+            static relationship =>
+            new[]
+            {
+                relationship.Source,
+                relationship.Target,
+            }))
+        {
+            if (represented.Add(endpoint))
+            {
+                summaries.Add(
+                    new LibraryStructuralTypeSummary(
+                        endpoint,
+                        BodyCount: 0,
+                        InstructionCount: 0,
+                        ComplexityTotal: 0,
+                        LoopCount: 0,
+                        DirectCallCount: 0,
+                        AllocationCount: 0));
+            }
+        }
+
+        return
+        [
+            .. summaries
+            .OrderByDescending(static summary => summary.InstructionCount)
+            .ThenBy(
+                static summary => summary.Type.ToQualifiedDisplayString(),
+                StringComparer.Ordinal)
+            .ThenBy(
+                static summary => TypeKey(summary.Type),
+                StringComparer.Ordinal),
+        ];
+    }
+
+    static ImmutableArray<LibraryStructuralTypeRelationship>
+        EntangledRelationships(
+            ImmutableArray<MethodImplementationProfile> profiles,
+            LibraryCallGraphAnalysisResult? callGraph)
+    {
+        if (callGraph is null || profiles.IsEmpty)
+            return [];
+
+        HashSet<int> completeBodies =
+        [
+            .. profiles.Select(static profile =>
+                profile.EvidenceMethod.MetadataToken),
+        ];
+        IReadOnlyDictionary<int, MethodIdentity> methods =
+            callGraph.DeclaredMethods
+                .GroupBy(static method => method.MetadataToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+        var edges = callGraph.DirectCalls
+            .Where(call =>
+                completeBodies.Contains(call.EvidenceMethod.MetadataToken)
+                && call.Kind is CallKind.Call
+                    or CallKind.CallVirtual
+                    or CallKind.NewObject
+                && call.CalleeDefinitionToken != 0
+                && methods.ContainsKey(call.CalleeDefinitionToken)
+                && !call.Caller.DeclaringType.Equals(methods[
+                    call.CalleeDefinitionToken].DeclaringType))
+            .GroupBy(call => (
+                Source: call.Caller.DeclaringType,
+                Target: methods[call.CalleeDefinitionToken].DeclaringType))
+            .Select(group => (
+                group.Key.Source,
+                group.Key.Target,
+                CallSiteCount: group.Count()))
+            .ToArray();
+        if (edges.Length == 0)
+            return [];
+
+        Dictionary<TypeRef, HashSet<TypeRef>> neighbors = [];
+        Dictionary<TypeRef, int> callSiteVolumes = [];
+        foreach (var edge in edges)
+        {
+            AddNeighbor(edge.Source, edge.Target);
+            AddNeighbor(edge.Target, edge.Source);
+            AddCallSiteVolume(edge.Source, edge.CallSiteCount);
+            AddCallSiteVolume(edge.Target, edge.CallSiteCount);
+        }
+
+        var selectedTypes = neighbors
+            .OrderByDescending(static pair => pair.Value.Count)
+            .ThenByDescending(
+                pair => callSiteVolumes[pair.Key])
+            .ThenBy(
+                static pair => TypeKey(pair.Key),
+                StringComparer.Ordinal)
+            .Take(MaximumEntangledTypeCount)
+            .Select(static pair => pair.Key)
+            .ToHashSet();
+
+        return
+        [
+            .. edges
+                .Where(edge =>
+                    selectedTypes.Contains(edge.Source)
+                    && selectedTypes.Contains(edge.Target))
+                .Select(edge => new LibraryStructuralTypeRelationship(
+                    edge.Source,
+                    edge.Target,
+                    edge.CallSiteCount,
+                    neighbors[edge.Source].Count,
+                    neighbors[edge.Target].Count))
+                .OrderByDescending(static edge => edge.CallSiteCount)
+                .ThenBy(
+                    static edge => TypeKey(edge.Source),
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static edge => TypeKey(edge.Target),
+                    StringComparer.Ordinal),
+        ];
+
+        void AddNeighbor(TypeRef source, TypeRef target)
+        {
+            if (!neighbors.TryGetValue(source, out HashSet<TypeRef>? values))
+            {
+                values = [];
+                neighbors.Add(source, values);
+            }
+            values.Add(target);
+        }
+
+        void AddCallSiteVolume(TypeRef type, int callSiteCount)
+        {
+            callSiteVolumes.TryGetValue(type, out int volume);
+            callSiteVolumes[type] = volume + callSiteCount;
+        }
+    }
+
+    public static string TypeKey(TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return type.Resolution?.Type.ToEscapedFullName()
+            ?? (string.IsNullOrEmpty(type.Namespace)
+                ? type.Name
+                : $"{type.Namespace}.{type.Name}");
     }
 
     static LibraryStructuralReportResult.Unavailable Unavailable(

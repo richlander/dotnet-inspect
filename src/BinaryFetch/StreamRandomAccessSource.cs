@@ -2,12 +2,14 @@ namespace BinaryFetch;
 
 /// <summary>
 /// A random-access source over a seekable stream: a local file, or bytes
-/// already in memory. The length is known from the start.
+/// already in memory. The length is known from the start. Concurrent reads
+/// are serialized, since they share the stream's position.
 /// </summary>
 public sealed class StreamRandomAccessSource : RandomAccessSource
 {
     private readonly Stream _stream;
     private readonly bool _leaveOpen;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public StreamRandomAccessSource(Stream stream, bool leaveOpen = false)
     {
@@ -51,21 +53,29 @@ public sealed class StreamRandomAccessSource : RandomAccessSource
                 "The requested range lies past the end of the representation.");
         }
 
-        _stream.Position = offset;
-        int filled = 0;
-        while (filled < destination.Length)
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            int read = await _stream.ReadAsync(
-                destination[filled..],
-                cancellationToken).ConfigureAwait(false);
-            if (read == 0)
+            _stream.Position = offset;
+            int filled = 0;
+            while (filled < destination.Length)
             {
-                throw new RangeFetchException(
-                    RangeFetchFailure.InvalidResponse,
-                    "The representation ended before the requested range.");
-            }
+                int read = await _stream.ReadAsync(
+                    destination[filled..],
+                    cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    throw new RangeFetchException(
+                        RangeFetchFailure.InvalidResponse,
+                        "The representation ended before the requested range.");
+                }
 
-            filled += read;
+                filled += read;
+            }
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 
@@ -73,6 +83,7 @@ public sealed class StreamRandomAccessSource : RandomAccessSource
     {
         if (!_leaveOpen)
             _stream.Dispose();
+        _gate.Dispose();
         return ValueTask.CompletedTask;
     }
 }

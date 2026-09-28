@@ -19,6 +19,7 @@ namespace DotnetInspect.Cli.Commands;
 public static class LibraryCallUseCommand
 {
     public const string Name = "libraries";
+    public const string ClusterName = "cluster";
 
     internal const string ConsumerUseSitesSection =
         LibraryCallUseViewSections.ConsumerUseSites;
@@ -101,14 +102,6 @@ public static class LibraryCallUseCommand
             return 1;
         }
 
-        if (options.QueryPlan.Cluster is not null
-            && options.Discover is not null)
-        {
-            CommandError.Write(
-                "--where Cluster=... cannot be combined with -D/--discover.");
-            return 1;
-        }
-
         if (options.Discover is { } discover)
         {
             SectionCatalog<LibraryCallUseDiscoveryModel> catalog =
@@ -124,7 +117,11 @@ public static class LibraryCallUseCommand
                     options.Format == OutputFormat.Table,
                     options.NoHeader,
                     projection: options),
-                rootLabel: "Library Call Use",
+                rootLabel:
+                    options.RouteKind
+                        == LibraryCallUseRouteKind.Cluster
+                        ? "Library Direct-Use Cluster"
+                        : "Library Call Use",
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: catalog.SelectionCategoryMap,
                 catalogHiddenSections:
@@ -153,11 +150,12 @@ public static class LibraryCallUseCommand
         bool requiresPublicRootPaths =
             selectedNameSet.Contains(PublicRootPathsSection);
         if (requiresPublicRootPaths
-            && options.QueryPlan.Cluster is null)
+            && options.RouteKind
+                != LibraryCallUseRouteKind.Cluster)
         {
             CommandError.Write(
-                "'Public Root Paths' requires exactly one "
-                    + "--where \"Cluster=<positive ordinal>\" predicate.");
+                "'Public Root Paths' requires "
+                    + "'dotnet-inspect graph cluster <ordinal>'.");
             return 1;
         }
 
@@ -177,7 +175,13 @@ public static class LibraryCallUseCommand
             null;
         if (options.RowSelection is not null
             && !LibraryCallUseSections.TryGetSemanticRows(
-                options.Select,
+                options.Select
+                    ?? [
+                        options.RouteKind
+                            == LibraryCallUseRouteKind.Cluster
+                            ? CallSitesSection
+                            : DirectUseClustersSection,
+                    ],
                 out semanticRows))
         {
             throw new InvalidOperationException(
@@ -190,7 +194,10 @@ public static class LibraryCallUseCommand
             CommandError.Write(
                 "Exactly two --library values are required.");
             CommandError.WriteLine(
-                "Run 'dotnet-inspect graph libraries --help' for usage.");
+                options.RouteKind
+                    == LibraryCallUseRouteKind.Cluster
+                    ? "Run 'dotnet-inspect graph cluster --help' for usage."
+                    : "Run 'dotnet-inspect graph libraries --help' for usage.");
             return 1;
         }
 
@@ -236,6 +243,7 @@ public static class LibraryCallUseCommand
         AssemblyPairCallUseResult? selectedResult = null;
         AssemblyPairDirectUseClusterProjection? allClusters = null;
         AssemblyPairDirectUseClusterProjection? selectedClusters = null;
+        AssemblyPairDirectUseCluster? focusedCluster = null;
         InspectionEnvelope<AssemblyPairClusterRootPathResult>?
             rootPathInspection = null;
         int? unavailableCluster = null;
@@ -317,6 +325,8 @@ public static class LibraryCallUseCommand
                         }
 
                         selectedResult = selected.Pair;
+                        focusedCluster =
+                            selected.Clusters.Single();
                         selectedClusters =
                             selectedNameSet.Contains(
                                 DirectUseClustersSection)
@@ -463,7 +473,8 @@ public static class LibraryCallUseCommand
                 options,
                 selectedNames,
                 defaultCallSiteView,
-                selectedOccurrences);
+                selectedOccurrences,
+                focusedCluster);
         }
         if (rootPathInspection is { Content.IsComplete: false })
         {
@@ -519,10 +530,18 @@ public static class LibraryCallUseCommand
         out bool defaultCallSiteView)
     {
         defaultCallSiteView =
-            options.Select is null && !options.SelectDefault;
-        if (defaultCallSiteView)
+            options.RouteKind == LibraryCallUseRouteKind.Cluster
+            && options.Select is null
+            && !options.SelectDefault;
+        if (options.Select is null && !options.SelectDefault)
         {
-            selectedNames = [CallSitesSection];
+            selectedNames =
+            [
+                options.RouteKind
+                    == LibraryCallUseRouteKind.Cluster
+                    ? CallSitesSection
+                    : DirectUseClustersSection,
+            ];
             return true;
         }
 
@@ -545,7 +564,13 @@ public static class LibraryCallUseCommand
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
             catalog.SelectableSectionNames,
-            infoSections: [CallSitesSection],
+            infoSections:
+            [
+                options.RouteKind
+                    == LibraryCallUseRouteKind.Cluster
+                    ? CallSitesSection
+                    : DirectUseClustersSection,
+            ],
             catalog.SelectionCategoryMap,
             selectDefault: false,
             exactOnlySections:
@@ -620,14 +645,16 @@ public static class LibraryCallUseCommand
         LibraryCallUseOptions options,
         string[] selectedNames,
         bool defaultCallSiteView,
-        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences)
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences,
+        AssemblyPairDirectUseCluster? focusedCluster)
     {
         if (defaultCallSiteView)
         {
             WriteDefaultCallSites(
                 result,
                 occurrences,
-                options);
+                options,
+                focusedCluster);
             return;
         }
 
@@ -644,7 +671,8 @@ public static class LibraryCallUseCommand
     static void WriteDefaultCallSites(
         AssemblyPairCallUseResult result,
         IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences,
-        LibraryCallUseOptions options)
+        LibraryCallUseOptions options,
+        AssemblyPairDirectUseCluster? focusedCluster)
     {
         List<LibraryCallUseCallSiteRow> rows =
             CreateCallSiteRows(occurrences);
@@ -652,12 +680,15 @@ public static class LibraryCallUseCommand
             RowWindow.Apply(options.Rows, occurrences);
         var view = new LibraryCallUseCallSitesView
         {
-            Title = "Library Call Use",
+            Title = options.Cluster is int clusterOrdinal
+                ? $"Direct Use Cluster {clusterOrdinal}"
+                : "Library Call Use",
             Description = CreateDefaultDescription(
                 result,
                 selectedOccurrences,
                 options.Rows,
-                options.Cluster),
+                options.Cluster,
+                focusedCluster),
             Rows = rows,
         };
 
@@ -1082,7 +1113,9 @@ public static class LibraryCallUseCommand
         {
             Description = CreateSectionDescription(
                 ScopeToCluster(
-                    "Connected components of exact source-method to target-method use. "
+                    "Connected components of exact source-method to "
+                        + $"target-method use between "
+                        + $"{FormatPair(projection.Pair)}. "
                         + "These are direct-use clusters, not semantic features or source-inlining recommendations.",
                     cluster),
                 projection.IsComplete
@@ -1121,7 +1154,8 @@ public static class LibraryCallUseCommand
         AssemblyPairCallUseResult result,
         IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences,
         RowWindow? rows,
-        int? cluster)
+        int? cluster,
+        AssemblyPairDirectUseCluster? focusedCluster)
     {
         string[] summaries = [.. RelationshipSummaries(occurrences)];
         string detail = summaries.Length > 0
@@ -1134,8 +1168,29 @@ public static class LibraryCallUseCommand
         string subject = cluster is int clusterOrdinal
             ? $"Direct Use Cluster {clusterOrdinal} in {FormatPair(result)}"
             : FormatPair(result);
-        return $"{subject}\n\n{detail}";
+        string footprint = focusedCluster is null
+            ? ""
+            : "\n\nFootprint: "
+                + $"{FormatCount(
+                    focusedCluster.SourceMethods.Length,
+                    "source member")}, "
+                + $"{FormatCount(
+                    focusedCluster.TargetTypes.Length,
+                    "provider type")}, "
+                + $"{FormatCount(
+                    focusedCluster.TargetMethods.Length,
+                    "target member")}, "
+                + $"{FormatCount(
+                    focusedCluster.ExtensionMethodCount,
+                    "extension method")}, and "
+                + $"{FormatCount(
+                    focusedCluster.CallSiteCount,
+                    "physical call site")}.";
+        return $"{subject}{footprint}\n\n{detail}";
     }
+
+    static string FormatCount(int count, string label) =>
+        $"{count} {label}{(count == 1 ? "" : "s")}";
 
     static string ScopeToCluster(
         string summary,

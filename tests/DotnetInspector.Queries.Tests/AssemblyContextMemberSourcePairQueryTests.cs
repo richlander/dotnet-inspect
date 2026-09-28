@@ -35,6 +35,82 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(SourceHouseSourceUnitScope.ExactMember, house.Source.Mapping!.Scope);
     }
 
+    [Fact]
+    public async Task SourcePair_RealRepositoryResolvesDistinctEndpointAnchors()
+    {
+        string path = typeof(CSharpText.MemberSlicing.MemberTextSlicer).Assembly.Location;
+        string pdbPath = Path.ChangeExtension(path, ".pdb");
+        TestAssembly before = TestAssembly.CreatePackage(File.ReadAllBytes(path), pdbPath);
+        TestAssembly after = TestAssembly.CreatePackage(File.ReadAllBytes(path), pdbPath);
+        using var host = QueryHost.WithPdb(pdbPath, File.ReadAllBytes(Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryAdapter", "MemberTextSlicer.cs")));
+        var beforeTarget = before.MemberTarget(
+            "ExtractMemberText", "MemberTextSlicer");
+        var afterTarget = after.MemberTarget(
+            "GetMemberTextParts", "MemberTextSlicer");
+        var request = new AssemblyMemberSourcePairRequest(
+            AssemblyMemberSourcePairEndpointRequest.From(
+                beforeTarget.Type, beforeTarget.Member),
+            AssemblyMemberSourcePairEndpointRequest.From(
+                afterTarget.Type, afterTarget.Member));
+
+        AssemblyMemberSourcePairResult result = await ExecuteSourcePairAsync(
+            before, after, request, host);
+
+        Assert.Equal(AssemblyMemberSourcePairStatus.Compared, result.Status);
+        Assert.False(result.IsExact);
+        var beforeEndpoint =
+            Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(result.Before);
+        var afterEndpoint =
+            Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(result.After);
+        Assert.Equal("ExtractMemberText", beforeEndpoint.Request.Member.MemberName);
+        Assert.Equal("GetMemberTextParts", afterEndpoint.Request.Member.MemberName);
+        Assert.Contains(
+            "ExtractMemberText",
+            Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+                beforeEndpoint.Source).Inspection.Text);
+        Assert.Contains(
+            "GetMemberTextParts",
+            Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+                afterEndpoint.Source).Inspection.Text);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SourcePair_RealRepositoryRetainsOneRequestedEndpoint(
+        bool requestBefore)
+    {
+        string path = typeof(CSharpText.MemberSlicing.MemberTextSlicer).Assembly.Location;
+        string pdbPath = Path.ChangeExtension(path, ".pdb");
+        TestAssembly before = TestAssembly.CreatePackage(File.ReadAllBytes(path), pdbPath);
+        TestAssembly after = TestAssembly.CreatePackage(File.ReadAllBytes(path), pdbPath);
+        using var host = QueryHost.WithPdb(pdbPath, File.ReadAllBytes(Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "LibraryAdapter", "MemberTextSlicer.cs")));
+        var target = before.MemberTarget(
+            "ExtractMemberText", "MemberTextSlicer");
+        AssemblyMemberSourcePairEndpointRequest endpoint =
+            AssemblyMemberSourcePairEndpointRequest.From(
+                target.Type, target.Member);
+        var request = new AssemblyMemberSourcePairRequest(
+            requestBefore ? endpoint : null,
+            requestBefore ? null : endpoint);
+
+        AssemblyMemberSourcePairResult result = await ExecuteSourcePairAsync(
+            before, after, request, host);
+
+        Assert.Equal(AssemblyMemberSourcePairStatus.Unavailable, result.Status);
+        Assert.Null(result.Comparison);
+        AssemblyMemberSourcePairEndpoint requested =
+            requestBefore ? result.Before : result.After;
+        AssemblyMemberSourcePairEndpoint unrequested =
+            requestBefore ? result.After : result.Before;
+        var resolved =
+            Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(requested);
+        Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(resolved.Source);
+        Assert.IsType<AssemblyMemberSourcePairEndpoint.Unrequested>(unrequested);
+    }
+
     [Theory]
     [InlineData(false, PdbMemberSourceOutcome.InvalidSequencePointCoordinates)]
     [InlineData(true, PdbMemberSourceOutcome.SourceTooComplex)]
@@ -524,16 +600,35 @@ public sealed partial class AssemblyContextSourceQueryTests
         CancellationToken? cancellationToken = null,
         AssemblyContextSourceQueryContext? sourceContext = null)
     {
-        await using var workspace = new InspectionWorkspace();
-        AssemblyContextGroup beforeGroup = workspace.CreateAssemblyContextGroup([before.Participant]);
-        AssemblyContextGroup afterGroup = workspace.CreateAssemblyContextGroup([after.Participant]);
         var target = before.MemberTarget(memberName, typeName);
+        return await ExecuteSourcePairAsync(
+            before,
+            after,
+            AssemblyMemberSourcePairRequest.From(target.Type, target.Member),
+            host,
+            cancellationToken,
+            sourceContext);
+    }
+
+    static async Task<AssemblyMemberSourcePairResult> ExecuteSourcePairAsync(
+        TestAssembly before,
+        TestAssembly after,
+        AssemblyMemberSourcePairRequest request,
+        QueryHost host,
+        CancellationToken? cancellationToken = null,
+        AssemblyContextSourceQueryContext? sourceContext = null)
+    {
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup beforeGroup =
+            workspace.CreateAssemblyContextGroup([before.Participant]);
+        AssemblyContextGroup afterGroup =
+            workspace.CreateAssemblyContextGroup([after.Participant]);
         return await AssemblyContextMemberSourcePairQuery.ExecuteAsync(
             beforeGroup,
             before.Participant,
             afterGroup,
             after.Participant,
-            AssemblyMemberSourcePairRequest.From(target.Type, target.Member),
+            request,
             sourceContext ?? host.Context,
             cancellationToken ?? TestContext.Current.CancellationToken);
     }

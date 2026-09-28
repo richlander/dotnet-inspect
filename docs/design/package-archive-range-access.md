@@ -235,6 +235,33 @@ differs from the declared size is malformed and is `InvalidResponse`. The CRC
 is checked on completion; a mismatch is `InvalidResponse`. The expanded bytes
 are returned as caller-owned content, never the response stream.
 
+### Reading several entries
+
+A consumer that needs several entries of one archive reads them as a batch.
+Every entry passes the checks above, and the entries' declared expansion
+together must fit the caller's total bound, before any transfer; otherwise
+the batch is refused as it would be for one entry. The reader then plans its
+requests from the entries' first-request extents in archive order: extents
+separated by at most the limits' merge gap become one request, which also
+transfers the unselected bytes between them, and no request exceeds 64 MiB.
+Up to the limits' concurrency, requests are in flight at once. Each entry is
+then read exactly as a single entry is, over the fetched bytes, so a longer
+local extra field still costs exactly one follow-up, and every check above
+still applies. The batch returns every entry, in the order requested, or one
+failure or refusal and no content.
+
+The merge gap and the concurrency are caller-supplied bounds on the limits
+record: the gap is at most 1 MiB and defaults to zero, joining only extents
+that touch; the concurrency is 1 to 16 and defaults to 1. A concurrent batch
+starts only after the directory read, so every batch request carries the
+validator the first response supplied. Round trips, not bandwidth, dominate
+a ranged read on a fast link: nuget.org answers a range in 40 to 80 ms here,
+where the whole 10 MB `Avalonia` 12.1.2 archive arrives in 0.4 s, so 22
+sequential entry requests cost more than the complete download they avoid.
+The random-access sources accept concurrent reads: the HTTP source updates
+its observed length and validator under a lock, and the stream source
+serializes reads that share its position.
+
 ### Transport rules
 
 - A ranged request asks for exactly the bytes the reader needs. The
@@ -262,7 +289,10 @@ are returned as caller-owned content, never the response stream.
 - Request deadlines, the operation ceiling, caller cancellation, retry, and
   credential application are the existing `NuGetOperationContext` and
   `NuGetSourceRequest` mechanics; this capability adds no deadline of its
-  own. Each ranged request is one request under the shared context.
+  own. Each ranged request is one request under the shared context. Ranged
+  requests retry transient statuses on both the v3 and gallery clients; the
+  v3 client's complete fetch does not, and this capability does not change
+  it.
 
 ### Browser host
 
@@ -325,11 +355,9 @@ the archive directory with its validator kind; per-entry expanded content;
 Non-claims:
 
 - when a consumer reads by range and when it fetches the whole archive, and
-  the size-differentiated cache policy (#8386, later slices);
-- the background completion of a surgical read into the cache (the warm
-  queue, #8386);
-- caching of directories or entries between invocations: a ranged read
-  populates no persistent store at this head;
+  the caching of directories and entries between invocations, which the
+  [package cache policy](package-cache-policy.md) owns; the reader itself
+  populates no persistent store;
 - symbol packages and any archive other than the package's nupkg, as uses of
   this capability (the two libraries' contracts are archive-agnostic, and a
   later consumer such as the symbol-package downloader adopts them under its
@@ -366,7 +394,13 @@ All gates run in Release.
 | 12. Operation ceiling during an entry read | terminal typed timeout, no partial content | contract suite |
 | 13. Motivating asset | `Microsoft.NETCore.App.Ref` 9.0.18 from nuget.org: directory in under 100 KB of transfer, `ref/net9.0/System.Runtime.dll` expanded and parseable by the metadata reader | Slow network gate, plus a preserved probe as design evidence |
 | 14. Local extra field longer than the directory declares, slack fixed at 0 | `PCLStorage` 1.0.2 (real asset, preserved as `fixtures/nugetfetch/pclstorage.1.0.2.nupkg`; 40 of its entries carry longer local extra fields): first request short by the extra bytes, exactly one follow-up rechecked against the directory offset, CRC passes | contract suite |
-| 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | lands with slice 2 in `PackagePayloadAcquisitionTests`, where that layer sets the default; slice 1's contract suite has no such value to run against |
+| 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | `PackageRangedRealizationTests.RangedRealize_RealAsset_ReadsTheSelectedEntriesInOneRequest`, where that layer sets the default ([package source model](package-source-model.md#ranged-payload-realization)) |
+| 16. Batch of adjacent and separated entries | adjacent extents share one request, separated ones do not; contents equal the originals in requested order | contract suite |
+| 16a. Batch merge gap | a gap within the merge gap is bridged in one request, a wider one is not | contract suite |
+| 16b. Batch concurrency | the requests in flight never exceed the limit and reach it | contract suite |
+| 16c. Batch over the total bound; one failed request | refused before any transfer; the batch fails with that request's failure and no content | contract suite |
+| 16d. Batch over the real asset at slack 0 | follow-ups still read; contents equal the `ZipArchive` oracle | contract suite |
+| 16e. Batch over HTTP | merged requests carry the credential and `If-Range`; a changed validator is `ArchiveChanged` with no content | contract suite (adapter) |
 | 15. Headers hidden (browser mode) | archive smaller than the tail read whole from the derived total; `206` matched by body length; validator rules where visible | contract suite (headers-hidden mode); end-to-end browser read `unverified` until the Inspect Web slice |
 
 ## Adoption
@@ -377,16 +411,23 @@ All gates run in Release.
    ZIP library, the NuGetFetch adapter on the v3 and gallery clients, and
    the capability's contract suite. No production consumer changes behavior
    at this head; the CLI still fetches whole archives.
-2. The operation lease gains the ranged steps under the package source
-   model's ownership, an `IPackageContent` over ranged access materializes
-   only the entries a consumer opens, and `find` with the search scopes adopt
-   it on the House path with stream-based assembly reading. This is the first
-   production-host consumer and the CLI demo; it is also Package Version
-   Service adoption step 3 (#8285), and the legacy `PackageExtractor` latest
-   path retires there.
+2. The operation lease gains the ranged step under the package source
+   model's ownership
+   ([Ranged payload realization](package-source-model.md#ranged-payload-realization)),
+   ranged content materializes only the entries a House realization selects,
+   and the exact-package search Root (`find` member search, `implements`,
+   `extensions`, and `depends` with one exact `--package` and `--tfm`) adopts
+   it: the first production-host consumer and the CLI demo. A second part
+   moves the remaining search scopes — `find` type search through the
+   declaration locator, and multi-package, floating-version, and
+   targetless searches through the assembly set — onto the House path with
+   ranged access; that part is also Package Version Service adoption step 3
+   (#8285), and the legacy `PackageExtractor` latest path retires there.
 3. Inspect Web adopts the same content over the browser reader for package
    opens that today buffer the whole nupkg, under the browser-host rule above.
-4. The warm queue and the size-differentiated cache policy (#8386) decide
-   when a ranged read is followed by a complete download.
+4. The [package cache policy](package-cache-policy.md) (#8386) decides which
+   archives are acquired complete and cached and which are read by range. It
+   is adopted before the second part of step 2.
 
-Total: four slices; both hosts named; the retired path named.
+Total: four slices, the second in two parts; both hosts named; the retired
+path named.

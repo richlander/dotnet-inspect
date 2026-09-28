@@ -327,6 +327,7 @@ public partial class LibraryBodyIndexTests
         string[] resultGraphCaches =
         [
             "_directCallsByCaller",
+            "_directCallsByEvidenceMethod",
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_declaredMethodMap",
@@ -340,7 +341,6 @@ public partial class LibraryBodyIndexTests
         ];
         string[] adapterGraphCaches =
         [
-            "_directCallsByEvidenceMethod",
             "_overloadRelationships",
             "_projectedImplementationProfiles",
         ];

@@ -500,6 +500,11 @@ async function installFacades(
       hasUnexploredTraversalBoundary: false,
       hasAnalysisFailureBoundary: false,
       unavailableDependencyRoutes: 0,
+      hasIncompleteCorrespondence: false,
+      unclassifiedBoundaryEdges: 0,
+      unclassifiedBoundaryNamedEdges: 0,
+      unclassifiedBoundaryAssemblies: [],
+      physicalOccurrenceUnavailableEdges: 0,
       isIncomplete: false,
     },
     noBody: false,
@@ -850,6 +855,26 @@ async function installFacades(
     library: `
       const uploadMode = ${JSON.stringify(libraryUpload)};
       const uploadInspection = ${JSON.stringify(uploadInspection)};
+      export async function inspectLibrary(request) {
+        document.documentElement.dataset.libraryInspectionRequest =
+          JSON.stringify(request);
+        return {
+          outcome: "Available",
+          detail: null,
+          assembly: null,
+          enablements: {
+            outcome: "Available",
+            role: "implementation-assembly",
+            failure: null,
+            items: [
+              { id: "aot-compatible", kind: "enabled", label: "AOT", reason: null },
+              { id: "runtime-async", kind: "enabled", label: "Runtime Async", reason: null },
+              { id: "memory-safety-v2", kind: "not-enabled", label: "Memory Safety v2", reason: null },
+            ],
+          },
+          diagnostics: [],
+        };
+      }
       export async function openUploadedLibrary(declaredName, content) {
         document.documentElement.dataset.libraryUploadRequest =
           JSON.stringify([declaredName, content.length]);
@@ -1007,6 +1032,391 @@ async function installFacades(
       }`,
     analysis: `
       ${surfaceLookup}
+      let implementationProfileRequestCount = 0;
+      function implementationProfiles(
+        subjectName,
+        typeDefinitionId,
+        stableSelectors,
+        compileLibrary,
+        provenance
+      ) {
+        const logicalMethods = stableSelectors.map((selector, index) => ({
+          key: "logical-" + index,
+          assemblyName: subjectName,
+          moduleVersionId: "11111111-1111-1111-1111-111111111111",
+          declaringType: typeDefinitionId,
+          name: "Run",
+          parameterTypes: index === 0 ? ["System.Int32"] : ["System.String"],
+          returnType: "System.Void",
+          metadataToken: 0x06000100 + index,
+          isStatic: false,
+          isExtension: false,
+          callerUnsafeMode: "None",
+          genericArity: 0,
+          genericParameterNames: [],
+          display: typeDefinitionId + ".Run(" + (index === 0 ? "System.Int32" : "System.String") + ")"
+        }));
+        const generatedMethod = {
+          ...logicalMethods[0],
+          key: "generated-0",
+          name: "<Run>g__Core|0_0",
+          metadataToken: 0x06001000,
+          display: typeDefinitionId + ".<Run>g__Core|0_0()"
+        };
+        const members = stableSelectors.map((stableSelector, index) => ({
+          typeDefinitionId,
+          member: "Run",
+          stableSelector,
+          bodyTokens: [
+            logicalMethods[index].metadataToken,
+            ...(index === 0 ? [generatedMethod.metadataToken] : [])
+          ]
+        }));
+        const profile = (
+          index,
+          evidenceMethodKey,
+          instructionCount,
+          branchCount,
+          loopCount
+        ) => ({
+          methodKey: "logical-" + index,
+          evidenceMethodKey,
+          ilBytes: instructionCount * 2,
+          instructionCount,
+          distinctOpcodeCount: Math.max(1, Math.floor(instructionCount / 4)),
+          basicBlockCount: branchCount + 1,
+          branchCount,
+          conditionalBranchCount: branchCount,
+          switchCount: 0,
+          switchTargetCount: 0,
+          normalFlowCyclomaticComplexity: branchCount + 1,
+          loopCount,
+          catchCount: 0,
+          filterCount: 0,
+          finallyCount: 0,
+          faultCount: 0,
+          localCount: index === 0 ? 3 : 0,
+          directCallCount: index === 0 ? 4 : 1,
+          distinctCalleeCount: index === 0 ? 3 : 1,
+          allocationCount: 0,
+          throwCount: 0,
+          async: false,
+          unsafe: false,
+          reflectionCallCount: 0,
+          incomingOverloadCallerCount: index === 0 ? 0 : 1,
+          outgoingOverloadTargetCount: index === 0 ? 1 : 0,
+          isComplete: true,
+          incompleteReasons: [],
+          publicMembers: [members[index]]
+        });
+        const profiles = [
+          profile(0, "logical-0", 80, 8, 2),
+          profile(0, "generated-0", 18, 1, 0),
+          profile(1, "logical-1", 5, 0, 0)
+        ];
+        return {
+          schemaVersion: 2,
+          outcome: "available",
+          subject: {
+            identity: {
+              name: subjectName,
+              version: "1.0.0.0",
+              culture: null,
+              publicKeyToken: null
+            },
+            moduleVersionId: "11111111-1111-1111-1111-111111111111",
+            provenance
+          },
+          content: {
+            members,
+            methods: [...logicalMethods, generatedMethod],
+            profiles,
+            coverage: {
+              wasRequested: true,
+              hasFullMethodEvidenceScope: false,
+              declaredMethodKeys: logicalMethods.map(method => method.key),
+              managedMethodBodyKeys: [
+                ...logicalMethods.map(method => method.key),
+                generatedMethod.key
+              ],
+              profiledEvidenceBodyKeys: [
+                ...logicalMethods.map(method => method.key),
+                generatedMethod.key
+              ],
+              unavailableBodies: [],
+              diagnostics: []
+            },
+            overloadRelationships: [{
+              callerKey: "logical-0",
+              calleeKey: "logical-1",
+              evidenceMethodKey: "logical-0",
+              ilOffset: 12,
+              kind: "Direct"
+            }],
+            generatedFrameworkTypes: [typeDefinitionId + "+<>c"],
+            analysisDiagnostics: [],
+            apiSurfaceInspectionFailures: []
+          },
+          failure: null,
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "implementation-profile-family/share",
+            reason: "Fixture projection."
+          },
+          diagnostics: [],
+          compileLibrary
+        };
+      }
+      async function waitForImplementationProfiles(requestKey) {
+        const scenario = ${JSON.stringify(analysis)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-implementation-profiles-ready:" + requestKey,
+            resolve,
+            { once: true }));
+        }
+        if (scenario === "query-error")
+          throw new Error("Implementation-profile query unavailable.");
+      }
+      export async function queryPackageImplementationProfiles(
+        id,
+        version,
+        framework,
+        asset,
+        typeDefinitionId,
+        stableSelectors
+      ) {
+        document.documentElement.dataset.implementationProfileRequestCount =
+          String(++implementationProfileRequestCount);
+        document.documentElement.dataset.implementationProfileRequest =
+          JSON.stringify([
+            id,
+            version,
+            framework,
+            asset,
+            typeDefinitionId,
+            stableSelectors
+          ]);
+        await waitForImplementationProfiles(asset);
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return implementationProfiles(
+          selected.name,
+          typeDefinitionId,
+          stableSelectors,
+          surface.compileLibrary,
+          {
+            kind: "package",
+            packageId: id,
+            packageVersion: version,
+            framework,
+            frameworkVersion: null,
+            runtimeIdentifier: null,
+            assetPath: selected.asset,
+            resolverSource: null,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      export async function queryPlatformImplementationProfiles(
+        framework,
+        version,
+        file,
+        pack,
+        typeDefinitionId,
+        stableSelectors
+      ) {
+        document.documentElement.dataset.implementationProfileRequestCount =
+          String(++implementationProfileRequestCount);
+        document.documentElement.dataset.implementationProfileRequest =
+          JSON.stringify([
+            framework,
+            version,
+            file,
+            pack,
+            typeDefinitionId,
+            stableSelectors
+          ]);
+        await waitForImplementationProfiles(file);
+        return implementationProfiles(
+          file.replace(/\\.dll$/i, ""),
+          typeDefinitionId,
+          stableSelectors,
+          { status: "Selected", targetFramework: framework, message: null },
+          {
+            kind: "platform",
+            packageId: null,
+            packageVersion: null,
+            framework,
+            frameworkVersion: version,
+            runtimeIdentifier: null,
+            assetPath: null,
+            resolverSource: pack,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      let typeHeatRequestCount = 0;
+      // Run(int) forwards to the hub Run(string); Compute has two peers.
+      const typeHeatSizes = {
+        [0x06000100]: 98,
+        [0x06000101]: 5,
+        [0x06000102]: 40,
+        [0x06000103]: 36
+      };
+      async function typeImplementationHeat(
+        surface,
+        subjectName,
+        typeDefinitionId,
+        requestKey,
+        compileLibrary,
+        provenance
+      ) {
+        document.documentElement.dataset.typeHeatRequestCount =
+          String(++typeHeatRequestCount);
+        const scenario = ${JSON.stringify(analysis)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-type-heat-ready:" + requestKey,
+            resolve,
+            { once: true }));
+        }
+        if (scenario === "query-error")
+          throw new Error("Type implementation-heat query unavailable.");
+        const type = surface.types.find(item =>
+          item.definitionId === typeDefinitionId);
+        const byName = new Map();
+        for (const member of type?.api ?? []) {
+          if (!byName.has(member.name)) byName.set(member.name, []);
+          byName.get(member.name).push(member);
+        }
+        const families = [...byName.entries()]
+          .filter(([, members]) => members.length > 1)
+          .map(([name, members]) => ({
+            member: name,
+            roster: members.map(member => ({
+              typeDefinitionId,
+              stableSelector: member.stableSelector,
+              metadataToken: member.metadataToken
+            })),
+            methods: members.map(member => ({
+              metadataToken: member.metadataToken,
+              isRosterMember: true,
+              hasBody: true,
+              size: typeHeatSizes[member.metadataToken] ?? 10,
+              isTrivial: false,
+              isComplete: true
+            })),
+            relationships: name === "Run" && members.length === 2
+              ? [{
+                  callerToken: members[0].metadataToken,
+                  calleeToken: members[1].metadataToken
+                }]
+              : [],
+            unavailableBodies: [],
+            analysisDiagnostics: []
+          }));
+        return {
+          schemaVersion: 1,
+          outcome: "available",
+          subject: {
+            identity: {
+              name: subjectName,
+              version: "1.0.0.0",
+              culture: null,
+              publicKeyToken: null
+            },
+            moduleVersionId: "11111111-1111-1111-1111-111111111111",
+            provenance
+          },
+          content: {
+            typeDefinitionId,
+            families,
+            analysisDiagnostics: [],
+            apiSurfaceInspectionFailures: []
+          },
+          failure: null,
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "type-implementation-heat/share",
+            reason: "Fixture projection."
+          },
+          diagnostics: [],
+          compileLibrary
+        };
+      }
+      export async function queryPackageTypeImplementationHeat(
+        id,
+        version,
+        framework,
+        asset,
+        typeDefinitionId
+      ) {
+        document.documentElement.dataset.typeHeatRequest =
+          JSON.stringify([id, version, framework, asset, typeDefinitionId]);
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return typeImplementationHeat(
+          surface,
+          selected.name,
+          typeDefinitionId,
+          asset,
+          surface.compileLibrary,
+          {
+            kind: "package",
+            packageId: id,
+            packageVersion: version,
+            framework,
+            frameworkVersion: null,
+            runtimeIdentifier: null,
+            assetPath: selected.asset,
+            resolverSource: null,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      export async function queryPlatformTypeImplementationHeat(
+        framework,
+        version,
+        file,
+        pack,
+        typeDefinitionId
+      ) {
+        document.documentElement.dataset.typeHeatRequest =
+          JSON.stringify([framework, version, file, pack, typeDefinitionId]);
+        return typeImplementationHeat(
+          surfaceFor("Microsoft.NETCore.App"),
+          file.replace(/\\.dll$/i, ""),
+          typeDefinitionId,
+          file,
+          { status: "Selected", targetFramework: framework, message: null },
+          {
+            kind: "platform",
+            packageId: null,
+            packageVersion: null,
+            framework,
+            frameworkVersion: version,
+            runtimeIdentifier: null,
+            assetPath: null,
+            resolverSource: pack,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
       export async function queryPackageIntegrations(id, version, framework, asset) {
         document.documentElement.dataset.integrationRequest = asset;
         const surface = surfaceFor(id);
@@ -1206,7 +1616,38 @@ async function installFacades(
         return JSON.stringify(await performanceFor(
           surface, selected, version, framework, selected.id));
       }`,
-    source: "",
+    source: `
+      export async function queryTypeSource() {
+        return {
+          version: 1,
+          kind: "Succeeded",
+          value: {
+            kind: "source",
+            value: {
+              provider: "pdb",
+              provenance: "fixture",
+              url: "https://example.test/Example.Widget.cs",
+              pdbSourceLimitation: null,
+              text: "public sealed class Widget {}",
+            },
+            share: {
+              kind: "nonProjectable",
+              fullUrl: null,
+              packet: null,
+              path: "fixture",
+              reason: "Fixture source",
+            },
+            diagnostics: [],
+          },
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: null,
+        };
+      }
+      export function cancelTypeSourceQuery() {
+        return { kind: "NotActive", reason: null };
+      }`,
     "call-graph": `
       const callGraph = ${JSON.stringify(fixtureCallGraph)};
       export async function queryMemberCallGraph() {

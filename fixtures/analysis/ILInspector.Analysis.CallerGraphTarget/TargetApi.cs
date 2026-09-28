@@ -193,6 +193,9 @@ namespace Target
             ForwardB(value);
         }
 
+        public static Action<string> CrossTypeCallback() =>
+            CrossTypeCallbackApi.Forward;
+
         static void Forward(string value) =>
             Throw(value);
 
@@ -207,6 +210,12 @@ namespace Target
             if (value is null)
                 throw new LocalThrowPathException(nameof(value));
         }
+    }
+
+    public static class CrossTypeCallbackApi
+    {
+        public static void Forward(string value) =>
+            GC.KeepAlive(value);
     }
 
     public sealed class LocalThrowPathException(string parameterName)
@@ -231,6 +240,12 @@ namespace Target
     public interface IBodilessApi
     {
         void Invoke();
+    }
+
+    public static class BodilessCallerApi
+    {
+        public static void Invoke(IBodilessApi target) =>
+            target.Invoke();
     }
 
     public sealed class VarargArg
@@ -268,6 +283,78 @@ namespace Target
 
         public static void PublicPathUse()
         {
+        }
+    }
+
+    // Equal-degree/equal-volume cutoff fixture. The compact A and Z leaves
+    // bracket the same-display RankingBox definitions. Declaring arity two
+    // first makes metadata insertion order oppose exact identity order.
+    public static class A00 { public static void Touch() { } }
+    public static class A01 { public static void Touch() { } }
+    public static class A02 { public static void Touch() { } }
+    public static class A03 { public static void Touch() { } }
+    public static class A04 { public static void Touch() { } }
+    public static class A05 { public static void Touch() { } }
+    public static class A06 { public static void Touch() { } }
+    public static class A07 { public static void Touch() { } }
+    public static class A08 { public static void Touch() { } }
+    public static class A09 { public static void Touch() { } }
+    public static class A10 { public static void Touch() { } }
+    public static class A11 { public static void Touch() { } }
+    public static class A12 { public static void Touch() { } }
+    public static class Z00 { public static void Touch() { } }
+    public static class Z01 { public static void Touch() { } }
+    public static class Z02 { public static void Touch() { } }
+    public static class Z03 { public static void Touch() { } }
+    public static class Z04 { public static void Touch() { } }
+    public static class Z05 { public static void Touch() { } }
+    public static class Z06 { public static void Touch() { } }
+    public static class Z07 { public static void Touch() { } }
+
+    public static class RankingBox<T1, T2>
+    {
+        public static void Touch() =>
+            RelationshipRankingSink.Touch();
+    }
+
+    public static class RankingBox<T>
+    {
+        public static void Touch() =>
+            RelationshipRankingSink.Touch();
+    }
+
+    public static class RelationshipRankingSink
+    {
+        public static void Touch()
+        {
+        }
+    }
+
+    public static class RelationshipRankingHub
+    {
+        public static void Invoke()
+        {
+            A00.Touch();
+            A01.Touch();
+            A02.Touch();
+            A03.Touch();
+            A04.Touch();
+            A05.Touch();
+            A06.Touch();
+            A07.Touch();
+            A08.Touch();
+            A09.Touch();
+            A10.Touch();
+            A11.Touch();
+            A12.Touch();
+            Z00.Touch();
+            Z01.Touch();
+            Z02.Touch();
+            Z03.Touch();
+            Z04.Touch();
+            Z05.Touch();
+            Z06.Touch();
+            Z07.Touch();
         }
     }
 }

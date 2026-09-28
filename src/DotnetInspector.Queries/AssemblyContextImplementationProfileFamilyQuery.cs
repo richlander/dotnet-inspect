@@ -136,8 +136,8 @@ public static class AssemblyContextImplementationProfileFamilyQuery
             LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles,
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(
                     family.DeclaredBodyTokens),
                 resolver);
 
@@ -187,7 +187,7 @@ public static class AssemblyContextImplementationProfileFamilyQuery
         ImplementationProfilePopulationCoverageReceipt coverage =
             ScopeCoverage(
                 analysis.ImplementationProfiles.Coverage,
-                attributedProfiles,
+                attributedProfiles.Select(profile => profile.Profile),
                 declaredTokens);
         var result =
             new AssemblyImplementationProfileFamilyInspection(
@@ -412,15 +412,18 @@ public static class AssemblyContextImplementationProfileFamilyQuery
         ];
     }
 
-    static ImplementationProfilePopulationCoverageReceipt ScopeCoverage(
+    // Narrows an execution receipt to the declared methods in scope and the
+    // physical bodies profiled for them, so scope-excluded bodies elsewhere in
+    // the assembly never appear as unavailable.
+    internal static ImplementationProfilePopulationCoverageReceipt ScopeCoverage(
         ImplementationProfilePopulationCoverageReceipt coverage,
-        ImmutableArray<AssemblyImplementationProfileMember> profiles,
+        IEnumerable<MethodImplementationProfile> profiles,
         IReadOnlySet<int> declaredTokens)
     {
         ImmutableArray<MethodIdentity> profiledBodies =
         [
             .. profiles
-                .Select(profile => profile.Profile.EvidenceMethod)
+                .Select(profile => profile.EvidenceMethod)
                 .Distinct()
                 .OrderBy(method => method.MetadataToken),
         ];

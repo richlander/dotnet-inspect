@@ -13,13 +13,26 @@ public static class MetadataTypeNameFormatter
         if (type.DefinitionName is not { } definitionName)
             return FormatFullName(type.Namespace, type.Name, type.TypeParameters);
 
-        string displayName = FormatGenericTypeName(
-            definitionName.Segments,
-            type.TypeParameters,
+        return FormatFullName(
+            definitionName,
+            type.TypeParameters?.Select(
+                static parameter => parameter.Name).ToArray(),
             type.IntroducedTypeParameterCounts);
-        return definitionName.Namespace.Length == 0
+    }
+
+    public static string FormatFullName(
+        MetadataTypeDefinitionName name,
+        IReadOnlyList<string>? typeParameterNames = null,
+        IReadOnlyList<int>? introducedTypeParameterCounts = null)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        string displayName = FormatGenericTypeName(
+            name.Segments,
+            typeParameterNames,
+            introducedTypeParameterCounts);
+        return name.Namespace.Length == 0
             ? displayName
-            : $"{definitionName.Namespace}.{displayName}";
+            : $"{name.Namespace}.{displayName}";
     }
 
     public static string FormatFullName(string? ns, string name, IReadOnlyList<TypeParameter>? typeParameters = null)
@@ -40,10 +53,10 @@ public static class MetadataTypeNameFormatter
 
     static string FormatGenericTypeName(
         IReadOnlyList<string> metadataNameSegments,
-        IReadOnlyList<TypeParameter>? typeParameters,
+        IReadOnlyList<string>? typeParameterNames,
         IReadOnlyList<int>? introducedTypeParameterCounts)
     {
-        if (typeParameters is null
+        if (typeParameterNames is null
             || introducedTypeParameterCounts is null
             || introducedTypeParameterCounts.Count
                 != metadataNameSegments.Count
@@ -51,13 +64,12 @@ public static class MetadataTypeNameFormatter
                 static count => count < 0)
             || introducedTypeParameterCounts.Sum(
                 static count => (long)count)
-                != typeParameters.Count)
+                != typeParameterNames.Count)
         {
-            return typeParameters is { Count: > 0 }
+            return typeParameterNames is { Count: > 0 }
                 ? TypeResolver.ApplyGenericArguments(
                     metadataNameSegments,
-                    typeParameters.Select(
-                        parameter => parameter.Name).ToArray())
+                    [.. typeParameterNames])
                 : TypeResolver.FormatDisplayName(
                     metadataNameSegments);
         }
@@ -79,10 +91,9 @@ public static class MetadataTypeNameFormatter
             {
                 display += $"<{string.Join(
                     ", ",
-                    typeParameters
+                    typeParameterNames
                         .Skip(parameterIndex)
-                        .Take(introducedCount)
-                        .Select(parameter => parameter.Name))}>";
+                        .Take(introducedCount))}>";
                 parameterIndex += introducedCount;
             }
             parts[segmentIndex] = display;

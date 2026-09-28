@@ -69,8 +69,28 @@ const arguments_ = process.argv.slice(2);
 const variantRoot = resolve(argumentAfter(arguments_, "--variant-root"));
 const apiRoot = resolve(argumentAfter(arguments_, "--api-root"));
 const cohortPath = resolve(argumentAfter(arguments_, "--cohort"));
+const candidateIdentityPath = resolve(
+  argumentAfter(arguments_, "--candidate-identity"),
+);
 const sourceCommit = argumentAfter(arguments_, "--source-commit");
+const candidateRunId = argumentAfter(arguments_, "--candidate-run-id");
+const candidateAttempt = Number(argumentAfter(arguments_, "--candidate-attempt"));
 const output = resolve(argumentAfter(arguments_, "--output"));
+const candidateIdentity: unknown = JSON.parse(readText(candidateIdentityPath));
+if (
+  typeof candidateIdentity !== "object"
+  || candidateIdentity === null
+  || !("schema" in candidateIdentity)
+  || candidateIdentity.schema !== 1
+  || !("runId" in candidateIdentity)
+  || candidateIdentity.runId !== candidateRunId
+  || !("attempt" in candidateIdentity)
+  || candidateIdentity.attempt !== candidateAttempt
+  || !("sourceCommit" in candidateIdentity)
+  || candidateIdentity.sourceCommit !== sourceCommit
+) {
+  throw new Error("Candidate identity evidence does not match deployment.");
+}
 
 const variantText = readText(join(variantRoot, "runtime-variant.json"));
 const variant = parseRuntimeVariantReceipt(JSON.parse(variantText));
@@ -100,6 +120,8 @@ const deployment = createRuntimeSiteDeploymentReceipt(
   readText(cohortPath),
   variantText,
   sourceCommit,
+  candidateRunId,
+  candidateAttempt,
 );
 rmSync(output, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
@@ -124,6 +146,10 @@ writeFileSync(
 writeFileSync(
   join(output, "evidence", "runtime-cohort.json"),
   readText(cohortPath),
+);
+writeFileSync(
+  join(output, "evidence", "candidate-identity.json"),
+  readText(candidateIdentityPath),
 );
 
 const manifest = filesUnder(output)

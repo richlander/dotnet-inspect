@@ -73,10 +73,13 @@ public sealed class PackageIndexCacheTests
                 "1.0.0",
                 ProducerKey: "same-producer")
             {
+                // A credentialed HTTP authority has no persistent key, so
+                // its payload gets no durable index.
                 Authority = new ConfiguredPackageAuthority(
                     new NuGetFetch.PackageSource(
                         "remote",
-                        "https://example.invalid/v3/index.json")),
+                        "https://example.invalid/v3/index.json",
+                        new NuGetFetch.PackageSourceCredential("user", "pass"))),
                 AcquiredPayload = payload,
             },
             _ => { },

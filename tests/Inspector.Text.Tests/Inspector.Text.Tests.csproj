@@ -24,4 +24,8 @@
     <ProjectReference Include="..\..\src\Inspector.Text\Inspector.Text.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

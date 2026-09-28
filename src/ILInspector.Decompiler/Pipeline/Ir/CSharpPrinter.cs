@@ -1372,7 +1372,7 @@ public sealed partial class CSharpPrinter
         if (value is Constant { Value: null })
             return IsReferenceLike(target);
         if (value is Conditional conditional)
-            return CanRenderConditionalForTarget(conditional, target)
+            return CanRenderValueConditionalForTarget(conditional, target)
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
         if (value is Constant { Value: int or long } constant
             && target.DeclaredValueTypeHint == ValueTypeHint.ValueType
@@ -5686,6 +5686,7 @@ public sealed partial class CSharpPrinter
     bool IsStatementExpression(IrExpression expression) => expression switch
     {
         Call call => !IsOperatorCall(call),
+        NullConditional { Member: Call call } => !IsOperatorCall(call),
         CallIndirect or NewObject or IncrementDecrement or AwaitExpression or LocalFunctionInvocation => true,
         _ => false,
     };

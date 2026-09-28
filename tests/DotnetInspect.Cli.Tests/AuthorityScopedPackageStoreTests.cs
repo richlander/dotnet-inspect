@@ -42,39 +42,31 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
     {
         await ConsoleCapture.RunAsync(async () =>
         {
-            try
-            {
-                NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: !globalPackages);
-                ConfiguredPackageAuthority authority = LocalAuthority("measurement-feed");
-                using IPackageSourceClient client = CreateClient(authority);
-                var store = CreateStore(authority, client);
-                InfoTracker.ResetForTests();
-                InfoTracker.Start();
+            NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: !globalPackages);
+            ConfiguredPackageAuthority authority = LocalAuthority("measurement-feed");
+            using IPackageSourceClient client = CreateClient(authority);
+            var store = CreateStore(authority, client);
+            var observer = new CacheObservationRecorder(observation =>
+                observation.Key.ToString().Contains(
+                    PackageName,
+                    StringComparison.OrdinalIgnoreCase));
+            using IDisposable subscription = CacheTelemetry.Subscribe(observer);
 
-                Assert.Null(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
-                Assert.Equal(0, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
+            Assert.Null(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
+            Assert.Equal((0, 1), observer.Counts);
 
-                if (globalPackages)
-                    WriteGlobalPackage(authority.Source.Url);
-                else
-                    await CommitAsync(store, client, "measurement");
-                Assert.Equal(0, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
+            if (globalPackages)
+                WriteGlobalPackage(authority.Source.Url);
+            else
+                await CommitAsync(store, client, "measurement");
+            Assert.Equal((0, 1), observer.Counts);
 
-                Assert.NotNull(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
-                Assert.Equal(1, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
+            Assert.NotNull(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
+            Assert.Equal((1, 1), observer.Counts);
 
-                Assert.Null(store.TryGetCached(PackageName, Version, ["unauthorized-producer"]));
-                Assert.Equal(1, InfoTracker.CacheHits);
-                Assert.Equal(1, InfoTracker.CacheMisses);
-                return 0;
-            }
-            finally
-            {
-                InfoTracker.ResetForTests();
-            }
+            Assert.Null(store.TryGetCached(PackageName, Version, ["unauthorized-producer"]));
+            Assert.Equal((1, 1), observer.Counts);
+            return 0;
         });
     }
 
@@ -190,43 +182,48 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
     [InlineData(
         "https://feed.example/F/auth/first-secret/api",
         "https://feed.example/F/auth/second-secret/api")]
-    public async Task HttpAuthorities_WithEqualProducersKeepInstanceLocalTemporarySlots(
+    public async Task HttpAuthorities_WithEqualProducersKeepSeparateDurableSlots(
         string firstUrl, string secondUrl)
     {
+        // Credential-free HTTP authorities are durable
+        // (docs/design/package-cache-policy.md). Endpoints that differ only in
+        // query or path secrets share a producer but never a slot, and no slot
+        // path or marker carries endpoint text.
         var first = new ConfiguredPackageAuthority(new PackageSource("first", firstUrl));
         var second = new ConfiguredPackageAuthority(new PackageSource("second", secondUrl));
         using IPackageSourceClient firstClient = CreateClient(first);
         using IPackageSourceClient secondClient = CreateClient(second);
         Assert.Equal(firstClient.Source.Producer, secondClient.Source.Producer);
-        Assert.Null(first.PersistentCacheKey);
-        Assert.Null(second.PersistentCacheKey);
+        Assert.NotNull(first.PersistentCacheKey);
+        Assert.NotNull(second.PersistentCacheKey);
+        Assert.NotEqual(first.PersistentCacheKey, second.PersistentCacheKey);
         var firstStore = CreateStore(first, firstClient);
         var secondStore = CreateStore(second, secondClient);
 
         IPackageContent firstContent = await CommitAsync(firstStore, firstClient, "first");
         Assert.Null(secondStore.TryGetCached(PackageName, Version, [firstContent.ProducerKey]));
-        Assert.Null(CreateStore(first, firstClient).TryGetCached(
-            PackageName, Version, [firstContent.ProducerKey]));
         IPackageContent secondContent = await CommitAsync(secondStore, secondClient, "second");
 
         Assert.NotEqual(firstContent.RootPath, secondContent.RootPath);
         Assert.Equal("first", ReadPayload(Assert.IsType<FileSystemPackageContent>(
-            firstStore.TryGetCached(PackageName, Version, [firstContent.ProducerKey]))));
-        Assert.Equal("second", ReadPayload(secondContent));
+            CreateStore(first, firstClient).TryGetCached(
+                PackageName, Version, [firstContent.ProducerKey]))));
+        Assert.Equal("second", ReadPayload(Assert.IsType<FileSystemPackageContent>(
+            CreateStore(second, secondClient).TryGetCached(
+                PackageName, Version, [secondContent.ProducerKey]))));
         Assert.Equal(firstClient.Source.Producer.Key, firstContent.ProducerKey);
         Assert.Equal(secondClient.Source.Producer.Key, secondContent.ProducerKey);
-        Assert.False(Directory.Exists(CacheRoot));
         foreach (IPackageContent content in new[] { firstContent, secondContent })
         {
-            string relative = Path.GetRelativePath(TemporaryRoot, content.RootPath!);
-            string directory = relative.Split(Path.DirectorySeparatorChar)[0];
-            Assert.StartsWith("package-authority-", directory);
-            Assert.True(Guid.TryParseExact(directory["package-authority-".Length..], "N", out _));
+            Assert.StartsWith(CacheRoot, content.RootPath!);
+            Assert.DoesNotContain("secret", content.RootPath!);
+            Assert.DoesNotContain("tenant", content.RootPath!);
             string marker = File.ReadAllText(Path.Combine(content.RootPath!, NuGetCache.CommitMarkerFileName));
             Assert.DoesNotContain(firstUrl, marker);
             Assert.DoesNotContain(secondUrl, marker);
             Assert.DoesNotContain("first-secret", marker);
             Assert.DoesNotContain("second-secret", marker);
+            Assert.DoesNotContain("tenant", marker);
         }
     }
 

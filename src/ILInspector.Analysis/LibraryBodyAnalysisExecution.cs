@@ -143,6 +143,28 @@ public sealed record LibraryResourceOccurrenceAnalysisResult(
 }
 
 /// <summary>
+/// Detached interprocedural ownership summaries produced from one Resource
+/// Occurrence and body-analysis generation.
+/// </summary>
+public sealed record LibraryResourceOwnershipAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    bool WasRequested,
+    ResourceEffectAdmissionReceipt? AdmissionReceipt,
+    ImmutableArray<ResourceOwnershipMethodSummary> Methods,
+    ImmutableArray<ResourceOccurrenceLimitation> Limitations)
+{
+    public bool IsComplete =>
+        WasRequested
+        && Limitations.IsEmpty
+        && Methods.All(method =>
+            method.IsComplete
+            && method.Acquisitions.All(
+                static flow => flow.IsComplete)
+            && method.Parameters.All(
+                static flow => flow.IsComplete));
+}
+
+/// <summary>
 /// Explicit focused results produced by one shared library-body Analysis
 /// execution.
 /// </summary>
@@ -190,6 +212,12 @@ public sealed class LibraryBodyAnalysisExecution
                 analysis,
                 CallGraph,
                 generatedFrameworkTypes);
+        ImplementationMetrics =
+            CreateImplementationMetricResult(
+                Receipt,
+                analysis,
+                CallGraph,
+                plan);
         Optimization = new(
             Receipt,
             analysis,
@@ -201,6 +229,12 @@ public sealed class LibraryBodyAnalysisExecution
             plan.ResourceEffects?.Receipt,
             analysis.ResourceOccurrences?.Methods ?? [],
             analysis.ResourceOccurrences?.Limitations ?? []);
+        ResourceOwnership = new(
+            Receipt,
+            plan.IncludesResourceOccurrences,
+            plan.ResourceEffects?.Receipt,
+            analysis.ResourceOwnership?.Methods ?? [],
+            analysis.ResourceOwnership?.Limitations ?? []);
         ResourceLifecycle = new(
             Receipt,
             plan.IncludesResourceLifecycle,
@@ -226,6 +260,10 @@ public sealed class LibraryBodyAnalysisExecution
         ImplementationProfiles
     { get; }
 
+    internal LibraryImplementationMetricAnalysisResult
+        ImplementationMetrics
+    { get; }
+
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
 
@@ -239,9 +277,17 @@ public sealed class LibraryBodyAnalysisExecution
     public LibraryResourceOccurrenceAnalysisResult ResourceOccurrences
     { get; }
 
+    /// <summary>Focused interprocedural Resource Ownership summary.</summary>
+    public LibraryResourceOwnershipAnalysisResult ResourceOwnership
+    { get; }
+
     /// <summary>Focused root-bound Resource Lifecycle result.</summary>
     public LibraryResourceLifecycleAnalysisResult ResourceLifecycle
     { get; }
+
+    internal ImplementationMetricWorkBudgetSnapshot?
+        ImplementationMetricWork =>
+        _analysis.ImplementationMetricWork;
 
     internal bool HasMaterializedCompatibilityIndex =>
         _compatibilityIndex is not null;
@@ -266,6 +312,115 @@ public sealed class LibraryBodyAnalysisExecution
         LibraryBodyAnalysisPlan plan) =>
         plan.Includes(LibraryBodyAnalysisFeatures.MethodEvidence)
         && !plan.IsScoped;
+
+    static LibraryImplementationMetricAnalysisResult
+        CreateImplementationMetricResult(
+            LibraryBodyAnalysisReceipt receipt,
+            LibraryBodyAnalysisResult analysis,
+            LibraryCallGraphAnalysisResult callGraph,
+            LibraryBodyAnalysisPlan plan)
+    {
+        ImmutableArray<AnalysisDiagnostic> metricDiagnostics =
+            AnalysisDiagnosticAggregation.MergeInMetadataOrder(
+                analysis.Diagnostics,
+                analysis.Methods
+                    .ImplementationMetricDiagnostics);
+        if (plan.ImplementationMetrics is not { } metricPlan)
+        {
+            return new(
+                receipt,
+                WasRequested: false,
+                Participation: null,
+                analysis.Methods.DeclaredMethods,
+                analysis.Methods.Methods,
+                [],
+                metricDiagnostics);
+        }
+
+        ImmutableArray<MethodImplementationMetricEvidence> bodies =
+            analysis.Methods.ImplementationMetrics;
+        if (metricPlan.IncludesDirectCallEvidence)
+        {
+            bodies = PublishDirectCallMetrics(
+                bodies,
+                callGraph,
+                metricDiagnostics);
+        }
+
+        return new(
+            receipt,
+            WasRequested: true,
+            new(
+                metricPlan.RequestedEvidence,
+                metricPlan.EffectiveEvidence,
+                metricPlan.WorkStages,
+                metricPlan.UsesFocusedExecution
+                    && plan.RequestedFeatures
+                        == LibraryBodyAnalysisFeatures.None,
+                analysis.ImplementationMetricParticipation
+                    ?.Stages ?? [],
+                analysis.ImplementationMetricWork),
+            analysis.Methods.DeclaredMethods,
+            analysis.Methods.Methods,
+            bodies,
+            metricDiagnostics);
+    }
+
+    static ImmutableArray<MethodImplementationMetricEvidence>
+        PublishDirectCallMetrics(
+            ImmutableArray<MethodImplementationMetricEvidence> bodies,
+            LibraryCallGraphAnalysisResult callGraph,
+            ImmutableArray<AnalysisDiagnostic> diagnostics)
+    {
+        Dictionary<int, DirectCall[]> callsByEvidenceMethod =
+            callGraph.DirectCalls
+                .GroupBy(static call =>
+                    call.EvidenceMethod.MetadataToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.ToArray());
+        Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+            diagnostics
+                .GroupBy(static diagnostic =>
+                    diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+
+        return
+        [
+            .. bodies.Select(body =>
+            {
+                if (!body.DirectCallCollectionAttempted)
+                    return body;
+
+                callsByEvidenceMethod.TryGetValue(
+                    body.EvidenceMethod.MetadataToken,
+                    out DirectCall[]? calls);
+                calls ??= [];
+                string? incompleteReason = null;
+                if (!body.DirectCallCollectionComplete)
+                {
+                    incompleteReason =
+                        diagnosticsByToken.TryGetValue(
+                            body.EvidenceMethod.MetadataToken,
+                            out AnalysisDiagnostic? diagnostic)
+                            ? diagnostic.Message
+                            : "Direct-call collection did not complete.";
+                }
+
+                return body with
+                {
+                    DirectCalls =
+                        MethodImplementationProfileAnalysis
+                            .MeasureDirectCalls(
+                                calls,
+                                callGraph.DeclaredMethodMap,
+                                incompleteReason),
+                };
+            }),
+        ];
+    }
 
     private static LibraryImplementationProfileAnalysisResult
         CreateImplementationProfileResult(

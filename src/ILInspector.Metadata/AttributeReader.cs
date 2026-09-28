@@ -20,12 +20,22 @@ public readonly record struct RuntimeJsExportAttributeEvidence(
     public bool HasValidRow => ValidRowCount > 0;
 }
 
+internal enum AttributeTypeIdentityDisposition
+{
+    Match,
+    Different,
+    Unresolved,
+}
+
 /// <summary>
 /// Reads and checks custom attributes on types and members.
 /// </summary>
 public static partial class AttributeReader
 {
-    private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
+    private const string EditorBrowsableAttributeNamespace = "System.ComponentModel";
+    private const string EditorBrowsableAttributeSimpleName = "EditorBrowsableAttribute";
+    private const string EditorBrowsableAttributeName =
+        EditorBrowsableAttributeNamespace + "." + EditorBrowsableAttributeSimpleName;
     private const string ExtensionMarkerAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerAttribute";
     private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
@@ -49,6 +59,8 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonSerializableAttribute";
     private const string JsExportJsonInputAttributeName =
         "TsJsExport.JsExportJsonInputAttribute";
+    private const string JsExportJsonOutputAttributeName =
+        "TsJsExport.JsExportJsonOutputAttribute";
     private const string JsonPolymorphicAttributeName =
         "System.Text.Json.Serialization.JsonPolymorphicAttribute";
     private const string JsonDerivedTypeAttributeName =
@@ -261,13 +273,15 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-            if (attrTypeName == EditorBrowsableAttributeName
+            if (IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    EditorBrowsableAttributeNamespace,
+                    EditorBrowsableAttributeSimpleName)
                 && IsEditorBrowsableNever(reader, attr, beforeMaterialize))
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -1197,8 +1211,31 @@ public static partial class AttributeReader
         out JsonWireIgnoreCondition defaultIgnoreCondition,
         out bool useStringEnumConverter,
         Action<int>? beforeMaterialize = null)
+        => TryGetJsonSourceGenerationWireOptions(
+            reader,
+            attributes,
+            out namingPolicy,
+            out generationMode,
+            out defaultIgnoreCondition,
+            out useStringEnumConverter,
+            out _,
+            beforeMaterialize);
+
+    public static bool TryGetJsonSourceGenerationWireOptions(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out JsonWireNamingPolicy? namingPolicy,
+        out JsonSourceGenerationMode generationMode,
+        out JsonWireIgnoreCondition defaultIgnoreCondition,
+        out bool useStringEnumConverter,
+        out JsonSourceGenerationDefaultIgnoreConditionEvidence
+            defaultIgnoreConditionEvidence,
+        Action<int>? beforeMaterialize = null)
     {
         bool found = false;
+        int attributeCount = 0;
+        JsonWireIgnoreCondition? supportedDefaultIgnoreCondition = null;
+        bool hasUnsupportedRow = false;
         namingPolicy = null;
         generationMode = JsonSourceGenerationMode.Default;
         defaultIgnoreCondition = JsonWireIgnoreCondition.Never;
@@ -1216,6 +1253,7 @@ public static partial class AttributeReader
                 continue;
             }
 
+            attributeCount++;
             bool hasExpectedConstructor =
                 HasExpectedConstructor(
                     reader,
@@ -1238,6 +1276,13 @@ public static partial class AttributeReader
                         JsonSourceGenerationMode.Default,
                         JsonWireIgnoreCondition.Never,
                         UseStringEnumConverter: false);
+            bool isUnsupported =
+                current.NamingPolicy == JsonWireNamingPolicy.Unsupported;
+            hasUnsupportedRow |= isUnsupported;
+            supportedDefaultIgnoreCondition =
+                !found && !isUnsupported
+                    ? current.DefaultIgnoreCondition
+                    : null;
             namingPolicy = found
                 ? JsonWireNamingPolicy.Unsupported
                 : current.NamingPolicy;
@@ -1252,6 +1297,10 @@ public static partial class AttributeReader
             found = true;
         }
 
+        defaultIgnoreConditionEvidence = new(
+            attributeCount,
+            supportedDefaultIgnoreCondition,
+            hasUnsupportedRow);
         return found;
     }
 
@@ -1480,6 +1529,100 @@ public static partial class AttributeReader
                 methodName,
                 parameterName,
                 wireType,
+                unsupportedReason));
+        }
+        return declarations;
+    }
+
+    public static List<ApiJsExportJsonOutputDeclaration>
+        ReadJsExportJsonOutputDeclarations(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            ApiAssemblyIdentity? currentAssemblyIdentity,
+            Action<int>? beforeMaterialize = null)
+    {
+        var declarations =
+            new List<ApiJsExportJsonOutputDeclaration>();
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (!IsTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsExportJsonOutputAttributeName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            ApiAssemblyIdentity? attributeAssembly = null;
+            string? unsupportedReason = null;
+            try
+            {
+                if (!TryGetAuthenticAttributeAssembly(
+                        reader,
+                        attribute.Constructor,
+                        JsExportJsonOutputAttributeName,
+                        beforeMaterialize,
+                        out attributeAssembly))
+                {
+                    unsupportedReason =
+                        "attribute assembly identity is unavailable";
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                unsupportedReason =
+                    "attribute assembly identity is malformed";
+            }
+
+            string? methodName = null;
+            ApiTypeShape? wireType = null;
+            bool deferParsing = false;
+            if (currentAssemblyIdentity is null
+                || !HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.StringSystemTypeBoolean,
+                    beforeMaterialize)
+                || AttributeDecoder
+                    .TryDecodePreservingSerializedTypeNames(
+                        reader,
+                        attribute,
+                        beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 3,
+                        NamedArguments.Length: 0,
+                    } decoded
+                || decoded.FixedArguments[0].Value is not string decodedMethod
+                || decoded.FixedArguments[1].Value is not string serializedType
+                || decoded.FixedArguments[2].Value is not bool decodedDeferParsing)
+            {
+                unsupportedReason ??=
+                    "attribute constructor or value is malformed";
+            }
+            else
+            {
+                methodName = decodedMethod;
+                deferParsing = decodedDeferParsing;
+                wireType = ParseJsonSerializableRootShape(
+                    serializedType,
+                    currentAssemblyIdentity);
+                if (string.IsNullOrWhiteSpace(methodName)
+                    || wireType is null)
+                {
+                    unsupportedReason ??=
+                        "method or wire type is unsupported";
+                }
+            }
+
+            declarations.Add(new(
+                attributeAssembly,
+                methodName,
+                wireType,
+                deferParsing,
                 unsupportedReason));
         }
         return declarations;
@@ -1926,6 +2069,8 @@ public static partial class AttributeReader
         String,
         StringString,
         StringStringString,
+        StringSystemType,
+        StringSystemTypeBoolean,
         StringStringSystemType,
         JsonSerializerDefaults,
         JsonNumberHandling,
@@ -2097,6 +2242,29 @@ public static partial class AttributeReader
                         PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
                     ],
+                FrameworkConstructorKind.StringSystemType =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                        NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
+                FrameworkConstructorKind.StringSystemTypeBoolean =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                        NamedTypeNode type,
+                        PrimitiveTypeNode { Name: "bool" },
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
                 FrameworkConstructorKind.StringStringSystemType =>
                     signature.ParameterTypes is
                     [
@@ -2244,11 +2412,85 @@ public static partial class AttributeReader
         Action<int>? beforeMaterialize,
         out EntityHandle declaringType)
     {
-        declaringType = default;
-        if (ExpectedTopLevelName(fullTypeName) is not { } expected)
-            return false;
+        return ClassifyTopLevelAttributeType(
+                reader,
+                constructor,
+                fullTypeName,
+                beforeMaterialize,
+                chargeRelationship: null,
+                out declaringType)
+            == AttributeTypeIdentityDisposition.Match;
+    }
 
-        declaringType = constructor.Kind switch
+    static bool IsTopLevelAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string @namespace,
+        string name)
+    {
+        EntityHandle declaringType = constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (declaringType.Kind == HandleKind.TypeDefinition)
+        {
+            TypeDefinition type =
+                reader.GetTypeDefinition(
+                    (TypeDefinitionHandle)declaringType);
+            return type.GetDeclaringType().IsNil
+                && reader.StringComparer.Equals(
+                    type.Namespace,
+                    @namespace)
+                && reader.StringComparer.Equals(type.Name, name);
+        }
+        if (declaringType.Kind == HandleKind.TypeReference)
+        {
+            TypeReference type =
+                reader.GetTypeReference(
+                    (TypeReferenceHandle)declaringType);
+            return type.ResolutionScope.Kind
+                    is not HandleKind.TypeReference
+                && reader.StringComparer.Equals(
+                    type.Namespace,
+                    @namespace)
+                && reader.StringComparer.Equals(type.Name, name);
+        }
+        return false;
+    }
+
+    internal static AttributeTypeIdentityDisposition
+        ClassifyTopLevelAttributeType(
+            MetadataReader reader,
+            EntityHandle constructor,
+            string fullTypeName,
+            Action<int>? beforeMaterialize,
+            Action<int>? chargeRelationship,
+            out EntityHandle declaringType)
+    {
+        MetadataTypeDefinitionName? expected =
+            ExpectedTopLevelName(fullTypeName);
+        if (expected is null)
+        {
+            declaringType = default;
+            return AttributeTypeIdentityDisposition.Unresolved;
+        }
+
+        HandleKind constructorKind = constructor.Kind;
+        if (constructorKind is
+            HandleKind.MemberReference
+            or HandleKind.MethodDefinition)
+        {
+            chargeRelationship?.Invoke(1);
+        }
+
+        declaringType = constructorKind switch
         {
             HandleKind.MemberReference =>
                 reader.GetMemberReference(
@@ -2260,7 +2502,7 @@ public static partial class AttributeReader
             _ => default,
         };
         if (declaringType.IsNil)
-            return false;
+            return AttributeTypeIdentityDisposition.Unresolved;
 
         // A locally defined attribute authenticates through either constructor
         // spelling. ECMA-335 lets a MemberRef name a member of a TypeDef in the
@@ -2269,21 +2511,36 @@ public static partial class AttributeReader
         // structured name, so a nested carrier stays rejected.
         if (declaringType.Kind == HandleKind.TypeDefinition)
         {
-            return MetadataTypeDefinitionNameReader.Read(
+            return Classify(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeDefinitionHandle)declaringType,
-                    beforeMaterialize)
-                is MetadataTypeDefinitionNameReadResult.Read defined
-                && defined.Name.Equals(expected);
+                    beforeMaterialize,
+                    chargeChain: chargeRelationship));
         }
 
         return declaringType.Kind == HandleKind.TypeReference
-            && MetadataTypeDefinitionNameReader.Read(
+            ? Classify(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeReferenceHandle)declaringType,
-                    beforeMaterialize)
-                is MetadataTypeDefinitionNameReadResult.Read referenced
-            && referenced.Name.Equals(expected);
+                    beforeMaterialize,
+                    chargeChain: chargeRelationship))
+            : AttributeTypeIdentityDisposition.Unresolved;
+
+        AttributeTypeIdentityDisposition Classify(
+            MetadataTypeDefinitionNameReadResult result)
+        {
+            if (result is not
+                MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return AttributeTypeIdentityDisposition.Unresolved;
+            }
+
+            return read.Name.Equals(expected)
+                ? AttributeTypeIdentityDisposition.Match
+                : AttributeTypeIdentityDisposition.Different;
+        }
     }
 
     /// <summary>

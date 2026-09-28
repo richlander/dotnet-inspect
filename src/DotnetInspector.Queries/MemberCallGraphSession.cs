@@ -86,14 +86,21 @@ public sealed record MemberCallGraphView(
         [];
 
     /// <summary>
-    /// Compact ownership evidence retained from the same focused results that
-    /// produced this graph layer.
+    /// Generic Resource Ownership summaries retained from the same focused
+    /// results that produced this graph layer.
     /// </summary>
-    public ImmutableArray<Analysis.ArrayPoolOwnershipMethodEvidence>
-        OwnershipEvidence { get; init; } = [];
+    public ImmutableArray<Analysis.ResourceOwnershipMethodSummary>
+        ResourceOwnershipSummaries { get; init; } = [];
 
-    /// <summary>Whether ownership-flow production was requested.</summary>
-    public bool OwnershipFlowAvailable { get; init; }
+    /// <summary>Whether generic Resource Ownership production was requested.</summary>
+    public bool ResourceOwnershipAvailable { get; init; }
+
+    /// <summary>
+    /// Whether every participating generic ownership Analysis result was
+    /// published without an operation-level limitation. Individual summaries
+    /// and flows retain independent local completeness.
+    /// </summary>
+    public bool ResourceOwnershipPublicationComplete { get; init; }
 
     public Analysis.CatalogCallGraphDiagnostics Diagnostics { get; init; } =
         Analysis.CatalogCallGraphDiagnostics.Empty;
@@ -110,6 +117,12 @@ public sealed record MemberCallGraphOptions
         Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
         | Analysis.LibraryBodyAnalysisFeatures.Allocations;
 
+    /// <summary>
+    /// Admitted resource semantics for generic ownership summaries. Null keeps
+    /// Resource Occurrence and generic ownership production inactive.
+    /// </summary>
+    public Analysis.ResourceEffectAdmission? ResourceEffects { get; init; }
+
     internal void Validate()
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(Depth, 1);
@@ -120,11 +133,6 @@ public sealed record MemberCallGraphOptions
         {
             throw new ArgumentException(
                 "Progressive call graphs require method evidence.");
-        }
-        if ((Features & Analysis.LibraryBodyAnalysisFeatures.LeakTriage) != 0)
-        {
-            throw new ArgumentException(
-                "Progressive call graphs do not support Leak Triage because their first tier is body-scoped.");
         }
     }
 }
@@ -146,13 +154,6 @@ public sealed record MemberCallGraphCalleeNeighborhoodRequest
 
     public int MaxDepth { get; }
     public int MaxNodes { get; }
-}
-
-internal enum MemberCallGraphExternalFocusMembership
-{
-    Unknown,
-    Hub,
-    External,
 }
 
 /// <summary>
@@ -182,6 +183,7 @@ public sealed class MemberCallGraphSession : IDisposable
     readonly AssemblyContextParticipant _root;
     readonly int _memberToken;
     readonly MemberCallGraphOptions _options;
+    readonly IAssemblyBindingPolicy? _resourceBindingPolicy;
     readonly Dictionary<AssemblyAcquisitionRegistration, AnalysisBuildResult>
         _crossAnalyses = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<AssemblyImageIdentity, AnalysisBuildResult.Available>
@@ -218,6 +220,16 @@ public sealed class MemberCallGraphSession : IDisposable
         _group = group;
         _memberToken = memberToken;
         _options = options;
+        _resourceBindingPolicy =
+            options.ResourceEffects is null
+                ? null
+                : SourceRelativeAssemblyGroupBindingPolicy
+                    .CreateCanonicalizingParticipantSelections(
+                        group.Participants.Select(participant =>
+                            (
+                                group.CreateSnapshotBackedReference(
+                                    participant.Assembly),
+                                participant.BindingPolicy)));
         _group.RegisterOwnedResource(this);
     }
 
@@ -269,7 +281,7 @@ public sealed class MemberCallGraphSession : IDisposable
     internal InspectionGraphDocument
         CrossLibraryCalleeNeighborhoodWithCancellation(
         MemberCallGraphCalleeNeighborhoodRequest request,
-        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>
+        Func<CallGraphNode, InspectionGraphScopeMembership>
             classify,
         CancellationToken cancellationToken)
     {
@@ -407,7 +419,7 @@ public sealed class MemberCallGraphSession : IDisposable
     InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
         MemberCallGraphCalleeNeighborhoodRequest request,
         CancellationToken cancellationToken,
-        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>?
+        Func<CallGraphNode, InspectionGraphScopeMembership>?
             classify)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -425,82 +437,28 @@ public sealed class MemberCallGraphSession : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         CallGraphProjection source =
             CallGraphProjection.FromCallees(calleeRoot);
-        ExternalFocusedCallGraphProjection externalFocused =
-            classify is null
-                ? CreateExternalFocusedProjection(
-                    source,
-                    root.ImageIdentity)
-                : CreateExternalFocusedProjection(source, classify);
         cancellationToken.ThrowIfCancellationRequested();
         return CallGraphInspectionGraphAdapter
             .CreateExternalFocusedOutgoingNeighborhood(
-                externalFocused,
+                source,
+                classify ?? (node =>
+                {
+                    if (!TryGetDefinitionImage(
+                            node,
+                            out AssemblyImageIdentity image))
+                    {
+                        return InspectionGraphScopeMembership.Unknown;
+                    }
+
+                    return image == root.ImageIdentity
+                        ? InspectionGraphScopeMembership.Inside
+                        : _fullAnalysesByImage.ContainsKey(image)
+                            ? InspectionGraphScopeMembership.Outside
+                            : InspectionGraphScopeMembership.Unknown;
+                }),
                 request.MaxDepth,
                 request.MaxNodes,
                 _catalogScope!.Diagnostics);
-    }
-
-    ExternalFocusedCallGraphProjection CreateExternalFocusedProjection(
-        CallGraphProjection source,
-        AssemblyImageIdentity rootImage)
-        => CreateExternalFocusedProjection(
-            source,
-            node =>
-            {
-                if (!TryGetDefinitionImage(
-                        node,
-                        out AssemblyImageIdentity image))
-                {
-                    return MemberCallGraphExternalFocusMembership.Unknown;
-                }
-
-                return image == rootImage
-                    ? MemberCallGraphExternalFocusMembership.Hub
-                    : _fullAnalysesByImage.ContainsKey(image)
-                        ? MemberCallGraphExternalFocusMembership.External
-                        : MemberCallGraphExternalFocusMembership.Unknown;
-            });
-
-    static ExternalFocusedCallGraphProjection
-        CreateExternalFocusedProjection(
-        CallGraphProjection source,
-        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>
-            classify)
-    {
-        var hubNodeIds = new List<int>();
-        var externalNodeIds = new List<int>();
-        foreach (CallGraphNode node in source.Nodes)
-        {
-            switch (classify(node))
-            {
-                case MemberCallGraphExternalFocusMembership.Hub:
-                    hubNodeIds.Add(node.Id);
-                    break;
-                case MemberCallGraphExternalFocusMembership.External:
-                    externalNodeIds.Add(node.Id);
-                    break;
-                case MemberCallGraphExternalFocusMembership.Unknown:
-                    break;
-                default:
-                    throw new InvalidOperationException(
-                        "The external-focus classifier returned an unsupported membership.");
-            }
-        }
-
-        if (!hubNodeIds.Contains(source.Focus.Id))
-        {
-            throw new InspectionQueryException(
-                "The call-graph focus could not be joined to the external-focus hub.");
-        }
-
-        return ExternalFocusedCallGraphProjection.Create(
-            source,
-            new ExternalFocusedCallGraphRequest(
-                hubNodeIds,
-                externalNodeIds,
-                ExternalFocusedCallGraphDirection.Outgoing,
-                ExternalFocusedCallGraphMode.SeededConnectors,
-                [source.Focus.Id]));
     }
 
     static bool TryGetDefinitionImage(
@@ -565,16 +523,18 @@ public sealed class MemberCallGraphSession : IDisposable
                     .OrderBy(call => call.ILOffset)
                     .ThenBy(call => call.OperandToken),
             ],
-            OwnershipEvidence =
+            ResourceOwnershipSummaries =
             [
                 .. evidenceSources
                     .SelectMany(item =>
-                        item.CallGraph.OwnershipEvidence),
+                        item.CallGraph.ResourceOwnershipSummaries),
             ],
-            OwnershipFlowAvailable =
-                (_options.Features
-                    & Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow)
-                != 0,
+            ResourceOwnershipAvailable =
+                _options.ResourceEffects is not null,
+            ResourceOwnershipPublicationComplete =
+                _options.ResourceEffects is not null
+                && evidenceSources.All(item =>
+                    item.CallGraph.ResourceOwnershipPublicationComplete),
             Diagnostics =
                 diagnostics
                 ?? Analysis.CatalogCallGraphDiagnostics.Empty,
@@ -681,18 +641,36 @@ public sealed class MemberCallGraphSession : IDisposable
                     IncrementBuildCount(buildKind);
                     try
                     {
+                        ResolvedAssemblyReference analysisAssembly =
+                            _options.ResourceEffects is null
+                                ? participant.Assembly
+                                : snapshot.RetainAssemblyReference(
+                                    participant.Assembly);
                         Analysis.LibraryBodyAnalysisExecution execution =
-                            Analysis.LibraryBodyAnalysisService.ExecuteImage(
-                                ParticipantName(participant),
-                                snapshot.Content,
-                                Analysis.LibraryBodyAnalysisRequest.Create(
-                                    _options.Features,
-                                    bodyScope),
-                                resolver: null);
+                            _options.ResourceEffects is { } resourceEffects
+                                ? Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                                    ParticipantName(participant),
+                                    snapshot.Content,
+                                    Analysis.LibraryBodyAnalysisRequest
+                                        .CreateResourceOccurrences(
+                                            resourceEffects,
+                                            _options.Features,
+                                            bodyScope),
+                                    _resourceBindingPolicy!,
+                                    analysisAssembly)
+                                : Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                                    ParticipantName(participant),
+                                    snapshot.Content,
+                                    Analysis.LibraryBodyAnalysisRequest.Create(
+                                        _options.Features,
+                                        bodyScope),
+                                    resolver: null);
                         ResolvedAssemblyReference assembly =
                             retainAssembly
-                                ? snapshot.RetainAssemblyReference(
-                                    participant.Assembly)
+                                ? _options.ResourceEffects is null
+                                    ? snapshot.RetainAssemblyReference(
+                                        participant.Assembly)
+                                    : analysisAssembly
                                 : participant.Assembly;
                         var available =
                             new AnalysisBuildResult.Available(
@@ -706,6 +684,7 @@ public sealed class MemberCallGraphSession : IDisposable
                                 imageIdentity,
                                 available);
                         }
+
                         return available;
                     }
                     catch (Exception ex)

@@ -187,21 +187,20 @@ available after the optional focus operand chooses the route; select exact
 composes the pair-wide call-site, summary, and direct-use cluster projections;
 coordinate-gated `Public Root Paths` remains exact-name-only. `Switches` is a
 section. Package Query `@Query` composes `Packages` and `Query Summary`;
-ordinary output remains adaptive and bare `-S` retains `Packages`.
+ordinary output remains adaptive and explicit `-S Packages` retains `Packages`.
 Library Query `@Query` composes `Libraries` and `Query Summary`; ordinary
-output remains adaptive and bare `-S` retains `Libraries`.
+output remains adaptive and explicit `-S Libraries` retains `Libraries`.
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
 for its fields or `-D --schema` to find it in the complete static graph.
 
-Bare `-S` returns high-value, fixed-length, network-free sections from the
-package or library base categories. Sections without evidence are omitted.
-`-S --count` returns the candidate count map, including zero rows. Explicit
+`-S`, `-s`, `--select`, and `--section` require an explicit section, category,
+or wildcard argument. Use `-D` to discover available names. Explicit
 sections/categories override base scope and may authorize expensive work.
-Focused selection omits identity; include `Package Info` or `Library Info` when
-needed.
+Focused selection omits identity; include `Package Info` or `Library Info`
+when needed.
 
 Some large families expose only their category door in the top-level catalog.
 Use `library X -D @Performance` or `-D @Metadata`; add `--effective` for
@@ -348,9 +347,8 @@ count exact. Reached candidate bounds and failures remain visible.
 Default non-count output shows `Packages` when at least one package matched and
 `Query Summary` otherwise. The summary separates candidate, match, and
 evaluation-failure counts; select a stable shape with `-S Packages` or
-`-S "Query Summary"`. Bare `-S` selects the non-adaptive `Packages` preset, and
-explicit `Packages` preserves its empty schema. Select `@Query` to compose both
-sections in Markdown or JSON.
+`-S "Query Summary"`. Explicit `Packages` preserves its empty schema. Select
+`@Query` to compose both sections in Markdown or JSON.
 Package Query does not accept API-search scopes, source overrides, or ranking.
 Query-execution flags cannot be combined with `-Q`.
 

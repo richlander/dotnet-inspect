@@ -108,9 +108,13 @@ public class TypeSearchServiceTests
         Assert.Single(result.Rows);
         Assert.Equal("class", result.Rows[0].Kind);
         Assert.Equal("System.Text.Json", result.Rows[0].Source);
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            Assert.Single(result.LocatorInspections);
         TypeDeclarationLocatorSectionResult.Evaluated section =
             Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
-                Assert.Single(result.LocatorSections));
+                inspection.Content);
+        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Empty(inspection.Diagnostics);
         TypeDeclarationLocatorSectionAnswer answer =
             Assert.Single(section.Answers);
         Assert.Equal(1, answer.AvailableCandidateCount);

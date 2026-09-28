@@ -69,9 +69,9 @@ configured knowledge into library observation. Ecosystem publishes no
 single-member `@Integrations` category; that category remains specific to
 Library, where it composes `Integrations` and `Integration Opportunities`.
 
-Ordinary output still renders only `Ecosystems` or `Ecosystem Info`. Bare `-S`
-and explicit `@Ecosystem` compose the selected route's complete section set,
-ordered alphabetically.
+Ordinary output still renders only `Ecosystems` or `Ecosystem Info`. Explicit
+`@Ecosystem` composes the selected route's complete section set, ordered
+alphabetically.
 
 ## Sections
 

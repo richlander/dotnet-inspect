@@ -3045,10 +3045,10 @@ public class ApiOutputFormatterTests
             });
 
         Assert.NotEmpty(view.Classes!);
-        ForwarderSummaryRow forwarders =
+        ApiTypeForwarderRow forwarder =
             Assert.Single(view.TypeForwarders!);
-        Assert.Equal("Target", forwarders.TargetLibrary);
-        Assert.Equal("1", forwarders.Types);
+        Assert.Equal("<code>Forwarded</code>", forwarder.Type);
+        Assert.Equal("Target", forwarder.TargetAssembly);
     }
 
     [Fact]

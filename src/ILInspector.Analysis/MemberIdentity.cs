@@ -213,7 +213,13 @@ public sealed record MemberRef(
     /// </summary>
     public byte SignatureHeader { get; init; }
 
-    internal int RequiredParameterCount { get; init; } = -1;
+    /// <summary>
+    /// Number of fixed parameters before the optional vararg tail. Decoded
+    /// signatures preserve the encoded count; synthetic references may use
+    /// <c>-1</c>. The value is identity-bearing when
+    /// <see cref="SignatureHeader"/> uses the vararg calling convention.
+    /// </summary>
+    public int RequiredParameterCount { get; internal init; } = -1;
 
     // Candidate metadata only; this affects rewrite compatibility, not method identity.
     internal bool TrailingParameterCanBeOmitted { get; init; }

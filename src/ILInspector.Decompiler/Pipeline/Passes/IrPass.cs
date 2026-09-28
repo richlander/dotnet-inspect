@@ -156,9 +156,11 @@ public static class IrPasses
         // `recv?.M() ?? x` store the structuring pass can consume. The sibling of
         // the or-chain folds for the shared-true-arm-with-prologue case.
         new NullConditionalCoalescePass(),
-        // Fold a prologue guard left flat only because the method body is
-        // EH-entangled (issue #1089, slice 4) — must run before StructuringPass,
-        // which declines the whole container for leave-target-in-container.
+        // Fold csc's dup/branch/pop shape for an effectful receiver used by a
+        // void ?. call before structuring consumes the surrounding blocks.
+        new NullConditionalPass(voidCallsOnly: true),
+        // Fold an independently owned leading guard-return slice even when
+        // later control flow keeps the rest of the container flat.
         new PrologueGuardReturnPass(),
         // Collapse flat lazy delegate-cache artifacts before shared slot-store
         // diamonds try to inline their true-arm temporaries.
@@ -418,8 +420,12 @@ public static class IrPasses
         // Consume exclusive two-load address spills atomically, after expression
         // movement is finished and before their surviving storage materializes.
         new PointerElementCompoundAssignmentPass(),
-        // A decided in-domain slot (one testified type, all stores at it or
-        // renderably coercible) is a finished variable: materialize it as a
+        // Refresh reference assignment testimony immediately before storage
+        // consumes it. Final binding still runs after later rewrites.
+        new ReferenceSlotTargetBindingPass(),
+        // A decided slot (one testified type, every store exact, renderably
+        // coercible, or carrying issued assignment testimony) is a finished
+        // variable: materialize it as a
         // typed local BEFORE insertion, so its minted locals are coerced at
         // their sinks like any local (slice 5b-2; the assertion diff caught
         // the reverse ordering leaving them bare).
@@ -518,7 +524,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
+        [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

@@ -512,6 +512,23 @@ public partial class PackageCommand
                 workspaceLoadOptions).ConfigureAwait(false);
         }
 
+        if (options.ShowContent && packageArgs.Length == 1)
+        {
+            PackageReferenceTarget houseTarget =
+                options.DeclaredPackageTarget
+                ?? PackageExtractor.ParsePackageTarget(
+                    packageArgs[0],
+                    explicitVersion);
+            int? houseResult =
+                await TryWriteLiteralHouseDocumentExportAsync(
+                        [houseTarget],
+                        options,
+                        context)
+                    .ConfigureAwait(false);
+            if (houseResult is { } exitCode)
+                return exitCode;
+        }
+
         InspectionOptions producerOptions = CreateProducerOptions(
             options,
             userVerbosity,
@@ -1113,6 +1130,18 @@ public partial class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
+        int? packageFileInventoryExitCode =
+            preResolved is null
+                ? await TryExecutePackageFileInventoryAsync(
+                        target,
+                        options,
+                        context,
+                        pipeline)
+                    .ConfigureAwait(false)
+                : null;
+        if (packageFileInventoryExitCode is { } inventoryExitCode)
+            return inventoryExitCode;
+
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
         InspectionResult? observedInspection = null;
@@ -1375,7 +1404,10 @@ public partial class PackageCommand
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            PopulatePackageFileSections(result, extractPath, options);
+            PopulatePackageFileSectionsLegacy(
+                result,
+                extractPath,
+                options);
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))

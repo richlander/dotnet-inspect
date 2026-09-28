@@ -77,8 +77,11 @@ public static class TextFindings
 
     /// <summary>
     /// Produces a complete analytical relation partition for two source-text line sequences.
-    /// Exact matched lines retain movement; unmatched populations within one stable-anchor gap
-    /// form one producer-issued changed correspondence.
+    /// Lines align by their whitespace-stripped content, so a line that differs only in
+    /// whitespace corresponds to its counterpart; content stays exact: a correspondence is
+    /// unchanged only when its lines are ordinal-equal and agree in final-terminator presence.
+    /// Order-preserving matches are stable, relocated blocks of two or more lines are moved, and
+    /// unmatched populations within one stable-anchor gap form one changed correspondence.
     /// </summary>
     public static AnalysisDiff<string> CreateAnalysisDiff(
         string beforeText,
@@ -93,9 +96,9 @@ public static class TextFindings
         ImmutableArray<string> before = SplitAnalysisLines(beforeText);
         ImmutableArray<string> after = SplitAnalysisLines(afterText);
         FindingInspection<string> beforeInspection =
-            new FindingInspection<string>.Complete(ProjectAtoms(before, subject).ToImmutableArray());
+            new FindingInspection<string>.Complete(ProjectAtoms(before, subject, alignWhitespaceInsensitively: true).ToImmutableArray());
         FindingInspection<string> afterInspection =
-            new FindingInspection<string>.Complete(ProjectAtoms(after, subject).ToImmutableArray());
+            new FindingInspection<string>.Complete(ProjectAtoms(after, subject, alignWhitespaceInsensitively: true).ToImmutableArray());
         FindingComparison<string> comparison = FindingComparison.Compare(
             beforeInspection,
             afterInspection,
@@ -199,6 +202,10 @@ public static class TextFindings
                             after.Length,
                             afterHasFinalLineTerminator);
                     var content = lineTerminatorChanged
+                        || !string.Equals(
+                            before[beforeCoordinate],
+                            after[afterCoordinate],
+                            StringComparison.Ordinal)
                         ? AnalysisDiffContentKind.Changed
                         : AnalysisDiffContentKind.Unchanged;
                     var placement = present.Difference == FindingDifferenceKind.Moved
@@ -349,7 +356,8 @@ public static class TextFindings
 
     static IEnumerable<Finding<string>> ProjectAtoms(
         IEnumerable<string> lines,
-        FindingSubject subject)
+        FindingSubject subject,
+        bool alignWhitespaceInsensitively = false)
     {
         int position = 0;
         foreach (string content in lines)
@@ -357,7 +365,7 @@ public static class TextFindings
             yield return new Finding<string>(
                 subject,
                 LineDescriptor,
-                new FindingKey(content),
+                new FindingKey(alignWhitespaceInsensitively ? TextWhitespace.Strip(content) : content),
                 content,
                 Ordinal: position++);
         }

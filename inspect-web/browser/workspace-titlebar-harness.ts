@@ -159,18 +159,31 @@ const systemTextJsonIcon =
 const packageIcon = params.has("fallback")
   ? defaultPackageIcon
   : systemTextJsonIcon;
-const subjectPath = workspaceMode
+interface HarnessSubjectPathSegment {
+  kind: "workspace" | "package" | "library" | "type" | "member";
+  label: string;
+  copyable: boolean;
+  targetFramework?: string;
+}
+
+const packageSegment: HarnessSubjectPathSegment = {
+  kind: "package",
+  label: "System.Text.Json",
+  copyable: true,
+  targetFramework: "net10.0",
+};
+const subjectPath: readonly HarnessSubjectPathSegment[] = workspaceMode
   ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
   : packageMetadataMode || libraryOverviewMode
     ? [
-        { kind: "package", label: "System.Text.Json", copyable: true },
+        packageSegment,
         { kind: "library", label: "System.Text.Json", copyable: true },
       ]
   : packageMode
-    ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
+    ? [packageSegment]
     : memberMode
       ? [
-          { kind: "package", label: "System.Text.Json", copyable: true },
+          packageSegment,
           { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
@@ -188,7 +201,7 @@ const subjectPath = workspaceMode
           },
         ]
       : [
-          { kind: "package", label: "System.Text.Json", copyable: true },
+          packageSegment,
           { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
@@ -198,7 +211,9 @@ const subjectPath = workspaceMode
             copyable: true,
           },
         ];
-const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
+const subjectPathLabel = subjectPath.map(segment =>
+  [segment.label, segment.targetFramework].filter(Boolean).join(" · "))
+  .join(" > ");
 const coordinates = [
   {
     id: "System.Text.Json",
@@ -950,7 +965,10 @@ app.innerHTML = `
               const content = segment.copyable
                 ? `<button type="button" class="${className}" data-subject-copy="${index}" title="Copy ${escapeHtml(segment.label)}" aria-label="Copy ${segment.kind} name ${escapeHtml(segment.label)}">${escapeHtml(segment.label)}</button>`
                 : `<span class="${className}">${escapeHtml(segment.label)}</span>`;
-              return `${index === 0 ? "" : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>'}${content}`;
+              const targetFramework = segment.targetFramework
+                ? `<button type="button" class="subject-path-framework" data-subject-framework="${escapeHtml(segment.targetFramework)}" title="Change target framework" aria-label="Target framework ${escapeHtml(segment.targetFramework)}. Change target framework for ${escapeHtml(segment.label)}">· ${escapeHtml(segment.targetFramework)}</button>`
+                : "";
+              return `${index === 0 ? "" : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>'}${content}${targetFramework}`;
             }).join("")}
           </div>
         </div>`,
@@ -1098,6 +1116,9 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onApplicationAction: handleApplicationAction,
   onCopySubjectSegment: index => {
     document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
+  },
+  onOpenPackageTargetFramework: () => {
+    document.body.dataset.packageFrameworkOpened = "true";
   },
   onDismissNotice() {},
   onDismissPackageNotice() {},
@@ -1348,27 +1369,11 @@ window.rerenderProductNavigationProbe = () => {
     "[data-product-navigation-button]");
   const menu = document.querySelector<HTMLElement>(
     "[data-product-navigation-menu]");
-  const productNavigationHadFocus =
-    document.activeElement === button
-    || (document.activeElement instanceof Node
-      && menu?.contains(document.activeElement) === true);
   menu?.remove();
   if (!button)
     throw new Error("The product-navigation shell is unavailable.");
   button.outerHTML = renderBrand();
   productNavigationBinding.afterRender();
-  const replacementButton = document.querySelector<HTMLElement>(
-    "[data-product-navigation-button]");
-  const replacementMenu = document.querySelector<HTMLElement>(
-    "[data-product-navigation-menu]");
-  const activeElement = document.activeElement;
-  const replacementOwnsFocus =
-    activeElement === replacementButton
-    || (activeElement instanceof Node
-      && replacementMenu?.contains(activeElement) === true);
-  if (productNavigationHadFocus && !replacementOwnsFocus) {
-    replacementButton?.focus();
-  }
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
 window.beginContentFrameReplacementProbe = () => {

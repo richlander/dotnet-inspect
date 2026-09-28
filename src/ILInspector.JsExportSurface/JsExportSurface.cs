@@ -81,6 +81,23 @@ public sealed class JsExportSurface
     public IReadOnlyDictionary<ApiType, JsonWireDirection> WireDirections
         { get; init; } =
         new Dictionary<ApiType, JsonWireDirection>();
+
+    /// <summary>
+    /// Authenticated effective serializer-context defaults for discovered
+    /// types.
+    /// </summary>
+    /// <remarks>
+    /// Missing entries on declaration-only hand-composed surfaces use the
+    /// framework default, <see cref="JsonWireContextDefaultIgnoreCondition.Never"/>.
+    /// Conflicting or unsupported context evidence is retained as
+    /// <see cref="JsonWireContextDefaultIgnoreCondition.Unsupported"/>.
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyDictionary<
+        ApiType,
+        JsonWireContextDefaultIgnoreCondition>
+        ContextDefaultIgnoreConditions { get; init; } =
+        new Dictionary<ApiType, JsonWireContextDefaultIgnoreCondition>();
 }
 
 /// <summary>
@@ -133,12 +150,36 @@ public sealed class JsExportPolymorphicCase
     public required string TypeDiscriminator { get; init; }
 }
 
+public enum JsExportJsonContractCertification
+{
+    Intrinsic,
+    Inferred,
+    Declared,
+    Incomplete,
+}
+
+public sealed record JsExportCertificationDiagnostic(string Message);
+
 /// <summary>
 /// One <c>[JSExport]</c>-attributed static member, with its declaring type, parameters, and
 /// return type as reported by <see cref="ApiSurfaceExtractor"/> — unmodified C# signature facts.
 /// </summary>
+public enum JsExportJsonOutputMode
+{
+    Parsed,
+    JsonText,
+}
+
 public sealed class JsExportFunction
 {
+    [JsonIgnore]
+    public JsExportJsonContractCertification JsonContractCertification
+        { get; init; } = JsExportJsonContractCertification.Intrinsic;
+
+    [JsonIgnore]
+    public IReadOnlyList<JsExportCertificationDiagnostic>
+        CertificationDiagnostics { get; init; } = [];
+
     /// <summary>
     /// Namespace- and nesting-qualified runtime export path for the declaring
     /// type, with dot-delimited segments as returned by
@@ -225,6 +266,9 @@ public sealed class JsExportFunction
     /// </remarks>
     [JsonIgnore]
     public ApiTypeShape? ReturnWireTypeShape { get; init; }
+
+    [JsonIgnore]
+    public JsExportJsonOutputMode? ReturnWireMode { get; init; }
 
     /// <summary>
     /// DTO type(s) this method's own body deserializes from a JSON-string

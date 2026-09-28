@@ -228,7 +228,9 @@ public static class TypeCommand
             {
                 if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
-                if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
+                if (!options.RouterCompletedPlatformLookup
+                    && await TryExecuteFindIfMissAsync(options)
+                        is { } findIfMissExitCode)
                     return findIfMissExitCode;
             }
             catch (Exception ex)
@@ -326,13 +328,23 @@ public static class TypeCommand
                         options.TypeName))
             {
                 // No type specified - list all types
-                if (loadedSurface is null
-                    && TryExecuteMetadataTypeCount(
-                        source,
-                        options)
-                    is int countExitCode)
+                if (loadedSurface is null)
                 {
-                    return countExitCode;
+                    int? libraryListingResult =
+                        await LibraryTypeListingCommand.TryExecuteAsync(
+                            source,
+                            options,
+                            cancellationToken);
+                    if (libraryListingResult is not null)
+                        return libraryListingResult.Value;
+
+                    if (TryExecuteMetadataTypeCount(
+                            source,
+                            options)
+                        is int countExitCode)
+                    {
+                        return countExitCode;
+                    }
                 }
 
                 var loaded = loadedSurface

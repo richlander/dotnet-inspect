@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
 using InertText;
 
@@ -39,9 +40,17 @@ public sealed record LibraryTypeMemberCountRequest;
 /// </summary>
 public sealed record LibraryTypePopulationContinuation
 {
+    private const int MaximumEncodedValueCharacters =
+        ((28
+            + MetadataSafetyPolicy.MaxTypeNameCharacters * 3
+            + 2)
+        / 3)
+        * 4;
+
     public LibraryTypePopulationContinuation(InertString value)
     {
-        if (value.IsEmpty || value.Length > 256)
+        if (value.IsEmpty
+            || value.Length > MaximumEncodedValueCharacters)
         {
             throw new ArgumentException(
                 "A Library Type continuation must contain a bounded value.",
@@ -99,7 +108,12 @@ public sealed record LibraryTypePopulationRequest
         LibraryTypePopulationCountRequest? count,
         LibraryTypePopulationRowsRequest? rows = null,
         LibraryTypeDeclarationSelection declarationSelection =
-            LibraryTypeDeclarationSelection.DefinitionsAndForwarders)
+            LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
+        ApiTypeInventoryKinds definitionKinds =
+            ApiTypeInventoryKinds.All,
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact)
     {
         if (!Enum.IsDefined(accessibility))
         {
@@ -115,6 +129,90 @@ public sealed record LibraryTypePopulationRequest
                 declarationSelection,
                 "Unknown Library Type declaration selection.");
         }
+        if ((definitionKinds
+                & ~ApiTypeInventoryKinds.All)
+            != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(definitionKinds),
+                definitionKinds,
+                "Unknown Library Type definition-kind selection.");
+        }
+        if (@namespace?.Length
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(@namespace),
+                @namespace.Length,
+                $"A Library Type namespace cannot exceed "
+                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} "
+                    + "characters.");
+        }
+        if (@namespace is not null
+            && !IsWellFormedUtf16(@namespace))
+        {
+            throw new ArgumentException(
+                "A Library Type namespace must contain well-formed Unicode text.",
+                nameof(@namespace));
+        }
+        if (!Enum.IsDefined(namespaceMatch))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(namespaceMatch),
+                namespaceMatch,
+                "Unknown Library Type namespace match.");
+        }
+        if (@namespace is null
+            && namespaceMatch is not MetadataNamespaceMatch.Exact)
+        {
+            throw new ArgumentException(
+                "An unqualified Library Type population cannot select a namespace match.",
+                nameof(namespaceMatch));
+        }
+        if (namespaceMatch is MetadataNamespaceMatch.Suffix
+            && (@namespace!.Length < 2
+                || @namespace[0] != '.'))
+        {
+            throw new ArgumentException(
+                "A Library Type namespace suffix must start with '.' and contain a suffix.",
+                nameof(@namespace));
+        }
+        if (namespaceMatch
+                is MetadataNamespaceMatch.ExactOrDescendant
+            && @namespace!.Length == 0)
+        {
+            throw new ArgumentException(
+                "A Library Type namespace descendant root cannot be empty.",
+                nameof(@namespace));
+        }
+
+        bool includesDefinitions =
+            declarationSelection
+                is LibraryTypeDeclarationSelection.Definitions
+                    or LibraryTypeDeclarationSelection
+                        .DefinitionsAndForwarders;
+        if (includesDefinitions
+            && definitionKinds
+                == ApiTypeInventoryKinds.None)
+        {
+            throw new ArgumentException(
+                "A Type population that includes definitions must select at least one definition kind.",
+                nameof(definitionKinds));
+        }
+        if (!includesDefinitions)
+        {
+            if (definitionKinds
+                is not ApiTypeInventoryKinds.All
+                    and not ApiTypeInventoryKinds.None)
+            {
+                throw new ArgumentException(
+                    "A forwarder-only Type population cannot select definition kinds.",
+                    nameof(definitionKinds));
+            }
+
+            definitionKinds =
+                ApiTypeInventoryKinds.None;
+        }
 
         if (count is null && rows is null)
         {
@@ -124,14 +222,38 @@ public sealed record LibraryTypePopulationRequest
 
         Accessibility = accessibility;
         DeclarationSelection = declarationSelection;
+        DefinitionKinds = definitionKinds;
+        Namespace = @namespace;
+        NamespaceMatch = namespaceMatch;
         Count = count;
         Rows = rows;
     }
 
     public LibraryTypeAccessibility Accessibility { get; }
     public LibraryTypeDeclarationSelection DeclarationSelection { get; }
+    public ApiTypeInventoryKinds DefinitionKinds { get; }
+    public string? Namespace { get; }
+    public MetadataNamespaceMatch NamespaceMatch { get; }
     public LibraryTypePopulationCountRequest? Count { get; }
     public LibraryTypePopulationRowsRequest? Rows { get; }
+
+    private static bool IsWellFormedUtf16(string value)
+    {
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (!char.IsSurrogate(current))
+                continue;
+            if (!char.IsHighSurrogate(current)
+                || index + 1 >= value.Length
+                || !char.IsLowSurrogate(value[++index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 /// <summary>
@@ -140,18 +262,133 @@ public sealed record LibraryTypePopulationRequest
 public sealed record LibraryInspectionPlan
 {
     public LibraryInspectionPlan(
-        LibraryTypePopulationRequest types,
-        ApiSurfaceExtractionBounds bounds)
+        LibraryTypePopulationRequest? types,
+        ApiSurfaceExtractionBounds bounds,
+        LibraryEnablementsRequest? enablements = null,
+        LibraryImageFactsRequest? image = null,
+        LibraryDescriptionFactsRequest? description = null)
     {
-        Types = types
-            ?? throw new ArgumentNullException(nameof(types));
+        Types = types;
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
+        Enablements = enablements;
+        Image = image;
+        Description = description;
     }
 
-    public LibraryTypePopulationRequest Types { get; }
+    /// <summary>
+    /// The requested Type population, or null for a facts-only plan that
+    /// executes no population work.
+    /// </summary>
+    public LibraryTypePopulationRequest? Types { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
+
+    /// <summary>Requests the Enablements fact group.</summary>
+    public LibraryEnablementsRequest? Enablements { get; }
+
+    /// <summary>Requests the Image fact group.</summary>
+    public LibraryImageFactsRequest? Image { get; }
+
+    /// <summary>Requests the Description fact group.</summary>
+    public LibraryDescriptionFactsRequest? Description { get; }
 }
+
+/// <summary>Request for the Image fact group.</summary>
+public sealed record LibraryImageFactsRequest;
+
+/// <summary>Request for the Description fact group.</summary>
+public sealed record LibraryDescriptionFactsRequest;
+
+[JsonConverter(typeof(JsonStringEnumConverter<LibraryTextFactUnavailableReason>))]
+public enum LibraryTextFactUnavailableReason
+{
+    [JsonStringEnumMemberName("undecodable-metadata")]
+    UndecodableMetadata,
+
+    [JsonStringEnumMemberName("conflicting-values")]
+    ConflictingValues,
+}
+
+/// <summary>
+/// One attribute-text Library fact. A fact the image does not carry is absent
+/// (null), never empty text.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(Present), "present")]
+[JsonDerivedType(typeof(Unavailable), "unavailable")]
+public abstract record LibraryTextFact
+{
+    private LibraryTextFact()
+    {
+    }
+
+    public sealed record Present(
+        [property: JsonConverter(typeof(InertStringJsonConverter))] InertString Value)
+        : LibraryTextFact;
+
+    public sealed record Unavailable(LibraryTextFactUnavailableReason Reason)
+        : LibraryTextFact;
+
+    internal static LibraryTextFact? From(AssemblyAttributeText? text) =>
+        text switch
+        {
+            null => null,
+            { State: AssemblyAttributeTextState.Present, Value: { } value } =>
+                new Present(new InertString(TextPolicy.Field, value)),
+            { State: AssemblyAttributeTextState.Conflicting } =>
+                new Unavailable(LibraryTextFactUnavailableReason.ConflictingValues),
+            _ => new Unavailable(LibraryTextFactUnavailableReason.UndecodableMetadata),
+        };
+}
+
+/// <summary>
+/// The Image fact group of the API assembly
+/// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+/// </summary>
+public sealed record LibraryImageFacts(
+    int ImageBytes,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? TargetFramework,
+    LibraryCompilationForm Compilation,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryArchitecture? Architecture,
+    bool StrongNameSigned,
+    LibraryReproducibility Reproducibility)
+{
+    internal static LibraryImageFacts From(int imageBytes, AssemblyLibraryFactsObservation facts) =>
+        new(
+            imageBytes,
+            LibraryTextFact.From(facts.TargetFramework),
+            facts.Compilation,
+            facts.Architecture,
+            facts.StrongNameSigned,
+            facts.Reproducibility);
+}
+
+/// <summary>The Description fact group of the API assembly.</summary>
+public sealed record LibraryDescriptionFacts(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? InformationalVersion,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? Company,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? Product,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? Copyright)
+{
+    internal static LibraryDescriptionFacts From(AssemblyLibraryFactsObservation facts) =>
+        new(
+            LibraryTextFact.From(facts.InformationalVersion),
+            LibraryTextFact.From(facts.Company),
+            LibraryTextFact.From(facts.Product),
+            LibraryTextFact.From(facts.Copyright));
+}
+
+/// <summary>
+/// Request for the Enablements fact group
+/// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+/// </summary>
+public sealed record LibraryEnablementsRequest;
 
 /// <summary>
 /// An in-process request pairing portable execution intent with exact Library
@@ -209,7 +446,11 @@ public sealed record LibraryAssemblyIdentity
 public sealed record LibraryTypePopulationBinding(
     Guid ModuleVersionId,
     LibraryTypeAccessibility Accessibility,
-    LibraryTypeDeclarationSelection DeclarationSelection);
+    LibraryTypeDeclarationSelection DeclarationSelection,
+    ApiTypeInventoryKinds DefinitionKinds,
+    string? Namespace,
+    MetadataNamespaceMatch NamespaceMatch =
+        MetadataNamespaceMatch.Exact);
 
 public enum LibraryTypePopulationCountUnavailableReason
 {
@@ -588,9 +829,25 @@ public sealed record LibraryInspectionWork(
 public sealed record LibraryDocument(
     LibraryAssemblyIdentity Assembly,
     Guid ModuleVersionId,
-    LibraryTypePopulationResult Types,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTypePopulationResult? Types,
     LibraryInspectionWork Work,
-    ApiSurfaceExtractionBounds Bounds);
+    ApiSurfaceExtractionBounds Bounds)
+{
+    /// <summary>The requested Image fact group, or null when not requested.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LibraryImageFacts? Image { get; init; }
+
+    /// <summary>The requested Description fact group, or null when not requested.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LibraryDescriptionFacts? Description { get; init; }
+
+    /// <summary>
+    /// The requested Enablements fact group, or null when not requested.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LibraryEnablementsOutcome? Enablements { get; init; }
+}
 
 public enum LibraryInspectionRejection
 {

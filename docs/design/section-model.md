@@ -113,7 +113,7 @@ implementation evidence for one selected overload.
 
 The `package query` command uses `@Query` as its sole base category. It composes
 the matched `Packages` rows with the `Query Summary` settlement row. Its
-ordinary adaptive output and bare-`-S` preset remain command-owned projections
+ordinary adaptive output and exact selections remain command-owned projections
 over that catalog rather than automatic verbosity presets.
 
 ### Domain categories
@@ -563,8 +563,10 @@ but it may not understate query-owned work. Optional query dependencies execute
 only when independently demanded and therefore do not raise the consumer's
 cost.
 
-`Unbounded` work never enters an automatic verbosity preset. Network, source
-content, and other capability-gated work must remain explicit.
+`Unbounded` work never enters an automatic verbosity preset. Network use does
+not decide preset membership; the
+[network policy](progressive-disclosure.md#network-policy) owns which
+capabilities a gesture requests.
 
 ### Execution policy
 
@@ -606,9 +608,12 @@ Symbol and source inspection are augmentation with separate authority:
   availability alone does not grant it.
 - `PdbAcquire` permits acquiring a missing PDB.
 - `SourceContent` permits fetching or reading authored source content.
-- Default gestures must not acquire PDBs or access source content.
-- Package acquisition must not silently imply symbol acquisition.
-- Network-bound source and audit work requires an explicit gesture.
+- Outside `--offline`, default gestures may request `PdbAcquire`; plain `-D`
+  stays network-free. Whether source content is shown is a disclosure
+  decision. The [network policy](progressive-disclosure.md#network-policy)
+  owns both rules.
+- Package acquisition must not silently imply symbol acquisition; each
+  capability is requested and granted separately.
 
 The realized library probe and its positive, expansion-bound, and close-negative
 gates are documented in
@@ -790,14 +795,9 @@ An explicit section or category selection overrides automatic base scope and
 verbosity. It does not bypass capability requirements: a request for
 network-bound content must still authorize the relevant capability.
 
-Bare `-S` is the compact network-free overview:
-
-```text
-Base union AND Fixed AND NetworkFree AND Effective
-```
-
-It is a stable candidate rule, not a promise that every target renders the
-same sections. A package without a README legitimately omits that section.
+`-S`, `-s`, `--select`, and `--section` require exactly one section, category,
+or wildcard argument. Omitting that argument is a parse error rather than an
+implicit overview request.
 
 ## Verbosity
 
@@ -807,7 +807,7 @@ Verbosity is an automatic preset over the base-category union.
 | --- | --- |
 | `-v:q` | Compact identity fields only |
 | `-v:m` | One high-value section |
-| `-v:n` | Multiple non-network base sections |
+| `-v:n` | Multiple base sections |
 | `-v:d` | All applicable base sections |
 
 Domain categories do not enter the ladder automatically. Users select them
@@ -894,10 +894,13 @@ The member command's current authored ownership is:
 | `@Calls` | `Called Types`, `Calls`, `Callers`, `Call Graph` |
 | `@Decompiler` | `Decompiled Source`, `Annotated Source`, `Annotated Source Document`, `Fidelity Causes`, `Applied Taste`, `Cost Overlay`, `Semantics Overlay`, `Facts`, `Exception Regions`, `IL` |
 | `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Top Leverage`, `Performance Triage` |
-| `@Source` | `Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL` |
+| `@Source` | `Source`, `PDB Source`, `Decompiled Source`, `Source Diff` |
 | `@SourceLink` | `Source Files`, `Source Locations` |
 
 `@Member` is the base category; the remaining categories are domains.
+`@Source` groups the authored-first target view with its forced-provider and
+comparison lenses. Decompiler analysis views such as `Annotated Source` and
+`IL` remain under `@Decompiler`.
 `Member Index` and `Finding Census` remain exact-name sections: their focused
 selector and indivisible-document contracts are not coherent promises for a
 broader category. `Clone Candidates` also remains exact-name-only because its
@@ -916,9 +919,10 @@ The diff command's current authored ownership is:
 | `@Diff` | `Changes`, `Analysis Diff`, `Implementation Diff` |
 
 `@Diff` is the base category and groups the three comparison sections that may
-compose in one document. `Finding Transitions` remains exact-name-only because
-it requires a focused type or type-qualified member and does not compose with
-comparison sections.
+compose in one document. `Summary` and `Transitions` remain exact-name-only
+because they are views of an analysis-set result selected with `--analysis`
+([Analysis selection](command-transition-model.md#analysis-selection)) and do
+not compose with the comparison routes.
 
 ## Project category map
 
@@ -929,9 +933,10 @@ The project command's current authored ownership is:
 | `@Project` | `Skills`, `Package README file` |
 
 `@Project` is the base category and composes the package-authored documents
-available from a restored project's direct dependencies. `Skills` remains the
-bare-`-S` high-value section. `Package README file` is explicit and unbounded;
-selecting `@Project` is the gesture that requests both document inventories.
+available from a restored project's direct dependencies. Exact `Skills`
+selection requests the focused high-value section. `Package README file` is
+explicit and unbounded; selecting `@Project` is the gesture that requests both
+document inventories.
 
 ## Vocabulary category map
 
@@ -945,8 +950,8 @@ The vocabulary command's current authored ownership is:
 
 `@Vocabulary` is the base category and composes the complete product-owned
 vocabulary document. `@API` and `@Decompiler` are domain doors over the
-vocabularies consumed by those query families. Bare output and bare `-S`
-retain the self-describing `Vocabulary Sections` index.
+vocabularies consumed by those query families. Bare output retains the
+self-describing `Vocabulary Sections` index.
 
 ## Ecosystem category map
 
@@ -966,28 +971,28 @@ single-member `@Integrations` category. Focus remains the only operation that
 changes the available section set.
 
 Ordinary output remains the route's `Ecosystems` or `Ecosystem Info` identity
-section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
-set in alphabetical order. Select `Integrations` directly for configured
-bindings.
+section. Explicit `@Ecosystem` composes the route's full authored set in
+alphabetical order. Select `Integrations` directly for configured bindings.
 
-## Graph libraries category map
+## Graph Library relationship category map
 
-The `graph libraries` command's authored ownership is:
+The `graph libraries` and `graph cluster` commands' authored ownership is:
 
 | Category | Members |
 | --- | --- |
 | `@Libraries` | `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, `Provider API Types` |
 
 `@Libraries` is the base category and composes the four pair-wide projections
-in alphabetical section order. Ordinary output remains the exact `Call Sites`
-view. Bare `-S` remains the `Consumer Use Sites` and `Provider API Types`
-summary pair.
+in alphabetical section order. Ordinary `graph libraries` output is `Direct
+Use Clusters`; ordinary `graph cluster N` output is exact `Call Sites` for the
+focused component. Select `Consumer Use Sites;Provider API Types` explicitly
+for the summary pair.
 
 `Public Root Paths` remains uncategorized and exact-name-only because it
-requires one positive `Cluster` coordinate before acquisition. Wildcard and
-category selection do not opt into it. The pairwise call-use, direct-use
-cluster, and cluster root-path designs continue to own the section semantics;
-this document owns only their command catalog composition.
+requires the focused route's positive cluster ordinal before acquisition.
+Wildcard and category selection do not opt into it. The pairwise call-use,
+direct-use cluster, and cluster root-path designs continue to own the section
+semantics; this document owns only their command catalog composition.
 
 ## Package Query category map
 
@@ -999,9 +1004,9 @@ The `package query` command's authored ownership is:
 
 `@Query` is the base category and composes the complete query result in
 alphabetical section order. Ordinary output remains adaptive: it renders
-`Packages` when the query matched rows and `Query Summary` otherwise. Bare
-`-S` remains the non-adaptive `Packages` preset. Exact section selection
-remains non-adaptive.
+`Packages` when the query matched rows and `Query Summary` otherwise. Exact
+section selection remains non-adaptive; `-S Packages` retains the package
+result even when it is empty.
 
 The Package Query design continues to own result settlement, count semantics,
 and format restrictions. This document owns only the catalog composition.
@@ -1064,7 +1069,8 @@ During migration:
 - Apply development practices to every proposed or existing legacy section
   alias, and use the CLI change-classification design for removal mechanics;
   section migration does not itself justify retention.
-- Keep network and source-content work explicit.
+- Follow the [network policy](progressive-disclosure.md#network-policy) for
+  PDB acquisition and source-content disclosure.
 - Add close negative tests for every new applicability predicate.
 - Update Markdown and structured-output tests together.
 - Prefer one authored category declaration over parallel catalog flags.

@@ -43,7 +43,8 @@ public abstract record GraphLibrariesQueryPlanResult
 }
 
 /// <summary>
-/// Portable query registration for the pair-wide Graph Libraries selector.
+/// Portable operation registration for pair-wide and focused Graph Libraries
+/// inspection.
 /// </summary>
 public static partial class GraphLibrariesQuery
 {
@@ -136,6 +137,24 @@ public static partial class GraphLibrariesQuery
             [],
             [],
             []);
+    }
+
+    /// <summary>Creates one validated Graph Libraries operation plan.</summary>
+    public static GraphLibrariesQueryPlan CreatePlan(int? cluster)
+    {
+        GraphLibrariesQueryPlanResult result =
+            ResolveIntent(CreateIntent(cluster));
+        return result switch
+        {
+            GraphLibrariesQueryPlanResult.Accepted accepted =>
+                accepted.Plan,
+            GraphLibrariesQueryPlanResult.Rejected rejected =>
+                throw new InvalidOperationException(
+                    "A product-issued Graph Libraries operation plan "
+                        + $"was rejected: {rejected.Failure.Reason}."),
+            _ => throw new InvalidOperationException(
+                "Unknown Graph Libraries operation-plan result."),
+        };
     }
 
     /// <summary>Resolves one complete Graph Libraries query intent.</summary>

@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;

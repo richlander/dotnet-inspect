@@ -15,7 +15,8 @@ namespace DotnetInspector.Packages;
 public sealed class InMemoryPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
-    IPackageContentDigestSource
+    IPackageContentDigestSource,
+    IPackageHousePayloadSource
 {
     const long MaxEntryMaterializationBytes = 512L * 1024 * 1024;
 
@@ -328,6 +329,27 @@ public sealed class InMemoryPackageContent :
         return true;
     }
 
+    bool IPackageHousePayloadSource.TryOpenPayloadRead(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
+        if (!_admission.TryPrepareArchive(
+                _nupkgBytes,
+                out PackageArchivePayload? archive))
+        {
+            throw new InvalidDataException(
+                "Package archive is unavailable for pull-based reads.");
+        }
+
+        return archive.TryOpenEntryPull(
+            relativePath,
+            maxExpandedBytes,
+            out stream);
+    }
+
     /// <summary>Gets an entry's declared expanded length without expanding its body.</summary>
     public bool TryGetEntryLength(string relativePath, out long length)
     {
@@ -345,23 +367,23 @@ public sealed class InMemoryPackageContent :
     /// </summary>
     public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths()
         => _entries.Value;
+
+    /// <inheritdoc />
+    public PackageContentEntryScanner CreateEntryScanner()
+    {
+        if (_admission.TryGetArchive(out PackageArchivePayload? archive))
+            return archive.CreateEntryScanner();
+        return new ZipArchiveEntryScanner(_nupkgBytes);
+    }
+
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries() =>
         EnumerateEntriesWithLengths().Select(entry => entry.Path);
 
     private IReadOnlyList<PackageContentEntry> ReadEntries()
     {
-        if (_admission.TryGetArchive(out PackageArchivePayload? archive))
-            return archive.GetEntries();
-
-        using var zip = new ZipArchive(
-            new MemoryStream(_nupkgBytes, writable: false),
-            ZipArchiveMode.Read);
-        return zip.Entries
-            .Where(entry => !string.IsNullOrEmpty(entry.Name))
-            .Select(entry => new PackageContentEntry(entry.FullName, entry.Length))
-            .ToList()
-            .AsReadOnly();
+        using PackageContentEntryScanner scanner = CreateEntryScanner();
+        return scanner.ReadToEnd();
     }
 
     static PackageContentEntry? FindEntry(
@@ -379,5 +401,46 @@ public sealed class InMemoryPackageContent :
                 return entry;
         }
         return null;
+    }
+
+    private sealed class ZipArchiveEntryScanner
+        : PackageContentEntryScanner
+    {
+        private readonly MemoryStream _stream;
+        private readonly ZipArchive _archive;
+        private int _index;
+
+        internal ZipArchiveEntryScanner(byte[] bytes)
+        {
+            _stream = new MemoryStream(bytes, writable: false);
+            _archive = new ZipArchive(
+                _stream,
+                ZipArchiveMode.Read);
+        }
+
+        public override bool MoveNext(out PackageContentEntry entry)
+        {
+            while (_index < _archive.Entries.Count)
+            {
+                ZipArchiveEntry candidate =
+                    _archive.Entries[_index++];
+                if (string.IsNullOrEmpty(candidate.Name))
+                    continue;
+
+                entry = new(
+                    candidate.FullName,
+                    candidate.Length);
+                return true;
+            }
+
+            entry = default;
+            return false;
+        }
+
+        public override void Dispose()
+        {
+            _archive.Dispose();
+            _stream.Dispose();
+        }
     }
 }

@@ -97,6 +97,39 @@ public class PackageQueryCliTests
             "metadata",
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.ReferencesTermKey).ExecutionClass);
+        Assert.Equal(
+            PackageQueryCapabilityResourcePaths
+                .QueryFacet(PackageQuery.LibraryLiteralTermKey)
+                .Value,
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.LibraryLiteralTermKey)
+                .ResourcePath);
+    }
+
+    [Fact]
+    public void ProductionBindingUsesTheRegisteredPackageQueryRoute()
+    {
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageQueryCapability.ProductModule,
+                    PackageQueryCommandCapability.Module,
+                ]);
+
+        Assert.Same(
+            PackageQueryCapability.Route,
+            PackageQueryCommandCapability.Binding.Route);
+        Assert.Same(
+            PackageQueryCommandCapability.Binding,
+            Assert.Single(catalog.Bindings));
+        Assert.Equal(
+            InspectionConsumerKind.Browser,
+            Assert.Single(catalog.AdoptionGaps).ConsumerKind);
+        Assert.Contains(
+            PackageQueryCommandCapability.Binding.ExposedQueryTerms,
+            identity =>
+                identity
+                == "package-query.term.library-literal");
     }
 
     [Fact]
@@ -1592,7 +1625,7 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public async Task BareSelectDefault_PreservesEmptyPackageShape()
+    public async Task PackagesSelection_PreservesEmptyPackageShape()
     {
         using var source = Source(out _);
         var options = OptionsForInput(
@@ -1601,7 +1634,10 @@ public class PackageQueryCliTests
         {
             JsonOutput = true,
             Tabular = false,
-            SelectDefault = true,
+            IncludeSections =
+            [
+                PackageProfileSections.Packages,
+            ],
         };
         var result = await ConsoleCapture.RunAsync(() =>
             PackageQueryCommand.ExecuteAsync(options, source, null));
@@ -2040,6 +2076,36 @@ public class PackageQueryCliTests
     [Trait("Speed", "Slow")]
     public async Task CliLiteralStringQueryFindsCompanionLibrary()
     {
+        using var cache = new IsolatedCache();
+        var search = await Run(
+            ["explain", "literal", "--json"]);
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument searchDocument =
+            JsonDocument.Parse(search.Output);
+        string explanationPath =
+            searchDocument.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString()!;
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            explanationPath);
+
+        var explanation = await Run(
+            ["explain", explanationPath, "--json"]);
+        Assert.Equal(0, explanation.ExitCode);
+        Assert.Empty(explanation.Error);
+        using JsonDocument explanationDocument =
+            JsonDocument.Parse(explanation.Output);
+        Assert.Equal(
+            PackageQuery.LibraryLiteralTermKey,
+            explanationDocument.RootElement
+                .GetProperty("resources")[0]
+                .GetProperty("details")
+                .GetProperty("key")
+                .GetString());
+
         string[] arguments =
         [
             "package",
@@ -2117,22 +2183,17 @@ public class PackageQueryCliTests
                 row.GetProperty("library").GetString()));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [Fact]
     [Trait("Speed", "Slow")]
-    public async Task CliSelectedJsonRetainsPresentationContract(
-        bool bareSelect)
+    public async Task CliSelectedJsonRetainsPresentationContract()
     {
-        string[] selection = bareSelect
-            ? ["-S"]
-            : ["-S", "Packages"];
         var result = await Run(
             [
                 "package",
                 "query",
                 "Contoso.Package.That.Does.Not.Exist.7357",
-                .. selection,
+                "-S",
+                "Packages",
                 "--json",
                 "--compact",
             ]);
@@ -2352,6 +2413,7 @@ public class PackageQueryCliTests
     [InlineData(true)]
     public async Task ContentProvider_UsesAdmittedArchiveAndDisposesTransport(bool invalidArchive)
     {
+        using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
         fixture.InvalidArchive = invalidArchive;
         using var operation = new NuGetOperationContext();
@@ -2377,6 +2439,7 @@ public class PackageQueryCliTests
     [Fact]
     public async Task ReferencesTerm_ExecutesThroughTheCliContentProvider()
     {
+        using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
         using var operation = new NuGetOperationContext();
         await using var provider = ContentProvider(fixture, operation);
@@ -2397,21 +2460,53 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public async Task ContentProvider_RetainsAuthorityStorageThroughUseAndThenCleansIt()
+    public async Task ContentProvider_KeepsDurableAuthorityStorageAfterUse()
     {
+        // The Gallery endpoint is a credential-free HTTP authority, so its
+        // payload is durable: it outlives the provider, and a later provider
+        // reads it without another request.
+        using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
         using var operation = new NuGetOperationContext();
+        var package = new PackageQueryPackage("Contoso.First", "1.0.0", [], null, null, source.Source);
         string root;
         await using (var provider = ContentProvider(fixture, operation))
         {
-            var package = new PackageQueryPackage("Contoso.First", "1.0.0", [], null, null, source.Source);
             var result = Assert.IsType<PackageQueryContentResult.Available>(
                 await provider.GetContentAsync(package, CancellationToken.None));
             root = Assert.IsType<string>(result.Content.RootPath);
             Assert.True(Directory.Exists(root));
         }
-        Assert.False(Directory.Exists(root));
+        Assert.True(Directory.Exists(root));
         Assert.True(fixture.Payload!.Disposed);
+        Assert.Equal(1, fixture.PackageRequests);
+
+        await using (var provider = ContentProvider(fixture, operation))
+        {
+            var result = Assert.IsType<PackageQueryContentResult.Available>(
+                await provider.GetContentAsync(package, CancellationToken.None));
+            Assert.Equal(root, result.Content.RootPath);
+        }
+        Assert.Equal(1, fixture.PackageRequests);
+    }
+
+    /// <summary>
+    /// Points the process-wide persistent cache at a fresh root for one test,
+    /// so durable fixture payloads never meet another test's coordinates.
+    /// </summary>
+    private sealed class IsolatedCache : IDisposable
+    {
+        private readonly string _root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-package-query-cache-").FullName;
+
+        public IsolatedCache() =>
+            NuGetCache.Initialize("dotnet-inspect-test", _root, skipNuGetCache: true);
+
+        public void Dispose()
+        {
+            NuGetCache.Initialize("dotnet-inspect-test");
+            Directory.Delete(_root, recursive: true);
+        }
     }
 
     [Fact]

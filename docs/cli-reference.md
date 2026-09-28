@@ -83,6 +83,91 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
+After exact Type and Member lookup misses, a dotted Platform name may resolve
+as an exact namespace in its longest namesake Library. For example:
+
+```bash
+dotnet-inspect System.Text.Json.Nodes
+```
+
+is equivalent to:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json.Nodes
+```
+
+The Router confirms exact ordinal namespace membership before selecting this
+route. It does not use suffix or descendant matching, and broad inputs such as
+`System.Text` retain their existing Type-prefix browsing behavior.
+
+`find` uses the same exact namespace meaning after direct Type lookup misses:
+
+```bash
+dotnet-inspect find System.Text.Json.Nodes
+```
+
+It returns the public Types declared directly in
+`System.Text.Json.Nodes`, such as `JsonArray`, `JsonNode`, and `JsonObject`.
+It does not include Types from `System.Text.Json` or descendant namespaces.
+The rows use the `Namespace` match classification. In the default unscoped
+search, exact Platform prune evidence also admits the corresponding NuGet
+package, so equal package and Platform Type observations remain separate.
+Explicit source options remain authoritative; for example,
+`--platform System.Text.Json` does not add the package observation.
+
+Add a terminal `.*` to include the named namespace and its descendants:
+
+```bash
+dotnet-inspect find 'System.Text.Json.Serialization.*'
+```
+
+This is namespace-aware rather than an ordinary Type glob. It includes Types
+from `System.Text.Json.Serialization` and
+`System.Text.Json.Serialization.Metadata`, classifies them as `Namespace`, and
+uses the same package and Platform source policy as exact namespace discovery.
+The literal dot is significant: `System.Text.Json.Nodes.*` excludes
+`System.Text.Json.NodesExtra`, while `System.Text.Json.Nodes*` remains the
+broader lexical Type glob with `Glob` classification.
+
+### Library namespace Type listings
+
+An exact Library can list its public Type declarations from one exact
+namespace:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json.Nodes
+```
+
+Add `--children` to include the named namespace and all namespaces beneath its
+dot-segment boundary:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json \
+  --children
+```
+
+This includes Types from `System.Text.Json` and
+`System.Text.Json.Serialization`, but not `System.Text.Jsonish`.
+
+A leading dot selects an exhaustive namespace suffix within that same exact
+Library:
+
+```bash
+dotnet-inspect library ./MyLibrary.dll --namespace .Nodes
+```
+
+`.Nodes` matches Types declared in namespaces such as `World.Blue.Nodes` and
+`World.Green.Nodes`. It does not prepend the Library name, and it does not
+match `Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. Markdown
+renders the matching declarations in Type tables without a separate count
+summary. `--envelope` exposes the same population's typed exact,
+exact-or-descendant, or suffix binding and continuation identity. Namesake
+source discovery belongs to Router, Spotlight, and `find`, not this
+exact-Library operation.
+
 Use `-D --schema` to inspect the syntax-selected structural view without
 acquiring or loading the target. Package `--library` and `--all-libraries`
 queries expose their route-specific schemas before package resolution, while
@@ -149,7 +234,7 @@ stderr rather than mixed into structured output.
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard populations; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
+| API discovery | `type`, `member`, `find` | Type search, exact namespace discovery, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed Platform populations and adds exact prune-authorized package observations for namespace hits; add other package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
 | Package discovery | `package query` | Discover exact package IDs or terminal-star package-ID prefixes before inspecting a known package with `package`. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL, selected-member authored-source, complexity, and structural-cohort context. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
@@ -158,10 +243,10 @@ stderr rather than mixed into structured output.
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
-| Source | `type`/`member -S Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | `Source` is authored-first and retains provider and fallback context. Provider-specific views expose SourceLink URLs, member file/line locations, checksum-verified PDB source, and token+IL-offset mapping; `Decompiled Source` remains the local reconstructed view. |
+| Source | `type`/`member -S Source` / `@Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` | `Source` is authored-first and retains provider and fallback context. `@Source` adds forced `PDB Source` and `Decompiled Source` views plus `Source Diff`; SourceLink inventories remain separate. |
 | Performance analysis *(experimental)* | `library -S "Library Metrics"`, `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-library structural metrics, whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
-| Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
+| Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
+| Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
@@ -184,7 +269,8 @@ stderr rather than mixed into structured output.
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
 | `graph calls TYPE MEMBER` | Explain one package member's supply-chain exits across its dependency graph, retaining highlighted boundaries and their shortest baseline connectors. |
-| `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
+| `graph libraries` | Discover deterministic direct-use clusters and exact cross-library relationships between two local Libraries. |
+| `graph cluster N` | Inspect exact calls and optional public-entrypoint paths for one pair-local Direct-Use Cluster ordinal. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -343,8 +429,10 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 
 ### Decompiler
 
-Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
-diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
+Use `member -S @Source` for the authored-first source view, forced PDB and
+decompiled provider views, and their source diff. Use `member -S @Decompiler`
+for decompiled and annotated C#, IL, and related analysis evidence. Use
+`Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
 source locations; these remain outside the default Finding set. **Explore**
 starts with one Relationships row per exact physical call, with explicit
@@ -369,9 +457,9 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect type JsonSerializer --package System.Text.Json -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
-dotnet-inspect library coordinate 0x060002EA+0x0 \
+dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
-dotnet-inspect library coordinate --file coordinates.txt \
+dotnet-inspect library address --file coordinates.txt \
   --library ./MyLibrary.dll
 ```
 
@@ -385,14 +473,14 @@ ReadyToRun and metadata sections are opt-in only. Use `@ReadyToRun` for the
 validated image header and section directory. Use `@Metadata` to discover or
 render decoded ECMA-335 table rows, `--metadata-root r2r-manifest` to inspect
 the ReadyToRun manifest metadata instead of the default CLI root, and
-`library coordinate` for one exact heap address in the selected root.
+`library address` for one exact heap address in the selected root.
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S @ReadyToRun
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
-dotnet-inspect library coordinate "#Strings:0x1a4" \
+dotnet-inspect library address "#Strings:0x1a4" \
   --library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll
 dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "Metadata: Image"
 ```
@@ -431,6 +519,12 @@ not adopted this transport.
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
+
+`--offline` is the only way to guarantee no network dependence. Without it,
+commands other than plain `-D` discovery may acquire packages and PDBs to
+answer the request. The
+[network policy](design/progressive-disclosure.md#network-policy) owns this
+rule and its adoption status.
 
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
@@ -512,6 +606,10 @@ dotnet-inspect package Newtonsoft.Json@13.0.4 \
   --layout --tfm net6.0 -n 1 --tail --json
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
+dotnet-inspect package Markout@0.35.2 \
+  --path skills/markout/SKILL.md --content --out skill.md
+dotnet-inspect package System.Text.Json --version 10.0.0 \
+  --path README.md --content --out README.md
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -542,6 +640,16 @@ enumeration, optional exact directory-segment `--tfm` filtering, and optional
 `--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
+
+For an exact online package version, writing one literal root `README.md` or
+`skills/**/SKILL.md` path to `--out` acquires directly through the PackageHouse
+filesystem store rather than the legacy extraction route. README bytes copy
+progressively to the file. Skill documents retain their existing containment
+and link-normalization behavior, so the House stream is decoded into that
+final selected representation before the file is written. Local packages,
+floating or range version selection, stdout, target-framework filters, path
+globs and roles, scoped documents, .NET tool-wrapper redirection, and other
+package files retain their existing behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or
@@ -739,7 +847,7 @@ columns, so a missing package (`Candidates=0`) remains distinct from an
 existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
 stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
 `Packages` retains its empty table or array when no package matched. Bare `-S`
-also requests the non-adaptive `Packages` preset. Select `@Query` to compose
+is invalid without a selector. Select `@Query` to compose
 `Packages` and `Query Summary` in Markdown or JSON; table, TSV, and JSONL remain
 one-section formats.
 
@@ -1067,7 +1175,7 @@ directory only locates that file; dotnet-inspect does not restore or build.
 The `project` command reads only valid package Skills and root `README.md`
 documents listed by the existing restore output. It does not interpret package
 `AGENTS.md` or `PROJECT.md` files. Select `@Project` to compose both document
-inventories; bare `-S` retains the focused `Skills` overview. With exactly one
+inventories, or select `Skills` for that focused view. With exactly one
 document section selected, `-n`, `--tail`, and `--rows A..B` select complete
 document rows before Count, structured output, projection, or print/bare
 lowering. Add `--lines` only to clip rendered text. Multi-section `@Project`
@@ -1094,7 +1202,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --pr
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
   --print --part body --markdown
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
-dotnet-inspect library coordinate 0x060002EA+0x0 \
+dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
@@ -1109,6 +1217,35 @@ bodies, including private and compiler-generated bodies when they are part of
 that population, without requiring `--all`. If an aggregate result identifies
 a non-public body and you follow it into an API-level command, that separate
 command may require `--all` to resolve the declaration.
+
+Some body-oriented commands also begin with an API lookup. In those commands,
+`--all` can be necessary to resolve a non-public, hidden, or obsolete Type or
+Member root. Once resolved, the implementation operation uses its complete
+admitted body population by default; `--all` does not widen traversal, select
+more relationships, or request every analysis.
+
+Exact `library ... -S "Library Metrics" --json` emits the complete Research
+`LibraryStructuralReportDocument`: the Analysis receipt and coverage,
+numeric distributions and maximum-body identities, async disposition, typed
+type summaries, cross-type relationships, and Analysis diagnostics.
+`--envelope` emits identical `content` plus Share and operation diagnostics:
+
+```bash
+dotnet-inspect library Markout.dll --package Markout@0.35.2 \
+  --tfm net10.0 -S "Library Metrics" --json
+dotnet-inspect library Markout.dll --package Markout@0.35.2 \
+  --tfm net10.0 -S "Library Metrics" --envelope
+```
+
+This complete transport is separate from Markout lowering. Markdown, table,
+TSV, and JSONL retain their existing Library Metrics row contracts. Complete
+JSON requires one exact Library, one target framework, and the exact singleton
+section; it rejects row, field, column, Count, discovery, payload, and
+competing presentation projections rather than truncating Content. Type
+summaries carry exact metadata keys separately from display labels, and every
+relationship endpoint names a retained summary, so a Copilot App can render an
+SVG without recovering identity from display text. Library Metrics Share is
+currently `nonProjectable`.
 
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
@@ -1140,6 +1277,28 @@ including Source when the completed caller rows came from multiple assemblies.
 Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`,
 mixed sections, discovery, and scope-implied Callers without the exact selector
 retain their existing row contracts or rendered-line fallback.
+
+Exact `member ... -S "Call Graph" --json` emits the complete semantic
+`InspectionGraphDocument`: typed member subjects, directed call edges,
+physical call-site occurrences, characteristics, seeds, completeness limits,
+and failures. `--envelope` emits the identical document under `content` plus
+Share and diagnostics:
+
+```bash
+dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
+  --platform System.Text.Json -S "Call Graph" --json
+dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
+  --platform System.Text.Json -S "Call Graph" --envelope
+```
+
+This complete transport is separate from Markout lowering. Markdown,
+Mermaid, tree, table, TSV, and JSONL keep their existing presentation and row
+contracts. Complete Call Graph JSON requires the exact singleton section and
+rejects row or line windows, fields, columns, Count, payload projections, and
+competing presentation formats rather than truncating the semantic document.
+Call Graph Share is currently `nonProjectable`; a Copilot App may render the
+typed `content` as SVG without recovering graph semantics from Mermaid or
+display labels.
 
 Focused member `-S "Source Locations" --json` reports `member`, `document`, and
 `pdb_span` without fetching source text or adding generic section/row wrappers.
@@ -1259,13 +1418,48 @@ Changes without a compatibility classification remain visible under
 not classified as breaking or additive. An incomplete or rejected comparison
 returns nonzero and says **not compared**, rather than claiming no changes.
 Multi-Library packages, member-filtered diffs, Analysis Diff, Implementation
-Diff, Finding Transitions, and mixed-section requests retain their existing
+Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Complexity Context`, `Structural Context`, and `Finding
-Transitions` remain exact-name sections because their focused semantics do not
-compose with those comparison views.
+Diff` views. `Complexity Context`, `Structural Context`, `Summary`, and
+`Transitions` remain exact-name sections because their focused semantics do
+not compose with those comparison views.
+
+`--analysis` selects which keyed Finding comparisons a pairwise diff runs.
+It takes one or more analysis identities, comma-separated or repeated, and
+`-S` then selects views of their result. `diff -D`, `--help`, and
+`explain analyses` list the identities: `api`, `api-attribute`,
+`allocation`, `call-site`, `unsafety`, `csharp`, and `il`. The request's
+surface comes from its filters: any `--member` is Member, otherwise `--type`
+is Type, otherwise Library. The body analyses (`allocation`, `call-site`,
+`unsafety`, `csharp`, `il`) take exactly one `--member`; `api-attribute`
+takes `--type`.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --member "Serialize:1" \
+  --analysis api,call-site,allocation
+```
+
+Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
+unchanged. One selected analysis defaults to `Changes` for `api` and to
+`Transitions` otherwise; several default to one `Summary` row per analysis
+with its outcome (`Compared`, `Unavailable`, or `Failed`) and its `Added`,
+`Removed`, `Changed`, and `Present` counts. `-S Transitions` lists each
+selected analysis's per-Finding transitions in selection order; at the Type
+surface `api` shows its `api.type` rows and then its `api.member` rows.
+`Changes` requires `api`, and `Transitions` requires `--type` or `--member`.
+`--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
+only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
+entries are all reported before acquisition.
+
+Pairwise `--finding` and `-S "Finding Transitions"` are retired: they fail
+with guidance naming the `--analysis` identity and `-S Transitions`.
+`--history` keeps `--finding` and does not accept `--analysis` yet.
+`--analysis` does not combine with `Analysis Diff`, `Implementation Diff`,
+`Complexity Context`, or `Structural Context`, and `--json` and `--envelope`
+are rejected with it until the result's JSON transport lands.
 
 Select `Implementation Diff` directly to inspect body-level C#, IL, and
 normal-flow complexity evidence. Select `Complexity Context` directly for a
@@ -1484,6 +1678,9 @@ dotnet-inspect graph calls \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph cluster 3 \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
@@ -1522,8 +1719,8 @@ graph edge in the completed typed document. Head/Tail and strict Window select
 those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
 or Count lowering; selection does not reduce package acquisition or hide
 retained graph failures. Add `--lines` only to clip rendered text explicitly.
-`graph libraries` retains independent section row sets; its adopted Call Sites
-and Direct Use Clusters cohorts are described below.
+`graph libraries` and `graph cluster` retain independent section row sets;
+their adopted Direct Use Clusters and Call Sites cohorts are described below.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
@@ -1531,6 +1728,11 @@ and Direct Use Clusters cohorts are described below.
 graph, and shows only calls crossing the selected supply-chain baseline plus
 the shortest baseline paths needed to reach them. Root asset selection stays
 exact; dependency traversal independently uses `--tfm` or the product default.
+In the OpenTelemetry example, `--all` is needed only because
+`AddOpenTelemetrySharedProviderBuilderServices` is a non-public starting
+declaration. It widens that API lookup; it does not mean all calls, remove the
+graph bounds, or widen the body population, relationship set, dependency
+traversal, or selected baseline.
 Each edge is typed as `connector`, `boundary`, or `unclassified-boundary`, and
 row-oriented output retains the physical MVID, MethodDef token, IL offset,
 operand token, call kind, dispatch kind, and loop state. A dependency member
@@ -1575,8 +1777,8 @@ With `--envelope`, `--depth` remains a traversal input and `--rows`,
 `-n`/`--head`/`--tail` remain semantic relationship selection. `--compact` is
 accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
 explicit `-v`, Count, fields/columns, presentation projections or decoration,
-and rendered-line clipping are rejected before acquisition. `--verbose`,
-`--info`, and `--tips` remain on stderr. `--share` retains its existing policy
+and rendered-line clipping are rejected before acquisition. `--verbose` and
+`--tips` remain on stderr. `--share` retains its existing policy
 and emits its optional URL or packet as the final stderr line. There is no
 `--evidence-envelope` support yet.
 
@@ -1595,70 +1797,67 @@ show `4.3.2` and `4.3.1`, respectively, the disposition is
 `PackageRetained`: the command does not select or downgrade to `4.3.1`.
 
 `graph libraries` evaluates both directions in the pair; every row still names
-its directed source and target. Omitting `-S` preserves the exact physical call
-sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
-`-N`, `--tail`, and strict `--rows` select complete physical call sites before
-Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Exact
-`-S "Direct Use Clusters"` applies the same gestures to complete deterministic
-cluster rows after optional `--where "Cluster=N"` scoping. Use `--lines` for
-explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
-`Provider API Types`: the local
-methods containing direct calls, and the provider declaring types selected by
-those calls. These are direct-use surfaces, not semantic feature clusters,
-public-entrypoint reachability, or a list of configured ecosystem Integrations.
+its directed source and target. Omitting `-S` shows `Direct Use Clusters`.
+In that default view, and with exact `-S "Direct Use Clusters"`, `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete deterministic cluster rows
+before Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Use
+`--lines` for explicit rendered-line clipping. Select
+`-S "Consumer Use Sites;Provider API Types"` for the local methods containing
+direct calls and the provider declaring types selected by those calls. These
+are direct-use surfaces, not semantic feature clusters, public-entrypoint
+reachability, or a list of configured ecosystem Integrations.
 Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
 Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
-Paths` remains an exact-name section because its required cluster coordinate
-does not compose with the pair-wide category. Summary, path, wildcard,
-category, and multi-section views retain rendered-line `-n` because their
-independent row schemas do not form one semantic sequence.
+Paths` remains an exact-name section because its required focused cluster does
+not compose with the pair-wide category. Summary, path, wildcard, category,
+and multi-section views retain rendered-line `-n` because their independent
+row schemas do not form one semantic sequence.
 
-`-S "Direct Use Clusters"` partitions the exact directed call rows into
-connected components of source and target methods. Each explicit row retains
+The default `Direct Use Clusters` section partitions the exact directed calls
+into connected components of source and target methods. Each explicit row retains
 its call-site references and separately counts source members, provider types,
 target members, extension methods, and physical sites. A one-extension-method
 row exposes a small direct-use footprint; it is not yet proof that the package
-is removable or that copying source is safe. The section remains outside the
-default and bare `-S` views.
+is removable or that copying source is safe.
 
 Use the pair-wide cluster ordinal to reopen one component as exact calls:
-Run `dotnet-inspect graph libraries -Q "Call Sites"` to discover the predicate
-and its supported operator without inspecting a pair.
 
 ```bash
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
-  --library ./Provider.dll \
-  -S "Direct Use Clusters"
+  --library ./Provider.dll
 
-dotnet-inspect graph libraries \
+dotnet-inspect graph cluster 3 \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
+
+dotnet-inspect graph cluster 3 \
   --library ./Consumer.dll \
   --library ./Provider.dll \
-  --where "Cluster=3"
-
-dotnet-inspect graph libraries \
-  --library ./Consumer.dll \
-  --library ./Provider.dll \
-  --where "Cluster=3" \
   -S "Public Root Paths"
 ```
 
-The drill-down names every source member, source token, target member, target
-token, call kind, evidence method, evidence token, and IL offset in that
-cluster. Use source and target identities for ordinary `member` inspection.
-Use the evidence token with the IL offset for `library coordinate`, because a
-compiler-generated physical body can differ from the attributed source member.
-The cluster remains structural evidence rather than a source-inlining verdict.
+`graph cluster N` requires the same two Libraries and defaults to exact `Call
+Sites`. Its heading and description identify the focused cluster and summarize
+its source-member, provider-type, target-member, extension-method, and physical
+call-site footprint. The rows name every source member, source token, target
+member, target token, call kind, evidence method, evidence token, and IL offset
+in that cluster. Use source and target identities for ordinary `member`
+inspection. Use the evidence token with the IL offset for `library address`,
+because a compiler-generated physical body can differ from the attributed
+source member. The cluster remains structural evidence rather than a
+source-inlining verdict.
 
 `Public Root Paths` traces the selected cluster's exact consumer methods back
 to exhaustive public MethodDef roots in the consumer library. Each row reports
 one deterministic shortest local static path, its public root and destination
 tokens, and physical IL receipts for every logical step. The section must be
-named explicitly and requires exactly one `Cluster=N` predicate; it is excluded
-from defaults, bare `-S`, and wildcard section selection. A complete empty
-section means no public root has a local static path to the selected use sites.
-If pair, public-root, or path analysis is incomplete, retained positive paths
-are still rendered and the command exits nonzero instead of asserting absence.
+named explicitly under `graph cluster N`; it is excluded from defaults and
+wildcard section selection. Pair-wide `graph libraries` rejects the section
+with focused-route guidance. A complete empty section means no public root has
+a local static path to the selected use sites. If pair, public-root, or path
+analysis is incomplete, retained positive paths are still rendered and the
+command exits nonzero instead of asserting absence.
 
 ```bash
 dotnet-inspect member "<SourceType>" \
@@ -1671,7 +1870,7 @@ dotnet-inspect member "<TargetType>" \
   -m "<TargetMember>" \
   -S @Source
 
-dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
+dotnet-inspect library address "<EvidenceToken>+<ILOffset>" \
   --library ./Consumer.dll
 ```
 

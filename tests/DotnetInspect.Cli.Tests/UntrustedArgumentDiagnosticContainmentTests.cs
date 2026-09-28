@@ -85,8 +85,8 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             // Command-time failures that quote the offending argument.
             data.Add("select-miss", ["library", library, "-S", hostile]);
             data.Add(
-                "coordinate",
-                ["library", "coordinate", hostile, "--library", library]);
+                "address",
+                ["library", "address", hostile, "--library", library]);
             data.Add("order-by", ["library", library, "--order-by", hostile]);
             data.Add("where", ["library", library, "--where", hostile]);
 
@@ -100,14 +100,6 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             // untrusted text on every line. It went to stderr raw: a hundred
             // and sixteen call sites, none of them a "writer" by name.
             data.Add("verbose-progress", ["depends", hostile, "--platform", "System.Runtime", "--verbose"]);
-
-            // A diagram written to stderr as a TextWriter sink rather than
-            // through the writer. Its node labels carry the request URL and the
-            // cache key, both built from the package reference, and it escaped
-            // only the two Mermaid metacharacters -- so a line terminator in a
-            // package name ended the label's line and forged a diagnostic under
-            // it.
-            data.Add("trace-mermaid", ["package", hostile, "--trace-mermaid"]);
 
             // The --trace report is a composed multi-line diagnostic whose head
             // line interpolates the target name. It reached stderr as one
@@ -439,7 +431,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             }
 
             var (output, error) = RunCli(
-                ["package", package, "-S", "Package Info", "--fields", "Readme", "--value", "--info"]);
+                ["package", package, "-S", "Package Info", "--fields", "Readme", "--value"]);
             string combined = output + error;
 
             HostileOutputAssert.MarkersRendered(combined, "value-readme", "INJECTEDREADME");

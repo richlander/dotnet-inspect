@@ -172,14 +172,22 @@ public sealed partial class DesktopPackageSourceComposition
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
             string? requiredProducerKey,
-            PackageHouseTargetContext? compileTargetContext = null)
+            PackageHouseTargetContext? compileTargetContext = null,
+            PackagePayloadAccess access = PackagePayloadAccess.Complete,
+            PackageAssetDemand assetDemand =
+                PackageAssetDemand.SurfaceAndImplementation,
+            IEnumerable<string>? implementationNames = null,
+            PackageDocumentDemand? documentDemand = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
             compileTargetContext is null
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
-            compileTargetContext);
+            compileTargetContext,
+            assetDemand,
+            implementationNames,
+            documentDemand);
         return ExecuteAndProjectPayloadAsync(
             request,
             coordinate.PackageId,
@@ -189,9 +197,33 @@ public sealed partial class DesktopPackageSourceComposition
                     createStore(authority, producer),
                 limits,
                 transferPolicy,
-                log),
+                log,
+                access),
             sourceOperation,
             requiredProducerKey);
+    }
+
+    /// <summary>
+    /// Ranged access must be bounded: a compile realization's selection or a
+    /// document demand bounds the read, so a caller that supplies neither has
+    /// asked for an unbounded ranged read and is refused before any work
+    /// starts (docs/design/package-read-demand.md#document-demand).
+    /// </summary>
+    private static void RequireRealizationForRangedAccess(
+        PackagePayloadAccess access,
+        PackageHouseTargetContext? compileTargetContext,
+        PackageDocumentDemand? documentDemand = null)
+    {
+        if (!Enum.IsDefined(access))
+            throw new ArgumentOutOfRangeException(nameof(access));
+        if (access == PackagePayloadAccess.Ranged
+            && compileTargetContext is null
+            && documentDemand is null)
+        {
+            throw new ArgumentException(
+                "Ranged payload access requires PackageHouse compile realization or a document demand; supply a compile target context or a document demand.",
+                nameof(access));
+        }
     }
 
     private Task<ConfiguredPackagePayloadResult>
@@ -206,7 +238,8 @@ public sealed partial class DesktopPackageSourceComposition
             PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
-            PackageHouseTargetContext? compileTargetContext = null)
+            PackageHouseTargetContext? compileTargetContext = null,
+            PackagePayloadAccess access = PackagePayloadAccess.Complete)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
@@ -223,7 +256,8 @@ public sealed partial class DesktopPackageSourceComposition
                     createStore(authority, producer),
                 limits,
                 transferPolicy,
-                log),
+                log,
+                access),
             sourceOperation,
             requiredProducerKey: null);
     }
@@ -268,7 +302,8 @@ public sealed partial class DesktopPackageSourceComposition
             sourceResult?.NotFoundAuthorities,
             sourceResult?.ReportingAuthorities,
             settlement.SelectionUsesOriginalSources,
-            settlement);
+            settlement,
+            sourceResult?.Transfer);
     }
 
     private Task<PackageHouseSettlement> ExecuteHouseAsync(
@@ -355,7 +390,11 @@ public sealed partial class DesktopPackageSourceComposition
     private PackageHouseRequest CreateHouseRequest(
         PackageHouseDemand demand,
         PackageHouseOperationProfile profile,
-        PackageHouseTargetContext? targetContext = null) =>
+        PackageHouseTargetContext? targetContext = null,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation,
+        IEnumerable<string>? implementationNames = null,
+        PackageDocumentDemand? documentDemand = null) =>
         new(
             demand,
             PackageHouseOperation.Create(
@@ -365,7 +404,10 @@ public sealed partial class DesktopPackageSourceComposition
             targetContext,
             profile == PackageHouseOperationProfile.Realize
                 ? PackageHouseAssetSelectionKind.Compile
-                : null);
+                : null,
+            assetDemand: assetDemand,
+            implementationNames: implementationNames,
+            documentDemand: documentDemand);
 
     private static bool TryCreateSelectionRequest(
         string packageId,

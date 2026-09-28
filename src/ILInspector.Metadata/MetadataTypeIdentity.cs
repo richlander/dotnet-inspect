@@ -21,6 +21,26 @@ public sealed record MetadataNamedTypeIdentity(
     ImmutableArray<InertString> Segments,
     ImmutableArray<int> IntroducedGenericParameterCounts)
 {
+    public MetadataNamedTypeIdentity GetDefinitionPrefix(
+        int segmentCount)
+    {
+        if (segmentCount <= 0
+            || segmentCount > Segments.Length
+            || segmentCount > IntroducedGenericParameterCounts.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(segmentCount));
+        }
+
+        return segmentCount == Segments.Length
+            ? this
+            : this with
+            {
+                Segments = Segments[..segmentCount],
+                IntroducedGenericParameterCounts =
+                    IntroducedGenericParameterCounts[..segmentCount],
+            };
+    }
+
     public bool Equals(MetadataNamedTypeIdentity? other) =>
         other is not null
         && Equals(Scope, other.Scope)

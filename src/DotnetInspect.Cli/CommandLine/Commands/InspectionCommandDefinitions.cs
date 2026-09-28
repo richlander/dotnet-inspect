@@ -102,9 +102,29 @@ public static class InspectionCommandDefinitions
             Description = "Implementation Diff: read PDB-mapped source from local git clone(s) by SourceLink commit + PDB checksum, before the network. Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
-        var findingOption = new Option<string?>("--finding") { Description = "Finding producer: api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety" };
+        var findingOption = new Option<string?>("--finding") { Description = "History only: Finding producer (api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety); pairwise diff uses --analysis" };
+        var analysisOption = new Option<string[]>("--analysis")
+        {
+            Description =
+                "Analyses to compare, comma-separated or repeated: "
+                + string.Join(", ", DiffAnalysisCommandCapability.Identities)
+                + " (default: api)",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        analysisOption.CompletionSources.Add(
+            [.. DiffAnalysisCommandCapability.Identities]);
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Diff JSON (use with unprojected --json or --envelope)" };
+
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched Diff History envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+#endif
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -135,8 +155,31 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(legacyAuthoredSourceOption);
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
+        diffCommand.Options.Add(analysisOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+#if DEBUG
+        diffCommand.Options.Add(evidenceEnvelopeOption);
+        diffCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(evidenceEnvelopeOption)
+                is not { Implicit: false })
+            {
+                return;
+            }
+            if (!result.GetValue(historyOption))
+            {
+                result.AddError(
+                    "--evidence-envelope is supported only by diff --history.");
+            }
+            if (result.GetResult(opts.Discover) is { Implicit: false }
+                || result.GetValue(opts.Schema))
+            {
+                result.AddError(
+                    "--evidence-envelope requires a Diff History inspection, not discovery or schema output.");
+            }
+        });
+#endif
         opts.AddCountOptionTo(diffCommand);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
@@ -182,7 +225,7 @@ public static class InspectionCommandDefinitions
                 || result.GetValue(historyOption))
                 return;
 
-            string? selector = result.GetValue(opts.Select);
+            string? selector = opts.SelectText(result);
             bool implementationTransport =
                 string.Equals(
                     selector,
@@ -222,7 +265,7 @@ public static class InspectionCommandDefinitions
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
             implementationOption,
             historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
-            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
+            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -280,6 +323,24 @@ public static class InspectionCommandDefinitions
                     {
                         SourceOptions = sourceOptions,
                     };
+#if DEBUG
+                    if (parseResult.GetResult(evidenceEnvelopeOption)
+                        is { Implicit: false })
+                    {
+                        if (!EvidenceEnvelopeOutput.TryResolvePath(
+                                parseResult.GetValue(evidenceEnvelopeOption)!,
+                                out string? evidencePath,
+                                out string? evidencePathError))
+                        {
+                            CommandError.Write(evidencePathError!);
+                            return 1;
+                        }
+                        options = options with
+                        {
+                            EvidenceEnvelopePath = evidencePath,
+                        };
+                    }
+#endif
                     var exitCode = await DiffCommand.ExecuteAsync(options, ct);
 
                     if (exitCode == 0)
@@ -357,6 +418,16 @@ public static class InspectionCommandDefinitions
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
+        var namespaceOption = new Option<string?>("--namespace")
+        {
+            Description =
+                "List public Types in an exact namespace, or in namespaces ending with a leading-dot suffix",
+        };
+        var namespaceChildrenOption = new Option<bool>("--children")
+        {
+            Description =
+                "With --namespace: include the named namespace and its descendants",
+        };
         var metadataRootOption = new Option<string?>("--metadata-root")
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
@@ -389,6 +460,8 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
+        assemblyCommand.Options.Add(namespaceOption);
+        assemblyCommand.Options.Add(namespaceChildrenOption);
         assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
@@ -422,20 +495,10 @@ public static class InspectionCommandDefinitions
             opts.Trace,
             opts.Count,
             opts.Effective,
-            opts.Source,
-            opts.AddSource,
-            opts.NuGetConfig,
             referencesOption,
             dependenciesOption,
             referenceDepthOption,
-            asmPlatformOption,
-            asmPackageOption,
             workspaceOption,
-            namesakeLibraryOption,
-            asmPrereleaseOption,
-            asmFrameworkOption,
-            asmVersionOption,
-            asmTfmOption,
             typeFilterOption,
             metadataRootOption,
             detailsOption,
@@ -450,18 +513,51 @@ public static class InspectionCommandDefinitions
                     "--compact requires library --envelope.");
             }
             if (!result.GetValue(opts.Envelope))
+            {
                 return;
+            }
 
+            bool exactLibraryMetrics =
+                string.Equals(
+                    result.GetValue(opts.Select)?.Trim(),
+                    SectionNames.LibraryMetrics,
+                    StringComparison.OrdinalIgnoreCase);
             if (result.GetResult(opts.Select)
-                is { Implicit: false })
+                    is { Implicit: false }
+                && !exactLibraryMetrics)
             {
                 result.AddError(
-                    "library --envelope does not accept section "
-                        + "selection.");
+                    "library --envelope accepts only the exact "
+                        + "\"Library Metrics\" section selection.");
+            }
+            if (exactLibraryMetrics)
+                return;
+
+            Option[] directEnvelopeIncompatibleOptions =
+            [
+                opts.Source,
+                opts.AddSource,
+                opts.NuGetConfig,
+                asmPlatformOption,
+                asmPackageOption,
+                namesakeLibraryOption,
+                asmPrereleaseOption,
+                asmFrameworkOption,
+                asmVersionOption,
+                asmTfmOption,
+            ];
+            foreach (Option option
+                in directEnvelopeIncompatibleOptions)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {option.Name}.");
+                }
             }
         });
         assemblyCommand.Subcommands.Add(
-            LibraryCoordinateCommandDefinitions.Create(
+            LibraryAddressCommandDefinitions.Create(
                 opts,
                 assemblyCommand,
                 assemblyPathArg,
@@ -546,7 +642,13 @@ public static class InspectionCommandDefinitions
                         + "combined with an exact Library source.");
                 return 1;
             }
-            if (parseResult.GetValue(opts.Envelope))
+            bool libraryMetricsEnvelope =
+                parseResult.GetValue(opts.Envelope)
+                && HasExactLibraryMetricsSelector(
+                    parseResult,
+                    opts);
+            if (parseResult.GetValue(opts.Envelope)
+                && !libraryMetricsEnvelope)
             {
                 assemblyPath = source;
             }
@@ -806,6 +908,10 @@ public static class InspectionCommandDefinitions
                 Tfm = parseResult.GetValue(asmTfmOption),
                 IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
+                TypeNamespace =
+                    parseResult.GetValue(namespaceOption),
+                IncludeNamespaceChildren =
+                    parseResult.GetValue(namespaceChildrenOption),
                 MetadataRoot = metadataRoot,
                 PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
@@ -816,6 +922,8 @@ public static class InspectionCommandDefinitions
                 Jsonl = opts.ResolveJsonl(parseResult),
                 TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
                 FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+                FormatFlagExplicitlySet =
+                    opts.IsFormatFlagExplicitlySet(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Trace = parseResult.GetValue(opts.Trace),
@@ -938,6 +1046,31 @@ public static class InspectionCommandDefinitions
                     lowering));
 
         return assemblyCommand;
+    }
+
+    private static bool HasExactLibraryMetricsSelector(
+        ParseResult parseResult,
+        SharedOptions opts)
+        => HasExactLibraryMetricsSelector(
+            opts.ParseSelect(parseResult),
+            opts.ParseSelectDefault(parseResult));
+
+    private static bool HasExactLibraryMetricsSelector(
+        string[]? select,
+        bool selectDefault)
+    {
+        if (selectDefault)
+            return false;
+
+        string[] selectors =
+        [
+            .. (select ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.LibraryMetrics,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool TryParseMetadataRoot(

@@ -457,7 +457,7 @@ internal static class ApiServices
 
     // ===== Full API Extraction =====
 
-    static string? FindApiDll(
+    internal static string? FindApiDll(
         string searchPath,
         VerboseLogger logger)
     {

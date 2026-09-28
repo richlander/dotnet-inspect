@@ -87,7 +87,7 @@ test("the top shell row separates product navigation from inspection subjects", 
   await expect(page.locator("[data-product-destination='home']"))
     .toBeFocused();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+    .toHaveText(["Home", "Query", "Workspace", "Activity", "Demos"]);
   await expect(page.locator("[data-product-action='open-library']"))
     .toHaveText("Open Library…");
   await expect(page.locator(".product-navigation-menu [role='separator']"))
@@ -203,6 +203,20 @@ test("product navigation preserves its focused action across maintenance replace
   await activity.click();
   await expect(page.locator("body"))
     .toHaveAttribute("data-product-destination", "activity");
+});
+
+test("product navigation preserves closed-trigger focus across maintenance replacement", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+  const button = page.locator("[data-product-navigation-button]");
+  await button.focus();
+  await expect(button).toBeFocused();
+
+  await page.evaluate(() => window.rerenderProductNavigationProbe());
+
+  await expect(button).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
 });
 
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
@@ -2130,7 +2144,7 @@ test("Annotated Source keeps its complete action group under shell pressure", as
 test("Source fills the detail area below working-surface actions and above provenance", async ({
   page,
 }) => {
-  for (const width of [1120, 600, 400]) {
+  for (const width of [1120, 600, 400, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
 
@@ -2147,6 +2161,8 @@ test("Source fills the detail area below working-surface actions and above prove
     await expect(
       page.getByRole("region", { name: "Source code" }),
     ).toBeVisible();
+    const targetFramework = page.locator("[data-subject-framework]");
+    await expect(targetFramework).toBeVisible();
 
     const inspector = await box(page, "#inspector-panel");
     const source = await box(page, ".source-result");
@@ -2156,6 +2172,8 @@ test("Source fills the detail area below working-surface actions and above prove
     const targetbar = await box(page, ".targetbar");
     const code = await box(page, ".source-result pre");
     const provenance = await box(page, ".source-provenance");
+    const path = await box(page, ".subject-path");
+    const framework = await box(page, "[data-subject-framework]");
     expect(source.x).toBeCloseTo(inspector.x, 0);
     expect(source.y).toBeCloseTo(inspector.y, 0);
     expect(source.width).toBeCloseTo(inspector.width, 0);
@@ -2168,6 +2186,9 @@ test("Source fills the detail area below working-surface actions and above prove
       .toBeLessThanOrEqual(targetbar.y + targetbar.height);
     expect(actions.x + actions.width)
       .toBeLessThanOrEqual(targetbar.x + targetbar.width);
+    expect(framework.x).toBeGreaterThanOrEqual(path.x);
+    expect(framework.x + framework.width)
+      .toBeLessThanOrEqual(path.x + path.width + 1);
     expect(code.y).toBeCloseTo(source.y, 0);
     expect(code.y + code.height).toBeLessThanOrEqual(provenance.y + 1);
     expect(provenance.y + provenance.height)
@@ -2228,6 +2249,11 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   ]);
   await expect(page.locator(".subject-path-separator")).toHaveCount(3);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(4);
+  const targetFramework = page.locator("[data-subject-framework]");
+  await expect(targetFramework).toHaveText("· net10.0");
+  await expect(targetFramework).toHaveAttribute(
+    "aria-label",
+    "Target framework net10.0. Change target framework for System.Text.Json");
   await expect(page.locator(".targetbar .subject-path")).toBeVisible();
   await expect(page.locator(".titlebar .scope-switch")).toBeVisible();
   await expect(page.locator(".titlebar .lens")).toHaveCount(5);
@@ -2247,6 +2273,10 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   await expect(page.locator("body")).toHaveAttribute(
     "data-copied-subject",
     "System.Text.Json.JsonSerializer");
+  await targetFramework.click();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-package-framework-opened",
+    "true");
   const search = await box(page, "#open-search");
   const forward = await box(page, "#nav-forward");
   expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
@@ -2257,9 +2287,11 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   const targetbar = await box(page, ".targetbar");
   const target = await box(page, ".inspected-target");
   const workspace = await box(page, ".workspace");
-  const pathSegments = await page.locator(".subject-path-segment")
-    .evaluateAll(segments => segments.map(segment => {
-      const bounds = segment.getBoundingClientRect();
+  const pathItems = await page.locator(
+    ".subject-path-segment, .subject-path-framework",
+  )
+    .evaluateAll(items => items.map(item => {
+      const bounds = item.getBoundingClientRect();
       return { x: bounds.x, right: bounds.right };
     }));
   expect(target.x).toBeLessThan(20);
@@ -2274,9 +2306,9 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   expect(targetbar.x).toBe(0);
   expect(targetbar.width).toBeCloseTo(1440, 0);
   expect(targetbar.y + targetbar.height).toBeLessThanOrEqual(workspace.y);
-  for (let index = 1; index < pathSegments.length; index++) {
-    const current = pathSegments[index];
-    const previous = pathSegments[index - 1];
+  for (let index = 1; index < pathItems.length; index++) {
+    const current = pathItems[index];
+    const previous = pathItems[index - 1];
     if (!current || !previous) {
       throw new Error("Inspected-target path geometry is incomplete.");
     }
@@ -2332,7 +2364,7 @@ test("query header keeps product navigation collapsed and preserves navigation f
 
   await expect(page.locator(".product-navigation-menu")).toBeHidden();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+    .toHaveText(["Home", "Query", "Workspace", "Activity", "Demos"]);
   await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {

@@ -44,8 +44,7 @@ does not label sections as "opt-in".
 
 Categories are authored through `AddBaseCategory` and `AddCategory`.
 
-- Base categories define automatic verbosity, bare-`-S`, and flat discovery
-  scope.
+- Base categories define automatic verbosity and flat discovery scope.
 - Domain categories are explicit doors.
 - A section can belong to more than one category.
 - Membership is never inferred from a display-name prefix.
@@ -58,8 +57,8 @@ Automatic candidate selection intersects:
 - explicit-only policy.
 
 Exact section selection overrides automatic scope. Category selection expands
-to authored members before query demand is computed. Bare `-S` uses the
-fixed, network-free subset of the base union.
+to authored members before query demand is computed. Section selection always
+requires an explicit section, category, or wildcard argument.
 
 The library catalog calls `WithoutComputedPoles`; it does not expose computed
 `@All` or `@Hidden` selectors.
@@ -284,7 +283,8 @@ The Diff catalog is the first production canary and now exposes one
 `CompiledInspectionDomain<DiffQueryContext>` and one compiled section lens.
 `DiffCommand` obtains and runs its query plan through that lens. Its request-owned
 `DiffQueryContext`, multiple independently selectable producers, a queryless
-Finding Transitions selection that lowers to the empty plan, and pre-existing
+analysis-set view selection (`Summary`, `Transitions`) that lowers to the
+empty plan, and pre-existing
 allocation gates exercise the seam without introducing
 assembly or workspace lifetime. API, Type, and Member migration remains
 follow-up work.
@@ -432,7 +432,7 @@ The curated verbosity contract is:
 | --- | --- |
 | Quiet | Headless compact summary only |
 | Minimal | High-value info section, excluding unbounded work |
-| Normal | Terse and informative, network-free base sections |
+| Normal | Terse and informative base sections |
 | Detailed | All bounded base sections |
 
 Compact identity fields are reserved for quiet verbosity. Minimal does not

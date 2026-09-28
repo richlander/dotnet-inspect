@@ -3,6 +3,7 @@ using System.Globalization;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using ILInspector.Decompiler;
 using Inspector.Findings;
@@ -155,10 +156,11 @@ public static class DiffOutputFormatter
         DiffDetailedChangesView? changes,
         AnalysisDiffView? analysisDiff,
         ImplementationDiffView? implementationDiff,
-        FindingTransitionsView? findingTransitions,
         IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
         ComplexityContextView? complexityContext = null,
-        StructuralContextView? structuralContext = null)
+        StructuralContextView? structuralContext = null,
+        DiffAnalysisSummaryView? summary = null,
+        TransitionsView? transitions = null)
         => new(
             DiffViewText.Field($"Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
@@ -171,9 +173,12 @@ public static class DiffOutputFormatter
             DistinctStatusMessage(complexityContext),
             structuralContext?.SummaryText,
             DistinctStatusMessage(structuralContext),
-            findingTransitions is null
+            summary is null
                 ? null
-                : DiffViewText.Field(findingTransitions.Status.Message),
+                : DiffViewText.Field(summary.Status.Message),
+            transitions is null
+                ? null
+                : DiffViewText.Field(transitions.Status.Message),
             inspectionFailures.Count == 0
                 ? null
                 : DiffViewText.Prose(
@@ -186,7 +191,8 @@ public static class DiffOutputFormatter
             ImplementationDiff = implementationDiff?.Rows,
             ComplexityContext = complexityContext?.Rows,
             StructuralContext = structuralContext?.Rows,
-            FindingTransitions = findingTransitions?.Rows,
+            Summary = summary?.Rows,
+            Transitions = transitions?.Rows,
             InspectionFailures =
                 BuildInspectionFailureRows(inspectionFailures),
         };
@@ -362,16 +368,37 @@ public static class DiffOutputFormatter
                 }));
         }
 
-        if (view.FindingTransitionsSummary is not null)
+        if (view.AnalysisSummary is not null)
         {
             WriteDocumentSection(
                 writer,
-                "Finding Transitions",
-                view.FindingTransitionsSummary,
+                "Summary",
+                view.AnalysisSummary,
+                null,
+                ["Analysis", "Outcome", "Added", "Removed", "Changed", "Present", "Detail"],
+                ["analysis", "outcome", "added", "removed", "changed", "present", "detail"],
+                view.Summary?.Select(row => new[]
+                {
+                    row.Analysis,
+                    row.Outcome,
+                    row.Added.ToString(CultureInfo.InvariantCulture),
+                    row.Removed.ToString(CultureInfo.InvariantCulture),
+                    row.Changed.ToString(CultureInfo.InvariantCulture),
+                    row.Present.ToString(CultureInfo.InvariantCulture),
+                    row.Detail ?? "",
+                }));
+        }
+
+        if (view.TransitionsSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Transitions",
+                view.TransitionsSummary,
                 null,
                 ["Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail"],
                 ["transition", "finding", "target", "from", "to", "old", "new", "detail"],
-                view.FindingTransitions?.Select(row => new[]
+                view.Transitions?.Select(row => new[]
                 {
                     row.Transition, row.Finding, row.Target, row.From,
                     row.To, row.Old, row.New, row.Detail ?? ""
@@ -458,13 +485,13 @@ public static class DiffOutputFormatter
             ? DiffViewText.Prose(view.Status.Message)
             : null;
 
-    public static FindingTransitionsView BuildFindingTransitionsView(
+    public static TransitionsView BuildTransitionsView(
         string name,
         IReadOnlyList<FindingTransitionRow> rows,
         string fromVersion,
         string toVersion)
         => new(
-            DiffViewText.Field($"Finding Transitions: {name}"),
+            DiffViewText.Field($"Transitions: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"))
         {
             Status = rows.Count == 0
@@ -473,7 +500,29 @@ public static class DiffOutputFormatter
             Rows = rows.Count > 0 ? rows.ToList() : null
         };
 
-    public static string RenderFindingTransitionsView(FindingTransitionsView view, MarkoutWriterOptions? options = null)
+    public static DiffAnalysisSummaryView BuildAnalysisSummaryView(
+        string name,
+        IReadOnlyList<DiffAnalysisSummaryRow> rows,
+        string fromVersion,
+        string toVersion)
+        => new(
+            DiffViewText.Field($"Summary: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"))
+        {
+            Status = new Callout(
+                CalloutSeverity.Note,
+                $"{rows.Count} selected analys{(rows.Count == 1 ? "is" : "es")}."),
+            Rows = [.. rows],
+        };
+
+    public static string RenderTransitionsView(TransitionsView view, MarkoutWriterOptions? options = null)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.Complete().TrimEnd();
+    }
+
+    public static string RenderAnalysisSummaryView(DiffAnalysisSummaryView view, MarkoutWriterOptions? options = null)
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
@@ -1333,7 +1382,9 @@ public static class DiffOutputFormatter
         List<ImplementationDiffRow> rows,
         AssemblyMemberSourcePairResult pair)
     {
-        var anchor = pair.Request.Member;
+        MemberAnchor anchor = (pair.Request.Before ?? pair.Request.After
+            ?? throw new InvalidOperationException(
+                "A member Source pair request has no endpoint.")).Member;
         var subject = ResearchMemberIdentity.SubjectFromAnchor(
             anchor, $"{anchor.TypeFullName}.{anchor.MemberName}");
         if (pair.Status == AssemblyMemberSourcePairStatus.Compared
@@ -1399,6 +1450,7 @@ public static class DiffOutputFormatter
             {
                 Source: AssemblyMemberPdbSourceAttempt.Unavailable unavailable
             } => SourceInspectionState(unavailable.Inspection),
+            AssemblyMemberSourcePairEndpoint.Unrequested => "not requested",
             AssemblyMemberSourcePairEndpoint.NotFound missing =>
                 $"{missing.Failure.Kind}: {missing.Failure.Detail}",
             AssemblyMemberSourcePairEndpoint.Rejected rejected =>

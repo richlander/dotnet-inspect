@@ -205,6 +205,7 @@ function applicationActions(calls: string[]) {
     onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
     onNavigateBack: () => calls.push("navigate-back"),
     onNavigateForward: () => calls.push("navigate-forward"),
+    onOpenPackageTargetFramework: () => calls.push("open-package-framework"),
     onRetryNotice: () => calls.push("retry-notice"),
     onSearch: () => calls.push("search"),
   };
@@ -225,7 +226,9 @@ test("workbench shell binds persistent controls without eager work", () => {
   }
   const packageSubject = root.element({ subjectCopy: "0" });
   const typeSubject = root.element({ subjectCopy: "1" });
+  const targetFramework = root.element({ subjectFramework: "net10.0" });
   root.addAll("[data-subject-copy]", packageSubject, typeSubject);
+  root.addAll("[data-subject-framework]", targetFramework);
   const calls: string[] = [];
   let searchArgumentCount = -1;
 
@@ -244,8 +247,11 @@ test("workbench shell binds persistent controls without eager work", () => {
   }
   packageSubject.dispatch("click");
   typeSubject.dispatch("click");
-  assert.deepEqual(calls.slice(-2), ["copy-subject:0", "copy-subject:1"]);
-  assert.equal(calls.length, controls.size + 2);
+  targetFramework.dispatch("click");
+  assert.deepEqual(
+    calls.slice(-3),
+    ["copy-subject:0", "copy-subject:1", "open-package-framework"]);
+  assert.equal(calls.length, controls.size + 3);
   assert.equal(searchArgumentCount, 0);
 });
 
@@ -426,22 +432,22 @@ test("workbench search focus stays with the shell selector owner", () => {
     false);
 });
 
-test("home shell opens libraries and the product demo catalog", () => {
+test("home shell retries notices and opens the product demo catalog", () => {
   const root = new FakeRoot();
   const theme = root.element();
   const dismiss = root.element();
+  const retry = root.element();
   const demos = root.element();
-  const library = root.element();
   root.add("#home-theme", theme);
   root.add("#dismiss-notice", dismiss);
+  root.add("#retry-notice", retry);
   root.add("#home-demos", demos);
-  root.add("#home-open-library", library);
   const calls: string[] = [];
 
   bindHomeShell(fakeDom.parentNode(root), {
     onDismissNotice: () => calls.push("dismiss"),
     onOpenDemos: () => calls.push("demos"),
-    onOpenLibrary: () => calls.push("library"),
+    onRetryNotice: () => calls.push("retry"),
     onToggleTheme: () => calls.push("theme"),
   });
 
@@ -451,8 +457,8 @@ test("home shell opens libraries and the product demo catalog", () => {
   assert.deepEqual(calls, ["theme", "dismiss"]);
   demos.dispatch("click");
   assert.deepEqual(calls, ["theme", "dismiss", "demos"]);
-  library.dispatch("click");
-  assert.deepEqual(calls, ["theme", "dismiss", "demos", "library"]);
+  retry.dispatch("click");
+  assert.deepEqual(calls, ["theme", "dismiss", "demos", "retry"]);
 });
 
 test("load error shell parses replacement packages and owns local detail state", () => {
@@ -505,13 +511,14 @@ test("shell bindings tolerate inactive surfaces", () => {
     onDismissPackageNotice() {},
     onNavigateBack() {},
     onNavigateForward() {},
+    onOpenPackageTargetFramework() {},
     onRetryNotice() {},
     onSearch() {},
   }));
   assert.doesNotThrow(() => bindHomeShell(root, {
     onDismissNotice() {},
     onOpenDemos() {},
-    onOpenLibrary() {},
+    onRetryNotice() {},
     onToggleTheme() {},
   }));
   assert.doesNotThrow(() => bindLoadErrorShell(root, {

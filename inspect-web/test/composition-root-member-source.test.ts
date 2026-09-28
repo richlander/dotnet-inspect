@@ -319,13 +319,13 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.implementationBodySelected\)/);
   assert.match(
     documentationLoader,
-    /const signature = memberRequestSignature\(type, overload\)/);
+    /const signature = memberRequestSignature\(type, overload\);\s*const pkg = currentPackage\(\);\s*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
   assert.match(
     documentationLoader,
-    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*platformPack: pkg\.isRuntimePack\s*\?\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? ""\s*:\s*"",\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     documentationLoader,
-    /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack: pkg\.isRuntimePack\s*\?\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? ""\s*:\s*"",\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
     /loadFindingCensus\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
@@ -654,12 +654,10 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
 });
 
-// Arrowing between members keeps the active section (e.g. Source) sticky, the same way
-// arrowing between types never disturbs the type-level lens. openMemberGroup/openOverload
-// (the two entry points arrow-key nav uses) must clear cached per-member content without
-// resetting memberSection, and only fall back to Overview when the newly selected member
-// doesn't support the section that was showing.
-test("moving between members keeps the active section sticky, falling back to Overview only when unsupported", () => {
+// Arrowing between members keeps ordinary sections sticky. Implementation Profiles is
+// retained only for an exact family that was already activated, so navigation itself
+// cannot authorize expensive analysis for another family.
+test("moving between members keeps sections sticky without section-driven profile activation", () => {
   const openMemberGroupBody =
     appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
   assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
@@ -676,6 +674,7 @@ test("moving between members keeps the active section sticky, falling back to Ov
   assert.match(
     openMemberGroupBody,
     /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
+  assert.doesNotMatch(openMemberGroupBody, /implementationProfiles\./);
   assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
 
   const openOverloadBody =
@@ -729,7 +728,10 @@ test("every overload-specific member loader leaves a multi-overload picker inert
 // restoring a hand-written list makes a catalog addition stop appearing here.
 test("the full member-section roster is derived from the catalog, not restated", () => {
   assert.deepEqual(
-    memberSectionIdsFor({ kind: "method" }),
+    memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }),
+    memberSectionDefinitions.map(([id]) => id));
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method", overloads: [{}] }),
     memberSectionDefinitions.map(([id]) => id));
 });
 

@@ -240,6 +240,27 @@ test("switching the same type to declarations rejects an older source completion
   assert.deepEqual(f.cancellations, [[source.id, "superseded"]]);
 });
 
+test("switching authored source to explicit decompiler source replaces the operation", async () => {
+  const f = fixture();
+  const authored = f.start("authored", "source", "Example.Type");
+  const decompiled = f.start(
+    "decompiled",
+    "decompiler-source",
+    "Example.Type");
+  decompiled.query.resolve(succeeded("decompiled implementation"));
+  await decompiled.load;
+  authored.query.resolve(succeeded("stale authored source"));
+  await authored.load;
+
+  assert.equal(
+    f.state.typeSource.status === "ready"
+      && f.state.typeSource.source.kind === "source"
+      ? f.state.typeSource.source.value.text
+      : undefined,
+    "decompiled implementation");
+  assert.deepEqual(f.cancellations, [[authored.id, "superseded"]]);
+});
+
 test("managed cancellation reaches the logical authority without an error", async () => {
   const f = fixture();
   const operation = f.start("A");

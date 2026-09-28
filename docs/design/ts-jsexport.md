@@ -5,9 +5,10 @@ boundary**. The repository contains the `ts-jsexport` tool, typed facade
 emitter, canonical compiled fixture, and the compiler/runtime gates under
 [Acceptance](#acceptance). Metadata-rooted facade contexts are implemented
 under [#5466](https://github.com/richlander/dotnet-inspect/issues/5466).
-Explicit producer-declared JSON input bindings are specified under
-[#8327](https://github.com/richlander/dotnet-inspect/issues/8327) and are not
-yet implemented.
+Explicit producer-declared JSON input bindings are implemented under
+[#8327](https://github.com/richlander/dotnet-inspect/issues/8327). Complete
+member-level inference and symmetric input/output declarations are specified
+under [#8370](https://github.com/richlander/dotnet-inspect/issues/8370).
 Inspect-web adoption and browser deployment canaries remain separate work
 under #5003, #4792, issue #4842, and #4497.
 
@@ -46,11 +47,19 @@ one context class. The context is a compiler-checked input inventory, not a
 generated aggregate API: each root resolves to a different assembly and still
 produces one assembly-specific TypeScript module.
 
-A producer whose raw `[JSExport]` ABI carries a JSON input as `string` may
-declare the missing association on the export type. The declaration names one
-exported method, one exact raw string parameter, and one request DTO. It does
-not restate the result type: authenticated serialization return flow continues
-to establish the outgoing wire type.
+A producer whose raw `[JSExport]` ABI carries JSON as `string` may declare
+input and output associations on the export type. Separate repeatable input
+and output attributes support methods with zero, one, or several JSON inputs.
+The attributes identify compiler-bound JSON roots but do not author their
+TypeScript shapes.
+
+Certification is complete per exported member. A member either derives all of
+its non-intrinsic JSON associations from authenticated implementation flow or
+declares all of them. Partially inferred and partially declared members remain
+generatable for diagnosis but are uncertified; production generation treats
+that warning as an error. Canonical facade drift checking remains the gate for
+a refactor that removes all evidence and would otherwise resemble an
+intentional raw-string API.
 
 `ts-jsexport` does not generate derived JavaScript or declarations itself:
 
@@ -80,8 +89,9 @@ parts:
 
 1. **`TsJsExport.Contracts` is a producer contract.** It contains the
    repeatable `JsExportRootAttribute` used by a compiled context and the
-   repeatable `JsExportJsonInputAttribute` used by an export type. It has no
-   inspection, generation, runtime, or consumer policy.
+   repeatable `JsExportJsonInputAttribute` and
+   `JsExportJsonOutputAttribute` used by an export type. It has no inspection,
+   generation, runtime, or consumer policy.
 2. **`ts-jsexport` is a build-time tool.** It reads a compiled assembly as
    metadata and IL data and generates a TypeScript facade for the type paths and
    static methods represented by its `[JSExport]` surface. In context mode it
@@ -346,9 +356,77 @@ same generic union definition remains a closed substitution path and is
 analyzed through every supplied argument; cycle suppression applies only to
 recursive union-case traversal.
 
-A bidirectional record whose serialize and deserialize presence differs still
-fails visibly. Separate input and output declarations are a later
-direction-specific contract, not a shape the emitter guesses in this slice.
+### Direction-specific wire declarations
+
+Issue [#7279](https://github.com/richlander/dotnet-inspect/issues/7279)
+projects one managed type into distinct input and output declarations when its
+authenticated deserialization and serialization wire shapes differ. OpenAPI
+`readOnly`/`writeOnly` properties and TypeSpec visibility provide analogous
+direction-scoped schema projection. They are evidence for the distinction, not
+the contract owner: `ts-jsexport` continues to consume only direction,
+presence, and type evidence issued by `JsExportSurface`.
+
+The declaration identity is the managed `ApiType` plus one declaration
+direction:
+
+- `Both` when a bidirectional type's input and output projections are
+  equivalent;
+- `Deserialize` for a split input declaration; and
+- `Serialize` for a split output declaration.
+
+A type reached in only one direction keeps one declaration with that direction
+and its existing unsuffixed preferred name. A bidirectional type also keeps one
+`Both` declaration when its projections are equivalent. A split type instead
+receives the preferred names `TypeNameInput` and `TypeNameOutput`. The
+direction is part of the canonical allocation identity, so these preferred
+names participate in the existing deterministic module-wide collision
+allocation alongside managed types, operations, parameters, and
+infrastructure. No unsuffixed compatibility alias is emitted for a split
+declaration: it would recreate the ambiguous contract this feature removes.
+
+Equivalence is computed over the complete projected declaration, not only the
+type's direct attributes. The declaration planner starts with bidirectional
+records whose effective member participation, property requiredness, or
+present-value type differs by direction. It then repeatedly propagates the
+split through any bidirectional record or union whose projected member or case
+type selects different directional declarations. Traversal follows nullable,
+array, collection, dictionary, generic-instance, nested-record, and union case
+shapes. The fixed point handles recursion and mutually recursive strongly
+connected components without guessing an order. Generic parameters retain one
+parameter identity; supplied type arguments select their directional
+declarations at each reference site.
+
+Declaration emission, member type mapping, union case mapping, and operation
+signature mapping consume this one declaration plan. They do not independently
+decide whether a type is split. Within an output declaration every resolved
+local reference selects the serialize projection; within an input declaration
+every resolved local reference selects the deserialize projection. Public JSON
+input parameters select deserialize declarations. Parsed JSON returns,
+including `JsonText<T>` realization, select serialize declarations. Raw
+`[JSExport]` signatures remain unchanged.
+
+The later
+[JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) design
+does not introduce another direction binding. Its implementation extracts this
+plan into the target-language-neutral `JsExportSurface` layer without changing
+the plan's semantics. TypeScript declarations, JSON Schema, and schema-location
+bindings then consume that one plan; TypeScript naming and syntax remain owned
+here.
+
+Directional projection does not broaden an unsupported serializer contract.
+In particular, polymorphic deserialization remains unsupported until its
+owning contract establishes reader-side case selection. A declaration whose
+active direction has unsupported constructor binding, converter evidence,
+member presence, or type mapping remains visibly unsupported in that
+direction. The supported opposite declaration does not authenticate it.
+
+The canonical Inspect Web facade remains the production drift gate. The
+compiled fixture facade additionally demonstrates the generated wrapper at
+runtime: a direction-sensitive DTO is accepted through its input declaration,
+serialized to the managed call, returned JSON is parsed through its output
+declaration, and the directional member difference is observable. Authored
+TypeScript consumers adopt changed generated names rather than retaining
+hand-written shared or compatibility shapes.
 
 ### Translating unions and nullability
 
@@ -568,19 +646,23 @@ propagates unchanged; an `undefined` result throws a `TypeError`. The wrapper
 never substitutes fallback JSON or dispatches after either failure. Multiple
 bound parameters serialize independently in declared order.
 
-## Producer-declared JSON inputs
+## Complete JSON contract certification
 
 ### Motivation and scope
 
-The outgoing wire type follows the ordinary C# data direction. An exported
-method serializes one value with one authenticated source-generated
-`JsonTypeInfo<T>` and returns that JSON string, so Analysis can associate `T`
-with the raw return.
+Both JSON directions can be certified from implementation flow when the
+serializer operation remains positionable at the export boundary. An input
+flows from one raw string parameter into an authenticated
+`Deserialize<T>` call. An output flows from one authenticated `Serialize<T>`
+result to the raw string return. Either flow can become intentionally hidden
+inside an operation coordinator, lambda, or helper. Requiring those operations
+to remain visibly in the export body couples the public TypeScript contract to
+an incidental implementation shape.
 
-The incoming direction lacks one fact. A raw export may have several string
-parameters, while the managed parser may live inside an operation coordinator,
-lambda, or helper. Requiring the parser to remain visibly in the export body
-couples the public TypeScript contract to an incidental implementation shape.
+A raw export may also have several genuine string parameters beside one or
+more JSON parameters. The C# signature remains authoritative for intrinsic
+interop types; declarations cover only JSON associations that the signature
+cannot express.
 Library API Diff in
 [#8272](https://github.com/richlander/dotnet-inspect/pull/8272) and Compare
 Clone in [#8310](https://github.com/richlander/dotnet-inspect/pull/8310)
@@ -592,10 +674,12 @@ while its [published production gate][method-body-production] and
 serialize the request from TypeScript.
 
 Issue [#8327](https://github.com/richlander/dotnet-inspect/issues/8327)
-records the user's approval to expand this design. The expansion is limited to
-declaring JSON input associations. Result typing continues to use authenticated
-serialization return flow. It adds no JSON schema validator, runtime parser,
-new JS interop marshalling type, or TypeScript-authored wire shape.
+records the input-declaration expansion.
+Issue [#8370](https://github.com/richlander/dotnet-inspect/issues/8370)
+records the complete-member certification expansion. It adds symmetric output
+declarations and certification diagnostics, but no JSON schema validator,
+runtime parser, new JS interop marshalling type, or TypeScript-authored wire
+shape.
 
 ### Declaration
 
@@ -613,6 +697,9 @@ namespace DotnetInspect.Web.Interop.Source;
     nameof(SourceExports.QueryMethodBodyComparison),
     "requestJson",
     typeof(BrowserMethodBodyComparisonRequest))]
+[JsExportJsonOutput(
+    nameof(SourceExports.QueryMethodBodyComparison),
+    typeof(BrowserMethodBodyComparisonResult))]
 public static partial class SourceExports
 {
     [JSExport]
@@ -667,8 +754,12 @@ returns it. Keeping the outgoing serializer call at the export boundary
 preserves existing result-flow authentication, while the input declaration
 allows deserialization to remain in the functionality layer.
 
-`JsExportJsonInputAttribute` is sealed, non-inherited, valid only on classes,
-repeatable, and has one constructor taking, in order:
+The producer contract uses two sealed, non-inherited, repeatable class
+attributes rather than one aggregate attribute. Separate attributes avoid
+parallel parameter-name and type arrays, naturally support several JSON
+inputs, and allow an output-only export to declare no input association.
+
+`JsExportJsonInputAttribute` has one constructor taking, in order:
 
 1. the managed method name;
 2. the raw parameter name; and
@@ -686,6 +777,15 @@ checking in its build, as inspect-web does, turns that error into a build
 break. Generation never ignores the declaration or falls back to a raw string
 facade.
 
+`JsExportJsonOutputAttribute` has one constructor taking, in order:
+
+1. the managed method name; and
+2. the compiler-bound `System.Type` of the outgoing JSON wire root; and
+3. an optional `deferParsing` boolean, `false` by default.
+
+Its readable properties are `MethodName`, `WireType`, and `DeferParsing`. At
+most one output declaration may resolve to a given exported member.
+
 The declaration belongs on the export type, including an otherwise empty
 partial declaration in a dedicated contract file. It does not belong on the
 raw parameter, the serializer context, or the request DTO. The export type owns
@@ -700,7 +800,7 @@ attribute from another assembly is not a declaration.
 
 ### Resolution and authentication
 
-`ILInspector.JsExportSurface` resolves each declaration before issuing a
+`ILInspector.JsExportSurface` resolves each input declaration before issuing a
 parameter binding:
 
 1. The attribute-bearing type resolves to the exact declaring type represented
@@ -721,6 +821,48 @@ make every declaration name infrastructure. A later extension may add an
 explicit context selector only if real producers demonstrate that one export
 assembly must intentionally register the same wire root in several contexts.
 
+Output declaration resolution follows the same authentication rules, except
+that it identifies one exact exported method, requires its raw return to be
+`System.String` or `Task<System.String>`, and requires exactly one
+serialization-capable source-generated contract for the declared root.
+
+### Deferred complete JSON output
+
+An output declaration with `deferParsing: true` remains a complete declared
+JSON association, but the generated facade preserves its runtime result as an
+encoded string rather than calling `JSON.parse`. The public TypeScript return
+uses the collision-safe generic brand:
+
+```ts
+declare const jsonTextBrand: unique symbol;
+
+export type JsonText<T> = string & {
+  readonly [jsonTextBrand]: T;
+};
+```
+
+For an asynchronous export, `Task<string>` therefore becomes
+`Promise<JsonText<T>>`. The `Promise` represents asynchronous completion; the
+`JsonText<T>` value represents one complete encoded JSON document after that
+completion. A synchronous `string` export becomes `JsonText<T>`.
+
+The brand authenticates only the producer-declared association with `T`. It
+does not claim that a JavaScript consumer has parsed, structurally validated,
+or admitted the text under a feature-specific size or complexity policy. The
+generated module exposes no public constructor, unchecked branding helper,
+parser, or decoder. A consumer that requires bounded admission supplies its
+own decoder and obtains `T` only after that decoder succeeds.
+
+`JsonText<T>` is not a streaming, chunking, pagination, or progressive-
+realization contract. It always represents one complete JSON document.
+`ReadableStream`, `AsyncIterable`, chunk identity, ordering, backpressure,
+cancellation, and partial-failure semantics require a separately owned design.
+
+Ordinary output declarations retain the existing parsed lowering. Deferred
+and parsed declarations use the same authenticated source-generated shape,
+complete-member certification, conflict checking, TypeScript declaration
+inventory, and canonical drift protection.
+
 The declaration establishes only the parameter association. The source-
 generated serializer contract remains the authority for members, names,
 nullability, constructor binding, converters, unions, collections, and
@@ -730,15 +872,24 @@ contains no handwritten TypeScript shape.
 
 ### Relationship to flow evidence
 
-Producer declarations are the preferred input-binding source. Existing
-deserializer-flow inference remains temporarily available only for an
-undeclared parameter.
+Certification has three member-level results:
 
-When a declared parameter also has reachable authenticated deserializer
-evidence, an equal wire type corroborates the declaration and a different wire
-type fails the surface. A duplicate declaration for the same method and
-parameter fails even when its wire type is equal. Distinct declared parameters
-may use the same wire type.
+1. **Inferred** — no JSON declaration resolves to the member, and every
+   observed JSON association is authenticated and positioned.
+2. **Declared** — at least one JSON declaration resolves to the member, every
+   observed JSON association has an equal declaration, and no association is
+   supplied only by inference.
+3. **Incomplete** — observed evidence is unpositionable, or a member combines
+   a declaration on one JSON association with inference on another.
+
+A member with no JSON association is intrinsically certified by its raw C#
+signature and does not require an attribute.
+
+When a declared input or output also has reachable authenticated flow evidence,
+an equal wire type corroborates the declaration and a different wire type
+fails the surface. A duplicate declaration for the same method and slot fails
+even when its wire type is equal. Distinct declared parameters may use the same
+wire type.
 
 An unpositioned or transformed deserializer call does not erase an independently
 validated declaration. It remains visible in the unpositioned wire-root
@@ -746,20 +897,30 @@ inventory and cannot create an inferred binding. A declaration therefore
 allows parsing to stay inside a coordinator, lambda, or helper without asking
 Analysis to prove transitive implementation flow.
 
-During migration, one function may contain both declared and inferred
-bindings for different parameters. Declaration resolution occurs first;
-inference considers only remaining undeclared raw parameters. A conflict is a
-generation error, never a precedence rule or silent fallback to raw string.
+Incomplete members retain every valid inferred and declared binding so a local
+developer can inspect the best available facade, but generation emits a
+certification warning. Production invokes `ts-jsexport` with
+`--warnings-as-errors`, which rejects the whole generation before publication.
+A conflict is a generation error, never a warning, precedence rule, or silent
+fallback to raw string.
+
+If a refactor removes every serializer fact, the current assembly alone cannot
+distinguish lost evidence from an intentionally raw string contract. Consumers
+therefore retain canonical generated-facade comparison. The warning gate catches
+partial loss; canonical drift catches total disappearance.
 
 ### Generated effect
 
-A declaration changes only the public input view. For:
+A declaration changes only the public facade view. For:
 
 ```csharp
 [JsExportJsonInput(
     nameof(FooExports.QueryFoo),
     "requestJson",
     typeof(FooRequest))]
+[JsExportJsonOutput(
+    nameof(FooExports.QueryFoo),
+    typeof(Foo))]
 public static partial class FooExports
 {
 }
@@ -786,8 +947,9 @@ export function queryFoo(requestJson: FooRequest): Promise<Foo>
 ```
 
 `FooRequest` and `Foo` are ordinary JSON wire types distinguished by direction:
-TypeScript authors and the generated wrapper serializes the request; managed
-code authors and the generated wrapper parses the result. A type may
+TypeScript authors and the generated wrapper serialize the request; managed
+code authors and the generated wrapper produce the result, which the wrapper
+parses. A type may
 participate in either or both directions. `Request` and `Result` suffixes have
 no generator meaning.
 
@@ -1420,37 +1582,35 @@ managed name. The generator consumes the exact runtime dispatch identity from
 issue #4791; allocating two facade names that both call an ambiguous bare
 runtime key is never an intermediate state.
 
-### Explicit input-binding expansion
+### Certification refinement
 
-Issue [#8327](https://github.com/richlander/dotnet-inspect/issues/8327) is the
-overall tracker for the explicit input-binding expansion. It has four ordered
-stages:
+Issue [#8327](https://github.com/richlander/dotnet-inspect/issues/8327)
+introduced producer-declared JSON inputs and Method Body Comparison as the
+first production adopter. Its original migration plan would eventually have
+declared every input and removed flow association.
 
-1. lock this focused producer-declaration design;
-2. implement the contract attribute, metadata validation, surface facts,
-   generator consumption, fixtures, and Method Body Comparison as the first
-   production adopter;
-3. migrate remaining production inputs in owner-specific slices; and
-4. remove deserializer-flow input association after every supported producer
-   uses declarations.
+Issue [#8370](https://github.com/richlander/dotnet-inspect/issues/8370)
+supersedes that universal-declaration endpoint with the lower-ceremony hybrid
+model in this document. Existing exports remain inferred when their complete
+JSON boundary is certifiable. Declarations are required only when
+implementation evidence is incomplete, and then cover the complete member
+rather than one isolated side. The implementation stages are:
 
-Observable Browser/Wasm adoption arrives in stage 2 of 4 through the existing
-published Method Body Comparison gate and benchmark. The CLI has no
-JavaScript-export or generated-TypeScript boundary and is not a consumer of
-this capability. This is not a shared host-neutral product substrate; it is a
-build-time contract specifically for JavaScript-export producers.
+1. add authenticated output declarations and complete-member certification;
+2. enable `--warnings-as-errors` in the canonical Inspect Web generation path;
+3. convert real incomplete producers to complete declarations; and
+4. retain canonical facade drift checking for total evidence disappearance.
 
-Stage 2 may lock the new cross-cutting declaration together with Method Body
-Comparison as the one bounded first adopter. It does not change Source-owned
-comparison semantics. Each later export owner adopts the locked declaration
-without reopening this document to specify that owner's operation behavior.
+Observable Browser/Wasm adoption includes Method Body Comparison and Source
+Comparison. The latter demonstrates a request parser nested in operation
+coordination while the generated public facade accepts
+`BrowserSourceComparisonRequest` directly. The CLI has no JavaScript-export or
+generated-TypeScript boundary and is not a consumer of this capability. This
+is a build-time contract specifically for JavaScript-export producers.
 
-Compatibility is one-way during stages 2 and 3. A declaration is preferred;
-an undeclared parameter may still receive the existing exact flow-inferred
-binding. Generated TypeScript for an equal declared and inferred association is
-byte-identical. Stage 4 removes the inference path and its implementation-shape
-fixtures only after the producer inventory is complete. No raw `[JSExport]`
-signature or runtime dispatch identity changes in any stage.
+An inferred member may become declared, and a declared member may become
+inferred, when its generated TypeScript is unchanged. No raw `[JSExport]`
+signature or runtime dispatch identity changes in either transition.
 
 ## Consumer integration
 
@@ -1499,12 +1659,13 @@ gates. Generator-owned gates are implemented by
 `eng/test-ts-jsexport-typescript.sh`; consumer-owned residuals retain their
 issue references below.
 
-The explicit input-binding expansion adds these contract-defining gates:
+The complete certification expansion adds these contract-defining gates:
 
 - `TsJsExportContractsTests` pins
   `JsExportJsonInputAttribute` as a sealed, repeatable, non-inherited class
-  attribute with the exact constructor and readable-property contract above,
-  and keeps `TsJsExport.Contracts` dependency-free;
+  attribute and `JsExportJsonOutputAttribute` as its symmetric output
+  declaration, with the exact constructors and readable-property contracts
+  above, and keeps `TsJsExport.Contracts` dependency-free;
 - compiled fixtures prove a declaration on an otherwise empty partial export
   type resolves one exact method, raw string parameter, wire root, and
   deserialization-capable source-generated contract without requiring the
@@ -1514,19 +1675,26 @@ The explicit input-binding expansion adds these contract-defining gates:
   literals, a non-string raw parameter, unresolved or ambiguous serializer
   ownership, unsupported deserialize shapes, duplicate declarations, and
   declared/observed wire-type conflicts before any facade source is published;
-- paired fixtures prove equal declared and flow-inferred associations issue
-  structurally equal `JsExportSurface` facts and byte-identical TypeScript;
-- mixed fixtures prove declarations resolve first, inference considers only
-  undeclared parameters, distinct parameters may share one wire type, and an
-  unpositioned deserializer cannot erase a valid declaration;
+- paired fixtures prove equal completely declared and completely inferred
+  members issue structurally equal wire facts and byte-identical TypeScript;
+- mixed fixtures prove distinct parameters may share one wire type, an
+  unpositioned deserializer cannot erase a valid declaration, and a member
+  combining declared and inference-only JSON associations is diagnosed as
+  incomplete;
+- output fixtures prove declarations for synchronous and asynchronous returns,
+  an export with no JSON input side, malformed and duplicate declarations,
+  serializer-direction rejection, and declared/observed conflicts;
+- command and context gates prove certification warnings remain visible by
+  default and `--warnings-as-errors` publishes no direct or context output;
 - compiler and runtime fixtures prove a declaration changes only the public
   parameter type and generated serialization step while the private managed
   signature, dispatch key, JSON text, result inference, and failure behavior
   remain unchanged; and
 - the Method Body Comparison production gate and published-runtime benchmark
-  pass `BrowserMethodBodyComparisonRequest` directly through the generated
-  Source facade while its managed parser remains nested under its existing
-  operation coordination.
+  use complete input/output declarations, pass
+  `BrowserMethodBodyComparisonRequest` directly through the generated Source
+  facade while its managed parser remains nested under its existing operation
+  coordination, and retain the same public result type.
 
 - `InspectWebProjectGraphPolicy` and the `Verify browser site artifact` CI step
   prove that inspect-web's runtime dependency closure contains none of
@@ -1672,9 +1840,14 @@ The explicit input-binding expansion adds these contract-defining gates:
 - compiled conditional-presence fixtures emit exact optional serialize-side
   properties under `exactOptionalPropertyTypes`, remove only member-level outer
   `null` from present values, preserve nested and unconditionally present
-  nullability, retain `Never` as required, declare `JsonValue` for member-level,
-  context-default, and polymorphic-only conditional JSON members, and continue
-  to reject a direction-sensitive bidirectional record;
+  nullability, retain `Never` as required, and declare `JsonValue` for
+  member-level, context-default, and polymorphic-only conditional JSON members;
+- direction-specific declaration fixtures prove direct, nested, recursive,
+  generic, and union split propagation; equivalent bidirectional shapes retain
+  one declaration; deterministic allocation resolves collisions with
+  `Input`/`Output` preferred names; operation inputs and parsed returns select
+  their respective declarations; and a compiled runtime wrapper demonstrates
+  serialization and parsing across the asymmetric contract;
 - an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;

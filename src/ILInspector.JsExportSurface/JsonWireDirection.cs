@@ -7,8 +7,8 @@ namespace ILInspector.JsExportSurface;
 /// <remarks>
 /// The distinction exists because <c>[JsonIgnore(Condition = WhenWriting)]</c>
 /// and <c>Condition = WhenReading</c> remove a member from one direction only.
-/// A type reached in both directions cannot be described by a single
-/// declaration when any of its members is direction-sensitive.
+/// A type reached in both directions requires separate declaration projections
+/// when its effective shapes differ.
 /// </remarks>
 [Flags]
 public enum JsonWireDirection

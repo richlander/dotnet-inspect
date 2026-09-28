@@ -17,6 +17,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         AssemblyRoute> _routes;
     readonly ImmutableArray<IAssemblyBindingPolicy> _delegates;
     readonly bool _composeParticipantSelections;
+    readonly bool _canonicalizeParticipantSelections;
     readonly bool _restrictToParticipants;
     BindingPolicyState _state;
 
@@ -40,6 +41,21 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         new(participants, composeParticipantSelections: false);
 
     /// <summary>
+    /// Routes through participant contexts while replacing selected in-group
+    /// descriptors with the supplied canonical participant descriptors.
+    /// Out-of-group selections remain available.
+    /// </summary>
+    public static SourceRelativeAssemblyGroupBindingPolicy
+        CreateCanonicalizingParticipantSelections(
+            IEnumerable<(
+                ResolvedAssemblyReference Assembly,
+                IAssemblyBindingPolicy Policy)> participants) =>
+        new(
+            participants,
+            composeParticipantSelections: true,
+            canonicalizeParticipantSelections: true);
+
+    /// <summary>
     /// Composes acquisition-free participant policies over an exact retained
     /// assembly group, preserving source-relative selection and lineage.
     /// </summary>
@@ -61,6 +77,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 participants.Select(participant =>
                     (participant.Assembly, (IAssemblyBindingPolicy)participant.Policy)),
                 composeParticipantSelections: true,
+                canonicalizeParticipantSelections: true,
                 restrictToParticipants: true));
     }
 
@@ -69,10 +86,13 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             ResolvedAssemblyReference Assembly,
             IAssemblyBindingPolicy Policy)> participants,
         bool composeParticipantSelections,
+        bool canonicalizeParticipantSelections = false,
         bool restrictToParticipants = false)
     {
         ArgumentNullException.ThrowIfNull(participants);
         _composeParticipantSelections = composeParticipantSelections;
+        _canonicalizeParticipantSelections =
+            canonicalizeParticipantSelections;
         _restrictToParticipants = restrictToParticipants;
         var roots = ImmutableArray.CreateBuilder<
             ResolvedAssemblyReference>();
@@ -121,6 +141,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         try
         {
             AssemblyBindingSelection selection = Select(state, request);
+            if (_canonicalizeParticipantSelections)
+                selection = CanonicalizeParticipantSelection(selection);
             return new AssemblyBindingSelectionSnapshot(
                 state.Version,
                 _restrictToParticipants
@@ -131,6 +153,48 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         {
             return foreign.Snapshot;
         }
+    }
+
+    AssemblyBindingSelection CanonicalizeParticipantSelection(
+        AssemblyBindingSelection selection)
+    {
+        switch (selection)
+        {
+            case AssemblyBindingSelection.Selected selected:
+                return AssemblyBindingCandidateDomain.Create(
+                    [
+                        Canonicalize(selected.Assembly),
+                        .. selected.ShadowedAssemblies.Select(Canonicalize),
+                    ]).Finalize(selected.Occurrence);
+            case AssemblyBindingSelection.Ambiguous ambiguous:
+                ImmutableArray<ResolvedAssemblyReference> active =
+                [
+                    .. ambiguous.Assemblies.Select(Canonicalize),
+                ];
+                if (ambiguous.ShadowedAssemblies.IsEmpty)
+                    return AssemblyBindingSelection.Multiple(active);
+                return AssemblyBindingCandidateDomain.Create(
+                    [
+                        .. active,
+                        .. ambiguous.ShadowedAssemblies.Select(Canonicalize),
+                    ]).Finalize(active);
+            case AssemblyBindingSelection.CompositionRequired required:
+                return AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create(
+                    [
+                        .. required.Domain.Candidates.Select(Canonicalize),
+                    ]));
+            default:
+                return selection;
+        }
+
+        ResolvedAssemblyReference Canonicalize(
+            ResolvedAssemblyReference assembly) =>
+            _routes.TryGetValue(
+                assembly.Registration,
+                out AssemblyRoute? route)
+                    ? route.Assembly
+                    : assembly;
     }
 
     AssemblyBindingSelection RestrictSelection(AssemblyBindingSelection selection)
@@ -144,12 +208,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 {
                     return OutsideGroup();
                 }
-                return AssemblyBindingCandidateDomain.Create(
-                    [
-                        selected.Assembly,
-                        .. selected.ShadowedAssemblies.Select(assembly =>
-                            _routes[assembly.Registration].Assembly),
-                    ]).Finalize(selected.Occurrence);
+                return selection;
             case AssemblyBindingSelection.Ambiguous ambiguous:
                 if (ambiguous.Assemblies
                         .Concat(ambiguous.ShadowedAssemblies)
@@ -158,31 +217,14 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 {
                     return OutsideGroup();
                 }
-                ImmutableArray<ResolvedAssemblyReference> active =
-                [
-                    .. ambiguous.Assemblies.Select(assembly =>
-                        _routes[assembly.Registration].Assembly),
-                ];
-                if (ambiguous.ShadowedAssemblies.IsEmpty)
-                    return AssemblyBindingSelection.Multiple(active);
-                return AssemblyBindingCandidateDomain.Create(
-                    [
-                        .. active,
-                        .. ambiguous.ShadowedAssemblies.Select(assembly =>
-                            _routes[assembly.Registration].Assembly),
-                    ]).Finalize(active);
+                return selection;
             case AssemblyBindingSelection.CompositionRequired required:
                 if (required.Domain.Candidates.Any(assembly =>
                         !_routes.ContainsKey(assembly.Registration)))
                 {
                     return OutsideGroup();
                 }
-                return AssemblyBindingSelection.RequireComposition(
-                    AssemblyBindingCandidateDomain.Create(
-                    [
-                        .. required.Domain.Candidates.Select(assembly =>
-                            _routes[assembly.Registration].Assembly),
-                    ]));
+                return selection;
             default:
                 return selection;
         }
@@ -623,7 +665,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     AssemblyBindingOccurrence.Seed(
                         canonicalRoute.Assembly));
             }
-            if (_restrictToParticipants)
+            if (_canonicalizeParticipantSelections)
                 assembly = canonicalRoute.Assembly;
         }
 

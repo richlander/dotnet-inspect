@@ -17,7 +17,8 @@ internal sealed partial class NuGetV3PackageSourceClient : IPackageArchiveRangeS
         string version,
         ZipReadLimits limits,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        NuGetOperationContext? operationContext = null,
+        PackageArchiveRequestLog? requestLog = null)
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
@@ -38,6 +39,7 @@ internal sealed partial class NuGetV3PackageSourceClient : IPackageArchiveRangeS
                 useNuGetOrgShortcut: false),
             limits,
             cancellationToken,
-            operationContext);
+            operationContext,
+            requestLog);
     }
 }

@@ -89,8 +89,83 @@ test("platform type and member navigation hides package-only operations", () => 
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
   assert.deepEqual(
+    memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
+    ["overview", "call-graph"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
+    [
+      "overview",
+      "call-graph",
+      "facts",
+      "source",
+      "annotated",
+      "compare",
+    ]);
+  assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
     ["overview", "call-graph", "facts", "annotated", "compare"]);
+});
+
+test("implementation evidence follows the expanded family after paint across package and platform routes", () => {
+  const target = sourceText(functionDeclaration("implementationProfileTarget"));
+  assert.match(
+    target,
+    /state\.rootKind === "library"[\s\S]*member\.kind !== "method"[\s\S]*member\.overloads\.length < 2/);
+  assert.match(
+    target,
+    /const stableSelectors = member\.overloads\.map[\s\S]*overload => overload\.stableSelector[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformVersion: pkg\.version[\s\S]*pack: row\.pack[\s\S]*assemblyFileName: platformAssemblyRequest\(row\)[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
+  assert.match(
+    target,
+    /kind: "package"[\s\S]*packageId: pkg\.id[\s\S]*version: pkg\.version[\s\S]*targetFramework: pkg\.activeFramework[\s\S]*assemblyName: type\.assemblyId[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
+  // The expanded family, not a member section or overload, owns publication.
+  assert.doesNotMatch(target, /state\.memberSection/);
+  assert.match(
+    target,
+    /isCurrent: \(\) =>[\s\S]*selectedMember\(selectedType\(\)\)\?\.key === member\.key,/);
+
+  // Loading a member section never requests implementation evidence.
+  assert.equal(
+    callExpressionsNamed(
+      functionDeclaration("loadMemberSectionContent"),
+      "loadSelectedImplementationProfiles").length,
+    0);
+
+  // Every render schedules one Type heat request after paint; family detail
+  // follows only an open evidence disclosure.
+  const render = sourceText(functionDeclaration("render"));
+  assert.match(render, /finally[\s\S]*scheduleTypeHeat\(\);/);
+  // Rendering never requests family detail; only the disclosure does.
+  assert.doesNotMatch(render, /implementationProfiles\.activate|loadSelectedImplementationProfiles/);
+  const schedule = sourceText(functionDeclaration("scheduleTypeHeat"));
+  assert.match(
+    schedule,
+    /typeHasEligibleFamily\(type\)[\s\S]*requestAnimationFrame\(\(\) => setTimeout\([\s\S]*typeHeatTarget\(\)[\s\S]*typeHeat\.request\(target\.request, target\.isCurrent\)/);
+  const heatTarget = sourceText(functionDeclaration("typeHeatTarget"));
+  assert.match(
+    heatTarget,
+    /state\.rootKind === "library"[\s\S]*navMode\(\) !== "member"/);
+  assert.doesNotMatch(heatTarget, /stableSelectors/);
+  // The disclosure renders open only for the overload it was opened on, while
+  // the published family detail still serves the current selection.
+  const evidenceOpen = sourceText(functionDeclaration("implementationEvidenceIsOpen"));
+  assert.match(
+    evidenceOpen,
+    /state\.implementationEvidenceKey[\s\S]*implementationEvidenceKey\(stableSelector\)[\s\S]*published\.selection\.isCurrent\(\)/);
+  // Heat eligibility follows the producer: an attached extension group of the
+  // same name makes the family ineligible.
+  const eligible = sourceText(functionDeclaration("familyIsEligible"));
+  assert.match(
+    eligible,
+    /group\.kind === "method"[\s\S]*group\.overloads\.length > 1[\s\S]*candidate\.name !== group\.name \|\| candidate\.kind === "method"/);
+
+  const renderMember = sourceText(functionDeclaration("renderMember"));
+  assert.match(
+    renderMember,
+    /renderOverloadImplementationEvidence\(overload\.stableSelector\)/);
+  const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
+  assert.match(
+    memberNav,
+    /overloadHeat: memberNavOverloadHeat,[\s\S]*familyHeatCue: memberNavFamilyHeatCue/);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -494,7 +569,7 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
   assert.match(
     appSource,
-    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageModel\.assemblyId\)/);
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\)\)/);
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
@@ -752,10 +827,10 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     ?? "";
   assert.match(
     shellControlsSource,
-    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#application-menu-button[\s\S]*#application-menu[\s\S]*\[data-application-action\][\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
+    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*\[data-subject-framework\][\s\S]*#application-menu-button[\s\S]*#application-menu[\s\S]*\[data-application-action\][\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
-    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-demos/);
+    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#home-demos/);
   assert.match(
     shellControlsSource,
     /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
@@ -773,25 +848,25 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /bindHomeShell\(document, homeShellActions\)[\s\S]*spotlight\.bind\(document, "inline"\)[\s\S]*#spotlight-input/);
   assert.match(
     loadingBinding,
-    /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
+    /replaceChildrenPreservingRenderedInteractions\(app, `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*render\(\);[\s\S]*focusContentNavigation\(document\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onNavigateBack:/);
   assert.match(
     workbenchActions,
-    /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
+    /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: retryQueryNotice,[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
   assert.match(
     homeActions,
-    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onOpenLibrary: \(\) => openLibraryDialog\("home"\),\s*onToggleTheme: toggleTheme/);
+    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onRetryNotice: retryQueryNotice,\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-demos|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-demos|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\[data-subject-framework\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help)/);
@@ -1036,7 +1111,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 6);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 9);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -1544,10 +1619,10 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
     directWorkbenchCalls.indexOf("bindSettingsPanelEvents") + 1);
   const metadataRenderStatements = renderMetadata.body.body;
   const replacementIndex = metadataRenderStatements.findIndex(
-    statement => statement.type === "ExpressionStatement"
-      && statement.expression.type === "AssignmentExpression"
-      && statement.expression.operator === "="
-      && sourceText(statement.expression.left) === "app.innerHTML");
+    statement =>
+      directCallExpression(
+        statement,
+        "replaceChildrenPreservingRenderedInteractions") !== null);
   const binderIndex = metadataRenderStatements.findIndex(
     statement => directCallExpression(statement, "bindMetadataViewerEvents"));
   assert.notEqual(replacementIndex, -1);
@@ -1738,7 +1813,7 @@ test("annotated source owns its rendered control bindings", () => {
     annotatedSourceModule,
     /export function bindAnnotatedSource\([\s\S]*\[data-annotated-action\][\s\S]*\[data-annotated-source-start\][\s\S]*#annotated-source-backdrop[\s\S]*#annotated-source-modal/);
   for (const [identifier, count] of [
-    ["bindAnnotatedSourceEvents", 2],
+    ["bindAnnotatedSourceEvents", 3],
     ["bindAnnotatedSource", 2],
   ] as const) {
     assert.equal(
@@ -1894,7 +1969,9 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
   assert.match(
     appSource,
-    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!documentViewerIsOpen\(state\.docViewer\)[\s\S]*!state\.spotlightOpen/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!graphSourceIsOpen\(state\.graphSource\)[\s\S]*!documentViewerIsOpen\(state\.docViewer\)[\s\S]*!memberDiffExplorer\.isOpen[\s\S]*!state\.spotlightOpen/);
+  assert.match(appSource,
+    /member-diff-explorer\.contain-browser-shortcut[\s\S]*\(\) => memberDiffExplorer\.isOpen/);
   assert.equal(
     keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
     1);

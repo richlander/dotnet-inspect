@@ -211,8 +211,6 @@ public class MarkoutRowContainmentTests
         "FieldSummaryRow.Decode",
         "FieldSummaryRow.Name",
         "FieldSummaryRow.ReturnType",
-        "ForwarderSummaryRow.TargetLibrary",
-        "ForwarderSummaryRow.Types",
         "ILCoordinateBatchRow.Coordinate",
         "ILCoordinateBatchRow.Evidence",
         "ILCoordinateBatchRow.ILOffset",
@@ -234,21 +232,7 @@ public class MarkoutRowContainmentTests
         "ImplementerRow.Source",
         "ImplementsResultView.Description",
         "ImplementsResultView.Title",
-        "InfoView.Cache",
-        "InfoView.HTTP",
-        "InfoView.Output",
-        "InfoView.Readme",
-        "InfoView.Time",
         "InterfaceRow.Interface",
-        "MatchBlockCorrespondenceRow.Kind",
-        "MatchBlockCorrespondenceRow.RightBlocks",
-        "MatchBlockerRow.Kind",
-        "MatchBlockerRow.Side",
-        "MatchResultView.Description",
-        "MatchResultView.Disposition",
-        "MatchResultView.Outcome",
-        "MatchResultView.Relation",
-        "MatchResultView.Title",
         "MemberIndexRow.CanonicalSignature",
         "MemberIndexRow.Decode",
         "MemberIndexRow.Digest",
@@ -369,11 +353,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt247MembersAcross51Types()
+    public void ResidualCensus_IsPinnedAt231MembersAcross46Types()
     {
-        Assert.Equal(247, NotSelfContaining.Length);
+        Assert.Equal(231, NotSelfContaining.Length);
         Assert.Equal(
-            51,
+            46,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

@@ -641,6 +641,7 @@ public static class MemberOptionsParser
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = outputFormat == OutputFormat.Json,
+            EnvelopeOutput = parseResult.GetValue(opts.Envelope),
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = outputFormat is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl,
             Tsv = outputFormat == OutputFormat.Tsv,

@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -83,7 +85,7 @@ public sealed class InspectionGraphDocumentTests
     }
 
     [Fact]
-    public void CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap()
+    public void CallAdapter_BindsOneGraphCarrierAndPreservesTypedTopology()
     {
         MemberRef focus = Member("Focus");
         MemberRef caller = Member("Caller");
@@ -102,6 +104,17 @@ public sealed class InspectionGraphDocumentTests
         InspectionGraphDocument document =
             CallGraphInspectionGraphAdapter.Create(projection);
 
+        Assert.True(document.Nodes == document.Structure.Nodes);
+        Assert.True(document.Groups == document.Structure.Groups);
+        Assert.True(document.Edges == document.Structure.Edges);
+        Assert.True(
+            document.Occurrences == document.Structure.Occurrences);
+        Assert.True(
+            document.Characteristics
+                == document.Structure.Characteristics);
+        Assert.True(document.Seeds == document.Structure.Seeds);
+        Assert.True(document.Limits == document.Structure.Limits);
+        Assert.True(document.Failures == document.Structure.Failures);
         Assert.Equal([0, 1, 2], document.Nodes.Select(node => node.Id));
         Assert.Equal(
             [focus, caller, callee],
@@ -161,23 +174,58 @@ public sealed class InspectionGraphDocumentTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .TraversalIncomplete));
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .PhysicalOccurrencesUnavailable)
-                && limit.Target is { Kind:
-                    InspectionGraphTargetKind.Edge });
+                && limit.Target is
+                {
+                    Kind:
+                    InspectionGraphTargetKind.Edge
+                });
         Assert.Empty(document.Groups);
         Assert.Empty(document.Characteristics);
         Assert.Empty(document.Failures);
         Assert.Equal(
             InspectionGraphDocumentScope.Portable,
             document.Scope);
+    }
+
+    [Fact]
+    public void CallAdapter_PreservesCorrespondenceDiagnosticsAsContentLimit()
+    {
+        MemberRef focus = Member("Focus");
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                Node(focus, CallTreeStatus.Leaf),
+                Node(focus, CallTreeStatus.Leaf));
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(
+                projection,
+                new CatalogCallGraphDiagnostics(
+                    IncompleteNodeCount: 2,
+                    IncompleteEdgeCount: 3,
+                    BindingIdentityConflictCount: 1));
+
+        InspectionGraphLimit limit = Assert.Single(document.Limits);
+        Assert.Same(
+            CallGraphInspectionGraphCatalog.CorrespondenceIncomplete,
+            limit.Payload.Descriptor);
+        Assert.Equal(
+            InspectionGraphTarget.Node(projection.Focus.Id),
+            limit.Target);
+        var evidence =
+            Assert.IsType<CallGraphCorrespondenceIncompleteEvidence>(
+                limit.Payload.Evidence);
+        Assert.Equal(2, evidence.IncompleteNodeCount);
+        Assert.Equal(3, evidence.IncompleteEdgeCount);
+        Assert.Equal(1, evidence.BindingIdentityConflictCount);
     }
 
     [Fact]
@@ -304,7 +352,7 @@ public sealed class InspectionGraphDocumentTests
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .PhysicalOccurrencesUnavailable));
 
@@ -407,7 +455,7 @@ public sealed class InspectionGraphDocumentTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     CallGraphInspectionGraphCatalog
                         .PhysicalOccurrencesUnavailable)
                 && limit.Target
@@ -478,6 +526,29 @@ public sealed class InspectionGraphDocumentTests
                         occurrence.Evidence).Identity)
                 .Distinct()
                 .Count());
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            CallGraphInspectionJson.Write(writer, document);
+        }
+        using JsonDocument json = JsonDocument.Parse(stream.ToArray());
+        string[] sourceReceipts =
+        [
+            .. json.RootElement
+                .GetProperty("occurrences")
+                .EnumerateArray()
+                .Select(occurrence => occurrence
+                    .GetProperty("evidence")
+                    .GetProperty("sourceReceiptEvidence")
+                    .GetString()!),
+        ];
+        Assert.Equal(2, sourceReceipts.Distinct().Count());
+        Assert.All(
+            sourceReceipts
+                .GroupBy(receipt => receipt)
+                .Select(group => group.Count()),
+            count => Assert.Equal(2, count));
     }
 
     static void AssertCharacteristic(
@@ -490,10 +561,10 @@ public sealed class InspectionGraphDocumentTests
             Assert.Single(
                 document.Characteristics,
                 item => ReferenceEquals(
-                        item.Descriptor,
+                        item.Payload.Descriptor,
                         descriptor)
                     && item.Target == target);
-        Assert.Equal(expected, characteristic.Value);
+        Assert.Equal(expected, characteristic.Payload.Value);
     }
 
     [Fact]
@@ -844,9 +915,9 @@ public sealed class InspectionGraphDocumentTests
             [],
             [
                 new InspectionGraphLimit(
-                    InspectionGraphInducedSetCatalog.SubjectBound,
-                    Evidence:
-                        new InspectionGraphInducedSubjectBoundEvidence(2)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        new InspectionGraphInducedSubjectBoundEvidence(2))),
             ],
             []);
 
@@ -902,10 +973,10 @@ public sealed class InspectionGraphDocumentTests
                 [],
                 [
                     new InspectionGraphLimit(
-                        InspectionGraphInducedSetCatalog.SubjectBound,
-                        Evidence:
+                        new InspectionGraphLimitPayload(
+                            InspectionGraphInducedSetCatalog.SubjectBound,
                             new InspectionGraphInducedSubjectBoundEvidence(
-                                1)),
+                                1))),
                 ],
                 []));
     }
@@ -954,10 +1025,10 @@ public sealed class InspectionGraphDocumentTests
                 [],
                 [
                     new InspectionGraphLimit(
-                        InspectionGraphInducedSetCatalog.SubjectBound,
-                        Evidence:
+                        new InspectionGraphLimitPayload(
+                            InspectionGraphInducedSetCatalog.SubjectBound,
                             new InspectionGraphInducedSubjectBoundEvidence(
-                                2)),
+                                2))),
                 ],
                 []));
     }
@@ -1753,9 +1824,10 @@ public sealed class InspectionGraphDocumentTests
             [],
             [
                 new InspectionGraphCharacteristic(
-                    descriptor,
                     InspectionGraphTarget.Node(0),
-                    new InspectionGraphValue.Integer(1),
+                    new InspectionGraphCharacteristicPayload(
+                        descriptor,
+                        new InspectionGraphValue.Integer(1)),
                     new InspectionGraphCharacteristicDerivation(
                         InspectionGraphCharacteristicDerivationKind
                             .RolledUp,
@@ -1792,12 +1864,17 @@ public sealed class InspectionGraphDocumentTests
             [],
             [],
             [],
-            [new InspectionGraphLimit(limitDescriptor, Evidence: evidence)],
+            [
+                new InspectionGraphLimit(
+                    new InspectionGraphLimitPayload(
+                        limitDescriptor,
+                        evidence)),
+            ],
             []);
 
         Assert.Same(
             evidence,
-            Assert.Single(document.Limits).Evidence);
+            Assert.Single(document.Limits).Payload.Evidence);
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
@@ -1811,10 +1888,11 @@ public sealed class InspectionGraphDocumentTests
                 [],
                 [
                     new InspectionGraphLimit(
-                        new InspectionGraphLimitDescriptor(
-                            "test.other-limit",
-                            InspectionGraphOwner.Queries),
-                        Evidence: evidence),
+                        new InspectionGraphLimitPayload(
+                            new InspectionGraphLimitDescriptor(
+                                "test.other-limit",
+                                InspectionGraphOwner.Queries),
+                            evidence)),
                 ],
                 []));
     }
@@ -1842,15 +1920,17 @@ public sealed class InspectionGraphDocumentTests
                 [],
                 [
                     new InspectionGraphLimit(
-                        new InspectionGraphLimitDescriptor(
-                            "test.first-limit",
-                            InspectionGraphOwner.Queries,
-                            [first])),
+                        new InspectionGraphLimitPayload(
+                            new InspectionGraphLimitDescriptor(
+                                "test.first-limit",
+                                InspectionGraphOwner.Queries,
+                                [first]))),
                     new InspectionGraphLimit(
-                        new InspectionGraphLimitDescriptor(
-                            "test.second-limit",
-                            InspectionGraphOwner.Analysis,
-                            [second])),
+                        new InspectionGraphLimitPayload(
+                            new InspectionGraphLimitDescriptor(
+                                "test.second-limit",
+                                InspectionGraphOwner.Analysis,
+                                [second]))),
                 ],
                 []));
     }

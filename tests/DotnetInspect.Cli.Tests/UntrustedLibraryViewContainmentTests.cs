@@ -681,7 +681,10 @@ public class AttributeValueRetentionTests
         }
         else if (format == "--tsv")
         {
-            Assert.StartsWith($"name\tvalue{Environment.NewLine}", output, StringComparison.Ordinal);
+            Assert.StartsWith(
+                "name\tvalue\n",
+                output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
         }
         else
         {
@@ -1493,6 +1496,7 @@ public class LibraryViewShapeDerivedContainmentTests
     private static readonly string[] OutOfReach =
     [
         "ApiJsExportJsonInputDeclaration.WireType (ApiTypeShape): no public constructor",
+        "ApiJsExportJsonOutputDeclaration.WireType (ApiTypeShape): no public constructor",
         "ApiJsonSerializableRoot.Type (ApiTypeShape): no public constructor",
         "ApiMember.DeclaringTypeDefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
@@ -1980,6 +1984,13 @@ public class LibraryViewShapeDerivedContainmentTests
             if (type.IsArray)
             {
                 return Array.CreateInstance(type.GetElementType()!, 0);
+            }
+
+            // A version carries no text, but a null one would stop the walk at
+            // constructors that require it, such as LibraryAssemblyIdentity.
+            if (type == typeof(Version))
+            {
+                return new Version(1, 0, 0, 0);
             }
 
             if (IsImmutableArray(type))

@@ -78,20 +78,24 @@ root README remains current without cataloging every focused capability.
 
 | Concern | Entry point |
 | --- | --- |
-| Layering and project families | [Inspection Layers](design/inspection-layers.md) and [Library Family Boundaries](design/library-family-boundaries.md) |
+| Layering and project families | [Inspection Layers](design/inspection-layers.md), [Library Family Boundaries](design/library-family-boundaries.md), and [Inspection Operation Kernels](design/inspection-operation-kernels.md) |
+| Graph structure and execution | [Inspector.Graph Library Boundary](design/inspector-graph-library-boundary.md) and [Inspector.Graph Execution](design/inspector-graph-execution.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
 | Query library, composition, operation registration, portable intent, and payload | [QuerySpace Library Boundary](design/query-space-library.md), [Query Space Composition](design/query-space-composition.md), [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
-| Installed resource discovery and exact explanation | [Schema Query](design/schema-query.md), [Resource Explanation](design/resource-explanation.md), and [Product Vocabulary](design/vocabulary.md) |
+| Installed capability composition, search, discovery, and exact explanation | [Inspection Capability Composition](design/inspection-capability-composition.md), [Capability Catalog Search](design/capability-catalog-search.md), [Schema Query](design/schema-query.md), [Resource Explanation](design/resource-explanation.md), and [Product Vocabulary](design/vocabulary.md) |
 | Retained state and service orientation | [Stateless Core Services](design/stateless-core-services.md) |
-| Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md), [Resource Occurrence Analysis](design/resource-occurrence-analysis.md), and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
+| Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md), [Resource Occurrence Analysis](design/resource-occurrence-analysis.md), [Generic Research Ownership Paths](design/generic-research-ownership-paths.md), and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
 | Command placement, names, defaults, and disclosure | [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md), [Relationship Section Naming](design/relationship-section-naming.md), [Progressive Disclosure](design/progressive-disclosure.md), and [CLI Host Architecture](cli-architecture.md) |
 | Output data and rendering | [Output Shapes](design/output-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
 | Metadata and API inspection | [Assembly Inspection Query](design/assembly-inspection-query.md) |
-| Package composition | [PackageHouse](design/package-house.md) |
+| Package composition | [PackageHouse](design/package-house.md) and [PackageHouse framework-reference evidence](design/package-house-framework-reference-evidence.md) |
 | Package version selection and freshness | [Version Resolution](design/version-resolution.md) and [Package Version Service](design/package-version-service.md) |
 | Ranged reads of a package archive's directory and entries | [Package archive range access](design/package-archive-range-access.md) |
+| Which remote package archives are cached and which are read by range; durable identity for credential-free HTTP feeds | [Package cache policy](design/package-cache-policy.md) |
+| How much of a package a command reads by range: surface or implementation, a folder at a time | [Package read demand](design/package-read-demand.md) |
+| What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
-| Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
+| Source, decoded documents, and PDB composition | [SourceHouse](design/source-house.md), [Decoded text document](design/decoded-text-document.md), and [PDB Acquisition](pdb-acquisition.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |
 | Decompiler architecture and correctness | [Decompiler Architecture](decompiler-architecture.md) and [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) |
 | Browser host | [Inspect Web](../inspect-web/README.md) |
@@ -109,6 +113,7 @@ root README remains current without cataloging every focused capability.
 | Session and tmux state | [Agent Session State](agent-session-state.md) |
 | GitHub automation | [GitHub API Operations](github-api-operations.md) and [GitHub Status Queries](github-status-queries.md) |
 | Multi-PR work | [Stacked PRs](stacked-prs.md) |
+| Release candidate identity and readiness | [Nightly Release Candidate](release-candidate.md) |
 | Release certification and publication | [Release Workflow](release-workflow.md) |
 | TLA+ setup and modeling | [TLA+ Methodology](tla-plus-methodology.md) and [TLA+ Setup](runbooks/tla-plus-setup.md) |
 | Markout co-development | [Markout Co-development](markout-co-development.md) |

@@ -320,6 +320,12 @@ public static class ApiFindingClassifier
             // MemberSignatureChanged report for this case.
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
             ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes);
+            ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
+                oldHandle.Type,
+                newHandle.Type,
+                oldHandle.Member,
+                newHandle.Member,
+                changes);
         }
         if (ApiDiffAnalyzer.IncludesAttributes(options))
         {
@@ -352,6 +358,12 @@ public static class ApiFindingClassifier
         {
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
             ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes);
+            ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
+                oldHandle.Type,
+                newHandle.Type,
+                oldHandle.Member,
+                newHandle.Member,
+                changes);
         }
         if (ApiDiffAnalyzer.IncludesAttributes(options))
         {

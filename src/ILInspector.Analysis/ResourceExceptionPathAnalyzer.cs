@@ -8,6 +8,10 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
+internal readonly record struct ResourceExceptionBoundary(
+    int ILOffset,
+    MemberRef Operation);
+
 internal static class ResourceExceptionPathAnalyzer
 {
     internal sealed record ThrowingBoundaryClassification<TBoundary>(
@@ -135,14 +139,14 @@ internal static class ResourceExceptionPathAnalyzer
     static bool ReleasedBeforeUseInSameBlock(BlockGraph graph, ImmutableArray<int> releases, int useOffset)
         => releases.Any(release => ReachesInSameBlock(graph, release, useOffset));
 
-    internal static ImmutableArray<ArrayPoolExceptionBoundary> UnprotectedThrowingBoundaries(
+    internal static ImmutableArray<ResourceExceptionBoundary> UnprotectedThrowingBoundaries(
         BlockGraph graph,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         ImmutableArray<int> releases,
-        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries)
+        ImmutableArray<ResourceExceptionBoundary> throwingBoundaries)
     {
-        var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
+        var result = ImmutableArray.CreateBuilder<ResourceExceptionBoundary>();
         var seenOffsets = new HashSet<int>();
         foreach (var boundary in throwingBoundaries.OrderBy(
             static boundary => boundary.ILOffset))
@@ -162,12 +166,12 @@ internal static class ResourceExceptionPathAnalyzer
         return result.ToImmutable();
     }
 
-    internal static ImmutableArray<ArrayPoolExceptionBoundary> UnprotectedThrowingBoundaries(
+    internal static ImmutableArray<ResourceExceptionBoundary> UnprotectedThrowingBoundaries(
         BlockGraph graph,
         InstructionExceptionFlowFacts exceptionFlow,
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
         ImmutableArray<int> releases,
-        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries) =>
+        ImmutableArray<ResourceExceptionBoundary> throwingBoundaries) =>
         UnprotectedThrowingBoundaries(
             graph,
             exceptionFlow,
@@ -538,11 +542,11 @@ internal static class ResourceExceptionPathAnalyzer
     static bool ContainsOffset(int start, int length, int offset)
         => offset >= start && offset < start + length;
 
-    internal static ArrayPoolExceptionBoundary? FindBoundaryAfterSetup(
+    internal static ResourceExceptionBoundary? FindBoundaryAfterSetup(
         ImmutableArray<DecodedInstruction> instructions,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
-        ArrayPoolExceptionBoundary setup,
+        ResourceExceptionBoundary setup,
         int depth = 0)
     {
         if (depth >= 4)
@@ -640,7 +644,7 @@ internal static class ResourceExceptionPathAnalyzer
             }
 
             var boundary =
-                new ArrayPoolExceptionBoundary(instruction.Offset, callee);
+                new ResourceExceptionBoundary(instruction.Offset, callee);
             if (!ArrayPoolUseClassifier.IsNonThrowingSetupBoundary(callee))
             {
                 return boundary;
@@ -660,7 +664,7 @@ internal static class ResourceExceptionPathAnalyzer
         return null;
     }
 
-    static ArrayPoolExceptionBoundary? FindBoundaryFromLocalDefinition(
+    static ResourceExceptionBoundary? FindBoundaryFromLocalDefinition(
         ImmutableArray<DecodedInstruction> instructions,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
@@ -674,7 +678,7 @@ internal static class ResourceExceptionPathAnalyzer
             definition.Slot,
             depth);
 
-    static ArrayPoolExceptionBoundary? FindBoundaryFromLocalUses(
+    static ResourceExceptionBoundary? FindBoundaryFromLocalUses(
         ImmutableArray<DecodedInstruction> instructions,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
@@ -726,7 +730,7 @@ internal static class ResourceExceptionPathAnalyzer
         return null;
     }
 
-    static ArrayPoolExceptionBoundary? FindBoundaryAfterLocalAlias(
+    static ResourceExceptionBoundary? FindBoundaryAfterLocalAlias(
         ImmutableArray<DecodedInstruction> instructions,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
@@ -762,7 +766,7 @@ internal static class ResourceExceptionPathAnalyzer
                 depth);
     }
 
-    static ArrayPoolExceptionBoundary? FindBoundaryAfterInPlaceSetup(
+    static ResourceExceptionBoundary? FindBoundaryAfterInPlaceSetup(
         ImmutableArray<DecodedInstruction> instructions,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,

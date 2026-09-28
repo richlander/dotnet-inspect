@@ -1240,6 +1240,12 @@ public static class LibraryApiDiffPresentationAdapter
                     change,
                     beforeMemberRelations,
                     afterMemberRelations),
+            (ApiChangeSubjectKind.Member, true)
+                when IsGenericParameterConstraintChange(change.Kind) =>
+                MemberChangeTopologyAgrees(
+                    change,
+                    beforeMemberRelations,
+                    afterMemberRelations),
             _ => false,
         };
 
@@ -1356,6 +1362,10 @@ public static class LibraryApiDiffPresentationAdapter
                 or ChangeKind.MemberAttributeRemoved => false,
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
+
+    static bool IsGenericParameterConstraintChange(ChangeKind kind)
+        => kind is ChangeKind.TypeParameterConstraintTightened
+            or ChangeKind.TypeParameterConstraintLoosened;
 
     static List<TypeProjectionBuilder> ApplyExactIdentityTieBreak(
         List<TypeProjectionBuilder> orderedTypes)

@@ -31,6 +31,9 @@ public sealed class HttpRangeSource : RandomAccessSource
 {
     private readonly RangeRequestSender _send;
     private readonly Uri _uri;
+    // Range reads may run concurrently once the first response has set the
+    // validator; the per-response checks of shared state run under this gate.
+    private readonly object _gate = new();
 
     private EntityTagHeaderValue? _entityTag;
     private DateTimeOffset? _lastModified;
@@ -156,25 +159,29 @@ public sealed class HttpRangeSource : RandomAccessSource
             throw Invalid("The range response does not carry the requested length.");
 
         ContentRangeHeaderValue? contentRange = response.Content.Headers.ContentRange;
-        if (contentRange is not null)
+        lock (_gate)
         {
-            RequireByteUnit(contentRange);
-            if (contentRange.From != offset || contentRange.To != last)
-                throw Invalid("The range response does not carry the requested range.");
-            if (contentRange.Length is { } total)
+            if (contentRange is not null)
             {
-                if (Length is { } established && established != total)
+                RequireByteUnit(contentRange);
+                if (contentRange.From != offset || contentRange.To != last)
+                    throw Invalid("The range response does not carry the requested range.");
+                if (contentRange.Length is { } total)
                 {
-                    throw new RangeFetchException(
-                        RangeFetchFailure.RepresentationChanged,
-                        "The representation's length changed between requests.");
-                }
+                    if (Length is { } established && established != total)
+                    {
+                        throw new RangeFetchException(
+                            RangeFetchFailure.RepresentationChanged,
+                            "The representation's length changed between requests.");
+                    }
 
-                Length ??= total;
+                    Length ??= total;
+                }
             }
+
+            CaptureValidator(response);
         }
 
-        CaptureValidator(response);
         body.CopyTo(destination);
     }
 

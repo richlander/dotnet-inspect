@@ -36,9 +36,17 @@ development model and rationale. The binding summary:
   slice. Test infrastructure may treat its harness as the production host.
   Alternatives track retirement; shared substrate plans both CLI and
   browser/Wasm adoption, while narrower scope requires explicit user approval.
-- **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
-  code. Duplicated host logic triggers a review for a shared abstraction that
-  would also benefit another future host.
+- **Keep hosts thin and substrate singular.** Put reusable concepts,
+  algorithms, and declarations such as row vocabularies in host-neutral code
+  beside their data owner; hosts bind and present them. Reuse or extend the
+  owning substrate instead of copying its logic, and review duplicated logic
+  for a shared abstraction that would also benefit another host. Adopting
+  QuerySpace means the question reaches the work: building every row and then
+  filtering, counting, or limiting it is LINQ in QuerySpace clothing unless the
+  owning design names that as a reference slice.
+- **Modernization must satisfy intent, not only structure.** Wiring modern
+  substrate while retaining legacy work or cost is incomplete adoption. Report exact
+  base/head NativeAOT performance for every supported terminal, like Count; follow [the evidence contract](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
 - **Choose rendering strategy deliberately.** Use Markout as the default
   host-neutral substrate for centralized, multi-format rendering, and call out
   host-specific rendering that bypasses it. Broad information domains such as
@@ -151,11 +159,7 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 
 ## User-directed workflow adjustments
 
-A user may adjust sequencing for one task or PR, but cannot turn failed
-validation green, make an unmergeable PR ready, or transfer fixed-head evidence.
-Record its scope and consequence; follow
-[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments)
-for the standing mechanics.
+Record each adjustment's scope and consequence. It cannot make failed validation green, make an unmergeable PR ready, or transfer fixed-head evidence; follow [the standing mechanics](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ## Before changing files
 
@@ -550,11 +554,6 @@ current-head CI and positive mergeability; round 12 and later presume splitting
 unless the checkpoint establishes a strong reason and the user explicitly
 approves keeping the PR intact. Full checkpoint mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
-
-## Lead with the demo
-
-Every PR body puts `## Demo` above validation and follows the full
-[demo contract](docs/development-practices.md#lead-with-the-demo).
 
 ## PR and CI discipline
 

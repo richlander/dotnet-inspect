@@ -25,10 +25,11 @@ that source is unavailable, retaining provider and fallback context. Use
 `PDB Source` when only the Portable-PDB-selected provider is wanted, or
 `Decompiled Source` when only locally reconstructed C# is wanted.
 
-A selected overload and bare `-S` both render its bounded `Signature` overview.
-Select `Decompiled Source` explicitly when implementation evidence is the
-question. Use `-S "Decompiled Source,Annotated Source,IL" --offline` for the
-full zero-network evidence set:
+A selected overload renders its bounded `Signature` overview by default; use
+`-S Signature` to request it explicitly. Select `Decompiled Source` explicitly
+when implementation evidence is the question. Use
+`-S "Decompiled Source,Annotated Source,IL" --offline` for the full zero-network
+evidence set:
 
 - `Decompiled Source` — raised, lowered C# (readable best-effort); locals without
   PDB names use byte-preserving type/role-derived names by default.

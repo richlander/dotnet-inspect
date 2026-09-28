@@ -283,6 +283,55 @@ public class TextFindingsTests
             });
     }
 
+    [Fact]
+    public void CreateAnalysisDiff_AlignsWhitespaceDifferingLinesOneToOne()
+    {
+        AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(
+            "{\n  a;\n  b;\n}\n",
+            "{\n    a;\n    b;\n}\n",
+            Subject);
+
+        AnalysisDiffRelation.Correspondence[] changed = diff.Relations
+            .OfType<AnalysisDiffRelation.Correspondence>()
+            .Where(relation => relation.Content == AnalysisDiffContentKind.Changed)
+            .ToArray();
+
+        Assert.Equal(2, changed.Length);
+        Assert.All(changed, relation =>
+        {
+            Assert.Single(relation.BeforeCoordinates);
+            Assert.Single(relation.AfterCoordinates);
+            Assert.Equal(AnalysisDiffPlacementKind.Stable, relation.Placement);
+        });
+    }
+
+    [Fact]
+    public void CreateAnalysisDiff_DetectsRelocatedReIndentedBlockAsMoved()
+    {
+        AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(
+            "A\nB\nx\ny\nz\n",
+            "x\ny\nz\n  A\n  B\n",
+            Subject);
+
+        AnalysisDiffRelation.Correspondence[] moved = diff.Relations
+            .OfType<AnalysisDiffRelation.Correspondence>()
+            .Where(relation => relation.Placement == AnalysisDiffPlacementKind.Moved)
+            .ToArray();
+
+        Assert.Equal(2, moved.Length);
+        Assert.All(moved, relation => Assert.Equal(AnalysisDiffContentKind.Changed, relation.Content));
+    }
+
+    [Fact]
+    public void Compare_KeepsExactAlignment()
+    {
+        var result = Compare("  a", "    a");
+
+        Assert.DoesNotContain(result.Pairs, pair => pair is PairFinding<string>.Present);
+        Assert.Contains(result.Pairs, pair => pair is PairFinding<string>.Removed);
+        Assert.Contains(result.Pairs, pair => pair is PairFinding<string>.Added);
+    }
+
     static FindingComparison<string>.Complete Compare(string oldText, string newText)
         => CompleteComparison(TextFindings.Compare(oldText, newText, Subject));
 

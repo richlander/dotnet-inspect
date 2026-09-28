@@ -59,6 +59,14 @@ const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
 const getConditionalOutputKey =
   facadeSource.match(/"(GetConditionalOutput\.-?\d+)"/)?.[1];
+const addServerNoteKey =
+  facadeSource.match(/"(AddServerNote\.-?\d+)"/)?.[1];
+const reemitDirectionalEnvelopeKey =
+  facadeSource.match(/"(ReemitDirectionalEnvelope\.-?\d+)"/)?.[1];
+const reemitDirectionalOuterKey =
+  facadeSource.match(/"(ReemitDirectionalOuter\.-?\d+)"/)?.[1];
+const getDirectionalChoiceKey =
+  facadeSource.match(/"(GetDirectionalChoice\.-?\d+)"/)?.[1];
 const getInspectionEvidenceKey =
   facadeSource.match(/"(GetInspectionEvidence\.-?\d+)"/)?.[1];
 const getInertWidgetAsyncKey =
@@ -149,6 +157,22 @@ assert.ok(
 assert.ok(
   getConditionalOutputKey,
   "The generated GetConditionalOutput runtime dispatch key was not found.",
+);
+assert.ok(
+  addServerNoteKey,
+  "The generated AddServerNote runtime dispatch key was not found.",
+);
+assert.ok(
+  reemitDirectionalEnvelopeKey,
+  "The generated ReemitDirectionalEnvelope dispatch key was not found.",
+);
+assert.ok(
+  reemitDirectionalOuterKey,
+  "The generated ReemitDirectionalOuter dispatch key was not found.",
+);
+assert.ok(
+  getDirectionalChoiceKey,
+  "The generated GetDirectionalChoice runtime dispatch key was not found.",
 );
 assert.ok(
   getInspectionEvidenceKey,
@@ -320,6 +344,24 @@ function managedExports(methods = {}) {
               ?? ((name) => JSON.stringify({
                 name,
                 alwaysNullable: null,
+              })),
+            [addServerNoteKey]:
+              methods.addServerNote
+              ?? ((payloadJson) => JSON.stringify({
+                ...JSON.parse(payloadJson),
+                serverNote: "server",
+              })),
+            [reemitDirectionalEnvelopeKey]:
+              methods.reemitDirectionalEnvelope
+              ?? ((payloadJson) => payloadJson),
+            [reemitDirectionalOuterKey]:
+              methods.reemitDirectionalOuter
+              ?? ((payloadJson) => payloadJson),
+            [getDirectionalChoiceKey]:
+              methods.getDirectionalChoice
+              ?? (() => JSON.stringify({
+                name: "choice",
+                serverNote: "server",
               })),
             [getInspectionEvidenceKey]:
               methods.getInspectionEvidence
@@ -497,6 +539,7 @@ async function freshFacade() {
 {
   const hostCalls = [];
   const candidateCalls = [];
+  const directionalCalls = [];
   const scenario = configureScenario({
     exports: managedExports({
       configureHost: (origin) => hostCalls.push(origin),
@@ -506,6 +549,13 @@ async function freshFacade() {
         return true;
       },
       getWidgetAsync: async (name, count) => JSON.stringify({ name, count }),
+      addServerNote: (payloadJson) => {
+        directionalCalls.push(payloadJson);
+        return JSON.stringify({
+          ...JSON.parse(payloadJson),
+          serverNote: "server",
+        });
+      },
     }),
     runMainResult: 37,
   });
@@ -583,6 +633,11 @@ async function freshFacade() {
     await facade.getWidgetAsync("widget", 3),
     { name: "widget", count: 3 },
   );
+  assert.deepEqual(
+    facade.addServerNote({ name: "client" }),
+    { name: "client", serverNote: "server" },
+  );
+  assert.deepEqual(directionalCalls, ['{"name":"client"}']);
   assert.deepEqual(
     await facade.getInertWidgetAsync("widget"),
     { name: "widget", display: "line\\u202Egpj" },

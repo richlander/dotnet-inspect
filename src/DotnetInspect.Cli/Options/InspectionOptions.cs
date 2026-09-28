@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 
 using DotnetInspector.Sections;
@@ -77,6 +78,12 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string? PackageLibrary { get; init; }
 
+    /// <summary>The address operation retained while a Package selects its Library.</summary>
+    internal LibraryAddressRequest? LibraryAddressRequest { get; init; }
+
+    /// <summary>Semantic selection over retained address-file rows.</summary>
+    internal RowSelectionIntent<string>? LibraryAddressRowSelection { get; init; }
+
     /// <summary>
     /// Execute the selected Package compile-Library aggregate.
     /// </summary>
@@ -86,6 +93,10 @@ public record InspectionOptions : IProjectionOptions
     /// Narrow Package Library inspection by managed assembly identity.
     /// </summary>
     public bool NamesakeLibrary { get; init; }
+
+    internal string? TypeNamespace { get; init; }
+
+    internal bool IncludeNamespaceChildren { get; init; }
 
     internal WorkspaceLibrarySelection? WorkspaceLibrarySelection { get; init; }
 
@@ -359,9 +370,16 @@ public record InspectionOptions : IProjectionOptions
     public bool SelectExplicitlySet { get; init; }
 
     /// <summary>
-    /// True when the user explicitly chose an output format via CLI flags.
+    /// True when the user chose an output format via CLI flags or an
+    /// environment default.
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// Environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
 
     /// <summary>
     /// Suppress column headers (use with --table or --tsv).
@@ -419,6 +437,9 @@ public record InspectionOptions : IProjectionOptions
     /// Output the complete shared inspection envelope as JSON.
     /// </summary>
     public bool EnvelopeOutput { get; init; }
+
+    /// <summary>Output minified envelope JSON.</summary>
+    public bool CompactJson { get; init; }
 
     /// <summary>
     /// Limit data rows per rendered table.

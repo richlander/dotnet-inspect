@@ -36,11 +36,11 @@ public static partial class MemberBodyProducer
         }
 
         ThrowIfMemorySafetyModeUnavailable(source);
-        ApiSurface completeSurface = ApiSurfaceExtractor.Extract(
-            source.Pe,
-            includeAll: true,
-            typesOnly: false,
-            includeCompilerGenerated: true);
+        ApiSurface completeSurface =
+            source.ExtractResolutionAwareApiSurface(
+                includeAll: true,
+                typesOnly: false,
+                includeCompilerGenerated: true);
         cancellationToken.ThrowIfCancellationRequested();
         ApiType? type = completeSurface.Types.SingleOrDefault(candidate =>
             candidate.MetadataToken == MetadataTokens.GetToken(typeHandle)

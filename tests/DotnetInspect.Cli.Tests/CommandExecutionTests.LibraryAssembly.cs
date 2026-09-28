@@ -81,19 +81,19 @@ public partial class CommandExecutionTests
     {
         var invalid = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "--count", "--fields", "NoSuchField", "--tips", "q");
+            "-S", "References", "--count", "--fields", "NoSuchField", "--tips", "q");
         var valid = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "--count", "--fields", "Name", "--tips", "q");
+            "-S", "References", "--count", "--fields", "Name", "--tips", "q");
 
         Assert.Equal(1, invalid.Exit);
         Assert.Empty(invalid.Output);
         Assert.Contains("NoSuchField", invalid.Error);
 
-        Assert.Equal(1, valid.Exit);
-        Assert.Empty(valid.Output);
-        Assert.Contains("Library Info", valid.Error);
-        Assert.Contains("scalar", valid.Error);
+        Assert.Equal(0, valid.Exit);
+        Assert.Empty(valid.Error);
+        Assert.True(
+            int.Parse(valid.Output.Trim(), CultureInfo.InvariantCulture) > 0);
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public partial class CommandExecutionTests
         {
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
                 "library", "System.Text.Json",
-                "-S", "References,Library Info",
+                "-S", "References,Signals",
                 "--count", "--tree", "--tips", "q");
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
@@ -122,22 +122,6 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    /// <summary>
-    /// Bare <c>-S</c> includes scalar Library Info, so the overview cannot be treated as a row
-    /// population merely because its renderer also emits inventory sections.
-    /// </summary>
-    [Fact]
-    public async Task Library_BareSelectCount_RejectsScalarOverview()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("Library Info", error);
-        Assert.Contains("scalar", error);
     }
 
     [Fact]
@@ -321,6 +305,472 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Library_DirectEnvelope_ExactNamespaceBindsTypeCount()
+    {
+        const string Namespace = "DotnetInspect.Cli.Tests";
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--compact",
+            "--namespace",
+            Namespace,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement types =
+            json.RootElement.GetProperty("content")
+                .GetProperty("document")
+                .GetProperty("types");
+        Assert.Equal(
+            Namespace,
+            types.GetProperty("binding")
+                .GetProperty("namespace")
+                .GetString());
+        Assert.Equal(
+            "Exact",
+            types.GetProperty("binding")
+                .GetProperty("namespaceMatch")
+                .GetString());
+        Assert.True(
+            types.GetProperty("count")
+                .GetProperty("total")
+                .GetInt32()
+            > 0);
+    }
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_NamespaceSuffixBindsExhaustiveTypeCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--envelope",
+            "--compact",
+            "--namespace",
+            ".Nodes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement types =
+            json.RootElement.GetProperty("content")
+                .GetProperty("document")
+                .GetProperty("types");
+        Assert.Equal(
+            ".Nodes",
+            types.GetProperty("binding")
+                .GetProperty("namespace")
+                .GetString());
+        Assert.Equal(
+            "Suffix",
+            types.GetProperty("binding")
+                .GetProperty("namespaceMatch")
+                .GetString());
+        Assert.Equal(
+            2,
+            types.GetProperty("count")
+                .GetProperty("total")
+                .GetInt32());
+    }
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_NamespaceChildrenBindSelfAndDescendants()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--envelope",
+            "--compact",
+            "--namespace",
+            "World.Blue.Nodes",
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement types =
+            json.RootElement.GetProperty("content")
+                .GetProperty("document")
+                .GetProperty("types");
+        Assert.Equal(
+            "World.Blue.Nodes",
+            types.GetProperty("binding")
+                .GetProperty("namespace")
+                .GetString());
+        Assert.Equal(
+            "ExactOrDescendant",
+            types.GetProperty("binding")
+                .GetProperty("namespaceMatch")
+                .GetString());
+        Assert.Equal(
+            2,
+            types.GetProperty("count")
+                .GetProperty("total")
+                .GetInt32());
+    }
+
+    [Fact]
+    public async Task
+        Library_NamespaceSuffixRendersMarkdownTypeTables()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--namespace",
+            ".Nodes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Classes", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "`World.Blue.Nodes.Foo`",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`World.Green.Nodes.Bar`",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Nodes.Root",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Blue.MyNodes.NearName",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Blue.Nodes.More.Descendant",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "2 types",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_NamespaceChildrenRenderSelfAndDescendantTypeTables()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--namespace",
+            "World.Blue.Nodes",
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "`World.Blue.Nodes.Foo`",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`World.Blue.Nodes.More.Descendant`",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Blue.MyNodes.NearName",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Green.Nodes.Bar",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "2 types",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_ExactNamespaceRendersPlatformTypeTables()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "--namespace",
+            "System.Text.Json.Nodes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "`System.Text.Json.Nodes.JsonArray`",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`System.Text.Json.Nodes.JsonNodeOptions`",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Text.Json.JsonSerializer",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "5 types",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_ExactPackageNamespaceRendersMarkdownTypeTables()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "DotnetInspect.Cli.Tests",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Library Info",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceChildrenReachDescendantNamespaces()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "DotnetInspect.Cli.Tests",
+                "--children",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.Parsers.TypeOptionsParserTests`",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Library Info",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceRequiresExactLibraryBeforeAcquisition()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--package",
+            missingPackagePath,
+            "--namespace",
+            "DotnetInspect.Cli.Tests",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires one exact Library",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        Library_NamespaceMarkdownRejectsProjectionControls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--namespace",
+            ".Nodes",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "complete Markdown Type listing",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceRejectsProjectionBeforeAcquisition()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--namespace",
+            "DotnetInspect.Cli.Tests",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "complete Markdown Type listing",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Library_DirectEnvelope_RejectsOversizedNamespace()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--namespace",
+            new string(
+                'N',
+                MetadataSafetyPolicy.MaxTypeNameCharacters + 1),
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "namespace cannot exceed",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_RejectsEmptyNamespaceSuffix()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--envelope",
+            "--namespace",
+            ".",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "namespace suffix",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Library_NamespaceChildrenRequireNamespace()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--children requires --namespace",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_NamespaceChildrenRejectLeadingDotSuffix()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--namespace",
+            ".Nodes",
+            "--children",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--children cannot be combined",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Library_DirectEnvelope_OutPublishesAfterCompletion()
     {
         string outputPath =
@@ -471,7 +921,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, section.Exit);
         Assert.Empty(section.Output);
         Assert.Contains(
-            "does not accept section selection",
+            "accepts only the exact \"Library Metrics\" section selection",
             section.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -604,7 +1054,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Assembly_CountWithoutSingleSection_Errors()
+    public async Task Assembly_CountWithDefaultScalarSection_Errors()
     {
         var options = new LibraryOptions
         {
@@ -617,7 +1067,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(CountOutput.SectionRequiredMessage, error);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            error);
     }
 
     [Fact]
@@ -1657,6 +2109,9 @@ public partial class CommandExecutionTests
     public async Task
         LibraryCommand_MixedAndFixedScalarSelectionsRejectCount()
     {
+        string fixedSelection = string.Join(
+            ';',
+            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
@@ -1672,6 +2127,7 @@ public partial class CommandExecutionTests
             "library",
             missingPath,
             "-S",
+            fixedSelection,
             "--count",
             "--tips",
             "q");
@@ -2247,13 +2703,17 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_BareSelect_RendersFixedOverview()
+    public async Task LibraryCommand_ExplicitFixedSections_RenderFixedOverview()
     {
-        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S");
+        string selection = string.Join(
+            ';',
+            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
+        var (exit, output, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", selection);
 
         Assert.Equal(0, exit);
-        // Bare -S is the network-free FIXED overview: only the structurally-fixed, network-free
-        // fact tables, whose membership is package-independent (Library Info, Signals, Symbols).
+        // These are the structurally-fixed, network-free fact tables whose membership is
+        // package-independent (Library Info, Signals, Symbols).
         // Signals/Symbols are symbol-dependent but read an embedded/adjacent/cached PDB with no
         // network access, so they belong to the fixed overview.
         Assert.Contains("## Library Info", output);
@@ -2272,27 +2732,14 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("SourceLink availability", output);
     }
 
-    /// <summary>
-    /// The default preset is reached only through bare <c>-S</c>. <c>@Default</c> was a computed
-    /// pole that restated what bare <c>-S</c> already meant, so it is gone — including on
-    /// pipelines that still publish <c>@All</c>. Bare <c>-S</c> keeps rendering the broader
-    /// network-free fixed overview, which the pole never matched anyway (#3547).
-    /// </summary>
     [Fact]
     public async Task LibraryCommand_DefaultPole_IsNotResolvable()
     {
-        var (bareExit, rawOutput, bareError) = await RunAppAsync("library", "System.Text.Json", "-S");
         var (poleExit, poleOutput, poleError) = await RunAppAsync("library", "System.Text.Json", "-S", "@Default");
 
         Assert.Equal(1, poleExit);
         Assert.Contains("'@Default' not found", poleError, StringComparison.Ordinal);
         Assert.DoesNotContain("## Library Info", poleOutput);
-
-        Assert.Equal(0, bareExit);
-        Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
-        Assert.Contains("## Library Info", rawOutput);
-        Assert.Contains("## Signals", rawOutput);
-        Assert.Contains("## Symbols", rawOutput);
     }
 
     [Fact]
@@ -2656,7 +3103,7 @@ public partial class CommandExecutionTests
         // The parent-owned topical category doors lead the catalog, in alphabetical order, and
         // every category row precedes every section row. @Metadata is among them because --schema
         // surfaces the whole parent catalog, including the explicit-only lens the curated
-        // top-level -D still leaves out. @Context belongs to library coordinate.
+        // top-level -D still leaves out. @Context belongs to library address.
         var categoryLines = SplitOutputLines(output)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
@@ -3080,7 +3527,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "\"Metadata: Heap\" requires library coordinate",
+            "\"Metadata: Heap\" requires library address",
             error);
     }
 

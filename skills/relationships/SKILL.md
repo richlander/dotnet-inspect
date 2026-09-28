@@ -165,7 +165,7 @@ With `--envelope`, use `--compact` for minified JSON. `--depth` remains
 traversal, and `--rows` or `-n`/`--head`/`--tail` remain semantic relationship
 selection. Do not combine it with `--json`, another format, Discover or schema
 modes, `-S`, explicit `-v`, Count, fields/columns, decoration, projections, or
-rendered-line clipping. `--verbose`, `--info`, and `--tips` remain on stderr;
+rendered-line clipping. `--verbose` and `--tips` remain on stderr;
 explicit `--share` retains the existing final-line URL/packet policy. Asset
 mode, Discover, Count, Library Diff, and `--evidence-envelope` have not adopted
 this transport.

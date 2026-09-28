@@ -4,6 +4,7 @@ using TsJsExport;
 using TsJsExport.ContextFixtures.Alpha;
 using TsJsExport.ContextFixtures.Beta;
 using TsJsExport.ContextFixtures.Host;
+using ILInspector.JsExportSurface.JsonInputFixtures;
 using WrongContractContext =
     WrongContractFixture::TsJsExport.WrongContractContext;
 
@@ -277,6 +278,30 @@ public sealed class JsExportContextLoaderTests
     }
 
     [Fact]
+    public void ContextWarningsAsErrorsRejectsIncompleteCertification()
+    {
+        var error = new StringWriter();
+
+        bool success = JsExportContextGenerator.TryGenerate(
+            typeof(IncompleteCertificationContext).Assembly.Location,
+            typeof(IncompleteCertificationContext).FullName!,
+            [AppContext.BaseDirectory],
+            "./dotnet.js",
+            "test",
+            error,
+            warningsAsErrors: true,
+            out var facades);
+
+        Assert.False(success);
+        Assert.Empty(facades);
+        Assert.Contains(
+            $"error: {typeof(JsonInputExports).FullName}."
+                + $"{nameof(JsonInputExports.WidgetMatchesAudit)}",
+            error.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ContextRejectsGenericRootType()
     {
         var error = new StringWriter();
@@ -296,6 +321,9 @@ public sealed class JsExportContextLoaderTests
             error.ToString(),
             StringComparison.Ordinal);
     }
+
+    [JsExportRoot(typeof(JsonInputExports))]
+    internal sealed class IncompleteCertificationContext;
 
     [Fact]
     public void ContextRootsResolveFromExplicitSearchDirectories()

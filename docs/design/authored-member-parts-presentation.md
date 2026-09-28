@@ -63,14 +63,17 @@ transfer.
 Browser lowers the catalog into its existing Source viewer. Its wire spans
 address the returned full-member text, mechanically rebased from the original
 document. Each wire span also carries the shared projection's leading
-indentation for presentation. Selection and Copy prepend that whitespace to
-the same selected text without another acquisition. The default is the complete
-Member, including attached documentation, attributes, signature, and body.
-Decompiled fallback remains ordinary Source, with no authored
-part catalog. This host deliberately reuses its escaped DOM code viewer rather
-than Markout: the structured catalog reaches the viewer boundary, and selection
-changes an existing code display and Copy action rather than generating a new
-multi-format document. Type Source's existing flat wire contract is unchanged.
+indentation. Selection and Copy prepend that whitespace to the same selected
+text without another acquisition. The Source viewer visually collapses only
+the whitespace prefix shared by every nonblank selected line, left-aligning the
+ordinary member shape without changing DOM text, copied text, or less-indented
+multiline literal content. The default is the complete Member, including
+attached documentation, attributes, signature, and body. Decompiled fallback
+remains ordinary Source, with no authored part catalog. This host deliberately
+reuses its escaped DOM code viewer rather than Markout: the structured catalog
+reaches the viewer boundary, and selection changes an existing code display and
+Copy action rather than generating a new multi-format document. Type Source's
+existing flat wire contract is unchanged.
 
 ## Failure and evidence
 
@@ -101,6 +104,9 @@ dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
 The published `Markout@0.37.0` method
 `Markout.MarkoutWriter.WriteHeading(int, string)` motivates the first-line
 indentation correction. Its four XML-doc lines must retain equal indentation
-in human CLI output and Browser display/Copy while structured JSON remains
-token-exact. The focused presentation and host cases also preserve tabs, line
-terminators, discontiguous fragments, and multiline literal contents.
+in human CLI output and Browser DOM text/Copy while structured JSON remains
+token-exact. The Browser visually left-aligns the common member indentation;
+`System.Text.Json@11.0.0-preview.7.26381.103`
+`System.Text.Json.JsonDocument.Dispose()` is the motivating production case.
+The focused presentation and host cases also preserve tabs, line terminators,
+discontiguous fragments, and multiline literal contents.

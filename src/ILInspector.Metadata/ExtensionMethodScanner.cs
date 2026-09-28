@@ -24,6 +24,10 @@ public record ExtensionMethodInfo(
     public string? CanonicalExtendedType { get; init; }
     internal MetadataTypeDefinitionName? DeclaringTypeDefinition
         { get; init; }
+    internal TypeDefinitionHandle DeclaringTypeHandle { get; init; }
+    internal TypeDefinitionHandle ReceiverContextTypeHandle { get; init; }
+    internal MethodDefinitionHandle ReceiverMethodHandle { get; init; }
+    internal int DeclarationMetadataToken { get; init; }
     internal MetadataNamedTypeReference? ReturnTypeReference { get; init; }
     internal MetadataNamedTypeReference? ExtendedTypeReference { get; init; }
 
@@ -182,6 +186,11 @@ public static class ExtensionMethodScanner
                                 DeclaringType(
                                     reader,
                                     typeDefHandle),
+                            DeclaringTypeHandle = typeDefHandle,
+                            ReceiverContextTypeHandle = typeDefHandle,
+                            ReceiverMethodHandle = methodHandle,
+                            DeclarationMetadataToken =
+                                MetadataTokens.GetToken(methodHandle),
                             ReturnTypeReference =
                                 anchorInfo.ReturnTypeReference,
                             ExtendedTypeReference =
@@ -289,6 +298,11 @@ public static class ExtensionMethodScanner
                             DeclaringType(
                                 reader,
                                 typeDefHandle),
+                        DeclaringTypeHandle = typeDefHandle,
+                        ReceiverContextTypeHandle = typeDefHandle,
+                        ReceiverMethodHandle = methodHandle,
+                        DeclarationMetadataToken =
+                            MetadataTokens.GetToken(methodHandle),
                         ReturnTypeReference =
                             anchorInfo.ReturnTypeReference,
                         ExtendedTypeReference =
@@ -739,6 +753,11 @@ public static class ExtensionMethodScanner
                         DeclaringType(
                             reader,
                             extensionClassHandle),
+                    DeclaringTypeHandle = extensionClassHandle,
+                    ReceiverContextTypeHandle = markerTypeHandle,
+                    ReceiverMethodHandle = markerMethodHandle,
+                    DeclarationMetadataToken =
+                        MetadataTokens.GetToken(propertyHandle),
                 };
             }
         }

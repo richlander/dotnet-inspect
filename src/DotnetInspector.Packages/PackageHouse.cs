@@ -99,6 +99,15 @@ public abstract class PackageHouseSettlement
         }
 
         public AcquiredPackageSourcePayload Payload { get; }
+
+        /// <summary>
+        /// Creates a cold, single-use read of one exact entry in this acquired
+        /// package generation.
+        /// </summary>
+        public PackageHousePayloadRead OpenPayloadRead(
+            string relativePath,
+            long maxExpandedBytes) =>
+            new(this, relativePath, maxExpandedBytes);
     }
 }
 
@@ -302,6 +311,15 @@ public sealed class PackageHouse
             {
                 throw new InvalidOperationException(
                     "An Acquire or Realize operation requires an authority-scoped package store capability.");
+            }
+            if (request.Operation.Profile
+                    == PackageHouseOperationProfile.Acquire
+                && request.DocumentDemand is null
+                && _payloadAcquisition?.Access
+                    == PackagePayloadAccess.Ranged)
+            {
+                throw new InvalidOperationException(
+                    "Ranged payload access requires a Realize operation or a document demand; an Acquire operation without one selects nothing to bound the read.");
             }
             if (sourceOperation.RequestTimeout
                     != request.Operation.RequestTimeout
@@ -628,6 +646,20 @@ public sealed class PackageHouse
                         && AuthoritiesMatch(
                             candidate,
                             authorization);
+                string rangedPackageId = candidate.Coordinate.PackageId;
+                PackageRangedRead? rangedRead =
+                    payloadAcquisition.Access == PackagePayloadAccess.Ranged
+                        ? new PackageRangedRead(
+                            directory => request.DocumentDemand is { } documents
+                                ? new PackageRangedSelection(
+                                    documents.Select(
+                                        [.. directory.EnumerateEntries()]))
+                                : SelectRangedEntries(
+                                    request,
+                                    rangedPackageId,
+                                    directory),
+                            payloadAcquisition.RangedSizeCut)
+                        : null;
                 ConfiguredPackagePayloadResult payloadResult =
                     await sourceOperation
                         .AcquireCandidatePayloadAsync(
@@ -636,7 +668,8 @@ public sealed class PackageHouse
                             log: payloadAcquisition.Log,
                             limits: payloadAcquisition.Limits,
                             transferPolicy:
-                                payloadAcquisition.TransferPolicy)
+                                payloadAcquisition.TransferPolicy,
+                            rangedRead: rangedRead)
                         .ConfigureAwait(false);
                 failures.AddRange(
                     AdaptFailures(request, payloadResult.Failures));
@@ -683,7 +716,39 @@ public sealed class PackageHouse
                     payloadResult.Authority!,
                     payloadResult.Source!,
                     payload.Origin,
-                    payload.Content.GenerationIdentity);
+                    payload.Content.GenerationIdentity,
+                    payloadResult.Transfer!);
+                if (request.DocumentDemand?.Unmatched(
+                        payload.Content.EnumerateEntries())
+                    is [_, ..] unmatchedDocuments)
+                {
+                    // A named document the archive does not list is a
+                    // visible failure, never an empty success
+                    // (docs/design/package-read-demand.md#document-demand).
+                    InertString reason = Reason(
+                        "The package does not contain "
+                        + string.Join(
+                            ", ",
+                            unmatchedDocuments.Select(
+                                static name => $"'{name}'"))
+                        + ".");
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            reason));
+                    return new PackageHouseSettlement.Acquired(
+                        new PackageHouseResult.NoMatch(
+                            new PackageHouseEvidence(
+                                request,
+                                decision,
+                                acquisition,
+                                failures: failures),
+                            reason),
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
+
                 if (request.Operation.Profile
                     == PackageHouseOperationProfile.Acquire)
                 {
@@ -1307,6 +1372,230 @@ public sealed class PackageHouse
                     failure)),
         ];
 
+    private static PackageCompileAssetSelectionPolicy CompilePolicy(
+        PackageHouseRequest request) =>
+        request.TargetContext?.RequestedFramework is null
+            ? PackageCompileAssetSelectionPolicy.HighestAvailable
+            : PackageCompileAssetSelectionPolicy.ExplicitTarget;
+
+    /// <summary>
+    /// The entries a ranged acquisition materializes: exactly what this
+    /// request's realization selects over the archive directory, so the
+    /// retained content can answer the realization it was read for. Surface
+    /// assets, and unnamed implementation assets, are read as whole folders;
+    /// named implementation assets are block anchors, read with their aligned
+    /// block (docs/design/package-read-demand.md). Requested package evidence
+    /// adds its exact entry without changing that asset selection. A runtime
+    /// request without an exact framework selects nothing here and is visibly
+    /// rejected after acquisition, as it is for complete access.
+    /// </summary>
+    private static PackageRangedSelection SelectRangedEntries(
+        PackageHouseRequest request,
+        string packageId,
+        IPackageContent directory)
+    {
+        PackageImplementationNames? names = request.ImplementationNames;
+        PackageRangedSelection selected = request.AssetSelection switch
+        {
+            PackageHouseAssetSelectionKind.Compile =>
+                SelectRangedCompileEntries(
+                    request,
+                    packageId,
+                    directory,
+                    names),
+            PackageHouseAssetSelectionKind.Runtime =>
+                SelectRangedRuntimeEntries(
+                    request,
+                    directory,
+                    names),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(request),
+                request.AssetSelection,
+                "A ranged Realize operation requires a known asset-selection kind."),
+        };
+
+        return request.EvidenceDemand
+            == PackageHouseEvidenceDemand.FrameworkReferences
+                ? AddRootManifest(selected, directory)
+                : selected;
+    }
+
+    private static PackageRangedSelection SelectRangedCompileEntries(
+        PackageHouseRequest request,
+        string packageId,
+        IPackageContent directory,
+        PackageImplementationNames? names)
+    {
+        PackageCompileAssetSelection compile =
+            PackageCompileAssetSelector.Evaluate(
+                directory,
+                packageId,
+                CompilePolicy(request),
+                request.TargetContext?.RequestedFramework,
+                request.TargetContext?.RuntimeIdentifier).Selection;
+        IEnumerable<string> surface =
+            compile.Assets.Select(static asset => asset.Path);
+        if (request.AssetDemand == PackageAssetDemand.Surface)
+            return new(WholeFolders(surface, directory));
+        IEnumerable<string> implementation =
+            compile.ImplementationAssets.Select(static asset => asset.Path);
+        if (names is null)
+            return new(WholeFolders(surface.Concat(implementation), directory));
+        // A named implementation asset whose folder is already read
+        // whole as the surface, as in a package with no ref/ folder,
+        // needs no block: its block would add only other folders'
+        // interleaved entries (docs/design/package-read-demand.md).
+        IReadOnlyList<string> surfaceEntries = WholeFolders(surface, directory);
+        var readWhole = new HashSet<string>(surfaceEntries, StringComparer.Ordinal);
+        IReadOnlyList<PackageCompileAsset> selectedImplementation =
+        [
+            .. compile.ImplementationAssets.Where(
+                asset => names.MatchesPath(asset.Path)),
+        ];
+        IReadOnlyList<string> companionEntries =
+            request.LibraryCompanionDemand
+                == PackageHouseLibraryCompanionDemand
+                    .ImplementationPortablePdb
+                ? ListedPortablePdbCompanions(
+                    selectedImplementation,
+                    directory)
+                : [];
+        IReadOnlyList<string> exactEntries =
+            companionEntries.Count == 0
+                ? surfaceEntries
+                : [.. surfaceEntries.Concat(companionEntries)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)];
+        return new(
+            exactEntries,
+            [.. Anchors(
+                    selectedImplementation.Select(
+                        static asset => asset.Path),
+                    directory)
+                .Where(anchor => !readWhole.Contains(anchor))]);
+    }
+
+    private static IReadOnlyList<string> ListedPortablePdbCompanions(
+        IReadOnlyList<PackageCompileAsset> implementation,
+        IPackageContent directory)
+    {
+        IReadOnlyList<string> listed =
+            [.. directory.EnumerateEntries()];
+        var companions = new List<string>(implementation.Count);
+        foreach (PackageCompileAsset asset in implementation)
+        {
+            string? path = asset.PortablePdbCompanionPath;
+            string? listedPath = path is null
+                ? null
+                : listed.FirstOrDefault(entry =>
+                    entry.Equals(
+                        path,
+                        StringComparison.OrdinalIgnoreCase));
+            if (listedPath is not null
+                && !companions.Contains(
+                    listedPath,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                companions.Add(listedPath);
+            }
+        }
+
+        return companions;
+    }
+
+    private static PackageRangedSelection SelectRangedRuntimeEntries(
+        PackageHouseRequest request,
+        IPackageContent directory,
+        PackageImplementationNames? names)
+    {
+        if (request.TargetContext?.RequestedFramework is not { } framework)
+            return new([]);
+        if (PackageAssetSelector.Evaluate(
+                directory,
+                framework,
+                request.TargetContext.RuntimeIdentifier).Selection
+            is not PackageAssetSelection.Selected selected)
+        {
+            return new([]);
+        }
+        IEnumerable<string> universe =
+            selected.Universe.Assets.Select(static asset => asset.EntryPath);
+        return names is null
+            ? new(WholeFolders(universe, directory))
+            : new([], Anchors(universe.Where(names.MatchesPath), directory));
+    }
+
+    private static PackageRangedSelection AddRootManifest(
+        PackageRangedSelection selected,
+        IPackageContent directory)
+    {
+        string? manifest;
+        try
+        {
+            manifest = PackageManifestContent.FindRootManifest(directory);
+        }
+        catch (InvalidDataException)
+        {
+            return selected;
+        }
+
+        if (manifest is null
+            || selected.Entries.Contains(
+                manifest,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return selected;
+        }
+
+        return new(
+            [.. selected.Entries, manifest],
+            selected.BlockAnchors);
+    }
+
+    /// <summary>The directory entries the selected asset paths name.</summary>
+    private static IReadOnlyList<string> Anchors(
+        IEnumerable<string> selected,
+        IPackageContent directory)
+    {
+        var paths = new HashSet<string>(selected, StringComparer.OrdinalIgnoreCase);
+        return [.. directory.EnumerateEntries().Where(paths.Contains)];
+    }
+
+    /// <summary>
+    /// A ranged read fetches whole folders: every entry directly inside the
+    /// folder of each selected asset (its documentation XML beside it, for
+    /// one), never a subfolder. A folder is contiguous in most archives, so
+    /// it is usually one request, and a later reader that needs the folder's
+    /// other files finds them cached.
+    /// </summary>
+    private static IReadOnlyList<string> WholeFolders(
+        IEnumerable<string> selected,
+        IPackageContent directory)
+    {
+        var folders = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string path in selected)
+        {
+            int slash = path.LastIndexOf('/');
+            folders.Add(slash < 0 ? "" : path[..(slash + 1)]);
+        }
+
+        var entries = new List<string>();
+        foreach (string entry in directory.EnumerateEntries())
+        {
+            int slash = entry.LastIndexOf('/');
+            string folder = slash < 0 ? "" : entry[..(slash + 1)];
+            if (folders.Contains(folder))
+                entries.Add(entry);
+        }
+        return entries;
+    }
+
+    /// <summary>
+    /// The realization, evaluated over the materialized content. With named
+    /// implementation demand the selection keeps only the named
+    /// implementation assets, so the receipt names only entries the read
+    /// fetched; a name that selects no implementation asset leaves the
+    /// realization unmatched.
+    /// </summary>
     private static PackageHouseRealizationReceipt CreateRealization(
         PackageHouseRequest request,
         PackageHouseAcquisitionReceipt acquisition,
@@ -1316,26 +1605,69 @@ public sealed class PackageHouse
             PackageHouseAssetSelectionKind.Compile =>
                 new PackageHouseRealizationReceipt.Compile(
                     acquisition,
-                    PackageCompileAssetSelector.Evaluate(
-                        content,
-                        acquisition.Candidate.Coordinate.PackageId,
-                        request.TargetContext?.RequestedFramework is null
-                            ? PackageCompileAssetSelectionPolicy.HighestAvailable
-                            : PackageCompileAssetSelectionPolicy.ExplicitTarget,
-                        request.TargetContext?.RequestedFramework,
-                        request.TargetContext?.RuntimeIdentifier)),
+                    NameImplementation(
+                        PackageCompileAssetSelector.Evaluate(
+                            content,
+                            acquisition.Candidate.Coordinate.PackageId,
+                            CompilePolicy(request),
+                            request.TargetContext?.RequestedFramework,
+                            request.TargetContext?.RuntimeIdentifier),
+                        request.ImplementationNames)),
             PackageHouseAssetSelectionKind.Runtime =>
                 new PackageHouseRealizationReceipt.Runtime(
                     acquisition,
-                    PackageAssetSelector.Evaluate(
-                        content,
-                        request.TargetContext!.RequestedFramework!,
-                        request.TargetContext.RuntimeIdentifier)),
+                    NameImplementation(
+                        PackageAssetSelector.Evaluate(
+                            content,
+                            request.TargetContext!.RequestedFramework!,
+                            request.TargetContext.RuntimeIdentifier),
+                        request.ImplementationNames)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
                 request.AssetSelection,
                 "A Realize operation requires a known asset-selection kind."),
         };
+
+    private static PackageCompileAssetSelectionReceipt NameImplementation(
+        PackageCompileAssetSelectionReceipt receipt,
+        PackageImplementationNames? names) =>
+        names is null
+            ? receipt
+            : new PackageCompileAssetSelectionReceipt(
+                receipt.Generation,
+                receipt.PackageId,
+                receipt.Policy,
+                receipt.RequestedTargetFramework,
+                receipt.RequestedRuntimeIdentifier,
+                receipt.Selection with
+                {
+                    ImplementationAssets = Array.AsReadOnly(
+                    [
+                        .. receipt.Selection.ImplementationAssets.Where(
+                            asset => names.MatchesPath(asset.Path)),
+                    ]),
+                });
+
+    private static PackageAssetSelectionReceipt NameImplementation(
+        PackageAssetSelectionReceipt receipt,
+        PackageImplementationNames? names) =>
+        names is null
+            || receipt.Selection is not PackageAssetSelection.Selected selected
+            ? receipt
+            : new PackageAssetSelectionReceipt(
+                receipt.Generation,
+                receipt.RequestedTargetFramework,
+                receipt.RequestedRuntimeIdentifier,
+                new PackageAssetSelection.Selected(
+                    new PackageAssetUniverse(
+                        selected.Universe.TargetFramework,
+                        selected.Universe.RuntimeIdentifier,
+                        selected.Universe.Assets.Where(
+                            asset => names.MatchesPath(asset.EntryPath))))
+                {
+                    UsesCompatibleTargetSelection =
+                        selected.UsesCompatibleTargetSelection,
+                });
 
     private static PackageHouseResult CreateRealizationTerminalResult(
         PackageHouseRealizationReceipt realization,
@@ -1364,7 +1696,12 @@ public sealed class PackageHouse
 
     private static InertString RealizationReason(
         PackageHouseRealizationReceipt realization) =>
-        realization switch
+        realization.UnmatchedImplementationNames is [_, ..] unmatched
+            ? Reason(
+                "No selected implementation asset is named "
+                + string.Join(", ", unmatched.Select(static name => $"'{name}'"))
+                + ".")
+            : realization switch
         {
             PackageHouseRealizationReceipt.Compile compile =>
                 Reason(

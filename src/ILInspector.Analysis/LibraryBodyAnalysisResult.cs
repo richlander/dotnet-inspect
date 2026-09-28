@@ -8,14 +8,23 @@ internal sealed record LibraryBodyAnalysisResult(
     SafetyAnalysisResult Safety,
     AllocationAnalysisResult Allocations,
     OptimizationAnalysisResult Optimizations,
-    OwnershipFlowAnalysisResult OwnershipFlow,
-    ResourceLifecycleAnalysisResult Resources,
     ImmutableArray<AnalysisDiagnostic> Diagnostics)
 {
     internal ResourceOccurrenceLibraryAnalysisResult? ResourceOccurrences
     { get; init; }
 
+    internal ResourceOwnershipLibraryAnalysisResult? ResourceOwnership
+    { get; init; }
+
     internal ResourceLifecycleLibraryAnalysisResult? ResourceLifecycle
+    { get; init; }
+
+    internal ImplementationMetricWorkBudgetSnapshot?
+        ImplementationMetricWork
+    { get; init; }
+
+    internal ImplementationMetricStageParticipationSnapshot?
+        ImplementationMetricParticipation
     { get; init; }
 }
 
@@ -29,6 +38,10 @@ internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<FieldLoadFact> FieldLoads,
     ImmutableArray<MethodReturnFlow> ReturnFlows,
     IReadOnlyDictionary<int, BodySignals> BodySignals,
+    ImmutableArray<MethodImplementationMetricEvidence>
+        ImplementationMetrics,
+    ImmutableArray<AnalysisDiagnostic>
+        ImplementationMetricDiagnostics,
     ImmutableArray<MethodBodyImplementationMetrics> ImplementationProfiles,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
@@ -57,14 +70,12 @@ internal sealed record OptimizationAnalysisResult(
     IReadOnlySet<int> ScopeExcludedMethodTokens,
     IReadOnlySet<string> ExceptionTypeNames);
 
-internal sealed record ResourceLifecycleAnalysisResult(
-    LeakTriageResult? LeakTriage);
-
-internal sealed record OwnershipFlowAnalysisResult(
-    ImmutableArray<ArrayPoolOwnershipMethodEvidence> Methods);
-
 internal sealed record ResourceOccurrenceLibraryAnalysisResult(
     ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,
+    ImmutableArray<ResourceOccurrenceLimitation> Limitations);
+
+internal sealed record ResourceOwnershipLibraryAnalysisResult(
+    ImmutableArray<ResourceOwnershipMethodSummary> Methods,
     ImmutableArray<ResourceOccurrenceLimitation> Limitations);
 
 internal sealed record ResourceLifecycleLibraryAnalysisResult(

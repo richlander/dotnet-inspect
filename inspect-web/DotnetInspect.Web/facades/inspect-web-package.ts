@@ -16,6 +16,12 @@ export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" |
 
 export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "DeclarationNotFound" | number;
 
+export type BrowserCapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | number;
+
+export type BrowserCapabilityCatalogSearchShareKind = "available" | "nonProjectable" | number;
+
+export type BrowserCapabilityResourceKind = "Document" | "Route" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
@@ -29,6 +35,8 @@ export type BrowserExactLibraryApiInspectionFailureKind = number;
 export type BrowserExactLibraryApiInspectionOutcome = number;
 
 export type BrowserExactLibraryApiProjectionLimit = number;
+
+export type BrowserInspectionConsumerKind = "Cli" | "Browser" | "OperationBackedSection" | number;
 
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 
@@ -86,6 +94,8 @@ export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" 
 
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 
+export type BrowserResourceExplanationResourceKind = "Catalog" | "NavigationCollection" | "StructuralCategory" | "StructuralSection" | "StructuralItem" | "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
+
 export type CompiledDocumentationIncompleteReason = "Deadline" | "ContributionLimit" | "CompanionSelectionPartial" | "CompiledXmlByteLimit" | number;
 
 export type CompiledDocumentationRequestRejectionKind = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | number;
@@ -139,6 +149,64 @@ export interface BrowserAssemblySurface {
   readonly publicTypes: number;
   readonly publicMembers: number;
   readonly platformPack: string | null;
+}
+
+export interface BrowserCapabilityCatalogSearchBinding {
+  readonly identity: string;
+  readonly name: string;
+  readonly consumerKind: BrowserInspectionConsumerKind;
+  readonly gesture: string;
+  readonly resourcePath: string;
+}
+
+export interface BrowserCapabilityCatalogSearchDocument {
+  readonly query: string;
+  readonly similarityThreshold: number;
+  readonly candidateResourceCount: number;
+  readonly matchCount: number;
+  readonly returnedCount: number;
+  readonly isTruncated: boolean;
+  readonly results: ReadonlyArray<BrowserCapabilityCatalogSearchResult>;
+}
+
+export interface BrowserCapabilityCatalogSearchInspection {
+  readonly content: BrowserCapabilityCatalogSearchDocument;
+  readonly share: BrowserCapabilityCatalogSearchShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserCapabilityCatalogSearchResult {
+  readonly similarity: number;
+  readonly matchedTerm: string;
+  readonly matchSource: BrowserCapabilityCatalogSearchMatchSource;
+  readonly isSegment: boolean;
+  readonly resourceIdentity: BrowserCapabilityResourceIdentity;
+  readonly resourceKind: BrowserResourceExplanationResourceKind;
+  readonly resourceName: string;
+  readonly canonicalKeys: ReadonlyArray<string>;
+  readonly resourcePath: string;
+  readonly owningRoutes: ReadonlyArray<BrowserCapabilityCatalogSearchRoute>;
+  readonly productionBindings: ReadonlyArray<BrowserCapabilityCatalogSearchBinding>;
+}
+
+export interface BrowserCapabilityCatalogSearchRoute {
+  readonly identity: string;
+  readonly name: string;
+  readonly resourcePath: string;
+}
+
+export interface BrowserCapabilityCatalogSearchShare {
+  readonly kind: BrowserCapabilityCatalogSearchShareKind;
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserCapabilityResourceIdentity {
+  readonly kind: BrowserCapabilityResourceKind;
+  readonly identity: string;
+  readonly parentIdentity: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {
@@ -1140,17 +1208,17 @@ export interface CompiledDocumentationSource {
 }
 
 export interface CompiledDocumentationSourceEvidence {
-  readonly source: CompiledDocumentationSource;
+  readonly source?: CompiledDocumentationSource;
   readonly kind: CompiledDocumentationSourceEvidenceKind;
 }
 
 export interface CompiledDocumentationSourceRejection {
-  readonly source: CompiledDocumentationSource;
+  readonly source?: CompiledDocumentationSource;
   readonly reason: CompiledDocumentationSourceRejectionKind;
 }
 
 export interface CompiledDocumentationSubject {
-  readonly assembly: CompiledDocumentationAssemblyIdentity;
+  readonly assembly?: CompiledDocumentationAssemblyIdentity;
   readonly documentationId?: string;
 }
 
@@ -1166,17 +1234,17 @@ export interface DocumentationQueryExceptionFieldEvidence {
 }
 
 export interface DocumentationQueryFieldSettlement {
-  readonly summary: DocumentationQueryTextFieldEvidence;
-  readonly remarks: DocumentationQueryTextFieldEvidence;
-  readonly returns: DocumentationQueryTextFieldEvidence;
+  readonly summary?: DocumentationQueryTextFieldEvidence;
+  readonly remarks?: DocumentationQueryTextFieldEvidence;
+  readonly returns?: DocumentationQueryTextFieldEvidence;
   readonly parameters: ReadonlyArray<DocumentationQueryParameterField>;
-  readonly exceptions: DocumentationQueryExceptionFieldEvidence;
-  readonly samples: DocumentationQuerySampleFieldEvidence;
+  readonly exceptions?: DocumentationQueryExceptionFieldEvidence;
+  readonly samples?: DocumentationQuerySampleFieldEvidence;
 }
 
 export interface DocumentationQueryParameterField {
   readonly name?: string;
-  readonly evidence: DocumentationQueryTextFieldEvidence;
+  readonly evidence?: DocumentationQueryTextFieldEvidence;
 }
 
 export interface DocumentationQuerySampleFieldContribution {
@@ -1208,82 +1276,82 @@ export interface Absent {
 export interface Ambiguous {
   readonly kind: "ambiguous";
   readonly reason: AuthoredDocumentationAmbiguityReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Available {
   readonly kind: "available";
-  readonly documentation: CompiledDocumentationEntry;
+  readonly documentation?: CompiledDocumentationEntry;
 }
 
 export interface Failed {
   readonly kind: "failed";
   readonly reason: AuthoredDocumentationFailureReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Incomplete {
   readonly kind: "incomplete";
   readonly reason: AuthoredDocumentationIncompleteReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Rejected {
   readonly kind: "rejected";
   readonly reason: AuthoredDocumentationRejectionReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Unavailable {
   readonly kind: "unavailable";
   readonly reason: AuthoredDocumentationUnavailableReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export type AuthoredDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | Rejected | Failed | Incomplete;
 
 export interface ContentAccessFailed {
   readonly kind: "contentAccessFailed";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly source?: CompiledDocumentationSource;
 }
 
 export interface ContributionsRejected {
   readonly kind: "contributionsRejected";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly rejections: ReadonlyArray<CompiledDocumentationSourceRejection>;
   readonly rejectionsTruncated?: boolean;
 }
 
 export interface MalformedOrUnreadableDocument {
   readonly kind: "malformedOrUnreadableDocument";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly source?: CompiledDocumentationSource;
 }
 
 export interface RequestRejected {
   readonly kind: "requestRejected";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: CompiledDocumentationRequestRejectionKind;
 }
 
 export interface type_09ed4ff7 {
   readonly kind: "ambiguous";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
   readonly candidatesTruncated?: boolean;
 }
 
 export interface type_b58c2bef {
   readonly kind: "available";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
-  readonly documentation: CompiledDocumentationEntry;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly source?: CompiledDocumentationSource;
+  readonly documentation?: CompiledDocumentationEntry;
 }
 
 export interface type_c09463af {
   readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: CompiledDocumentationIncompleteReason;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
@@ -1291,14 +1359,14 @@ export interface type_c09463af {
 
 export interface type_d6f98266 {
   readonly kind: "unavailable";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
 }
 
 export interface type_fabd3005 {
   readonly kind: "absent";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
 }
@@ -1307,28 +1375,28 @@ export type CompiledDocumentationOutcome = type_b58c2bef | type_fabd3005 | type_
 
 export interface Completed {
   readonly kind: "completed";
-  readonly subject: CompiledDocumentationSubject;
-  readonly compiledXml: CompiledDocumentationOutcome | null;
-  readonly authoredSource: AuthoredDocumentationOutcome | null;
-  readonly fields: DocumentationQueryFieldSettlement;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly compiledXml?: CompiledDocumentationOutcome;
+  readonly authoredSource?: AuthoredDocumentationOutcome;
+  readonly fields?: DocumentationQueryFieldSettlement;
 }
 
 export interface type_0808982e {
   readonly kind: "failed";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: DocumentationQueryFailureReason;
-  readonly source: CompiledDocumentationSource;
+  readonly source?: CompiledDocumentationSource;
 }
 
 export interface type_29dfca00 {
   readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: CompiledDocumentationIncompleteReason;
 }
 
 export interface type_4486029c {
   readonly kind: "requestRejected";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: DocumentationQueryRequestRejectionReason;
 }
 
@@ -1371,6 +1439,7 @@ type $ManagedExports = {
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.1685943924": (operationId: string, prefix: string, termsJson: string, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
+            readonly "SearchCapabilities.146925470": (text: string, maximumResults: number) => string;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
         };
@@ -1776,6 +1845,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "SearchCapabilities.146925470");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.SearchCapabilities.146925470\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "SearchTypes.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes.271973316\u0027 is not callable.");
@@ -1994,6 +2075,12 @@ export async function runPackageQuery(operationId: string, prefix: string, terms
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, $serializeJsonInput(termsJson, "DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924", "termsJson"), targetFramework, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryResult;
+}
+
+export function searchCapabilities(text: string, maximumResults: number): BrowserCapabilityCatalogSearchInspection {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchCapabilities.146925470"](text, maximumResults);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserCapabilityCatalogSearchInspection;
 }
 
 export function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit> {

@@ -1,3 +1,4 @@
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;

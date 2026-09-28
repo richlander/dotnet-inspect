@@ -6,6 +6,12 @@ and packages without turning every relationship into a call.
 
 Related documents:
 
+- [Inspector.Graph library
+  boundary](inspector-graph-library-boundary.md) owns the target
+  subject-neutral structural carrier and its dependency boundary. This
+  document retains product Inspection Graph semantics and remains the current
+  runtime owner until the focused carrier migration retires the Queries-owned
+  structure.
 - [Call-graph projection](call-graph-projection.md) owns the current
   member-to-member call topology, identity, boundaries, and stable edge rows.
 - [Call-graph characteristics](call-graph-characteristics.md) maps the current
@@ -14,6 +20,10 @@ Related documents:
 - [Inspection-graph modes](inspection-graph-modes.md) owns single-seed,
   peer-seed, and induced-set requests across member, type, assembly, and package
   subjects.
+- [Inspection Graph focus
+  projection](inspection-graph-focus-projection.md) owns internal,
+  exit-frontier, target-corridor, affiliation, and notable views over one
+  already-produced document.
 - [External-focused Inspection Graph
   composition](external-focused-inspection-graph.md) owns exact
   assembly-generation classification and the cross-library member-neighborhood
@@ -1229,6 +1239,12 @@ subject lenses it advances.
    Integration traversal and producer selection. Peer connecting
    neighborhoods, explicit-subject induced sets, and presentation lowering
    remain.
+7. **Complete Call Graph transport.** Exact Member Call Graph JSON serializes
+   the semantic `InspectionGraphDocument` directly, while `--envelope` wraps
+   the identical Content with Share and diagnostics. Markout remains an
+   independent Markdown, Mermaid, tree, and edge-row lowering; it is not the
+   JSON transport. Call Graph Share remains explicitly non-projectable until a
+   Browser Workspace facet can restore the same inspection.
 
 ## Required implementation gates
 

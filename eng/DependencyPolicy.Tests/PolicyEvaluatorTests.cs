@@ -868,7 +868,7 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
-    public void CheckedInEcosystemRuleCoversEverySourceProductExceptTheCli()
+    public void CheckedInEcosystemRuleCoversEverySourceProductExceptApprovedHosts()
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = PolicyLoader.Load(
@@ -893,11 +893,19 @@ public sealed class PolicyEvaluatorTests
             })
             .Order(StringComparer.Ordinal)
             .ToArray();
+        string[] approvedHosts =
+        [
+            "DotnetInspect.Cli",
+            "DotnetInspect.Web.Interop.Catalog",
+            "DotnetInspect.Web.Interop.Package",
+        ];
 
         Assert.NotEmpty(productProjects);
         Assert.All(
             productProjects.Where(path =>
-                Path.GetFileNameWithoutExtension(path) != "DotnetInspect.Cli"),
+                !approvedHosts.Contains(
+                    Path.GetFileNameWithoutExtension(path),
+                    StringComparer.Ordinal)),
             path =>
             {
                 string name = Path.GetFileNameWithoutExtension(path);
@@ -907,11 +915,13 @@ public sealed class PolicyEvaluatorTests
                     DependencyPattern.Selects(rule, name, relativePath),
                     $"{rule.Id} does not select {relativePath}.");
             });
-        Assert.False(
-            DependencyPattern.Selects(
-                rule,
-                "DotnetInspect.Cli",
-                "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"));
+        Assert.All(
+            approvedHosts,
+            name => Assert.False(
+                DependencyPattern.Selects(
+                    rule,
+                    name,
+                    $"src/{name}/{name}.csproj")));
     }
 
     private static ProjectDependencyNode Node(

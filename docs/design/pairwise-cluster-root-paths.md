@@ -122,24 +122,25 @@ the supplied group. No failure becomes empty success.
 
 ## CLI adoption
 
-`graph libraries` adds one explicit-only section:
+`graph cluster` exposes one explicit-only section:
 
 ```console
-dotnet-inspect graph libraries \
+dotnet-inspect graph cluster 3 \
   --library ./Consumer.dll \
   --library ./Provider.dll \
-  --where "Cluster=3" \
   -S "Public Root Paths"
 ```
 
-The section requires one exact `Cluster=N` equality predicate. Selection is
+The route requires one positive pair-local cluster ordinal. Selection is
 validated before library acquisition so an omitted cluster cannot start an
-all-cluster path search. No `--cluster` flag is added.
+all-cluster path search. Pair-wide `graph libraries -S "Public Root Paths"`
+fails with guidance to use the focused route.
 
-Omitting the new section preserves the current cluster-scoped exact call-site
-view. Bare `-S` also remains the existing two summary sections. The new section
-does not enter any automatic verbosity preset, and wildcard section selection
-does not opt into it; callers name `Public Root Paths` explicitly.
+Omitting the section preserves the focused route's exact call-site default.
+Select `Consumer Use Sites;Provider API Types` explicitly for the two summary
+sections. The new section does not enter any automatic verbosity preset, and
+wildcard section selection does not opt into it; callers name
+`Public Root Paths` explicitly.
 
 Each retained witness lowers to one row containing:
 
@@ -174,8 +175,8 @@ Release gates cover:
    positive witnesses;
 7. stale registration, a shared-source selection with a foreign target, and
    mismatched MVID selections failing before execution; and
-8. the CLI requiring `Cluster=N`, preserving the existing default drill-down,
-   and rendering exact path and receipt coordinates.
+8. the CLI requiring `graph cluster N`, preserving focused exact-call
+   drill-down, and rendering exact path and receipt coordinates.
 
 The motivating real package remains `Serilog.Sinks.Console` 6.0.0 against
 `Serilog` 4.0.0. Its selected cluster reaches private

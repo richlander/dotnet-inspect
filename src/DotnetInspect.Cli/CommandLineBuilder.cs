@@ -128,17 +128,20 @@ public static class CommandLineBuilder
         RootCommand rootCommand,
         out string? error)
     {
-        args = ArgumentPreprocessor.NormalizeListOptions(args);
-        ParseResult rawParse = rootCommand.Parse(args);
+        string[] normalizedArgs =
+            ArgumentPreprocessor.NormalizeRepeatedSelect(args);
+        ParseResult rawParse = rootCommand.Parse(normalizedArgs);
         bool isImplicitPackageVersionCandidate =
             ArgumentPreprocessor.IsImplicitPackageCandidate(
-                args,
-                UsesImplicitVersionDirectionPresence(args, rootCommand));
-        string[] ownershipArgs = args;
+                normalizedArgs,
+                UsesImplicitVersionDirectionPresence(
+                    normalizedArgs,
+                    rootCommand));
+        string[] ownershipArgs = normalizedArgs;
         ParseResult ownershipParse = rawParse;
         if (isImplicitPackageVersionCandidate)
         {
-            ownershipArgs = [PackageCommand.Name, .. args];
+            ownershipArgs = [PackageCommand.Name, .. normalizedArgs];
             ownershipParse = rootCommand.Parse(ownershipArgs);
         }
 
@@ -181,7 +184,7 @@ public static class CommandLineBuilder
             processed,
             rootCommand,
             "library",
-            "coordinate");
+            "address");
         if (args.FirstOrDefault()?.StartsWith('-') == true
             && processed.FirstOrDefault() == "router")
         {
@@ -287,7 +290,7 @@ public static class CommandLineBuilder
             return args;
 
         string[] expanded = [.. result];
-        // Let the parser establish which literal `coordinate` token is the child.
+        // Let the parser establish which literal `address` token is the child.
         CommandResult selected = rootCommand.Parse(expanded).CommandResult;
         return selected.Command.Name == childName
             && selected.Parent is CommandResult selectedParent
@@ -300,6 +303,7 @@ public static class CommandLineBuilder
         string[] args,
         RootCommand rootCommand)
     {
+        args = ArgumentPreprocessor.NormalizeRepeatedSelect(args);
         if (args.Length == 0
             || !args[0].StartsWith('-')
             || !args.Any(static argument => argument is "--head" or "--tail"))
@@ -374,6 +378,17 @@ public static class CommandLineBuilder
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
             tailLines: null);
+        // Every command invocation, including each router rewrite, passes through here, so a
+        // valueless section selector is reported once with its guidance rather than as
+        // System.CommandLine's generic missing argument or an unrelated validator error.
+        if (SharedOptions.TryGetMissingSelectorError(
+                parseResult,
+                out string? missingSelectorError))
+        {
+            CommandError.Write(missingSelectorError!);
+            return 1;
+        }
+
         if (rawArgs is not null
             && parseResult.CommandResult.Command.Name == "router"
             && TryGetCommandlessPackageVersionError(
@@ -1040,7 +1055,7 @@ public static class CommandLineBuilder
             CommandError.Write(ex);
             return 1;
         }
-        catch (DotnetInspector.Services.NuspecParseException ex)
+        catch (DotnetInspector.Packages.NuspecParseException ex)
         {
             CommandError.Write(ex);
             return 1;
@@ -1078,6 +1093,9 @@ public static class CommandLineBuilder
 
     internal static string FormatParseError(string message)
     {
+        if (SharedOptions.TryFormatMissingSelectorParseError(message, out string? selectorError))
+            return selectorError!;
+
         if (message.StartsWith("Cannot parse argument '", StringComparison.Ordinal)
             && TryParseCannotParseArgument(
                 message,
@@ -1179,8 +1197,6 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(rootTipsOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
-        var traceMermaidOption = new Option<bool>("--trace-mermaid") { Description = "Write a Mermaid request trace diagram to stderr at process exit" };
-        rootCommand.Options.Add(traceMermaidOption);
         var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
         rootCommand.Options.Add(httpTimeoutOption);
 

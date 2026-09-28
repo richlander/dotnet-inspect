@@ -511,10 +511,13 @@ public sealed class PackageVersionService
     /// </summary>
     private static string? SourceIdentity(ConfiguredPackageAuthority authority)
     {
-        if (authority.PersistentCacheKey is { } local)
-            return local;
+        // An HTTP authority keeps its endpoint identity even when it has a
+        // persistent cache key, so priors written before durable HTTP keys
+        // stay valid.
         if (authority.HttpEndpoint is { } endpoint)
             return "http:" + endpoint.AbsoluteUri.ToLowerInvariant();
+        if (authority.PersistentCacheKey is { } local)
+            return local;
         return null;
     }
 

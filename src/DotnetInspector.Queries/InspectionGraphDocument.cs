@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using Inspector.Graph;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -136,6 +137,30 @@ public abstract record InspectionGraphTypeIdentity
     }
 
     /// <summary>
+    /// One exact metadata type shape, including constructed signatures and
+    /// image-local scopes.
+    /// </summary>
+    public sealed record MetadataShape : InspectionGraphTypeIdentity
+    {
+        public MetadataShape(
+            AssemblyAcquisitionRegistration registration,
+            MetadataTypeIdentity type,
+            MetadataGenericBindingContext? genericContext = null)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            ArgumentNullException.ThrowIfNull(type);
+            Registration = registration;
+            Type = type;
+            GenericContext = genericContext;
+        }
+
+        public AssemblyAcquisitionRegistration Registration { get; }
+        public MetadataTypeIdentity Type { get; }
+        public MetadataGenericBindingContext? GenericContext { get; }
+        public override bool IsPortable => false;
+    }
+
+    /// <summary>
     /// One Integration Census Type interpreted within its exact participant.
     /// </summary>
     public sealed record CensusType : InspectionGraphTypeIdentity
@@ -150,6 +175,14 @@ public abstract record InspectionGraphTypeIdentity
         public override bool IsPortable => false;
     }
 }
+
+/// <summary>
+/// Exact declaration context for generic parameters embedded in one Metadata
+/// type shape.
+/// </summary>
+public sealed record MetadataGenericBindingContext(
+    MetadataTypeDefinitionAddress DeclaringType,
+    MetadataMethodAddress? DeclaringMethod);
 
 /// <summary>Owner-issued identity for one assembly subject.</summary>
 public abstract record InspectionGraphAssemblyIdentity
@@ -288,6 +321,16 @@ public abstract record InspectionGraphSubject
             new InspectionGraphTypeIdentity.AcquiredDefinition(
                 registration,
                 type));
+
+    public static InspectionGraphSubject ForMetadataTypeShape(
+        AssemblyAcquisitionRegistration registration,
+        MetadataTypeIdentity type,
+        MetadataGenericBindingContext? genericContext = null) =>
+        ForType(
+            new InspectionGraphTypeIdentity.MetadataShape(
+                registration,
+                type,
+                genericContext));
 
     public static InspectionGraphSubject ForIntegrationType(
         IntegrationTypeIdentity identity) =>
@@ -492,7 +535,8 @@ public abstract class InspectionGraphOccurrenceIdentityProjection
     }
 
     public static InspectionGraphOccurrenceIdentityProjection
-        SyntheticNoOccurrence { get; } =
+        SyntheticNoOccurrence
+    { get; } =
         new SyntheticNoOccurrenceProjection();
 
     public abstract object Project(
@@ -689,13 +733,13 @@ public sealed class InspectionGraphRelationshipDescriptor
     public ImmutableArray<InspectionGraphSubjectKind> EdgeSourceKinds { get; }
     public ImmutableArray<InspectionGraphSubjectKind> EdgeTargetKinds { get; }
     public ImmutableArray<InspectionGraphSubjectKind> OccurrenceSourceKinds
-        { get; }
+    { get; }
     public ImmutableArray<InspectionGraphSubjectKind> OccurrenceTargetKinds
-        { get; }
+    { get; }
     public ImmutableArray<InspectionGraphSeedAdmission> SeedAdmissions { get; }
     public InspectionGraphEndpointProjection EndpointProjection { get; }
     public InspectionGraphOccurrenceIdentityProjection OccurrenceIdentity
-        { get; }
+    { get; }
     public ImmutableArray<InspectionGraphEvidenceDescriptor> Evidence { get; }
 
     internal bool AdmitsEdgeSource(InspectionGraphSubject subject) =>
@@ -762,178 +806,6 @@ public sealed class InspectionGraphRelationshipDescriptor
                 true,
             _ => false,
         };
-}
-
-/// <summary>Document-local node classification.</summary>
-public enum InspectionGraphNodeRole
-{
-    Unclassified,
-    Ordinary,
-    External,
-    Truncated,
-}
-
-/// <summary>One semantic subject retained as a graph node.</summary>
-public sealed class InspectionGraphNode
-{
-    public InspectionGraphNode(
-        int id,
-        InspectionGraphSubject subject,
-        InspectionGraphNodeRole role,
-        IEnumerable<int> groupIds)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(id);
-        ArgumentNullException.ThrowIfNull(subject);
-        InspectionGraphCollections.RequireDefined(role, nameof(role));
-        Id = id;
-        Subject = subject;
-        Role = role;
-        GroupIds = InspectionGraphCollections.Snapshot(
-            groupIds,
-            nameof(groupIds));
-        if (GroupIds.Distinct().Count() != GroupIds.Length)
-            throw new ArgumentException("Group ids must be distinct.", nameof(groupIds));
-    }
-
-    public int Id { get; }
-    public InspectionGraphSubject Subject { get; }
-    public InspectionGraphNodeRole Role { get; }
-    public ImmutableArray<int> GroupIds { get; }
-}
-
-/// <summary>One typed grouping lens over graph nodes.</summary>
-public sealed class InspectionGraphGroup
-{
-    public InspectionGraphGroup(
-        int id,
-        InspectionGraphSubject subject,
-        int? parentId)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(id);
-        if (parentId is not null)
-            ArgumentOutOfRangeException.ThrowIfNegative(parentId.Value);
-        ArgumentNullException.ThrowIfNull(subject);
-        Id = id;
-        Subject = subject;
-        ParentId = parentId;
-    }
-
-    public int Id { get; }
-    public InspectionGraphSubject Subject { get; }
-    public int? ParentId { get; }
-}
-
-/// <summary>One contribution to a logical graph edge.</summary>
-public sealed class InspectionGraphOccurrence
-{
-    public InspectionGraphOccurrence(
-        int id,
-        InspectionGraphRelationshipDescriptor relationship,
-        InspectionGraphSubject sourceSubject,
-        InspectionGraphSubject targetSubject,
-        IInspectionGraphOccurrenceEvidence evidence,
-        IEnumerable<int> derivedFromOccurrenceIds)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(id);
-        ArgumentNullException.ThrowIfNull(relationship);
-        ArgumentNullException.ThrowIfNull(sourceSubject);
-        ArgumentNullException.ThrowIfNull(targetSubject);
-        ArgumentNullException.ThrowIfNull(evidence);
-        Id = id;
-        Relationship = relationship;
-        SourceSubject = sourceSubject;
-        TargetSubject = targetSubject;
-        Evidence = evidence;
-        DerivedFromOccurrenceIds = InspectionGraphCollections.Snapshot(
-            derivedFromOccurrenceIds,
-            nameof(derivedFromOccurrenceIds));
-        if (DerivedFromOccurrenceIds.Distinct().Count()
-            != DerivedFromOccurrenceIds.Length)
-        {
-            throw new ArgumentException(
-                "Derived occurrence ids must be distinct.",
-                nameof(derivedFromOccurrenceIds));
-        }
-    }
-
-    public int Id { get; }
-    public InspectionGraphRelationshipDescriptor Relationship { get; }
-    public InspectionGraphSubject SourceSubject { get; }
-    public InspectionGraphSubject TargetSubject { get; }
-    public IInspectionGraphOccurrenceEvidence Evidence { get; }
-    public ImmutableArray<int> DerivedFromOccurrenceIds { get; }
-}
-
-/// <summary>One directed logical relationship between two graph nodes.</summary>
-public sealed class InspectionGraphEdge
-{
-    public InspectionGraphEdge(
-        int id,
-        int fromNodeId,
-        int toNodeId,
-        InspectionGraphRelationshipDescriptor relationship,
-        IEnumerable<int> occurrenceIds)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(id);
-        ArgumentOutOfRangeException.ThrowIfNegative(fromNodeId);
-        ArgumentOutOfRangeException.ThrowIfNegative(toNodeId);
-        ArgumentNullException.ThrowIfNull(relationship);
-        Id = id;
-        FromNodeId = fromNodeId;
-        ToNodeId = toNodeId;
-        Relationship = relationship;
-        OccurrenceIds = InspectionGraphCollections.Snapshot(
-            occurrenceIds,
-            nameof(occurrenceIds));
-        if (OccurrenceIds.Distinct().Count() != OccurrenceIds.Length)
-            throw new ArgumentException("Occurrence ids must be distinct.", nameof(occurrenceIds));
-    }
-
-    public int Id { get; }
-    public int FromNodeId { get; }
-    public int ToNodeId { get; }
-    public InspectionGraphRelationshipDescriptor Relationship { get; }
-    public ImmutableArray<int> OccurrenceIds { get; }
-}
-
-/// <summary>The document collection addressed by a graph target.</summary>
-public enum InspectionGraphTargetKind
-{
-    Node,
-    Group,
-    Edge,
-    Occurrence,
-}
-
-/// <summary>A typed document-local characteristic target.</summary>
-public readonly record struct InspectionGraphTarget
-{
-    private readonly bool _initialized;
-
-    private InspectionGraphTarget(InspectionGraphTargetKind kind, int id)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(id);
-        Kind = kind;
-        Id = id;
-        _initialized = true;
-    }
-
-    public InspectionGraphTargetKind Kind { get; }
-    public int Id { get; }
-
-    internal bool IsInitialized => _initialized;
-
-    public static InspectionGraphTarget Node(int id) =>
-        new(InspectionGraphTargetKind.Node, id);
-
-    public static InspectionGraphTarget Group(int id) =>
-        new(InspectionGraphTargetKind.Group, id);
-
-    public static InspectionGraphTarget Edge(int id) =>
-        new(InspectionGraphTargetKind.Edge, id);
-
-    public static InspectionGraphTarget Occurrence(int id) =>
-        new(InspectionGraphTargetKind.Occurrence, id);
 }
 
 /// <summary>The typed storage shape of a characteristic value.</summary>
@@ -1049,15 +921,6 @@ public abstract record InspectionGraphValue
     }
 }
 
-/// <summary>How a characteristic value was established.</summary>
-public enum InspectionGraphCharacteristicDerivationKind
-{
-    Direct,
-    Aggregated,
-    RolledUp,
-    Derived,
-}
-
 /// <summary>A descriptor-owned aggregation rule.</summary>
 public enum InspectionGraphAggregationPolicy
 {
@@ -1130,53 +993,15 @@ public sealed class InspectionGraphCharacteristicDescriptor
     public ImmutableArray<InspectionGraphTargetKind> Targets { get; }
     public ImmutableArray<InspectionQueryDefinition> Prerequisites { get; }
     public ImmutableArray<InspectionGraphCharacteristicDerivationKind>
-        AdmittedDerivations { get; }
+        AdmittedDerivations
+    { get; }
     public InspectionGraphAggregationPolicy Aggregation { get; }
 }
 
-/// <summary>Provenance for one characteristic value.</summary>
-public sealed class InspectionGraphCharacteristicDerivation
-{
-    public InspectionGraphCharacteristicDerivation(
-        InspectionGraphCharacteristicDerivationKind kind,
-        IEnumerable<InspectionGraphTarget> sources)
-    {
-        InspectionGraphCollections.RequireDefined(kind, nameof(kind));
-        Kind = kind;
-        Sources = InspectionGraphCollections.Snapshot(
-            sources,
-            nameof(sources));
-        if (Sources.Distinct().Count() != Sources.Length)
-        {
-            throw new ArgumentException(
-                "Derivation sources must be distinct.",
-                nameof(sources));
-        }
-    }
-
-    public InspectionGraphCharacteristicDerivationKind Kind { get; }
-    public ImmutableArray<InspectionGraphTarget> Sources { get; }
-}
-
-/// <summary>One optional typed value attached to a graph target.</summary>
-public sealed record InspectionGraphCharacteristic(
+/// <summary>Product semantics carried by one graph characteristic.</summary>
+public sealed record InspectionGraphCharacteristicPayload(
     InspectionGraphCharacteristicDescriptor Descriptor,
-    InspectionGraphTarget Target,
-    InspectionGraphValue Value,
-    InspectionGraphCharacteristicDerivation Derivation);
-
-/// <summary>The role one requested subject has in the graph.</summary>
-public enum InspectionGraphSeedRole
-{
-    Primary,
-    Peer,
-}
-
-/// <summary>A requested subject bound to its node or group.</summary>
-public sealed record InspectionGraphSeed(
-    InspectionGraphSubject Subject,
-    InspectionGraphTarget Target,
-    InspectionGraphSeedRole Role);
+    InspectionGraphValue Value);
 
 /// <summary>The L1 identity of one completeness limit.</summary>
 public sealed class InspectionGraphLimitDescriptor
@@ -1212,10 +1037,9 @@ public sealed class InspectionGraphLimitDescriptor
         Evidence.Contains(evidence.Descriptor);
 }
 
-/// <summary>A completeness limit, optionally scoped to one target.</summary>
-public sealed record InspectionGraphLimit(
+/// <summary>Product semantics carried by one graph completeness limit.</summary>
+public sealed record InspectionGraphLimitPayload(
     InspectionGraphLimitDescriptor Descriptor,
-    InspectionGraphTarget? Target = null,
     IInspectionGraphDiagnosticEvidence? Evidence = null);
 
 /// <summary>The L1 identity of one producer failure.</summary>
@@ -1252,20 +1076,10 @@ public sealed class InspectionGraphFailureDescriptor
         Evidence.Contains(evidence.Descriptor);
 }
 
-/// <summary>A visible producer failure, optionally scoped to one target.</summary>
-public sealed record InspectionGraphFailure(
+/// <summary>Product semantics carried by one visible graph failure.</summary>
+public sealed record InspectionGraphFailurePayload(
     InspectionGraphFailureDescriptor Descriptor,
-    InspectionGraphTarget? Target = null,
     IInspectionGraphDiagnosticEvidence? Evidence = null);
-
-/// <summary>
-/// The lifetime authority retained by an inspection graph.
-/// </summary>
-public enum InspectionGraphDocumentScope
-{
-    SessionBound,
-    Portable,
-}
 
 /// <summary>
 /// Immutable, validated L1 graph facts shared by every presentation.
@@ -1288,6 +1102,7 @@ public sealed class InspectionGraphDocument
             modeRequest,
             neighborhoodRequest: null,
             inducedSetRequest: null,
+            focusRequest: null,
             nodes,
             groups,
             edges,
@@ -1317,6 +1132,7 @@ public sealed class InspectionGraphDocument
                     nameof(neighborhoodRequest)),
             neighborhoodRequest,
             inducedSetRequest: null,
+            focusRequest: null,
             nodes,
             groups,
             edges,
@@ -1346,6 +1162,36 @@ public sealed class InspectionGraphDocument
                     nameof(inducedSetRequest)),
             neighborhoodRequest: null,
             inducedSetRequest,
+            focusRequest: null,
+            nodes,
+            groups,
+            edges,
+            occurrences,
+            characteristics,
+            seeds,
+            limits,
+            failures)
+    {
+    }
+
+    internal InspectionGraphDocument(
+        InspectionGraphDocument source,
+        InspectionGraphFocusRequest focusRequest,
+        IEnumerable<InspectionGraphNode> nodes,
+        IEnumerable<InspectionGraphGroup> groups,
+        IEnumerable<InspectionGraphEdge> edges,
+        IEnumerable<InspectionGraphOccurrence> occurrences,
+        IEnumerable<InspectionGraphCharacteristic> characteristics,
+        IEnumerable<InspectionGraphSeed> seeds,
+        IEnumerable<InspectionGraphLimit> limits,
+        IEnumerable<InspectionGraphFailure> failures)
+        : this(
+            source?.Scope
+                ?? throw new ArgumentNullException(nameof(source)),
+            source.ModeRequest,
+            source.NeighborhoodRequest,
+            source.InducedSetRequest,
+            focusRequest,
             nodes,
             groups,
             edges,
@@ -1362,6 +1208,7 @@ public sealed class InspectionGraphDocument
         InspectionGraphModeRequest modeRequest,
         InspectionGraphNeighborhoodRequest? neighborhoodRequest,
         InspectionGraphInducedSetRequest? inducedSetRequest,
+        InspectionGraphFocusRequest? focusRequest,
         IEnumerable<InspectionGraphNode> nodes,
         IEnumerable<InspectionGraphGroup> groups,
         IEnumerable<InspectionGraphEdge> edges,
@@ -1371,12 +1218,11 @@ public sealed class InspectionGraphDocument
         IEnumerable<InspectionGraphLimit> limits,
         IEnumerable<InspectionGraphFailure> failures)
     {
-        InspectionGraphCollections.RequireDefined(scope, nameof(scope));
         ArgumentNullException.ThrowIfNull(modeRequest);
-        Scope = scope;
         ModeRequest = modeRequest;
         NeighborhoodRequest = neighborhoodRequest;
         InducedSetRequest = inducedSetRequest;
+        FocusRequest = focusRequest;
         if (neighborhoodRequest is not null
             && !ReferenceEquals(
                 neighborhoodRequest.ModeRequest,
@@ -1395,6 +1241,15 @@ public sealed class InspectionGraphDocument
                 "An induced-set request must own the document mode request.",
                 nameof(inducedSetRequest));
         }
+        if (focusRequest is not null
+            && !ReferenceEquals(
+                focusRequest.ModeRequest,
+                modeRequest))
+        {
+            throw new ArgumentException(
+                "A focus request must use the document mode request.",
+                nameof(focusRequest));
+        }
         if (modeRequest.InducedSetRule
                 == InspectionGraphInducedSetRule.ExplicitSubjects
             && inducedSetRequest is null)
@@ -1403,35 +1258,23 @@ public sealed class InspectionGraphDocument
                 "Explicit-subject induced mode requires its typed request.",
                 nameof(inducedSetRequest));
         }
-        Nodes = InspectionGraphCollections.Snapshot(nodes, nameof(nodes));
-        Groups = InspectionGraphCollections.Snapshot(groups, nameof(groups));
-        Edges = InspectionGraphCollections.Snapshot(edges, nameof(edges));
-        Occurrences = InspectionGraphCollections.Snapshot(
-            occurrences,
-            nameof(occurrences));
-        Characteristics = InspectionGraphCollections.Snapshot(
-            characteristics,
-            nameof(characteristics));
-        Seeds = InspectionGraphCollections.Snapshot(seeds, nameof(seeds));
-        Limits = InspectionGraphCollections.Snapshot(limits, nameof(limits));
-        Failures = InspectionGraphCollections.Snapshot(
-            failures,
-            nameof(failures));
+        Structure = new GraphDocument<
+            InspectionGraphSubject,
+            InspectionGraphRelationshipDescriptor,
+            IInspectionGraphOccurrenceEvidence,
+            InspectionGraphCharacteristicPayload,
+            InspectionGraphLimitPayload,
+            InspectionGraphFailurePayload>(
+                scope,
+                nodes,
+                groups,
+                edges,
+                occurrences,
+                characteristics,
+                seeds,
+                limits,
+                failures);
 
-        ValidateDenseIds(Nodes, static node => node.Id, nameof(nodes));
-        ValidateDenseIds(Groups, static group => group.Id, nameof(groups));
-        ValidateDenseIds(Edges, static edge => edge.Id, nameof(edges));
-        ValidateDenseIds(
-            Occurrences,
-            static occurrence => occurrence.Id,
-            nameof(occurrences));
-        if (Nodes.Select(static node => node.Subject).Distinct().Count()
-            != Nodes.Length)
-        {
-            throw new ArgumentException(
-                "A semantic subject can appear as at most one node.",
-                nameof(nodes));
-        }
         if (Scope == InspectionGraphDocumentScope.Portable)
             ValidatePortableSubjects();
         foreach (InspectionGraphOccurrence occurrence in Occurrences)
@@ -1439,25 +1282,30 @@ public sealed class InspectionGraphDocument
         foreach (InspectionGraphCharacteristic characteristic
             in Characteristics)
         {
-            ArgumentNullException.ThrowIfNull(characteristic.Descriptor);
-            ArgumentNullException.ThrowIfNull(characteristic.Value);
+            ArgumentNullException.ThrowIfNull(
+                characteristic.Payload.Descriptor);
+            ArgumentNullException.ThrowIfNull(characteristic.Payload.Value);
             ArgumentNullException.ThrowIfNull(characteristic.Derivation);
         }
         foreach (InspectionGraphLimit limit in Limits)
         {
-            ArgumentNullException.ThrowIfNull(limit.Descriptor);
-            if (limit.Evidence is not null)
-                ArgumentNullException.ThrowIfNull(limit.Evidence.Descriptor);
+            ArgumentNullException.ThrowIfNull(limit.Payload.Descriptor);
+            if (limit.Payload.Evidence is not null)
+            {
+                ArgumentNullException.ThrowIfNull(
+                    limit.Payload.Evidence.Descriptor);
+            }
         }
         foreach (InspectionGraphFailure failure in Failures)
         {
-            ArgumentNullException.ThrowIfNull(failure.Descriptor);
-            if (failure.Evidence is not null)
+            ArgumentNullException.ThrowIfNull(failure.Payload.Descriptor);
+            if (failure.Payload.Evidence is not null)
+            {
                 ArgumentNullException.ThrowIfNull(
-                    failure.Evidence.Descriptor);
+                    failure.Payload.Evidence.Descriptor);
+            }
         }
         ValidateDescriptorIds();
-        ValidateGroups();
         ValidateEdgesAndOccurrences();
         ValidateCharacteristics();
         ValidateSeeds();
@@ -1465,42 +1313,29 @@ public sealed class InspectionGraphDocument
         ValidateProjectionRequest();
     }
 
-    public InspectionGraphDocumentScope Scope { get; }
+    public GraphDocument<
+        InspectionGraphSubject,
+        InspectionGraphRelationshipDescriptor,
+        IInspectionGraphOccurrenceEvidence,
+        InspectionGraphCharacteristicPayload,
+        InspectionGraphLimitPayload,
+        InspectionGraphFailurePayload> Structure
+    { get; }
+    public InspectionGraphDocumentScope Scope => Structure.Scope;
     public InspectionGraphModeRequest ModeRequest { get; }
     public InspectionGraphNeighborhoodRequest? NeighborhoodRequest { get; }
     public InspectionGraphInducedSetRequest? InducedSetRequest { get; }
-    public ImmutableArray<InspectionGraphNode> Nodes { get; }
-    public ImmutableArray<InspectionGraphGroup> Groups { get; }
-    public ImmutableArray<InspectionGraphEdge> Edges { get; }
-    public ImmutableArray<InspectionGraphOccurrence> Occurrences { get; }
-    public ImmutableArray<InspectionGraphCharacteristic> Characteristics { get; }
-    public ImmutableArray<InspectionGraphSeed> Seeds { get; }
-    public ImmutableArray<InspectionGraphLimit> Limits { get; }
-    public ImmutableArray<InspectionGraphFailure> Failures { get; }
-
-    private void ValidateGroups()
-    {
-        foreach (InspectionGraphGroup group in Groups)
-        {
-            if (group.ParentId is int parentId)
-            {
-                ValidateId(parentId, Groups.Length, "Group parent");
-                if (parentId == group.Id)
-                    throw new ArgumentException("A group cannot be its own parent.", nameof(Groups));
-            }
-
-        }
-
-        var states = new byte[Groups.Length];
-        for (var id = 0; id < Groups.Length; id++)
-            VisitGroup(id, states);
-
-        foreach (InspectionGraphNode node in Nodes)
-        {
-            foreach (int groupId in node.GroupIds)
-                ValidateId(groupId, Groups.Length, "Node group");
-        }
-    }
+    public InspectionGraphFocusRequest? FocusRequest { get; }
+    public ImmutableArray<InspectionGraphNode> Nodes => Structure.Nodes;
+    public ImmutableArray<InspectionGraphGroup> Groups => Structure.Groups;
+    public ImmutableArray<InspectionGraphEdge> Edges => Structure.Edges;
+    public ImmutableArray<InspectionGraphOccurrence> Occurrences =>
+        Structure.Occurrences;
+    public ImmutableArray<InspectionGraphCharacteristic> Characteristics =>
+        Structure.Characteristics;
+    public ImmutableArray<InspectionGraphSeed> Seeds => Structure.Seeds;
+    public ImmutableArray<InspectionGraphLimit> Limits => Structure.Limits;
+    public ImmutableArray<InspectionGraphFailure> Failures => Structure.Failures;
 
     private void ValidateProjectionRequest()
     {
@@ -1563,12 +1398,12 @@ public sealed class InspectionGraphDocument
         [
             .. Limits.Where(limit =>
                 ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     InspectionGraphInducedSetCatalog.SubjectBound)),
         ];
         if (subjectBounds.Length != 1
             || subjectBounds[0].Target is not null
-            || subjectBounds[0].Evidence
+            || subjectBounds[0].Payload.Evidence
                 is not InspectionGraphInducedSubjectBoundEvidence evidence
             || evidence.SubjectCount
                 != InducedSetRequest.Subjects.Length)
@@ -1600,31 +1435,10 @@ public sealed class InspectionGraphDocument
         }
     }
 
-    private void VisitGroup(int id, byte[] states)
-    {
-        if (states[id] == 2)
-            return;
-        if (states[id] == 1)
-            throw new ArgumentException("Group parents must not form a cycle.", nameof(Groups));
-
-        states[id] = 1;
-        if (Groups[id].ParentId is int parentId)
-            VisitGroup(parentId, states);
-        states[id] = 2;
-    }
-
     private void ValidateEdgesAndOccurrences()
     {
-        var boundOccurrences = new int[Occurrences.Length];
-        var logicalEdges = new HashSet<(
-            int From,
-            int To,
-            InspectionGraphRelationshipDescriptor Relationship)>();
-
         foreach (InspectionGraphEdge edge in Edges)
         {
-            ValidateId(edge.FromNodeId, Nodes.Length, "Edge source node");
-            ValidateId(edge.ToNodeId, Nodes.Length, "Edge target node");
             InspectionGraphSubject source = Nodes[edge.FromNodeId].Subject;
             InspectionGraphSubject target = Nodes[edge.ToNodeId].Subject;
             if (!edge.Relationship.AdmitsEdgeSource(source)
@@ -1632,15 +1446,6 @@ public sealed class InspectionGraphDocument
             {
                 throw new ArgumentException(
                     "An edge endpoint has a subject kind the relationship does not admit.",
-                    nameof(Edges));
-            }
-            if (!logicalEdges.Add((
-                edge.FromNodeId,
-                edge.ToNodeId,
-                edge.Relationship)))
-            {
-                throw new ArgumentException(
-                    "Logical edges must be unique by source, target, and relationship.",
                     nameof(Edges));
             }
             if (edge.OccurrenceIds.IsEmpty
@@ -1654,20 +1459,8 @@ public sealed class InspectionGraphDocument
 
             foreach (int occurrenceId in edge.OccurrenceIds)
             {
-                ValidateId(
-                    occurrenceId,
-                    Occurrences.Length,
-                    "Edge occurrence");
                 InspectionGraphOccurrence occurrence =
                     Occurrences[occurrenceId];
-                if (!ReferenceEquals(
-                    occurrence.Relationship,
-                    edge.Relationship))
-                {
-                    throw new ArgumentException(
-                        "An occurrence relationship must equal its edge relationship.",
-                        nameof(Edges));
-                }
                 if (!edge.Relationship.AdmitsOccurrenceSource(
                         occurrence.SourceSubject)
                     || !edge.Relationship.AdmitsOccurrenceTarget(
@@ -1697,13 +1490,8 @@ public sealed class InspectionGraphDocument
                         "Occurrence evidence is not admitted by its relationship.",
                         nameof(Occurrences));
                 }
-
-                boundOccurrences[occurrenceId]++;
             }
         }
-
-        if (boundOccurrences.Any(static count => count == 0))
-            throw new ArgumentException("Every occurrence must support at least one edge.", nameof(Occurrences));
 
         var occurrenceIdentities =
             new Dictionary<
@@ -1748,40 +1536,7 @@ public sealed class InspectionGraphDocument
                     "Only a derived relationship occurrence can cite source occurrences.",
                     nameof(Occurrences));
             }
-            foreach (int sourceId in occurrence.DerivedFromOccurrenceIds)
-            {
-                ValidateId(
-                    sourceId,
-                    Occurrences.Length,
-                    "Derived source occurrence");
-                if (sourceId == occurrence.Id)
-                    throw new ArgumentException("An occurrence cannot derive from itself.", nameof(Occurrences));
-            }
         }
-
-        var derivationStates = new byte[Occurrences.Length];
-        for (var id = 0; id < Occurrences.Length; id++)
-            VisitOccurrence(id, derivationStates);
-    }
-
-    private void VisitOccurrence(int id, byte[] states)
-    {
-        if (states[id] == 2)
-            return;
-        if (states[id] == 1)
-        {
-            throw new ArgumentException(
-                "Occurrence derivations must not form a cycle.",
-                nameof(Occurrences));
-        }
-
-        states[id] = 1;
-        foreach (int sourceId
-            in Occurrences[id].DerivedFromOccurrenceIds)
-        {
-            VisitOccurrence(sourceId, states);
-        }
-        states[id] = 2;
     }
 
     private void ValidateCharacteristics()
@@ -1792,16 +1547,15 @@ public sealed class InspectionGraphDocument
         foreach (InspectionGraphCharacteristic characteristic
             in Characteristics)
         {
-            ValidateTarget(characteristic.Target);
             if (!identities.Add((
-                characteristic.Descriptor,
+                characteristic.Payload.Descriptor,
                 characteristic.Target)))
             {
                 throw new ArgumentException(
                     "A descriptor can contribute only one value to a target.",
                     nameof(Characteristics));
             }
-            if (!characteristic.Descriptor.Targets.Contains(
+            if (!characteristic.Payload.Descriptor.Targets.Contains(
                 characteristic.Target.Kind))
             {
                 throw new ArgumentException(
@@ -1809,14 +1563,14 @@ public sealed class InspectionGraphDocument
                     nameof(Characteristics));
             }
             if (!ReferenceEquals(
-                characteristic.Value.Descriptor,
-                characteristic.Descriptor.Value))
+                characteristic.Payload.Value.Descriptor,
+                characteristic.Payload.Descriptor.Value))
             {
                 throw new ArgumentException(
                     "A characteristic value does not match its descriptor contract.",
                     nameof(Characteristics));
             }
-            if (!characteristic.Descriptor.AdmittedDerivations.Contains(
+            if (!characteristic.Payload.Descriptor.AdmittedDerivations.Contains(
                 characteristic.Derivation.Kind))
             {
                 throw new ArgumentException(
@@ -1824,87 +1578,23 @@ public sealed class InspectionGraphDocument
                     nameof(Characteristics));
             }
             if (characteristic.Derivation.Kind
-                    == InspectionGraphCharacteristicDerivationKind.Direct
-                && !characteristic.Derivation.Sources.IsEmpty)
-            {
-                throw new ArgumentException(
-                    "A direct characteristic cannot cite derivation sources.",
-                    nameof(Characteristics));
-            }
-            if (characteristic.Derivation.Kind
-                    != InspectionGraphCharacteristicDerivationKind.Direct
-                && characteristic.Derivation.Sources.IsEmpty)
-            {
-                throw new ArgumentException(
-                    "A non-direct characteristic must cite derivation sources.",
-                    nameof(Characteristics));
-            }
-            if (characteristic.Derivation.Kind
                     is InspectionGraphCharacteristicDerivationKind.Aggregated
                         or InspectionGraphCharacteristicDerivationKind.RolledUp
-                && characteristic.Descriptor.Aggregation
+                && characteristic.Payload.Descriptor.Aggregation
                     == InspectionGraphAggregationPolicy.None)
             {
                 throw new ArgumentException(
                     "An aggregate characteristic requires a descriptor-owned aggregation policy.",
                     nameof(Characteristics));
             }
-            if (characteristic.Derivation.Kind
-                    == InspectionGraphCharacteristicDerivationKind.Aggregated
-                && characteristic.Derivation.Sources.Any(
-                    static source =>
-                        source.Kind
-                            != InspectionGraphTargetKind.Occurrence))
-            {
-                throw new ArgumentException(
-                    "An aggregated characteristic must cite occurrences.",
-                    nameof(Characteristics));
-            }
-            if (characteristic.Derivation.Kind
-                    == InspectionGraphCharacteristicDerivationKind.RolledUp
-                && characteristic.Derivation.Sources.Any(
-                    static source =>
-                        source.Kind is not (
-                            InspectionGraphTargetKind.Node
-                            or InspectionGraphTargetKind.Group)))
-            {
-                throw new ArgumentException(
-                    "A rolled-up characteristic must cite subject nodes or groups.",
-                    nameof(Characteristics));
-            }
-            foreach (InspectionGraphTarget source
-                in characteristic.Derivation.Sources)
-                ValidateTarget(source);
         }
     }
 
     private void ValidateSeeds()
     {
-        var targets = new HashSet<InspectionGraphTarget>();
         var primaryCount = 0;
         foreach (InspectionGraphSeed seed in Seeds)
         {
-            ArgumentNullException.ThrowIfNull(seed.Subject);
-            InspectionGraphCollections.RequireDefined(
-                seed.Role,
-                nameof(seed.Role));
-            if (seed.Target.Kind is not (
-                InspectionGraphTargetKind.Node
-                or InspectionGraphTargetKind.Group))
-            {
-                throw new ArgumentException(
-                    "A seed must target a node or group.",
-                    nameof(Seeds));
-            }
-            ValidateTarget(seed.Target);
-            InspectionGraphSubject targetSubject =
-                seed.Target.Kind == InspectionGraphTargetKind.Node
-                    ? Nodes[seed.Target.Id].Subject
-                    : Groups[seed.Target.Id].Subject;
-            if (seed.Subject != targetSubject)
-                throw new ArgumentException("A seed subject must equal its target subject.", nameof(Seeds));
-            if (!targets.Add(seed.Target))
-                throw new ArgumentException("A target can have only one seed role.", nameof(Seeds));
             if (seed.Role == InspectionGraphSeedRole.Primary)
                 primaryCount++;
         }
@@ -1959,17 +1649,15 @@ public sealed class InspectionGraphDocument
             InspectionGraphTarget? Target)>();
         foreach (InspectionGraphLimit limit in Limits)
         {
-            ArgumentNullException.ThrowIfNull(limit.Descriptor);
-            if (limit.Target is InspectionGraphTarget target)
-                ValidateTarget(target);
-            if (limit.Evidence is not null
-                && !limit.Descriptor.AdmitsEvidence(limit.Evidence))
+            if (limit.Payload.Evidence is not null
+                && !limit.Payload.Descriptor.AdmitsEvidence(
+                    limit.Payload.Evidence))
             {
                 throw new ArgumentException(
                     "Limit evidence is not admitted by its descriptor.",
                     nameof(Limits));
             }
-            if (!limits.Add((limit.Descriptor, limit.Target)))
+            if (!limits.Add((limit.Payload.Descriptor, limit.Target)))
                 throw new ArgumentException("Limits must be distinct.", nameof(Limits));
         }
 
@@ -1978,35 +1666,17 @@ public sealed class InspectionGraphDocument
             InspectionGraphTarget? Target)>();
         foreach (InspectionGraphFailure failure in Failures)
         {
-            ArgumentNullException.ThrowIfNull(failure.Descriptor);
-            if (failure.Target is InspectionGraphTarget target)
-                ValidateTarget(target);
-            if (failure.Evidence is not null
-                && !failure.Descriptor.AdmitsEvidence(failure.Evidence))
+            if (failure.Payload.Evidence is not null
+                && !failure.Payload.Descriptor.AdmitsEvidence(
+                    failure.Payload.Evidence))
             {
                 throw new ArgumentException(
                     "Failure evidence is not admitted by its descriptor.",
                     nameof(Failures));
             }
-            if (!failures.Add((failure.Descriptor, failure.Target)))
+            if (!failures.Add((failure.Payload.Descriptor, failure.Target)))
                 throw new ArgumentException("Failures must be distinct.", nameof(Failures));
         }
-    }
-
-    private void ValidateTarget(InspectionGraphTarget target)
-    {
-        if (!target.IsInitialized)
-            throw new ArgumentException("A graph target must be initialized.", nameof(target));
-
-        int count = target.Kind switch
-        {
-            InspectionGraphTargetKind.Node => Nodes.Length,
-            InspectionGraphTargetKind.Group => Groups.Length,
-            InspectionGraphTargetKind.Edge => Edges.Length,
-            InspectionGraphTargetKind.Occurrence => Occurrences.Length,
-            _ => throw new ArgumentOutOfRangeException(nameof(target)),
-        };
-        ValidateId(target.Id, count, "Graph target");
     }
 
     private void ValidateDescriptorIds()
@@ -2025,50 +1695,52 @@ public sealed class InspectionGraphDocument
                 .Concat(Occurrences.SelectMany(static occurrence =>
                     occurrence.Relationship.Evidence))
                 .Concat(Limits.SelectMany(static limit =>
-                    limit.Descriptor.Evidence))
+                    limit.Payload.Descriptor.Evidence))
                 .Concat(Failures.SelectMany(static failure =>
-                    failure.Descriptor.Evidence))
+                    failure.Payload.Descriptor.Evidence))
                 .Concat(Occurrences.Select(
                     static occurrence =>
                         occurrence.Evidence.Descriptor))
                 .Concat(Limits
-                    .Where(static limit => limit.Evidence is not null)
+                    .Where(static limit =>
+                        limit.Payload.Evidence is not null)
                     .Select(static limit =>
-                        limit.Evidence!.Descriptor))
+                        limit.Payload.Evidence!.Descriptor))
                 .Concat(Failures
-                    .Where(static failure => failure.Evidence is not null)
+                    .Where(static failure =>
+                        failure.Payload.Evidence is not null)
                     .Select(static failure =>
-                        failure.Evidence!.Descriptor))
+                        failure.Payload.Evidence!.Descriptor))
                 .Select(static descriptor => (
                     descriptor.Id,
                     (object)descriptor)),
             "evidence");
         ValidateDescriptorIds(
             Characteristics.Select(static characteristic => (
-                characteristic.Descriptor.Id,
-                (object)characteristic.Descriptor)),
+                characteristic.Payload.Descriptor.Id,
+                (object)characteristic.Payload.Descriptor)),
             "characteristic");
         ValidateDescriptorIds(
             Characteristics.SelectMany(static characteristic =>
                 new[]
                 {
                     (
-                        characteristic.Descriptor.Value.Id,
-                        (object)characteristic.Descriptor.Value),
+                        characteristic.Payload.Descriptor.Value.Id,
+                        (object)characteristic.Payload.Descriptor.Value),
                     (
-                        characteristic.Value.Descriptor.Id,
-                        (object)characteristic.Value.Descriptor),
+                        characteristic.Payload.Value.Descriptor.Id,
+                        (object)characteristic.Payload.Value.Descriptor),
                 }),
             "value");
         ValidateDescriptorIds(
             Limits.Select(static limit => (
-                limit.Descriptor.Id,
-                (object)limit.Descriptor)),
+                limit.Payload.Descriptor.Id,
+                (object)limit.Payload.Descriptor)),
             "limit");
         ValidateDescriptorIds(
             Failures.Select(static failure => (
-                failure.Descriptor.Id,
-                (object)failure.Descriptor)),
+                failure.Payload.Descriptor.Id,
+                (object)failure.Payload.Descriptor)),
             "failure");
     }
 
@@ -2090,27 +1762,6 @@ public sealed class InspectionGraphDocument
         }
     }
 
-    private static void ValidateDenseIds<T>(
-        ImmutableArray<T> values,
-        Func<T, int> getId,
-        string parameterName)
-    {
-        for (var index = 0; index < values.Length; index++)
-        {
-            if (getId(values[index]) != index)
-            {
-                throw new ArgumentException(
-                    "Document-local ids must be dense, zero-based, and ordered.",
-                    parameterName);
-            }
-        }
-    }
-
-    private static void ValidateId(int id, int count, string name)
-    {
-        if ((uint)id >= (uint)count)
-            throw new ArgumentException($"{name} id {id} is outside the document.");
-    }
 }
 
 static class InspectionGraphCollections

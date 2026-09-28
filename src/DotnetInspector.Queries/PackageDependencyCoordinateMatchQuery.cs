@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Queries;
 
 /// <summary>The provenance of one loaded candidate for a declared NuGet dependency.</summary>

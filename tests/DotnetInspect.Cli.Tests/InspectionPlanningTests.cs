@@ -56,9 +56,9 @@ public sealed class InspectionPlanningTests
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.Library)),
                 (
-                    StructuralViewIdentity.LibraryCoordinate,
-                    "library coordinate",
-                    "coordinate",
+                    StructuralViewIdentity.LibraryAddress,
+                    "library address",
+                    "address",
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.Library)),
                 (
@@ -103,10 +103,10 @@ public sealed class InspectionPlanningTests
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.DirectLibrary,
                     InspectionCatalogIdentity.Library));
-        StructuralSchemaProjection coordinate =
+        StructuralSchemaProjection address =
             StructuralViewRegistry.Project(
                 StructuralViewRegistry.Route(
-                    StructuralViewIdentity.LibraryCoordinate,
+                    StructuralViewIdentity.LibraryAddress,
                     InspectionCatalogIdentity.Library));
 
         Assert.Contains(
@@ -123,13 +123,13 @@ public sealed class InspectionPlanningTests
             directLibrary.Schema.SectionNames);
         Assert.Contains(
             SectionNames.ILOffset,
-            coordinate.Schema.SectionNames);
+            address.Schema.SectionNames);
         Assert.Contains(
             MetadataSectionNames.Heap,
-            coordinate.Schema.SectionNames);
+            address.Schema.SectionNames);
         Assert.DoesNotContain(
             SectionNames.BodyShapes,
-            coordinate.Schema.SectionNames);
+            address.Schema.SectionNames);
         Assert.DoesNotContain(
             SectionNames.ILOffset,
             packageLibrary.Schema.SectionNames);
@@ -1519,80 +1519,6 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessStaticSchema_BareSelectNarrowsEveryAlternative()
-    {
-        var complete = await RunAppAsync(
-            "Missing.Type.Run",
-            "-D",
-            "--schema",
-            "--table",
-            "--tips",
-            "q");
-        var selected = await RunAppAsync(
-            "Missing.Type.Run",
-            "-D",
-            "--schema",
-            "-S",
-            "--table",
-            "--tips",
-            "q");
-
-        Assert.Equal(0, complete.Exit);
-        Assert.Equal(0, selected.Exit);
-        Assert.True(
-            selected.Output.Split('\n').Length
-            < complete.Output.Split('\n').Length);
-        Assert.DoesNotContain(
-            "section (verbose)",
-            selected.Output);
-        Assert.Contains(
-            "[type/type/ApiMember]",
-            selected.Output);
-        Assert.Empty(complete.Error);
-        Assert.Empty(selected.Error);
-    }
-
-    [Fact]
-    public async Task StaticSchema_BareSelectUsesRouteSpecificApiMemberDefaults()
-    {
-        string[] common =
-        [
-            "MissingGeneric<T>",
-            "--package",
-            "Missing.Package",
-            "-D",
-            "--schema",
-            "-S",
-            "--table",
-            "--tips",
-            "q",
-        ];
-
-        var type = await RunAppAsync(["type", .. common]);
-        var member = await RunAppAsync(["member", .. common]);
-        var commandless = await RunAppAsync(
-            [
-                "MissingGeneric<T>",
-                "-D",
-                "--schema",
-                "-S",
-                "--table",
-                "--tips",
-                "q",
-            ]);
-
-        Assert.Equal(0, type.Exit);
-        Assert.Equal(0, member.Exit);
-        Assert.Equal(type, commandless);
-        Assert.Contains(SectionNames.TypeInfo, type.Output);
-        Assert.DoesNotContain(SectionNames.MethodGroups, type.Output);
-        Assert.Contains(SectionNames.MethodGroups, member.Output);
-        Assert.DoesNotContain(SectionNames.TypeInfo, member.Output);
-        Assert.Empty(type.Error);
-        Assert.Empty(member.Error);
-    }
-
-    [Fact]
     public async Task StaticMemberBodyShapes_RequiresExactMemberCatalog()
     {
         var result = await RunAppAsync(
@@ -1890,6 +1816,45 @@ public sealed class InspectionPlanningTests
                 SectionTerminalCapability.Count,
             ],
             aggregateDeclaration.Terminals);
+    }
+
+    [Fact]
+    public void TypeListingStructuralRouteDeclaresInventoryCardinality()
+    {
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Type,
+                    InspectionCatalogIdentity.ApiType));
+
+        Assert.False(
+            projection.SectionCardinalities?.ContainsKey(
+                SectionNames.ApiInfo));
+
+        foreach (string section in new[]
+                 {
+                     SectionNames.Classes,
+                     SectionNames.Structs,
+                     SectionNames.Interfaces,
+                     SectionNames.Enums,
+                     SectionNames.Delegates,
+                     SectionNames.TypeForwarders,
+                     SectionNames.InspectionFailures,
+                 })
+        {
+            SectionCardinalityDeclaration inventory =
+                Assert.IsType<SectionCardinalityDeclaration>(
+                    projection.SectionCardinalities?[section]);
+            Assert.Equal(
+                SectionSemanticShape.Inventory,
+                inventory.Shape);
+            Assert.Equal(
+                [
+                    SectionTerminalCapability.Rows,
+                    SectionTerminalCapability.Count,
+                ],
+                inventory.Terminals);
+        }
     }
 
     [Fact]
@@ -2960,11 +2925,19 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
+            SectionNames.Source,
+            result.Output);
+        Assert.Contains(
             SectionNames.DecompiledSource,
             result.Output);
-        Assert.Contains(SectionNames.IL, result.Output);
+        Assert.Contains(
+            SectionNames.PdbSource,
+            result.Output);
         Assert.DoesNotContain(
             SectionNames.AnnotatedSource,
+            result.Output);
+        Assert.DoesNotContain(
+            SectionNames.IL,
             result.Output);
         Assert.Empty(result.Error);
     }

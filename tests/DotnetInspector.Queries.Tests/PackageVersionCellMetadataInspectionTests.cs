@@ -744,7 +744,8 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 initialPayload,
                 failures: [],
                 reportingAuthorities: [authority],
-                selectionUsesOriginalSources: true);
+                selectionUsesOriginalSources: true,
+                transfer: PackageTransferReceipt.Cache);
             AcquiredPackageSourcePayload payload =
                 Assert.IsType<AcquiredPackageSourcePayload>(
                     sourcePayload.Payload);
@@ -753,7 +754,8 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 authority,
                 source,
                 payload.Origin,
-                payload.Content.GenerationIdentity);
+                payload.Content.GenerationIdentity,
+                PackageTransferReceipt.Cache);
             PackageCompileAssetSelectionReceipt selection =
                 PackageCompileAssetSelector.Evaluate(
                     payload.Content,

@@ -141,33 +141,26 @@ public partial class PackageCommand
         PackageExtractionResult extraction,
         InspectionOptions options)
     {
+        var packageReference = isLocalFile
+            ? packageArg
+            : !string.IsNullOrWhiteSpace(version)
+                ? $"{packageName}@{version}"
+                : packageName;
         if (!Directory.EnumerateFiles(
+                    extractPath,
+                    "*.dll",
+                    SearchOption.AllDirectories).Any()
+            && LibraryCommand.GetToolPayloadPackageId(
                 extractPath,
-                "*.dll",
-                SearchOption.AllDirectories).Any())
+                packageName) is not null)
         {
-            LibraryCommand.ToolPayloadResolution payload =
-                await LibraryCommand.TryResolveToolPayloadPackageAsync(
-                    extraction,
-                    target,
-                    options.SourceOptions,
-                    logger,
-                    httpClient).ConfigureAwait(false);
-            if (payload.Error is not null)
-            {
-                CommandError.Write(payload.Error);
-                return 1;
-            }
-
-            if (payload.Result is not null)
-            {
-                extraction = payload.Result;
-                extractPath = extraction.ExtractPath;
-                packageName = extraction.PackageName
-                    ?? packageName;
-                version = extraction.Version
-                    ?? version;
-            }
+            return await LibraryCommand.ExecuteResolvedPackageAsync(
+                CreateLibraryOptions(
+                    options.PackageLibrary,
+                    packageReference,
+                    options,
+                    options.Tfm),
+                extraction).ConfigureAwait(false);
         }
 
         var selected = ResolvePackageLibrary(
@@ -178,12 +171,6 @@ public partial class PackageCommand
             options);
         if (selected == null)
             return 1;
-
-        var packageReference = isLocalFile
-            ? packageArg
-            : !string.IsNullOrWhiteSpace(version)
-                ? $"{packageName}@{version}"
-                : packageName;
 
         return await LibraryCommand.ExecuteResolvedPackageAsync(
             CreateLibraryOptions(
@@ -326,6 +313,8 @@ public partial class PackageCommand
         }
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(commandDemand: commandQueryDemand);
+        bool readLibraryDocument =
+            LibraryMetadataService.WantsLibraryDocument(sectionPlan, libraryOptions);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -495,7 +484,8 @@ public partial class PackageCommand
                         assemblyReference
                         ?? subject.AssemblyReference,
                     integrationsEntry: integrations,
-                    integrationOpportunitiesEntry: opportunities);
+                    integrationOpportunitiesEntry: opportunities,
+                    readLibraryDocument: readLibraryDocument);
             }
 
             LibraryInspection? inspection;
@@ -767,14 +757,6 @@ public partial class PackageCommand
                             integrations,
                             opportunities)
                         .ConfigureAwait(false);
-                if (inspection is not null
-                    && retainedAssembly?.Registration
-                        .ArtifactRegistration is not null)
-                {
-                    inspection.LastModified =
-                        File.GetLastWriteTimeUtc(path);
-                }
-
                 return inspection;
             });
     }
@@ -918,15 +900,26 @@ public partial class PackageCommand
             ReferenceHierarchyDepth = options.ReferenceHierarchyDepth,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = selectedTargetFramework ?? options.Tfm,
+            TypeNamespace = options.TypeNamespace,
+            IncludeNamespaceChildren =
+                options.IncludeNamespaceChildren,
             TypeFilter = options.TypeFilter,
+            AddressRequest =
+                options.LibraryAddressRequest,
+            AddressRowSelection =
+                options.LibraryAddressRowSelection,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,
+            EnvelopeOutput = options.EnvelopeOutput,
+            CompactJson = options.CompactJson,
             PlainText = options.Format == OutputFormat.PlainText,
             Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet =
+                options.FormatFlagExplicitlySet,
             Format = options.Format,
             Verbose = options.Verbose,
             Trace = options.Trace,
@@ -1717,6 +1710,7 @@ public partial class PackageCommand
                      ("Deterministic", info.Deterministic ? "Yes" : "No"),
                      ("Ecosystem Dependencies", info.EcosystemDependencies),
                      ("Ecosystem Dependency Status", info.EcosystemDependencyStatus),
+                     ("Enabled", info.Enabled),
                      ("Extension Methods", info.ExtensionMethods),
                      ("Facade", info.Facade switch
                      {
@@ -1727,12 +1721,12 @@ public partial class PackageCommand
                      ("File Size", info.FileSize),
                      ("Informational Version", info.InformationalVersion),
                      ("Integrations", info.Integrations),
+                     ("Library Document", info.LibraryDocument),
                      ("Methods", info.Methods),
-                     ("Modified", info.Modified),
                      ("Name", info.Name),
                      ("Product", info.Product),
                      ("Public Key Token", info.PublicKeyToken),
-                     ("Reproducible", info.Reproducible ? "Yes" : "No"),
+                     ("Reproducible", info.Reproducible),
                      ("Resources", info.Resources),
                      ("Signed", info.Signed),
                      ("Source", info.Source),

@@ -9,6 +9,128 @@ namespace DotnetInspector.Queries.Tests;
 public sealed partial class WorkspaceContextLoaderTests
 {
     [Fact]
+    public async Task TypeLocatorInspection_ExecutesResidentQueryInEnvelope()
+    {
+        byte[] image =
+            LocatorImage(
+                "Same",
+                metadata =>
+                    LocatorDefinition(
+                        metadata,
+                        "N",
+                        "Widget"));
+        await using var workspace = new InspectionWorkspace();
+        _ = await LocatorContext(workspace, image);
+
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            await TypeDeclarationLocatorInspection.ExecuteAsync(
+                workspace,
+                [
+                    new TypeDeclarationLocatorRequest.Pattern(
+                        "Widget"),
+                ],
+                new TypeDeclarationLocatorSectionPlan(
+                    RowSelectionIntent<string>.Empty,
+                    TypeDeclarationVisibilityPlan.Default),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var result =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                inspection.Content);
+        TypeDeclarationLocatorSectionCandidate candidate =
+            Assert.Single(Assert.Single(result.Answers).Candidates);
+        Assert.Equal("N.Widget", candidate.Name.ToMetadataFullName());
+        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task TypeLocatorInspection_RetainsRejectedResultAndDiagnostic()
+    {
+        await using var workspace = new InspectionWorkspace();
+
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            await TypeDeclarationLocatorInspection.ExecuteAsync(
+                workspace,
+                [],
+                TypeDeclarationLocatorSectionPlan.All,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var rejected =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Rejected>(
+                inspection.Content);
+        Assert.Equal(
+            TypeDeclarationLocatorRejectionKind.EmptyRequests,
+            rejected.RejectionKind);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(inspection.Diagnostics);
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Error,
+            diagnostic.Severity);
+        Assert.Contains(
+            nameof(TypeDeclarationLocatorRejectionKind.EmptyRequests),
+            diagnostic.Correspondence!.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        TypeLocatorSection_NamespaceRequestAndModuleIdentitySerialize()
+    {
+        byte[] image =
+            LocatorImage(
+                "Namespace",
+                metadata =>
+                    LocatorDefinition(
+                        metadata,
+                        "N.Child",
+                        "Widget"));
+        await using var workspace = new InspectionWorkspace();
+        _ = await LocatorContext(workspace, image);
+
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
+            await TypeDeclarationLocatorInspection.ExecuteAsync(
+                workspace,
+                [
+                    new TypeDeclarationLocatorRequest.Namespace(
+                        "N",
+                        MetadataNamespaceMatch.ExactOrDescendant),
+                ],
+                TypeDeclarationLocatorSectionPlan.All,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var result =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                inspection.Content);
+        TypeDeclarationLocatorSectionCandidate candidate =
+            Assert.Single(Assert.Single(result.Answers).Candidates);
+        Assert.NotEqual(Guid.Empty, candidate.ModuleVersionId);
+
+        using JsonDocument document = JsonDocument.Parse(
+            TypeDeclarationLocatorSectionJson.Serialize(result));
+        JsonElement answer =
+            document.RootElement.GetProperty("answers")[0];
+        Assert.Equal(
+            "namespace",
+            answer.GetProperty("request")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Equal(
+            "ExactOrDescendant",
+            answer.GetProperty("request")
+                .GetProperty("match")
+                .GetString());
+        Assert.Equal(
+            candidate.ModuleVersionId,
+            answer.GetProperty("candidates")[0]
+                .GetProperty("module_version_id")
+                .GetGuid());
+    }
+
+    [Fact]
     public async Task TypeLocatorSection_VectorsRetainCoverageAndTypedIdentity()
     {
         byte[] image =

@@ -7,101 +7,6 @@ namespace ILInspector.Analysis;
 
 static class ArrayPoolUseClassifier
 {
-    internal static void AddCandidate(
-        ImmutableArray<LeakTriageCandidate>.Builder candidates,
-        MethodIdentity method,
-        string shape,
-        string evidence,
-        int? rentOffset,
-        int? ilOffset)
-        => candidates.Add(new LeakTriageCandidate(method, shape, evidence, rentOffset, ilOffset));
-
-    internal static IEnumerable<RentedLocal> FindRents(
-        MethodIdentity method,
-        ImmutableArray<DecodedInstruction> instructions,
-        BlockGraph graph,
-        ReachingDefinitionsResult reaching,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        ImmutableArray<LeakTriageCandidate>.Builder candidates)
-    {
-        foreach (var instruction in instructions)
-        {
-            if (!calls.TryGetValue(instruction.Offset, out var callee) || !IsArrayPoolRent(callee))
-                continue;
-            if (!RentUsesSharedReceiver(instructions, graph, calls, instruction.Offset))
-            {
-                AddCandidate(
-                    candidates,
-                    method,
-                    "ownership-transfer-suppressed",
-                    $"ArrayPool<T>.Rent at IL_{instruction.Offset:X4} does not use the Shared receiver.",
-                    instruction.Offset,
-                    instruction.Offset);
-                continue;
-            }
-            if (!TryFindNextNonNop(instructions, instruction.NextOffset, out var store)
-                || !TryReadStoreLocal(store, out int slot))
-            {
-                AddCandidate(
-                    candidates,
-                    method,
-                    "ownership-transfer-suppressed",
-                    $"ArrayPool<T>.Shared.Rent at IL_{instruction.Offset:X4} is not stored to a modeled local.",
-                    instruction.Offset,
-                    instruction.Offset);
-                continue;
-            }
-
-            var definition = reaching.Definitions.FirstOrDefault(d =>
-                !d.IsArgument && d.Slot == slot && d.Offset == store.Offset);
-            if (definition is null)
-            {
-                AddCandidate(
-                    candidates,
-                    method,
-                    "incomplete-cfg-or-rd-suppressed",
-                    $"ArrayPool<T>.Shared.Rent local definition at IL_{store.Offset:X4} is missing from reaching definitions.",
-                    instruction.Offset,
-                    store.Offset);
-                continue;
-            }
-
-            yield return new RentedLocal(
-                instruction.Offset,
-                store.Offset,
-                slot,
-                definition,
-                callee.ReturnType);
-        }
-    }
-
-    static bool RentUsesSharedReceiver(
-        ImmutableArray<DecodedInstruction> instructions,
-        BlockGraph graph,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int rentOffset)
-    {
-        int blockIndex = graph.BlockIndexAt(rentOffset);
-        if (blockIndex < 0)
-            return false;
-        var block = graph.Blocks[blockIndex];
-        for (int i = instructions.Length - 1, inspected = 0; i >= 0; i--)
-        {
-            var instruction = instructions[i];
-            if (instruction.Offset < block.Start)
-                return false;
-            if (instruction.Offset >= rentOffset || instruction.OpCode == ILOpCode.Nop)
-                continue;
-            if (calls.TryGetValue(instruction.Offset, out var callee))
-                return IsArrayPoolSharedGetter(callee);
-            if (!IsSimpleArgumentPush(instruction.OpCode))
-                return false;
-            if (++inspected > 4)
-                return false;
-        }
-        return false;
-    }
-
     internal static UseClassification ClassifyUse(
         ImmutableArray<DecodedInstruction> instructions,
         IReadOnlyDictionary<int, MemberRef> calls,
@@ -172,7 +77,7 @@ static class ArrayPoolUseClassifier
                 return UseClassification.CrossMethod(
                     $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
                     IsNonThrowingSetupBoundary(callee, valueType),
-                    new ArrayPoolExceptionBoundary(instruction.Offset, callee),
+                    new ResourceExceptionBoundary(instruction.Offset, callee),
                     parameterIndex);
             }
             return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
@@ -181,100 +86,37 @@ static class ArrayPoolUseClassifier
         return UseClassification.OwnershipTransfer("Rented array use reaches the end of the instruction stream.");
     }
 
-    internal static IReadOnlyDictionary<int, MemberRef> BuildCallMap(
-        ImmutableArray<DecodedInstruction> instructions,
-        Func<int, MemberRef> resolveMethod)
-    {
-        var calls = new Dictionary<int, MemberRef>();
-        foreach (var instruction in instructions)
-        {
-            if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj))
-                continue;
-            MemberRef member =
-                resolveMethod(
-                    checked((int)instruction.OperandValue));
-            if (member.Kind == MemberKind.Unsupported)
-            {
-                throw new BadImageFormatException(
-                    "Method operand could not be resolved.");
-            }
-            calls[instruction.Offset] = member;
-        }
-        return calls;
-    }
-
     internal static bool TryFindNextNonNop(ImmutableArray<DecodedInstruction> instructions, int offset, out DecodedInstruction instruction)
-    {
-        foreach (var candidate in instructions)
-        {
-            if (candidate.Offset < offset || candidate.OpCode == ILOpCode.Nop)
-                continue;
-            instruction = candidate;
-            return true;
-        }
-        instruction = default!;
-        return false;
-    }
+        => OwnershipValueFlowInstructions.TryFindNextNonNop(
+            instructions,
+            offset,
+            out instruction);
 
     internal static bool TryFindInstruction(ImmutableArray<DecodedInstruction> instructions, int offset, out int index, out DecodedInstruction instruction)
-    {
-        for (int i = 0; i < instructions.Length; i++)
-        {
-            if (instructions[i].Offset != offset)
-                continue;
-            index = i;
-            instruction = instructions[i];
-            return true;
-        }
-        index = -1;
-        instruction = default!;
-        return false;
-    }
+        => OwnershipValueFlowInstructions.TryFindInstruction(
+            instructions,
+            offset,
+            out index,
+            out instruction);
 
     internal static bool TryReadStoreLocal(DecodedInstruction instruction, out int slot)
-    {
-        slot = instruction.OpCode switch
-        {
-            ILOpCode.Stloc_0 => 0,
-            ILOpCode.Stloc_1 => 1,
-            ILOpCode.Stloc_2 => 2,
-            ILOpCode.Stloc_3 => 3,
-            ILOpCode.Stloc_s or ILOpCode.Stloc => checked((int)instruction.OperandValue),
-            _ => -1,
-        };
-        return slot >= 0;
-    }
-
-    static bool IsLoadLocal(DecodedInstruction instruction, int slot)
-        => instruction.OpCode switch
-        {
-            ILOpCode.Ldloc_0 => slot == 0,
-            ILOpCode.Ldloc_1 => slot == 1,
-            ILOpCode.Ldloc_2 => slot == 2,
-            ILOpCode.Ldloc_3 => slot == 3,
-            ILOpCode.Ldloc_s or ILOpCode.Ldloc => instruction.OperandValue == slot,
-            _ => false,
-        };
+        => OwnershipValueFlowInstructions.TryReadStoreLocal(
+            instruction,
+            out slot);
 
     internal static bool IsLoadLocalOrAddress(
         DecodedInstruction instruction,
         int slot)
-        => IsLoadLocal(instruction, slot)
-            || (TryReadLoadLocalAddress(instruction, out int addressSlot)
-                && addressSlot == slot);
+        => OwnershipValueFlowInstructions.IsLoadLocalOrAddress(
+            instruction,
+            slot);
 
     internal static bool TryReadLoadLocalAddress(
         DecodedInstruction instruction,
-        out int slot)
-    {
-        slot = instruction.OpCode switch
-        {
-            ILOpCode.Ldloca_s or ILOpCode.Ldloca =>
-                checked((int)instruction.OperandValue),
-            _ => -1,
-        };
-        return slot >= 0;
-    }
+        out int slot) =>
+        OwnershipValueFlowInstructions.TryReadLoadLocalAddress(
+            instruction,
+            out slot);
 
     static bool IsLoadSlotOrAddress(
         DecodedInstruction instruction,
@@ -295,14 +137,7 @@ static class ArrayPoolUseClassifier
             : IsLoadLocalOrAddress(instruction, slot);
 
     internal static bool IsSimpleArgumentPush(ILOpCode opcode)
-        => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
-            or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
-            or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4
-            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-            or ILOpCode.Ldarg_s or ILOpCode.Ldarg
-            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloc
-            or ILOpCode.Ldnull;
+        => OwnershipValueFlowInstructions.IsSimpleArgumentPush(opcode);
 
     static bool IsElementRead(ILOpCode opcode)
         => opcode is ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
@@ -321,15 +156,6 @@ static class ArrayPoolUseClassifier
         => opcode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
             or ILOpCode.Stloc_s or ILOpCode.Stloc;
 
-    internal static bool IsArrayPoolRent(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "Rent"
-           && member.HasThis
-           && member.ParameterTypes.Length == 1
-           && FrameworkIdentity.IsCoreLibraryType(member.ParameterTypes[0], "System", "Int32")
-           && member.ReturnType.Kind == TypeRefKind.SzArray
-           && IsArrayPoolType(member.DeclaringType);
-
     static bool IsArrayPoolReturn(MemberRef member)
         => member.Kind != MemberKind.Unsupported
            && member.Name == "Return"
@@ -338,14 +164,6 @@ static class ArrayPoolUseClassifier
            && member.ParameterTypes.Length is 1 or 2
            && member.ParameterTypes[0].Kind == TypeRefKind.SzArray
            && IsArrayPoolType(member.DeclaringType);
-
-    static bool IsArrayPoolSharedGetter(MemberRef member)
-        => member.Kind != MemberKind.Unsupported
-           && member.Name == "get_Shared"
-           && !member.HasThis
-           && member.ParameterTypes.Length == 0
-           && IsArrayPoolType(member.DeclaringType)
-           && IsArrayPoolType(member.ReturnType);
 
     static bool IsArrayPoolType(TypeRef type)
         => FrameworkIdentity.IsKnownFrameworkType(type, "System.Buffers", "System.Buffers", "ArrayPool`1")
@@ -448,13 +266,6 @@ static class ArrayPoolUseClassifier
                 name);
     }
 
-    internal sealed record RentedLocal(
-        int RentOffset,
-        int StoreOffset,
-        int Slot,
-        LocalDefinition Definition,
-        TypeRef Type);
-
     internal enum UseKind
     {
         Release,
@@ -470,7 +281,7 @@ static class ArrayPoolUseClassifier
         string CandidateShape,
         string Evidence,
         bool NonThrowingSetupBoundary = false,
-        ArrayPoolExceptionBoundary? Boundary = null,
+        ResourceExceptionBoundary? Boundary = null,
         int OperationOffset = -1,
         int ParameterIndex = -1)
     {
@@ -485,7 +296,7 @@ static class ArrayPoolUseClassifier
         public static UseClassification CrossMethod(
             string evidence,
             bool nonThrowingSetupBoundary,
-            ArrayPoolExceptionBoundary boundary,
+            ResourceExceptionBoundary boundary,
             int parameterIndex)
             => new(
                 UseKind.Forward,

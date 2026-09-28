@@ -110,7 +110,6 @@ internal static class LibraryQueryCommandDefinitions
                 opts.Tsv,
                 opts.Jsonl,
                 opts.NoHeaders,
-                opts.Info,
                 opts.Limit,
                 opts.Count,
                 opts.Source,
@@ -258,8 +257,7 @@ internal static class LibraryQueryCommandDefinitions
             };
             return await LibraryQueryCommand.ExecuteAsync(
                 options,
-                new CommandContext(
-                    parseResult.GetValue(opts.Info)),
+                new CommandContext(verbose: false),
                 ct);
         });
 

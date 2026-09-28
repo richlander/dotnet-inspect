@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using InertText;
 using NuGet.Versioning;

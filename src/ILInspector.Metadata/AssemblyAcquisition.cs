@@ -1127,6 +1127,28 @@ public sealed class ResolvedAssemblyReference
                 Provenance,
                 LastWriteTimeUtc);
 
+    /// <summary>
+    /// Returns the same acquisition descriptor backed lazily by an immutable
+    /// snapshot from the supplied source.
+    /// </summary>
+    /// <remarks>
+    /// Construction does not acquire the snapshot. Each content open validates
+    /// that the supplied snapshot belongs to this descriptor's registration
+    /// and identity before opening its retained bytes.
+    /// </remarks>
+    public ResolvedAssemblyReference WithSnapshotSource(
+        Func<AssemblyImageSnapshot> snapshotSource)
+    {
+        ArgumentNullException.ThrowIfNull(snapshotSource);
+        return WithOpenRead(
+            () => (snapshotSource()
+                    ?? throw new InvalidOperationException(
+                        "The snapshot source returned no snapshot."))
+                .RetainAssemblyReference(this)
+                .OpenRead(),
+            LastWriteTimeUtc);
+    }
+
     internal ResolvedAssemblyReference WithOpenRead(
         Func<Stream> openRead,
         DateTime? lastWriteTimeUtc)

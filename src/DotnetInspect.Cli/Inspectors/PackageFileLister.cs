@@ -1,6 +1,7 @@
 using System.IO.Enumeration;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -262,19 +263,8 @@ public static class PackageFileLister
     // The .nuspec is deliberately absent: it is authored content (the package
     // manifest), not packaging plumbing, so it belongs in the file listings and
     // behind the Package nuspec file section.
-    internal static bool IsPlumbing(string rel)
-        // Zip plumbing (OPC packaging artifacts inside the .nupkg).
-        => rel.StartsWith("_rels/", StringComparison.OrdinalIgnoreCase)
-            || rel.StartsWith("[Content_Types]", StringComparison.OrdinalIgnoreCase)
-            || rel.EndsWith(".psmdcp", StringComparison.OrdinalIgnoreCase)
-            || rel.Equals(".signature.p7s", StringComparison.OrdinalIgnoreCase)
-            // Restore-folder artifacts added by the NuGet client (not zip content).
-            || rel.Equals(".nupkg.metadata", StringComparison.OrdinalIgnoreCase)
-            || rel.Equals(
-                NuGetCache.CommitMarkerFileName,
-                StringComparison.Ordinal)
-            || rel.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
-            || rel.EndsWith(".nupkg.sha512", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsPlumbing(string rel) =>
+        PackageFileInventoryQuery.IsPlumbingPath(rel);
 
     private static bool TryFindPackageRelativeFile(string extractPath, string packageRelativePath, out string match)
     {

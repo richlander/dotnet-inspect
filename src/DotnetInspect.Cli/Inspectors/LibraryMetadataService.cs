@@ -18,6 +18,8 @@ using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
 using MetadataResource = ILInspector.Metadata.ManifestResourceInfo;
 
+using DotnetInspect.Cli.Commands;
+
 namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
@@ -48,7 +50,8 @@ internal static class LibraryMetadataService
         AssemblyIntegrationOpportunitiesEntry?
             integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null)
+        Sections.InspectionTrace? trace = null,
+        bool readLibraryDocument = true)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -438,7 +441,6 @@ internal static class LibraryMetadataService
             }
 
             inspection.FileSize = pdbContext.FileSize;
-            inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
             // Cheap discovery needs local applicability facts, not the source-analysis model.
             // Preserve the PDB facts that drive section gates, then avoid source findings,
@@ -494,6 +496,18 @@ internal static class LibraryMetadataService
                     typeFilter: options.TypeFilter);
             }
 
+            // A managed module without an assembly manifest keeps the legacy
+            // reading (docs/design/library-info-composition.md#scope-of-input).
+            if (readLibraryDocument
+                && inspection.AssemblyInfo?.AssemblyName is not null)
+            {
+                await ReadLibraryDocumentAsync(
+                        inspection,
+                        path,
+                        packageName,
+                        isPlatformAssembly)
+                    .ConfigureAwait(false);
+            }
             return inspection;
         }
         catch (OperationCanceledException)
@@ -818,6 +832,95 @@ internal static class LibraryMetadataService
     /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
     /// publisher; a self-declared source URL is not.
     /// </remarks>
+    private static readonly LibraryInspectionPlan s_libraryInfoPlan =
+        new(
+            types: null,
+            DirectLibraryInspectionCommand.s_bounds,
+            new LibraryEnablementsRequest(),
+            new LibraryImageFactsRequest(),
+            new LibraryDescriptionFactsRequest());
+
+    /// <summary>
+    /// Reads the Library document facts that Library Info and the view's
+    /// summary fields render (<c>docs/design/library-info-composition.md</c>).
+    /// </summary>
+    private static async Task ReadLibraryDocumentAsync(
+        LibraryInspection inspection,
+        string path,
+        string? packageName,
+        bool isPlatformAssembly)
+    {
+        InspectionEnvelope<LibraryInspectionOutcome>? envelope =
+            await ExactLibraryInspectionExecutor.ExecuteAsync(
+                    path,
+                    "library info",
+                    session => session.Execute(s_libraryInfoPlan, CancellationToken.None),
+                    CancellationToken.None,
+                    LibraryInfoRole(path, packageName, isPlatformAssembly))
+                .ConfigureAwait(false);
+        switch (envelope?.Content)
+        {
+            case LibraryInspectionOutcome.Available available:
+                inspection.LibraryDocument = available.Document;
+                break;
+            case LibraryInspectionOutcome.Rejected rejected:
+                inspection.LibraryDocumentFailure = rejected.Reason.ToString();
+                break;
+            case LibraryInspectionOutcome.Failed failed:
+                inspection.LibraryDocumentFailure = failed.Reason.ToString();
+                break;
+            default:
+                inspection.LibraryDocumentFailure = "LibraryUnavailable";
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Whether the request renders the Library document's scalar fields: the
+    /// Library Info section, or the <c>-v:q</c> context line. Other requests,
+    /// including the legacy <c>--json</c> model dump, skip the second image read.
+    /// </summary>
+    internal static bool WantsLibraryDocument(
+        SectionQueryPlan sectionPlan,
+        LibraryOptions options) =>
+        !WritesLegacyModelDump(options)
+        && (OutputFormatter.ShouldRenderLibraryContext(options)
+            || sectionPlan.Demands.Any(
+                static demand => demand.Section == SectionNames.LibraryInfo));
+
+    /// <summary>
+    /// Whether the request's output is the legacy <c>LibraryInspection</c> JSON
+    /// model dump, which never renders the view. <c>--json</c> combined with a
+    /// projection (<c>--value</c>, <c>--urls</c>, <c>--paths</c>, <c>--print</c>)
+    /// or <c>--count</c> renders view fields instead.
+    /// </summary>
+    internal static bool WritesLegacyModelDump(LibraryOptions options) =>
+        options.JsonOutput
+        && !options.Count
+        && !options.Print
+        && !options.Value
+        && !options.Urls
+        && !options.Paths;
+
+    /// <summary>
+    /// The adapter role the host selected: package and Platform images outside a
+    /// <c>ref/</c> folder are implementations; reference assets and direct files
+    /// are API-only.
+    /// </summary>
+    internal static AssemblyContextLibraryRole LibraryInfoRole(
+        string path,
+        string? packageName,
+        bool isPlatformAssembly)
+    {
+        if (packageName is null && !isPlatformAssembly)
+            return AssemblyContextLibraryRole.ApiOnly;
+        string? frameworkFolder = Path.GetDirectoryName(Path.GetFullPath(path));
+        string? assetFolder = frameworkFolder is null ? null : Path.GetDirectoryName(frameworkFolder);
+        return string.Equals(Path.GetFileName(assetFolder), "ref", StringComparison.OrdinalIgnoreCase)
+            ? AssemblyContextLibraryRole.ApiOnly
+            : AssemblyContextLibraryRole.Implementation;
+    }
+
     public static string? InferBuilder(LibraryInspection inspection)
     {
         var company = inspection.AssemblyInfo?.Company;
@@ -1721,7 +1824,7 @@ internal static class LibraryMetadataService
             method);
 
     // Overload that also treats members of structurally-detected generated framework types
-    // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypes) as generated, so their
+    // (protobuf/gRPC, see LibraryOptimizationAnalysisResult.GeneratedFrameworkTypes) as generated, so their
     // thick static initializers and stubs are marked in Top Leverage and suppressed from
     // Performance Triage even though no [GeneratedCode] attribute is emitted.
     internal static bool IsGeneratedMethod(
@@ -1790,11 +1893,6 @@ internal static class LibraryMetadataService
             .ToHashSet();
 
     internal static void ReportOptimizationDiagnostics(
-        Analysis.LibraryBodyIndex index,
-        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
-        => ReportOptimizationDiagnostics(index.Diagnostics, include);
-
-    internal static void ReportOptimizationDiagnostics(
         IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
         Func<Analysis.AnalysisDiagnostic, bool>? include = null)
     {
@@ -1809,13 +1907,6 @@ internal static class LibraryMetadataService
                 + diagnostic.Message);
         }
     }
-
-    internal static void ReportImplementationProfileDiagnostics(
-        Analysis.LibraryBodyIndex index,
-        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
-        => ReportImplementationProfileDiagnostics(
-            index.Diagnostics,
-            include);
 
     internal static void ReportImplementationProfileDiagnostics(
         IEnumerable<Analysis.AnalysisDiagnostic> diagnostics,
@@ -2097,11 +2188,11 @@ internal static class LibraryMetadataService
     }
 
     internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryOptimizationAnalysisResult optimization,
         PerformanceTriageOptions? options)
         => options?.IncludesAllocationFanout == true
-            ? index.OptimizationOpportunities.Concat(index.AllocationFanoutOpportunities)
-            : index.OptimizationOpportunities;
+            ? optimization.Opportunities.Concat(optimization.AllocationFanoutOpportunities)
+            : optimization.Opportunities;
 
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;

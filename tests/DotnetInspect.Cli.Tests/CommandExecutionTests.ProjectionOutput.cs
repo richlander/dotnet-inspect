@@ -436,10 +436,11 @@ public partial class CommandExecutionTests
                 "ecosystem",
                 "extensions",
                 "find",
+                "graph cluster",
                 "graph libraries",
                 "implements",
                 "library",
-                "library coordinate",
+                "library address",
                 "library query",
                 "member",
                 "package",
@@ -615,7 +616,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ProjectedJsonRoutingAudit_LibraryCoordinateFileFailsClosed()
+    public async Task ProjectedJsonRoutingAudit_LibraryAddressFileFailsClosed()
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -628,7 +629,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library",
-                "coordinate",
+                "address",
                 "--file",
                 path,
                 "--platform",

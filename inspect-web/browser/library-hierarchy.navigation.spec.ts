@@ -356,6 +356,20 @@ for (const width of [1440, 800, 390]) {
       "lib/net10.0/Example.Other.dll",
       "Example.Other, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
     ]);
+    // Only Enabled enablements render; Memory Safety v2 is Not enabled.
+    await expect(libraryOverview.locator(
+      ".overview-identity .overview-enablements[aria-label=\"Enabled\"] .overview-enablement"))
+      .toHaveText(["AOT", "Runtime Async"]);
+    const inspectionRequest: unknown = JSON.parse(await page.evaluate(
+      () => document.documentElement.dataset.libraryInspectionRequest ?? "null"));
+    expect(inspectionRequest).toMatchObject({
+      library: {
+        kind: "Package",
+        package: { assemblyId: other.id },
+        platform: null,
+      },
+      plan: { enablements: true },
+    });
     await expect(libraryOverview.locator(
       ".library-overview-content .section-title h2")).toHaveText([
         "Namespaces",
@@ -446,13 +460,13 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
 
   await expect(page.locator(
     `#type-list [data-type="${coreWidget.id}"] small`))
-    .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll · class");
+    .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll · 1");
   await expect(page.locator(
     `#type-list [data-type="${otherWidget.id}"] small`))
-    .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll · class");
+    .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll · 1");
   await expect(page.locator(
     `#type-list [data-type="${neighbor.id}"] small`))
-    .toHaveText("class");
+    .toHaveText("1");
 
   await page.locator(
     `#type-list [data-type="${coreWidget.id}"]`).click();
@@ -465,12 +479,12 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await expect(page.locator(".subject-path"))
     .toHaveAttribute(
       "aria-label",
-      "Example.Package > All libraries > Example.Widget · "
+      "Example.Package · net10.0 > All libraries > Example.Widget · "
       + "Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await expect(page.locator(".subject-path"))
     .toHaveAttribute(
       "title",
-      "Example.Package > All libraries > Example.Widget · "
+      "Example.Package · net10.0 > All libraries > Example.Widget · "
       + "Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
     .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
@@ -487,12 +501,12 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await expect(page.locator(".subject-path"))
     .toHaveAttribute(
       "aria-label",
-      "Example.Package > All libraries > Example.Widget · "
+      "Example.Package · net10.0 > All libraries > Example.Widget · "
       + "Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await expect(page.locator(".subject-path"))
     .toHaveAttribute(
       "title",
-      "Example.Package > All libraries > Example.Widget · "
+      "Example.Package · net10.0 > All libraries > Example.Widget · "
       + "Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
     .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
@@ -515,7 +529,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(
     `#type-list [data-type="${otherWidget.id}"] small`))
-    .toHaveText("class");
+    .toHaveText("1");
   await page.locator(
     `#type-list [data-type="${otherWidget.id}"]`).click();
   await expect(page.locator("[data-type-nav-back]"))

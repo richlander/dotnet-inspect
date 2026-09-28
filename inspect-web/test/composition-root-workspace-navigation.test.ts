@@ -12,6 +12,7 @@ import {
   packageAt,
   appSource,
   functionDeclaration,
+  sourceText,
   workspaceNavigationSource,
   workspaceFeedActivationSource,
   shellControlsSource,
@@ -35,6 +36,43 @@ import {
   diagnosticsRouteSource,
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
+
+test("retained Workspace clones drop live implementation callbacks", () => {
+  const clone = sourceText(
+    functionDeclaration("cloneCanonicalWorkspaceSnapshotForRetention"),
+  );
+  assert.match(
+    clone,
+    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*implementationProfiles:\s*\{\s*status:\s*"idle" as const\s*\},\s*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
+  );
+
+  const liveState = {
+    implementationProfiles: {
+      status: "ready",
+      selection: { isCurrent: () => true },
+    },
+    typeHeat: {
+      status: "ready",
+      isCurrent: () => true,
+    },
+  };
+  assert.throws(
+    () => structuredClone(liveState),
+    { name: "DataCloneError" },
+  );
+  assert.deepEqual(
+    structuredClone({
+      ...liveState,
+      implementationProfiles: { status: "idle" },
+      typeHeat: { status: "idle" },
+    }),
+    {
+      implementationProfiles: { status: "idle" },
+      typeHeat: { status: "idle" },
+    },
+  );
+});
+
 test("dependency graph render identity includes truncation and navigation", () => {
   const graph = {
     definition: "flowchart TD\n  d0[Example]",
@@ -602,7 +640,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.packageActivityOpen = isPackageActivityPath\(location\.pathname\);[\s\S]*state\.typeExplorerOpen = isTypeExplorerPath\(location\.pathname\);[\s\S]*const diagnosticsOpen = isDiagnosticsPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!diagnosticsOpen\s*&& !state\.packageQueryOpen\s*&& !state\.packageActivityOpen\s*&& !state\.typeExplorerOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -656,7 +694,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /function goHome\(\): boolean \{\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return false;\s*\}[\s\S]*if \(!workspaceLocation\.push\("\/"\)\) \{[\s\S]*return false;\s*\}\s*state\.loading = false;[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);[\s\S]*render\(\);\s*return true;/);
   assert.match(
     appSource,
-    /function visibleQueryNotice\(\) \{\s*const routeNotice = failedWorkspaceUrlState\?\.kind === "route"\s*\? failedWorkspaceUrlState\.notice\s*: null;\s*return \[state\.queryNotice, routeNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
+    /function visibleQueryNotice\(\) \{\s*const routeNotice = failedWorkspaceUrlState\?\.kind === "route"\s*\? failedWorkspaceUrlState\.notice\s*: null;\s*const staleNotice = state\.queryNoticeRetryAction && staleDeploymentDetected\(\)\s*\? STALE_DEPLOYMENT_NOTICE\s*: null;\s*return \[state\.queryNotice, staleNotice, routeNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
   assert.match(
     appSource,
     /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
@@ -703,7 +741,7 @@ test("render invalidates focus ownership before replacing content-frame DOM", ()
 
   assert.match(
     source,
-    /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;\s*contentFrameReplacementAuthority = null;[\s\S]*app\.innerHTML = `/);
+    /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;\s*contentFrameReplacementAuthority = null;[\s\S]*replaceChildrenPreservingRenderedInteractions\(app, `/);
 });
 
 test("content-frame focus ownership clears after focus settles outside both panes", () => {
@@ -1194,7 +1232,8 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /createPackageChangesController\([\s\S]*if \(!state\.packageActivityOpen\) return;\s*schedulePackageActivityStreamRender\(\)/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+  assert.doesNotMatch(appSource, /\bapp\.innerHTML\s*=/);
   assert.match(
     stylesSource,
     /@media \(max-width: 860px\) \{\s*body\.package-query-route,\s*body\.package-activity-route \{ min-width: 0; \}/);
@@ -1214,7 +1253,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*packageQueryRender\.renderFull\(\);\s*}\s*function replacePackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*app\.innerHTML = renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
+    /function renderPackageQueryPage\(\) \{\s*packageQueryRender\.renderFull\(\);\s*}\s*function replacePackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*replaceChildrenPreservingRenderedInteractions\(app, renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
   const streamPatch =
     appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
@@ -1233,7 +1272,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const leftPackageQueryHandoff = currentPackageQueryHandoff\(\);\s*const navigationSeq = navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
-    /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
+    /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*?let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     appSource,
     /function dismissModalsForRoutedNavigation\(\) \{\s*cancelWorkspaceCredentialPrompt\(false\);\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*libraryOpenSequence\+\+;\s*state\.libraryOpen = false;\s*state\.libraryOpenBusy = false;\s*state\.libraryOpenError = "";\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
@@ -1245,7 +1284,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /if \(isPackageQueryPath\(location\.pathname\)\) \{[\s\S]*applyPackageQueryHistory\(history\.state\)/);
   assert.match(
     popstate,
-    /state\.loading = !state\.engineReady;\s*render\(\);\s*if \(state\.engineReady\) focusPackageQueryInput\(\)/);
+    /state\.loading = !state\.engineReady;\s*render\(\);\s*if \(!restoreApplicationActivityReturnFocus\(\) && state\.engineReady\) \{\s*focusPackageQueryInput\(\);\s*}/);
   assert.match(
     popstate,
     /if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\) \{[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
@@ -1802,7 +1841,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| memberDiffExplorer\.isOpen\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);

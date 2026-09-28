@@ -228,7 +228,7 @@ API diff.
 dotnet-inspect diff \
   --package System.Text.Json@8.0.6..9.0.0 \
   -t System.Text.Json.Schema.JsonSchemaExporter \
-  -S "Finding Transitions"
+  -S Transitions
 ```
 
 ```expect
@@ -239,14 +239,16 @@ absent
 present
 ```
 
-`Finding Transitions` requires `-t` or a type-qualified `-m` target. It confirms
-only the supplied pair; it does not traverse the version range. Use
+`Transitions` is a view of the selected analyses (here the default `api`) and
+requires `-t` or a type-qualified `-m` target. At a Type it lists the `api.type`
+row and then the Type's `api.member` rows. It confirms only the supplied pair;
+it does not traverse the version range. Use
 `package Name@A..B --versions` and `type`/`member --at` to choose the boundary.
 `PairFinding.Present` means the target exists at both endpoints, while
 `PairFinding.Removed` means only the old endpoint contains it.
 
-Select an implementation producer to inspect the exact C# line or IL operation
-census for one method:
+Select an implementation analysis with `--analysis` to inspect the exact C#
+line or IL operation census for one method:
 
 ### 7a. C# line transitions
 
@@ -254,7 +256,7 @@ census for one method:
 dotnet-inspect diff \
   --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
   --type DiffFixtureSample.DiffSample --member ConstantValue \
-  --finding csharp.line
+  --analysis csharp
 ```
 
 ```expect
@@ -271,7 +273,7 @@ return 2;
 dotnet-inspect diff \
   --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
   --type DiffFixtureSample.DiffSample --member ConstantValue \
-  --finding il.op
+  --analysis il
 ```
 
 ```expect

@@ -228,8 +228,11 @@ The pattern stages through focused owners rather than sweeping every section:
    one host-neutral operation and envelope in both the CLI and Inspect Web.
 4. Under #8235 and #8278, the Library Type inventory owner publishes exact
    Count, stable row identity, order, population binding, and producer-reaching
-   continued Rows through both hosts. A real production asset must require at
-   least one continuation.
+   continued Rows through both hosts. The CLI composition maps definition kinds
+   to `Classes`, `Structs`, `Interfaces`, `Enums`, and `Delegates`, and maps each
+   forwarded declaration to one `Type Forwarders` row. Unqualified membership
+   is their union; target-assembly grouping is presentation only and cannot
+   define Count. A real production asset must require at least one continuation.
 5. Under #8281, the Source owner preserves scalar document facts while exposing
    ordered lines as a continued inventory through both hosts.
 6. Under #8198, Compare adopts the proven inventory model over one immutable
@@ -247,11 +250,11 @@ consumer before implementation.
 
 | Gate | Property | Status |
 | --- | --- | --- |
-| `Type_ListingKindCount_MatchesMetadataInventory` and the compact Type Count gates named in [Assembly inspection query](assembly-inspection-query.md#compact-type-inventory-cardinality) | One inventory's optimized Count and Rows retain the same population and MVID binding. | Verified by merged #8221. |
+| The compact Type Count gates named in [Assembly inspection query](assembly-inspection-query.md#compact-type-inventory-cardinality) | Metadata can produce an exact MVID-bound Count for its narrower definition population and declines when it cannot prove completeness. | Verified by merged #8221; #8278 replaces the former CLI shortcut with the Library population. |
 | `SectionCapabilitiesPairRowsAndCount`, `Cardinality_RoundTripsForScalarAndInventoryDiscovery`, and `SectionCardinality_ProjectsBesideFormatCapabilities` | Resource-free declarations expose Rows and Count together or neither, including direct .NET and structural-discovery projections, without changing existing format capabilities. | Verified by merged #8270. |
 | `Cardinality_IsScalarWithoutTerminals`, `LibraryCommand_DiscoverDetails_LibraryInfoDeclaresScalar`, and `LibraryCommand_LibraryInfoRejectsSemanticTerminalBeforeAcquisition` | The Library overview owner declares scalar shape, exact Library Discovery publishes it, and Count or Rows fails before direct or package acquisition. | Implemented by the #8228 declaration/admission slice; unverified until that slice lands. |
 | `AggregateLibraryInfoCountsLibraries`, `PackageCommand_AllLibraries_LibraryInfoDetailedDiscoveryDeclaresInventory`, `PackageCommand_AllLibraries_MixedJsonLibraryRowsFailVisibly`, and `LibraryStructuralRoutesDeclareSubjectScopedCardinality` | An all-libraries survey counts library rows rather than properties, supports row windows, publishes its Rows/Count terminals, and fails visibly where a legacy mixed JSON shape cannot preserve independent section windows. | Implemented by the #8228 declaration/admission slice; unverified until that slice lands. |
-| Continued Type-inventory host gates named by #8278 | CLI and Inspect Web obtain exact Count and completely drained continued Rows from one immutable Library population; a real production asset requires continuation. | Unverified until #8235 and #8278 land. |
+| `Type_Listing_FacadeCountAndRowsShareForwarderPopulation`, `Type_Listing_FacadeDefaultIncludesForwarders`, `Type_Listing_CoreLibDrainsMultipleRowSegments`, and the Inspect Web gates named by #8235 | CLI and Inspect Web obtain exact Count and completely drained continued Rows from one immutable Library population; a facade exposes every forwarder as one Type, and a real production asset requires continuation. | CLI gates implemented by #8278; unverified until #8278 lands. Inspect Web remains owned by #8235. |
 | Continued Source-line host gates named by #8281 | CLI and Inspect Web preserve scalar document facts while exact Count and completely drained continued Rows observe one immutable ordered line population. | Unverified until #8281 lands. |
 | Compare generation gate named by #8198 | Inspect Web obtains Count and continued Rows from one immutable comparison generation and rejects stale or incompatible population bindings. | Unverified until the later Compare adoption lands. |
 | Analysis adopter gate | A second owner preserves its named row population across Rows, Count, failure, and generation evidence without copying Metadata-specific machinery. | Named by the focused Analysis adoption issue before implementation. |

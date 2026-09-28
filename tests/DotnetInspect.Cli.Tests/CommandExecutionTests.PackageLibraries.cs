@@ -96,18 +96,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task AllLibraries_BareSelectCount_PreservesFixedOverview()
+    public async Task AllLibraries_ExplicitFixedOverviewCount_PreservesSections()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
+            string selection = string.Join(
+                ';',
+                LibrarySections.CreatePipeline().FixedOverviewSectionNames);
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--library", "-S",
+                "package", packagePath, "--library", "-S", selection,
                 "--count", "--json", "--tips", "q");
             var (renderExit, rendered, renderError) = await RunAppAsync(
-                "package", packagePath, "--library", "-S", "--tips", "q");
+                "package", packagePath, "--library",
+                "-S", selection, "--tips", "q");
             var (treeExit, treeOutput, treeError) = await RunAppAsync(
-                "package", packagePath, "--library", "-S",
+                "package", packagePath, "--library", "-S", selection,
                 "--count", "--tree", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -437,6 +441,7 @@ public partial class CommandExecutionTests
             "--library",
             "Missing.dll",
             "-S",
+            SectionNames.LibraryInfo,
             "--count",
             "--tips",
             "q");
@@ -1018,26 +1023,29 @@ public partial class CommandExecutionTests
         }
     }
 
-    /// <summary>
-    /// Bare <c>-S</c> must remain the fixed overview after package inspection delegates to the
-    /// all-libraries path. The count map names the complete request, while the rendered headings
-    /// prove that the same preset reached effective-section selection and data collection.
-    /// </summary>
     [Fact]
-    public async Task PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender()
+    public async Task PackageCommand_AllLibraries_ExplicitInventoryCount_MapDescribesRender()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(
             "System.Text.Json",
             "System.Collections");
         try
         {
+            string[] expected =
+            [
+                SectionNames.References,
+                SectionNames.CustomAttributes,
+            ];
+            string selection = string.Join(';', expected);
             var (renderExit, renderOutput, renderError) = await RunAppAsync(
-                "package", packagePath, "--library", "-S", "--tips", "q");
+                "package", packagePath, "--library",
+                "-S", selection, "--tips", "q");
             var (countExit, countOutput, countError) = await RunAppAsync(
-                "package", packagePath, "--library", "-S", "--count", "--tips", "q");
+                "package", packagePath, "--library",
+                "-S", selection, "--count", "--tips", "q");
 
             Assert.Equal(0, renderExit);
-            Assert.Equal(0, countExit);
+            Assert.True(countExit == 0, countError);
             Assert.DoesNotContain("Tip:", renderError);
             Assert.DoesNotContain("Tip:", countError);
 
@@ -1084,7 +1092,6 @@ public partial class CommandExecutionTests
                     group => group.Sum(row => row.Value),
                     StringComparer.OrdinalIgnoreCase);
 
-            var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
             Assert.Equal(expected.Order(), rendered.Order());
             Assert.Equal(expected.Order(), mapped.Keys.Order());
             foreach (var section in expected)
@@ -1129,6 +1136,7 @@ public partial class CommandExecutionTests
                         packagePath,
                         "--library",
                         "-S",
+                        selection,
                         "--count",
                         format,
                         "--tips",
@@ -2765,14 +2773,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageLibraryMode_BareSelect_MatchesStandaloneLibraryBareSelect()
+    public async Task PackageLibraryMode_ExplicitFixedSections_MatchStandaloneLibrary()
     {
-        // The nested library view is constructed from the package options, so bare -S has to be
-        // carried across the boundary explicitly. Before #3547 it rode along inside Select as the
-        // "@Default" string and propagated for free; a dedicated flag does not, and dropping it
-        // silently downgrades the nested view to "no sections requested".
-        var (nestedExit, nestedOutput, _) = await RunAppAsync("package", "Markout", "--library", "-S");
-        var (standaloneExit, standaloneOutput, _) = await RunAppAsync("library", "Markout", "-S");
+        string selection = string.Join(
+            ';',
+            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
+        var (nestedExit, nestedOutput, _) = await RunAppAsync(
+            "package", "Markout", "--library", "-S", selection);
+        var (standaloneExit, standaloneOutput, _) = await RunAppAsync(
+            "library", "Markout", "-S", selection);
 
         Assert.Equal(0, nestedExit);
         Assert.Equal(0, standaloneExit);
@@ -3004,7 +3013,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_OutputFile_IsIncludedInInfoMetrics()
+    public async Task PackageCommand_AllLibraries_OutputFile_MatchesStandardOutput()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         string outputPath = Path.Combine(tempDir, "output.txt");
@@ -3017,8 +3026,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "-S",
                 "Library Info",
-                "--table",
-                "--info");
+                "--table");
             var redirected = await RunAppInDirectoryAsync(
                 tempDir,
                 "package",
@@ -3027,7 +3035,6 @@ public partial class CommandExecutionTests
                 "-S",
                 "Library Info",
                 "--table",
-                "--info",
                 "--out",
                 outputPath);
 
@@ -3039,18 +3046,6 @@ public partial class CommandExecutionTests
                 baseline.Output.ReplaceLineEndings("\n"),
                 written);
             Assert.DoesNotContain('\r', written);
-
-            static string OutputMetric(string error) =>
-                SplitOutputLines(error).Single(line =>
-                    line.StartsWith("| Output |", StringComparison.Ordinal));
-
-            Assert.Equal(
-                $"| Output | {CacheOutputFormatter.FormatSize(written.Length)} |",
-                OutputMetric(redirected.Error));
-            Assert.DoesNotContain(
-                "| Output | 0 B |",
-                redirected.Error,
-                StringComparison.Ordinal);
         }
         finally
         {
@@ -3059,7 +3054,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_CountOutputFile_PreservesLineWindowsAndInfoMetrics()
+    public async Task PackageCommand_AllLibraries_CountOutputFile_PreservesLineWindows()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -3083,7 +3078,6 @@ public partial class CommandExecutionTests
                         "@Library",
                         "--count",
                         "--jsonl",
-                        "--info",
                         .. lineWindow
                     ]);
                 var redirected = await RunAppInDirectoryAsync(
@@ -3096,7 +3090,6 @@ public partial class CommandExecutionTests
                         "@Library",
                         "--count",
                         "--jsonl",
-                        "--info",
                         .. lineWindow,
                         "--out",
                         outputPath
@@ -3115,18 +3108,6 @@ public partial class CommandExecutionTests
                     File.ReadAllBytes(outputPath)
                         .AsSpan()
                         .StartsWith(Encoding.UTF8.GetPreamble()));
-
-                static string OutputMetric(string error) =>
-                    SplitOutputLines(error).Single(line =>
-                        line.StartsWith("| Output |", StringComparison.Ordinal));
-
-                Assert.Equal(
-                    $"| Output | {CacheOutputFormatter.FormatSize(written.Length)} |",
-                    OutputMetric(redirected.Error));
-                Assert.DoesNotContain(
-                    "| Output | 0 B |",
-                    redirected.Error,
-                    StringComparison.Ordinal);
             }
         }
         finally

@@ -63,6 +63,8 @@ applications do not need it in their runtime bundle.
   unsupported rather than inheriting whichever context metadata happens to
   appear first.
 
+## Member presence
+
 Member presence is also an authenticated, target-language-neutral wire fact.
 `WhenWritingNull` is conditionally present while serializing only for a
 null-capable member type, and `WhenWritingDefault` is conditionally present
@@ -70,6 +72,33 @@ while serializing for every supported member type; both are present while
 deserializing. Invalid or unauthenticated condition/type combinations, and
 malformed, duplicated, or unknown authentic conditions, are unsupported rather
 than absence. Consumers decide how to represent conditional keys.
+Serializer-context defaults use retained Metadata evidence rather than the
+compatibility effective-value projection. Authentic absence and one supported
+`Never` row both produce the framework default, while `WhenWritingNull`
+composes with members that have no explicit condition. Unsupported context
+evidence cannot be masked by member overrides, and one record reached through
+conflicting effective defaults is unsupported. The surfaced effective default
+is keyed to the discovered type because it belongs to the context-to-record
+composition, not to the record's Metadata declaration. Exact retained
+definitions from referenced assemblies may establish whether a named type is a
+reference or value type. When a definition is unavailable, Metadata's retained
+`CLASS`/`VALUETYPE` signature kind (`ApiTypeShape.IsValueType`) supplies that
+evidence for named and generic-instance types. `Nullable<T>` remains
+null-capable despite its value-type encoding. Without either source of kind
+evidence, presence remains unsupported rather than inferred from a display
+name. A context-level `WhenWritingNull` leaves nonnullable value-type members
+present; an explicit member-level `WhenWritingNull` on those types remains
+invalid. Consumers must reject unsupported effective presence rather than emit
+it as an unconditional member.
+
+The motivating consumer is Inspect Web's Package facade:
+`CompiledDocumentationOutcome.ContributionsRejected.Rejections` is an external
+`ImmutableArray<T>` under a context-level `WhenWritingNull`
+([#8681](https://github.com/richlander/dotnet-inspect/issues/8681)).
+`JsonWireMemberRulesTests.ContextDefaultUsesRetainedSignatureKind` and
+`DtsEmitterTests.Emit_UsesRetainedSignatureKindForContextDefault` enforce this
+contract in Release, including compiled serializer output and unknown-kind
+rejection.
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
@@ -153,7 +182,10 @@ The resolver does not infer lowering from identity coincidences or recognize
 runtime-async IL shapes.
 Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
 declaration, or serializer evidence from a lifted local function or another
-method leaves `ReturnWireType` unset.
+method leaves inferred `ReturnWireType` unset. An authenticated
+`JsExportJsonOutputAttribute` may independently provide that association.
+Equal reachable serializer evidence corroborates the declaration; conflicting
+evidence fails the surface.
 
 Deserialize roots retain both their unpositioned type inventory and, when
 provable, an exact `JsExportParameterWireBinding`. A binding requires the
@@ -163,8 +195,17 @@ physical static export body. Direct loads and transparent unaddressed locals
 qualify. Transformed values, fields, call results, merged or address-taken
 locals, lifted bodies, and conflicting DTO roots do not acquire a guessed
 parameter association. If any reachable authenticated deserialize root lacks
-one exact association, the function publishes no parameter bindings; the
-unpositioned inventory remains available as diagnostic evidence. This remains
+one exact association, inferred parameter bindings are withheld; independently
+authenticated `JsExportJsonInputAttribute` bindings remain available. The
+unpositioned inventory remains diagnostic evidence.
+
+Certification is complete per export. A member with no declarations is
+certified when every observed JSON association is inferred. A member with any
+declaration is certified only when every observed JSON association is
+declared, with equal flow evidence treated as corroboration. Mixed or
+unpositionable evidence produces a certification diagnostic while retaining
+the best available bindings. The `ts-jsexport --warnings-as-errors` production
+gate rejects those diagnostics before publication. This remains
 target-language-neutral evidence; consumers decide whether a bound JSON string
 becomes an object parameter.
 

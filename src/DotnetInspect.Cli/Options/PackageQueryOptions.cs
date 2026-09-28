@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Ecosystems;
@@ -45,7 +46,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
         PackageQueryRegisteredTerm> CliTerms { get; } =
     [
         .. PackageQuery.RegisteredTerms.Where(term =>
-            term.Descriptor.Role == PackageQueryTermRole.Inspection),
+            PackageQueryCommandCapability.Binding.ExposedQueryTerms.Contains(
+                PackageQuery.TermBindingIdentity(
+                    term.Descriptor.Key),
+                StringComparer.Ordinal)),
     ];
 
     public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
@@ -61,7 +65,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
             [.. term.Descriptor.Options.Select(option => option.Value)],
             $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"",
             PackageQuery.ExecutionClassIdentity(
-                term.Descriptor.ExecutionClass))),
+                term.Descriptor.ExecutionClass),
+            PackageQueryCapabilityResourcePaths
+                .QueryFacet(term.Descriptor.Key)
+                .Value)),
     ];
 
     public static string DiscoverySummary =>

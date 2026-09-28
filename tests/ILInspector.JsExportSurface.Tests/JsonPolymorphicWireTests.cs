@@ -93,9 +93,9 @@ public sealed class JsonPolymorphicWireTests
             """
             export interface Available {
               readonly kind: "available";
-              readonly subject: PackageSubject;
+              readonly subject?: PackageSubject;
               readonly detail?: string;
-              readonly documentation: PackageDocumentation;
+              readonly documentation?: PackageDocumentation;
               readonly source_kind: PackageSourceKind;
               readonly evidence?: JsonValue;
             }
@@ -106,7 +106,7 @@ public sealed class JsonPolymorphicWireTests
             """
             export interface Absent {
               readonly kind: "absent";
-              readonly subject: PackageSubject;
+              readonly subject?: PackageSubject;
               readonly detail?: string;
               readonly reason?: string;
               readonly sourcesTruncated?: boolean;

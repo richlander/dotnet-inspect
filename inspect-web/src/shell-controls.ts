@@ -18,6 +18,7 @@ export interface WorkbenchShellBindingActions {
   onDismissPackageNotice: () => void;
   onNavigateBack: () => void;
   onNavigateForward: () => void;
+  onOpenPackageTargetFramework: () => void;
   onRetryNotice: () => void;
   onSearch: () => void;
 }
@@ -29,7 +30,7 @@ export interface WorkbenchShellBinding {
 export interface HomeShellBindingActions {
   onDismissNotice: () => void;
   onOpenDemos: () => void;
-  onOpenLibrary: () => void;
+  onRetryNotice: () => void;
   onToggleTheme: () => void;
 }
 
@@ -314,6 +315,10 @@ export function bindWorkbenchShell(
       if (Number.isInteger(index) && index >= 0)
         actions.onCopySubjectSegment(index);
     }));
+  root.querySelectorAll<HTMLElement>("[data-subject-framework]").forEach(button =>
+    button.addEventListener(
+      "click",
+      actions.onOpenPackageTargetFramework));
   const menuButton =
     root.querySelector<HTMLElement>("#application-menu-button");
   const menu = root.querySelector<HTMLElement>("#application-menu");
@@ -465,10 +470,10 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onToggleTheme);
   root.querySelector("#dismiss-notice")
     ?.addEventListener("click", actions.onDismissNotice);
+  root.querySelector("#retry-notice")
+    ?.addEventListener("click", actions.onRetryNotice);
   root.querySelector("#home-demos")
     ?.addEventListener("click", actions.onOpenDemos);
-  root.querySelector("#home-open-library")
-    ?.addEventListener("click", actions.onOpenLibrary);
 }
 
 export function bindLoadErrorShell(

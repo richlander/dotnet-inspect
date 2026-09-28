@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace Ownership;
@@ -11,6 +12,135 @@ public static class Entry
         try
         {
             ReturnRentedArray(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnThroughGenericHelper()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnGeneric(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnThroughNestedGenericHelpers()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ForwardGeneric(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnDirectlyOpenGeneric<T>()
+    {
+        T[] buffer = ArrayPool<T>.Shared.Rent(16);
+        try
+        {
+            ArrayPool<T>.Shared.Return(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnCompoundThroughGenericHelper()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ReturnGenericArrays<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnCompoundThroughNestedGenericHelpers()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ForwardGenericArrays<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedCompoundThroughGenericHelper()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ReturnGenericArrays<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedCompoundThroughNestedGenericHelpers()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ForwardGenericArrays<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnConstructedCompoundThroughGenericHelper()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ForwardConstructedGenericArray<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedConstructedCompoundThroughGenericHelper()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ForwardConstructedGenericArray<OwnershipToken>(buffer);
         }
         finally
         {
@@ -61,6 +191,57 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentOrAllocateStoreThenReturn(
+        bool usePool)
+    {
+        byte[] buffer = usePool
+            ? ArrayPool<byte>.Shared.Rent(16)
+            : new byte[16];
+        _ = new OwnershipBufferHolder(buffer);
+        try
+        {
+            return buffer.Length;
+        }
+        finally
+        {
+            if (usePool)
+                ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static int RentAndReturnThroughConditionallyReplacedParameter(
+        bool replace)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnConditionallyReplaced(buffer, replace);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int
+        RentAndReturnThroughConditionallyReplacedParameterWithOtherRelease(
+            bool replace)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnConditionallyReplacedAfterOtherRelease(
+                buffer,
+                replace);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndReturnAtTwoSites(bool first)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -97,6 +278,21 @@ public static class Entry
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
         try
         {
+            GC.KeepAlive(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentReturnAndForwardExternally()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnRentedArray(buffer);
             GC.KeepAlive(buffer);
         }
         finally
@@ -282,6 +478,29 @@ public static class Entry
     static void ReturnRentedArray(byte[] buffer) =>
         ArrayPool<byte>.Shared.Return(buffer);
 
+    static void ReturnConditionallyReplaced(
+        byte[] buffer,
+        bool replace)
+    {
+        if (replace)
+            buffer = new byte[16];
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    static void ReturnConditionallyReplacedAfterOtherRelease(
+        byte[] buffer,
+        bool replace)
+    {
+        ReleaseOtherResource(buffer);
+        if (replace)
+            buffer = new byte[16];
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    static void ReleaseOtherResource(byte[] buffer)
+    {
+    }
+
     static byte[] ReturnRentedArrayToCaller(byte[] buffer) =>
         buffer;
 
@@ -289,6 +508,8 @@ public static class Entry
         buffer = [];
 
     static byte[]? s_rentedArray;
+    static object? s_resource;
+    static OwnershipToken? s_ownershipToken;
     static int s_ownershipProbe;
     static readonly Exception s_lifecycleException =
         new InvalidOperationException();
@@ -420,6 +641,112 @@ public static class Entry
         }
     }
 
+    public static void RentAcrossNestedFinallyCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                ObserveResource(buffer);
+            }
+            finally
+            {
+                s_ownershipProbe++;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossCatchExceptionCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (Exception)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossTypedCatchCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossSiblingTypedThenCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    public static void RentAcrossNestedTypedThenCatchAllCleanup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                ObserveResource(buffer);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
     public static void RentAndReleaseAsyncUnobserved()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -526,6 +853,104 @@ public static class Entry
         return read;
     }
 
+    public static int RentLookalikeReadBeforeReturn(
+        LookalikeTextReader reader)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = reader.Read(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int RentTextReaderReadBeforeReturn(
+        System.IO.TextReader reader)
+    {
+        char[] buffer = ArrayPool<char>.Shared.Rent(16);
+        int read = reader.Read(buffer, 0, 16);
+        ArrayPool<char>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int RentEncodeThenUnrelatedReadAfterReturn(
+        Stream stream)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int written = System.Text.Encoding.UTF8.GetBytes(
+            "value",
+            0,
+            5,
+            buffer,
+            0);
+        ArrayPool<byte>.Shared.Return(buffer);
+        _ = stream.ReadByte();
+        return written;
+    }
+
+    public static int ExternalReadThroughReinitializedMemory(
+        ExternalMemoryStream stream)
+    {
+        Memory<byte> memory = Memory<byte>.Empty;
+        _ = stream.Read(memory);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        memory = new Memory<byte>(buffer, 0, 16);
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int ExternalReadThroughLoopReinitializedMemory(
+        ExternalMemoryStream stream,
+        bool repeat)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = default;
+        int read;
+        do
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            read = stream.Read(memory);
+            memory = default;
+            stream.Observe(memory);
+        }
+        while (repeat);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int ExternalReadThroughConditionallyResetMemory(
+        ExternalMemoryStream stream,
+        bool reset)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        if (reset)
+            memory = default;
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    public static int DisjointMemoryUseDoesNotConsumeRent(
+        ExternalMemoryStream stream,
+        Memory<byte> caller,
+        bool useRented)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = caller;
+        int result;
+        if (useRented)
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            result = 0;
+        }
+        else
+        {
+            result = stream.Read(memory);
+        }
+        ArrayPool<byte>.Shared.Return(buffer);
+        return result;
+    }
+
     public static byte[] RentAndReturnToCaller() =>
         ArrayPool<byte>.Shared.Rent(16);
 
@@ -539,11 +964,65 @@ public static class Entry
         ObserveTwoResources(first, second);
     }
 
+    public static void ExerciseTwoResourceDomainsThroughHelper()
+    {
+        byte[] first = AcquireFirstResource();
+        ForwardResource(first);
+        s_ownershipProbe += first.Length;
+        byte[] second = AcquireSecondResource();
+        ForwardResource(second);
+        s_ownershipProbe += second.Length;
+    }
+
+    public static void ExerciseGenericResourceArguments()
+    {
+        object resource = AcquirePair<int, string>();
+        KeepLocal(ref resource);
+        StoreResource(resource);
+    }
+
+    public static void ExerciseOwnershipIsolation()
+    {
+        OwnershipToken resource = AcquireOwnershipToken();
+        try
+        {
+            ForwardOwnershipToken(resource);
+        }
+        finally
+        {
+            ++s_ownershipProbe;
+        }
+
+        System.GC.KeepAlive(resource);
+    }
+
+    public static void ExerciseTrackedResourceMutation()
+    {
+        TrackedResource resource = AcquireTrackedResource<int>();
+        KeepLocal(ref resource);
+        MutateTrackedResource(resource);
+    }
+
     public static void RentAddressThenObserve()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
         ReplaceRentedArray(ref buffer);
         ObserveResource(buffer);
+    }
+
+    public sealed class LookalikeTextReader
+    {
+        public int Read(byte[] buffer) => buffer.Length;
+    }
+
+    public sealed class ExternalMemoryStream
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(Memory<byte> buffer) => buffer.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void Observe(Memory<byte> buffer) =>
+            s_ownershipProbe += buffer.Length;
     }
 
     static byte[] AcquireFirstResource() => [];
@@ -554,6 +1033,46 @@ public static class Entry
     static void ObserveTwoResources(byte[] first, byte[] second)
     {
     }
+
+    static void ForwardResource(byte[] resource) =>
+        ObserveResource(resource);
+
+    static void ReturnGeneric<T>(T[] resource) =>
+        ArrayPool<T>.Shared.Return(resource);
+
+    static void ForwardGeneric<T>(T[] resource) =>
+        ReturnGeneric(resource);
+
+    static void ReturnGenericArrays<T>(T[][] resource) =>
+        ArrayPool<T[]>.Shared.Return(resource);
+
+    static void ForwardGenericArrays<T>(T[][] resource) =>
+        ReturnGenericArrays<T>(resource);
+
+    static void ForwardConstructedGenericArray<T>(T[][] resource) =>
+        ReturnGeneric<T[]>(resource);
+
+    static object AcquirePair<TFirst, TSecond>() =>
+        new();
+
+    static OwnershipToken AcquireOwnershipToken() =>
+        new();
+
+    static void ForwardOwnershipToken(OwnershipToken resource) =>
+        s_ownershipToken = resource;
+
+    static void KeepLocal<T>(ref T resource)
+    {
+    }
+
+    static void StoreResource(object resource) =>
+        s_resource = resource;
+
+    static TrackedResource AcquireTrackedResource<T>() =>
+        new();
+
+    static void MutateTrackedResource(TrackedResource resource) =>
+        resource.Value = 42;
 
     sealed class OwnershipWorker
     {
@@ -578,7 +1097,19 @@ public static class Entry
         internal void Return(int marker, byte[] buffer) =>
             ArrayPool<byte>.Shared.Return(buffer);
     }
+
+    sealed class OwnershipBufferHolder(byte[] buffer)
+    {
+        readonly byte[] _buffer = buffer;
+    }
 }
+
+public sealed class TrackedResource
+{
+    public int Value;
+}
+
+public sealed class OwnershipToken;
 
 public delegate T BindingCallback<T>(T value);
 

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using AttributeEnumFixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -108,10 +109,16 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
     public void MalformedRowPairedWithValidRowIsUnsupportedRegardlessOfOrder(
         bool malformedFirst)
     {
+        byte[] image = BuildImageWithMalformedAndValidRows(malformedFirst);
         JsonWireNamingPolicy? policy = ReadPolicy(
-            BuildImageWithMalformedAndValidRows(malformedFirst));
+            image);
+        JsonSourceGenerationDefaultIgnoreConditionEvidence evidence =
+            ReadDefaultIgnoreConditionEvidence(image);
 
         Assert.Equal(JsonWireNamingPolicy.Unsupported, policy);
+        Assert.Equal(2, evidence.AttributeCount);
+        Assert.Null(evidence.Value);
+        Assert.True(evidence.HasUnsupportedRow);
     }
 
     [Theory]
@@ -175,7 +182,8 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         (
             JsonWireNamingPolicy? policy,
             JsonWireIgnoreCondition ignoreCondition,
-            bool useStringEnumConverter) = ReadWireOptions(
+            bool useStringEnumConverter,
+            _) = ReadWireOptions(
                 BuildSingleRow(
                     metadata => BooleanValue(
                         metadata,
@@ -193,7 +201,9 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
         (
             JsonWireNamingPolicy? policy,
             JsonWireIgnoreCondition ignoreCondition,
-            bool useStringEnumConverter) = ReadWireOptions(
+            bool useStringEnumConverter,
+            JsonSourceGenerationDefaultIgnoreConditionEvidence evidence) =
+                ReadWireOptions(
                 BuildSingleRow(
                     metadata => EnumValue(
                         metadata,
@@ -206,6 +216,97 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             JsonWireIgnoreCondition.WhenWritingNull,
             ignoreCondition);
         Assert.False(useStringEnumConverter);
+        Assert.Equal(
+            new(
+                AttributeCount: 1,
+                Value: JsonWireIgnoreCondition.WhenWritingNull,
+                HasUnsupportedRow: false),
+            evidence);
+    }
+
+    [Fact]
+    public void CompiledContextsRetainDefaultIgnoreConditionEvidence()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(AbsentJsonOptionsContext).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        Assert.Equal(
+            default,
+            Context(nameof(AbsentJsonOptionsContext))
+                .JsonDefaultIgnoreConditionEvidence);
+        Assert.Equal(
+            new(
+                AttributeCount: 1,
+                Value: JsonWireIgnoreCondition.Never,
+                HasUnsupportedRow: false),
+            Context(nameof(DefaultJsonOptionsContext))
+                .JsonDefaultIgnoreConditionEvidence);
+        Assert.Equal(
+            new(
+                AttributeCount: 1,
+                Value: JsonWireIgnoreCondition.Never,
+                HasUnsupportedRow: false),
+            Context(nameof(ExplicitNeverJsonOptionsContext))
+                .JsonDefaultIgnoreConditionEvidence);
+        Assert.Equal(
+            new(
+                AttributeCount: 1,
+                Value: JsonWireIgnoreCondition.WhenWritingNull,
+                HasUnsupportedRow: false),
+            Context(nameof(WhenWritingNullJsonOptionsContext))
+                .JsonDefaultIgnoreConditionEvidence);
+
+        ApiType Context(string name) => Assert.Single(
+            surface.Types,
+            type => type.FullName == "AttributeEnumFixtures." + name);
+    }
+
+    [Fact]
+    public void DuplicateRowsRemainVisibleInDefaultIgnoreConditionEvidence()
+    {
+        JsonSourceGenerationDefaultIgnoreConditionEvidence evidence =
+            ReadDefaultIgnoreConditionEvidence(BuildImage(1, 2));
+
+        Assert.Equal(2, evidence.AttributeCount);
+        Assert.Null(evidence.Value);
+        Assert.False(evidence.HasUnsupportedRow);
+    }
+
+    [Theory]
+    [InlineData("malformed")]
+    [InlineData("unknown")]
+    [InlineData("unsupported")]
+    public void UnsupportedRowsRemainVisibleInDefaultIgnoreConditionEvidence(
+        string kind)
+    {
+        byte[] image = BuildSingleRow(
+            metadata => kind switch
+            {
+                "malformed" => metadata.GetOrAddBlob(new byte[] { 0 }),
+                "unknown" => PolicyValue(
+                    metadata,
+                    0x54,
+                    0x55,
+                    "Bogus",
+                    1),
+                "unsupported" => EnumValue(
+                    metadata,
+                    "DefaultIgnoreCondition",
+                    "System.Text.Json.Serialization.JsonIgnoreCondition",
+                    value: (int)JsonWireIgnoreCondition.Always),
+                _ => throw new InvalidOperationException(kind),
+            });
+
+        JsonSourceGenerationDefaultIgnoreConditionEvidence evidence =
+            ReadDefaultIgnoreConditionEvidence(image);
+
+        Assert.Equal(1, evidence.AttributeCount);
+        Assert.Null(evidence.Value);
+        Assert.True(evidence.HasUnsupportedRow);
     }
 
     [Fact]
@@ -321,12 +422,18 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
             MetadataTokens.TypeDefinitionHandle(2));
 
         bool found =
-            AttributeReader.TryGetJsonSourceGenerationPropertyNamingPolicy(
+            AttributeReader.TryGetJsonSourceGenerationWireOptions(
                 reader,
                 type.GetCustomAttributes(),
-                out _);
+                out _,
+                out _,
+                out _,
+                out _,
+                out JsonSourceGenerationDefaultIgnoreConditionEvidence
+                    evidence);
 
         Assert.False(found);
+        Assert.Equal(default, evidence);
     }
 
     static JsonWireNamingPolicy? ReadPolicy(byte[] image)
@@ -348,7 +455,9 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
     static (
         JsonWireNamingPolicy? Policy,
         JsonWireIgnoreCondition DefaultIgnoreCondition,
-        bool UseStringEnumConverter) ReadWireOptions(byte[] image)
+        bool UseStringEnumConverter,
+        JsonSourceGenerationDefaultIgnoreConditionEvidence
+            DefaultIgnoreConditionEvidence) ReadWireOptions(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
@@ -363,11 +472,36 @@ public sealed class JsonSourceGenerationOptionsAttributeTests
                 out JsonWireNamingPolicy? policy,
                 out _,
                 out JsonWireIgnoreCondition defaultIgnoreCondition,
-                out bool useStringEnumConverter));
+                out bool useStringEnumConverter,
+                out JsonSourceGenerationDefaultIgnoreConditionEvidence
+                    defaultIgnoreConditionEvidence));
         return (
             policy,
             defaultIgnoreCondition,
-            useStringEnumConverter);
+            useStringEnumConverter,
+            defaultIgnoreConditionEvidence);
+    }
+
+    static JsonSourceGenerationDefaultIgnoreConditionEvidence
+        ReadDefaultIgnoreConditionEvidence(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(2));
+
+        Assert.True(
+            AttributeReader.TryGetJsonSourceGenerationWireOptions(
+                reader,
+                type.GetCustomAttributes(),
+                out _,
+                out _,
+                out _,
+                out _,
+                out JsonSourceGenerationDefaultIgnoreConditionEvidence
+                    evidence));
+        return evidence;
     }
 
     static byte[] BuildImage(int first, int? second = null)

@@ -40,7 +40,7 @@ public class CommandLineTests
     [InlineData("library", "Example.dll")]
     [InlineData("type", "JsonReader", "--package", "Newtonsoft.Json")]
     [InlineData("member", "JsonReader", "Read:1", "--package", "Newtonsoft.Json")]
-    [InlineData("library", "coordinate", "0x06000001+0x0", "--library", "Example.dll")]
+    [InlineData("library", "address", "0x06000001+0x0", "--library", "Example.dll")]
     public async Task RenderedUrlPreference_ReplacesLegacyFlags(params string[] arguments)
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -359,33 +359,6 @@ public class CommandLineTests
             () => Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect")));
 
         Assert.Contains("Tips:", error);
-    }
-
-    [Fact]
-    public async Task WriteTips_WhenInfoIsActive_WritesNothing()
-    {
-        // --info shows the info block instead of tips. Suppression used to be
-        // arranged by appending "-T:q" to the argument array, which every
-        // subcommand that does not declare --tips rejected as an unrecognized
-        // argument. Reading the tracker keeps the suppression and drops the token.
-        // The mutation this catches: delete "InfoTracker.Enabled" from the guard
-        // in Hints.WriteTips and this reddens while the two cases above stay green.
-        var (_, error) = await ConsoleCapture.RunAsync(() =>
-        {
-            try
-            {
-                DotnetInspect.Cli.InfoTracker.Start();
-                Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
-            }
-            finally
-            {
-                // Process-global, so it is reset inside the action that owns the
-                // console lock rather than after it, per ConsoleCapture's contract.
-                DotnetInspect.Cli.InfoTracker.ResetForTests();
-            }
-        });
-
-        Assert.Empty(error);
     }
 
     [Fact]
@@ -743,9 +716,27 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void LibraryCoordinateCommand_UsesFocusFirstGrammar()
+    public void LibraryAddressCommand_UsesFocusFirstGrammar()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "library",
+                "address",
+                "0x06000001+0x5",
+                "--library",
+                "MyLib.dll",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("address", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void LibraryCommand_DoesNotRegisterRetiredCoordinateChild()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var library = root.Subcommands.Single(command => command.Name == "library");
+        var result = root.Parse(
             [
                 "library",
                 "coordinate",
@@ -754,17 +745,22 @@ public class CommandLineTests
                 "MyLib.dll",
             ]);
 
-        Assert.Empty(result.Errors);
-        Assert.Equal("coordinate", result.CommandResult.Command.Name);
+        Assert.Contains(
+            library.Subcommands,
+            command => command.Name == "address");
+        Assert.DoesNotContain(
+            library.Subcommands,
+            command => command.Name == "coordinate");
+        Assert.NotEmpty(result.Errors);
     }
 
     [Fact]
-    public void LibraryCoordinateCommand_RejectsPositionalLibrarySource()
+    public void LibraryAddressCommand_RejectsPositionalLibrarySource()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             [
                 "library",
-                "coordinate",
+                "address",
                 "0x06000001+0x5",
                 "MyLib.dll",
             ]);
@@ -841,6 +837,37 @@ public class CommandLineTests
         Assert.Equal(
             ["package", "Foo", "-S", DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "All",
              "--path", DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "readme"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_EscapesColonAttachedAtCategorySelectAndPathValues()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "--section:@All", "--path:@readme"]);
+
+        Assert.Equal(
+            [
+                "package",
+                "Foo",
+                "--section:" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "All",
+                "--path:" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "readme",
+            ],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_EscapesCompactAtCategorySelectValue()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["library", "Foo", "-S@Library"]);
+
+        Assert.Equal(
+            [
+                "library",
+                "Foo",
+                "-S" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "Library",
+            ],
             result);
     }
 
@@ -1291,11 +1318,62 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PreprocessArgs_MergesRepeatedSelectAcrossAliasesAndEqualsForm()
+    public void PreprocessArgs_MergesRepeatedSelectAcrossAliasesAndAttachedForms()
     {
-        var result = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--select", "A", "--section=B", "-s", "C"]);
+        var result = CommandLineBuilder.PreprocessArgs(
+        [
+            "package",
+            "Foo",
+            "--select",
+            "A",
+            "--section=B",
+            "-s:C",
+        ]);
 
         Assert.Equal(["package", "Foo", "-S", "A;B;C"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_MergesRepeatedSelectWithCompactShortValue()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "-S", "Package Info", "-SManifest"]);
+
+        Assert.Equal(
+            ["package", "Foo", "-S", "Package Info;Manifest"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_NormalizesInvalidRepeatedSelectToEmptyValue()
+    {
+        (string[] Arguments, string[] Expected)[] cases =
+        [
+            (
+                ["package", "Foo", "-S", "Signals", "--section"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", "--json"],
+                ["package", "Foo", "-S", "", "--json"]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", ""],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", ";"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", " , ; "],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section:"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "-S;"],
+                ["package", "Foo", "-S", ""]),
+        ];
+
+        foreach (var (arguments, expected) in cases)
+            Assert.Equal(expected, CommandLineBuilder.PreprocessArgs(arguments));
     }
 
     [Fact]
@@ -1306,7 +1384,36 @@ public class CommandLineTests
         Assert.Equal(["member", "Foo", "--columns", "Select;Signature"], result);
     }
 
+    [Fact]
+    public void PreprocessArgs_RepeatedSelectPreservesHeadShorthand()
+    {
+        string[] result = PreprocessAndApplyLineWindow(
+        [
+            "package",
+            "Foo",
+            "-S",
+            "Package Info",
+            "--section",
+            "Manifest",
+            "-5",
+        ]);
+
+        Assert.Equal(
+            [
+                "package",
+                "Foo",
+                "-S",
+                "Package Info;Manifest",
+                "-n",
+                "5",
+            ],
+            result);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
     [Theory]
+    [InlineData("--select=")]
     [InlineData("--columns=")]
     [InlineData("--fields=")]
     public void PreprocessArgs_ExpandsInlineEmptyProjectionValue(string option)
@@ -1328,7 +1435,7 @@ public class CommandLineTests
             [
                 "library",
                 option,
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",
@@ -1339,7 +1446,7 @@ public class CommandLineTests
                 "library",
                 option[..^1],
                 "",
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",
@@ -1354,9 +1461,9 @@ public class CommandLineTests
             [
                 "library",
                 "--type",
-                "coordinate",
+                "address",
                 "--package=",
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",
@@ -1366,10 +1473,10 @@ public class CommandLineTests
             [
                 "library",
                 "--type",
-                "coordinate",
+                "address",
                 "--package",
                 "",
-                "coordinate",
+                "address",
                 "0x06000001+0x0",
                 "--platform",
                 "System.Text.Json",

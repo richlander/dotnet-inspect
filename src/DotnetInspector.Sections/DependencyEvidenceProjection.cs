@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using InertText;
 using NuGetFetch;

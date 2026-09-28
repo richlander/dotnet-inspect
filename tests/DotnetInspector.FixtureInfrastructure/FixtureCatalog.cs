@@ -59,6 +59,7 @@ public static class FixtureIds
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataEnablements = "metadata.enablements";
     public const string MetadataInterfaceImplContracts =
         "metadata.interfaceimpl.contracts";
     public const string MetadataInterfaceImplFixtures =
@@ -77,6 +78,8 @@ public static class FixtureIds
     public const string DiffV2 = "diff.v2";
     public const string SourceDiffV1 = "source-diff.v1";
     public const string SourceDiffV2 = "source-diff.v2";
+    public const string QueriesIntrinsicCoreLibraryCalls =
+        "queries.intrinsic-core-library-calls";
     public const string CloneSearchMembers = "clone-search.members";
     public const string LibraryApiDiffV1 = "library-api-diff.v1";
     public const string LibraryApiDiffV2 = "library-api-diff.v2";
@@ -323,6 +326,13 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.ModuleAttribute),
         "metadata", "memory-safety", "layout");
 
+    public static readonly FixtureDefinition MetadataEnablements = Fixture(
+        FixtureIds.MetadataEnablements,
+        "ILInspector.Metadata.EnablementFixtures",
+        "ILInspector.Metadata.EnablementFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "metadata", "enablements", "runtime-async");
+
     public static readonly FixtureDefinition MetadataInterfaceImplContracts =
         Fixture(
             FixtureIds.MetadataInterfaceImplContracts,
@@ -525,6 +535,14 @@ public static class FixtureCatalog
         "DiffAsmTarget.dll",
         Boundaries(FixtureBoundary.AssemblyIdentity),
         "diff", "assembly-identity", "target");
+
+    public static readonly FixtureDefinition QueriesIntrinsicCoreLibraryCalls =
+        Fixture(
+            FixtureIds.QueriesIntrinsicCoreLibraryCalls,
+            "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures",
+            "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "queries", "call-graph", "intrinsic-core-library");
 
     public static readonly FixtureDefinition AnalysisCallerGraphCaller = Fixture(
         FixtureIds.AnalysisCallerGraphCaller,
@@ -1074,6 +1092,7 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
+        MetadataEnablements,
         MetadataInterfaceImplContracts,
         MetadataInterfaceImplFixtures,
         MetadataMethodImplContracts,
@@ -1103,6 +1122,7 @@ public static class FixtureCatalog
         DiffAsmLibA,
         DiffAsmLibB,
         DiffAsmTarget,
+        QueriesIntrinsicCoreLibraryCalls,
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
         AnalysisCallOverloads,
@@ -1497,6 +1517,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.EnablementFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.EnablementFixtures",
             "ILInspector.Metadata.InterfaceImplContracts" =>
                 "fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts",
             "ILInspector.Metadata.InterfaceImplFixtures" =>
@@ -1528,6 +1550,8 @@ public static class FixtureCatalog
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
             "DotnetInspector.SourceDiff.V1" => "fixtures/queries/DotnetInspector.SourceDiff.V1",
             "DotnetInspector.SourceDiff.V2" => "fixtures/queries/DotnetInspector.SourceDiff.V2",
+            "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures" =>
+                "fixtures/queries/DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures",
             "DotnetInspector.CloneSearchFixtures" =>
                 "fixtures/queries/DotnetInspector.CloneSearchFixtures",
             "LibraryApiDiff.V1" => "fixtures/presentation/LibraryApiDiff.V1",

@@ -34,15 +34,49 @@ public abstract class ResearchComparisonInputOccurrence
     /// partial population.
     /// </summary>
     internal abstract string? MissingEvidenceMember { get; }
+
+    /// <summary>
+    /// The profile-neutral Metadata target evidence this occurrence borrows:
+    /// the acquisition-owned descriptor and resolver Research opens, and the
+    /// Analysis method population that issues body identity. Only target
+    /// resolution reads it, after admission proved the evidence complete.
+    /// </summary>
+    internal abstract ResearchTargetEvidence TargetEvidence { get; }
+}
+
+/// <summary>
+/// The one internal view through which target resolution reads either rank-1
+/// profile: an acquisition-owned assembly descriptor, its reference resolver,
+/// and the Analysis method population produced from that assembly.
+/// </summary>
+internal sealed class ResearchTargetEvidence
+{
+    internal ResearchTargetEvidence(
+        ResolvedAssemblyReference assembly,
+        IAssemblyReferenceResolver resolver,
+        LibraryCallGraphAnalysisResult methodPopulation)
+    {
+        Assembly = assembly;
+        Resolver = resolver;
+        MethodPopulation = methodPopulation;
+    }
+
+    internal ResolvedAssemblyReference Assembly { get; }
+
+    internal IAssemblyReferenceResolver Resolver { get; }
+
+    internal LibraryCallGraphAnalysisResult MethodPopulation { get; }
 }
 
 /// <summary>
 /// One occurrence of a borrowed implementation-comparison input: an acquired
-/// assembly descriptor, its reference resolver, and its body index.
+/// assembly descriptor, its reference resolver, and its Analysis method
+/// population, carried for now by the call-graph result.
 /// </summary>
 /// <remarks>
 /// Admission borrows these values as evidence. It does not open the assembly,
-/// inspect its content or path, resolve references, or read the body index.
+/// inspect its content or path, resolve references, or read the method
+/// population.
 /// Direct constructor arguments are validated at construction. The overload
 /// taking an already-constructed <see cref="ImplementationAssemblyInput"/>
 /// deliberately retains incomplete nested evidence, so that shape reaches
@@ -62,8 +96,8 @@ public sealed class ImplementationComparisonInputOccurrence :
     public ImplementationComparisonInputOccurrence(
         ResolvedAssemblyReference assembly,
         IAssemblyReferenceResolver resolver,
-        LibraryBodyIndex bodyIndex)
-        : this(Complete(assembly, resolver, bodyIndex))
+        LibraryCallGraphAnalysisResult methodPopulation)
+        : this(Complete(assembly, resolver, methodPopulation))
     {
     }
 
@@ -76,52 +110,89 @@ public sealed class ImplementationComparisonInputOccurrence :
     /// <summary>The borrowed assembly-reference resolver.</summary>
     public IAssemblyReferenceResolver Resolver => Input.Resolver;
 
-    /// <summary>The borrowed Analysis body index.</summary>
-    public LibraryBodyIndex BodyIndex => Input.BodyIndex;
+    /// <summary>The borrowed Analysis method population.</summary>
+    public LibraryCallGraphAnalysisResult MethodPopulation => Input.MethodPopulation;
 
     internal override string? MissingEvidenceMember
         => Input.Assembly is null
             ? nameof(ImplementationAssemblyInput.Assembly)
             : Input.Resolver is null
                 ? nameof(ImplementationAssemblyInput.Resolver)
-                : Input.BodyIndex is null
-                    ? nameof(ImplementationAssemblyInput.BodyIndex)
+                : Input.MethodPopulation is null
+                    ? nameof(ImplementationAssemblyInput.MethodPopulation)
                     : null;
+
+    internal override ResearchTargetEvidence TargetEvidence
+        => new(Input.Assembly, Input.Resolver, Input.MethodPopulation);
 
     static ImplementationAssemblyInput Complete(
         ResolvedAssemblyReference assembly,
         IAssemblyReferenceResolver resolver,
-        LibraryBodyIndex bodyIndex)
+        LibraryCallGraphAnalysisResult methodPopulation)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(resolver);
-        ArgumentNullException.ThrowIfNull(bodyIndex);
-        return new ImplementationAssemblyInput(assembly, resolver, bodyIndex);
+        ArgumentNullException.ThrowIfNull(methodPopulation);
+        return new ImplementationAssemblyInput(assembly, resolver, methodPopulation);
     }
 }
 
 /// <summary>
-/// One occurrence of a borrowed body-signal input. The body-signal profile
-/// admits only an Analysis body index today.
+/// One occurrence of a borrowed body-signal input: the acquisition-owned
+/// assembly descriptor and resolver an Analysis execution was produced from,
+/// and the focused Analysis results of that one execution.
 /// </summary>
 /// <remarks>
-/// Admission never opens <see cref="LibraryBodyIndex.Path"/> or inspects the
-/// index content.
+/// Both rank-1 profiles supply the same Metadata target evidence. The
+/// body-signal occurrence additionally carries the focused results its
+/// producer compares; its method population is the call-graph result those
+/// results were built from. Admission borrows every value without opening the
+/// assembly, resolving a reference, or reading Analysis content.
 /// </remarks>
 public sealed class BodySignalComparisonInputOccurrence :
     ResearchComparisonInputOccurrence
 {
-    public BodySignalComparisonInputOccurrence(LibraryBodyIndex bodyIndex)
+    public BodySignalComparisonInputOccurrence(
+        ResolvedAssemblyReference assembly,
+        IAssemblyReferenceResolver resolver,
+        BodySignalAnalysisInput analysis)
         : base(ResearchComparisonProfile.BodySignal)
     {
-        ArgumentNullException.ThrowIfNull(bodyIndex);
-        BodyIndex = bodyIndex;
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(resolver);
+        ArgumentNullException.ThrowIfNull(analysis);
+        Assembly = assembly;
+        Resolver = resolver;
+        Analysis = analysis;
     }
 
-    /// <summary>The borrowed Analysis body index.</summary>
-    public LibraryBodyIndex BodyIndex { get; }
+    /// <summary>The borrowed acquisition-owned assembly descriptor.</summary>
+    public ResolvedAssemblyReference Assembly { get; }
 
-    internal override string? MissingEvidenceMember => null;
+    /// <summary>The borrowed assembly-reference resolver.</summary>
+    public IAssemblyReferenceResolver Resolver { get; }
+
+    /// <summary>The borrowed focused Analysis results of one execution.</summary>
+    public BodySignalAnalysisInput Analysis { get; }
+
+    /// <summary>
+    /// The borrowed Analysis method population the focused results were
+    /// built from.
+    /// </summary>
+    public LibraryCallGraphAnalysisResult MethodPopulation
+        => Analysis.MethodPopulation;
+
+    internal override string? MissingEvidenceMember
+        => Assembly is null
+            ? nameof(Assembly)
+            : Resolver is null
+                ? nameof(Resolver)
+                : Analysis is null
+                    ? nameof(Analysis)
+                    : null;
+
+    internal override ResearchTargetEvidence TargetEvidence
+        => new(Assembly, Resolver, Analysis.MethodPopulation);
 }
 
 /// <summary>

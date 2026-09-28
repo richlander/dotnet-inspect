@@ -120,15 +120,15 @@ internal static class InspectionGraphProjectionUtilities
                 subject.Kind is InspectionGraphSubjectKind.Type
                     or InspectionGraphSubjectKind.Member,
             InspectionGraphSubject.TypeSubject
-                {
-                    Identity:
+            {
+                Identity:
                         InspectionGraphTypeIdentity.AcquiredDefinition
                         ownerType,
-                } when subject is InspectionGraphSubject.MemberSubject
-                {
-                    Identity:
+            } when subject is InspectionGraphSubject.MemberSubject
+            {
+                Identity:
                         InspectionGraphMemberIdentity.AcquiredApi member,
-                } =>
+            } =>
                 ownerType.Type.Equals(member.DeclaringType),
             _ => false,
         };
@@ -185,9 +185,8 @@ internal static class InspectionGraphProjectionUtilities
             return null;
 
         return new InspectionGraphCharacteristic(
-            characteristic.Descriptor,
             target.Value,
-            characteristic.Value,
+            characteristic.Payload,
             new InspectionGraphCharacteristicDerivation(
                 characteristic.Derivation.Kind,
                 sources.Select(static source => source!.Value)));
@@ -211,9 +210,8 @@ internal static class InspectionGraphProjectionUtilities
         return target is null
             ? null
             : new InspectionGraphLimit(
-                limit.Descriptor,
-                target,
-                limit.Evidence);
+                limit.Payload,
+                target);
     }
 
     internal static InspectionGraphFailure? RemapFailure(
@@ -234,9 +232,8 @@ internal static class InspectionGraphProjectionUtilities
         return target is null
             ? null
             : new InspectionGraphFailure(
-                failure.Descriptor,
-                target,
-                failure.Evidence);
+                failure.Payload,
+                target);
     }
 
     internal static InspectionGraphTarget? RemapTarget(
@@ -286,6 +283,11 @@ internal static class InspectionGraphProjectionUtilities
                 Identity:
                     InspectionGraphTypeIdentity.AcquiredDefinition acquired,
             } => acquired.Registration,
+            InspectionGraphSubject.TypeSubject
+            {
+                Identity:
+                    InspectionGraphTypeIdentity.MetadataShape metadata,
+            } => metadata.Registration,
             InspectionGraphSubject.AssemblySubject
             {
                 Identity:

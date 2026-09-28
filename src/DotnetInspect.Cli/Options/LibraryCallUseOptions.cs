@@ -5,9 +5,16 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
+public enum LibraryCallUseRouteKind
+{
+    Libraries,
+    Cluster,
+}
+
 public sealed record LibraryCallUseOptions : IProjectionOptions
 {
     public string[] Libraries { get; init; } = [];
+    public required LibraryCallUseRouteKind RouteKind { get; init; }
     public required GraphLibrariesQueryPlan QueryPlan { get; init; }
     public int? Cluster => QueryPlan.Cluster;
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;

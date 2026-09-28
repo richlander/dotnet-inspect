@@ -231,6 +231,73 @@ public sealed class NavigationRetainedTypeActionTests
     }
 
     [Fact]
+    public async Task RetainedTypeAction_RetirementPreservesStartedSelection()
+    {
+        await using NavigationSessionTests.Fixture fixture =
+            await NavigationSessionTests.Fixture.CreateAsync(
+                selectPackage: false);
+        StructuralSubjectIdentity.TypeSubject first =
+            Snapshot(fixture, 0).Types[0].Row.Subject;
+        StructuralSubjectIdentity.TypeSubject second =
+            Snapshot(fixture, 1).Types[0].Row.Subject;
+
+        NavigationTransition firstPublication =
+            NavigationTransitions.PublishRetainedTypeAction(
+                fixture.Session.State,
+                fixture.Session.State.Publication,
+                first);
+        NavigationAction firstAction = Assert.IsType<NavigationAction>(
+            firstPublication.ActionPublication!.Action);
+        NavigationTransition secondPublication =
+            NavigationTransitions.PublishRetainedTypeAction(
+                firstPublication.State,
+                firstPublication.State.Publication,
+                second);
+        NavigationAction secondAction = Assert.IsType<NavigationAction>(
+            secondPublication.ActionPublication!.Action);
+        NavigationTransition beginning =
+            NavigationTransitions.Begin(
+                secondPublication.State,
+                firstAction);
+        NavigationEvaluationRequest work =
+            Assert.IsType<NavigationEvaluationRequest>(beginning.Work);
+
+        NavigationTransition retired =
+            NavigationTransitions.RetireRetainedTypeActions(
+                beginning.State,
+                [firstAction, secondAction]);
+
+        Assert.DoesNotContain(
+            firstAction.Id,
+            retired.State.Data.Actions.Keys);
+        Assert.DoesNotContain(
+            secondAction.Id,
+            retired.State.Data.Actions.Keys);
+        Assert.Equal(
+            firstAction,
+            retired.State.Data.ConsumedActions[firstAction.Id]);
+        Assert.Same(work, retired.State.Data.Explicit);
+
+        NavigationEvaluationResult evaluation =
+            NavigationTransitions.Evaluate(
+                work,
+                fixture.Ready(work),
+                fixture.Registry);
+        NavigationTransition completed =
+            NavigationTransitions.Complete(
+                retired.State,
+                work,
+                evaluation);
+
+        Assert.Equal(
+            NavigationOutcomeKind.Applied,
+            completed.Result!.Consumer.Outcome.Kind);
+        Assert.Equal(
+            first,
+            completed.State.CurrentSnapshot.ActiveSubject);
+    }
+
+    [Fact]
     public async Task RetainedTypeAction_SelectsExactTypeAcrossOccurrencesWithoutIntermediateState()
     {
         await using NavigationSessionTests.Fixture fixture =

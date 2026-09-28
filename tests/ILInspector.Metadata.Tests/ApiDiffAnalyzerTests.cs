@@ -39,13 +39,21 @@ public class ApiDiffAnalyzerTests
         };
     }
 
-    private static ApiMember Method(string name, string signature, bool isVirtual = false, bool isAbstract = false)
+    private static ApiMember Method(
+        string name,
+        string signature,
+        bool isVirtual = false,
+        bool isAbstract = false,
+        List<TypeParameter>? typeParameters = null)
     {
         return new ApiMember
         {
             Name = name,
             Kind = "method",
             Signature = signature,
+            SignatureModel = typeParameters is null
+                ? null
+                : new ApiSignature { TypeParameters = typeParameters },
             IsVirtual = isVirtual,
             IsAbstract = isAbstract
         };
@@ -432,6 +440,121 @@ public class ApiDiffAnalyzerTests
         var change = Assert.Single(diff.TypeDiffs).Changes
             .Single(c => c.Kind == ChangeKind.TypeParameterConstraintLoosened);
         Assert.Equal(ChangeClassification.Additive, change.Classification);
+    }
+
+    [Fact]
+    public void MethodConstraintChanged_ReportsExactConstraintNames()
+    {
+        var oldSurface = Surface(Type("Foo", members:
+        [
+            Method(
+                "Apply",
+                "void Apply<T>()",
+                typeParameters:
+                [
+                    new TypeParameter
+                    {
+                        Name = "T",
+                        Constraints = { "Dependency.BeforeConstraint" },
+                    },
+                ]),
+        ]));
+        var newSurface = Surface(Type("Foo", members:
+        [
+            Method(
+                "Apply",
+                "void Apply<T>()",
+                typeParameters:
+                [
+                    new TypeParameter
+                    {
+                        Name = "T",
+                        Constraints = { "Dependency.AfterConstraint" },
+                    },
+                ]),
+        ]));
+
+        ApiDiff diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        ApiChange[] changes =
+        [
+            .. Assert.Single(diff.TypeDiffs).Changes,
+        ];
+        Assert.Collection(
+            changes,
+            tightened =>
+            {
+                Assert.Equal(
+                    ChangeKind.TypeParameterConstraintTightened,
+                    tightened.Kind);
+                Assert.Equal(
+                    "Dependency.AfterConstraint",
+                    tightened.NewValue);
+                Assert.Equal(
+                    ApiChangeSubjectKind.Member,
+                    tightened.Subject?.Kind);
+            },
+            loosened =>
+            {
+                Assert.Equal(
+                    ChangeKind.TypeParameterConstraintLoosened,
+                    loosened.Kind);
+                Assert.Equal(
+                    "Dependency.BeforeConstraint",
+                    loosened.OldValue);
+                Assert.Equal(
+                    ApiChangeSubjectKind.Member,
+                    loosened.Subject?.Kind);
+            });
+    }
+
+    [Theory]
+    [InlineData(
+        false,
+        true,
+        ChangeKind.TypeParameterConstraintTightened,
+        ChangeClassification.Breaking)]
+    [InlineData(
+        true,
+        false,
+        ChangeKind.TypeParameterConstraintLoosened,
+        ChangeClassification.Additive)]
+    public void MethodConstraintAddedOrRemoved_IsClassified(
+        bool oldHasConstraint,
+        bool newHasConstraint,
+        ChangeKind expectedKind,
+        ChangeClassification expectedClassification)
+    {
+        var oldParameter = new TypeParameter { Name = "T" };
+        if (oldHasConstraint)
+            oldParameter.Constraints.Add("Dependency.Constraint");
+        var newParameter = new TypeParameter { Name = "T" };
+        if (newHasConstraint)
+            newParameter.Constraints.Add("Dependency.Constraint");
+        var oldSurface = Surface(Type("Foo", members:
+        [
+            Method(
+                "Apply",
+                "void Apply<T>()",
+                typeParameters: [oldParameter]),
+        ]));
+        var newSurface = Surface(Type("Foo", members:
+        [
+            Method(
+                "Apply",
+                "void Apply<T>()",
+                typeParameters: [newParameter]),
+        ]));
+
+        ApiChange change = Assert.Single(
+            Assert.Single(
+                ApiDiffAnalyzer.Compare(
+                    oldSurface,
+                    newSurface).TypeDiffs).Changes);
+
+        Assert.Equal(expectedKind, change.Kind);
+        Assert.Equal(expectedClassification, change.Classification);
+        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
     }
 
     [Fact]

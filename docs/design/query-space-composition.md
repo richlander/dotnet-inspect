@@ -49,10 +49,12 @@ exercises that path over application-owned types.
 
 The source-aware one-association path additionally carries one opaque
 owner-issued disposition/completion-evidence pair plus independent
-Rows-usability and Count-sufficiency decisions for every participating set.
-Rows execute residual shaping only for usable sets and preserve source-only
-companions. Count returns every source outcome and enters no residual cohort
-when any set is insufficient; complete empty input remains exact zero.
+Rows-usability, Count-sufficiency, and optional accepted exact-cardinality
+facts for every participating set. Rows execute residual shaping only for
+usable sets and preserve source-only companions. Count consumes accepted exact
+cardinalities without Rows, executes residual shaping only for sufficient row
+handoffs, and returns every source outcome without entering a residual cohort
+when any set is insufficient. Exact zero remains a first-class result.
 
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
@@ -61,8 +63,8 @@ represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
 operation-scope capabilities. Multiple row-intent associations, source
-delegation and accepted upstream Count, projection stages, continuation
-binding, the full structural-plan meaning record, and the remaining gates in
+delegation planning, projection stages, continuation binding, the full
+structural-plan meaning record, and the remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 

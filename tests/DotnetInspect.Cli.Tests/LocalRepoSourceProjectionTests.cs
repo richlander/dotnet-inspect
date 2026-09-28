@@ -63,7 +63,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--repo",
             repositoryRoot,
             "-v:n",
-            "--trace-mermaid",
             "--tips",
             "q");
 
@@ -74,10 +73,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "failed to fetch verified source",
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "source-fetch",
             result.Error,
             StringComparison.Ordinal);
     }

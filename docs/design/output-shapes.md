@@ -84,6 +84,12 @@ It preserves the ordinary primary output, supports a distinct ordinary
 `--out` destination and paired baseline `--envelope`, and publishes the
 complete enriched frame atomically.
 
+Debug `diff --history` adopts `--evidence-envelope <path>` for
+`DiffHistoryOutcome` and `PackageAcquisitionEvidence`, which lists each House
+acquisition with its [package transfer receipt](package-transfer-receipt.md).
+It preserves the ordinary primary output and publishes the complete enriched
+frame atomically.
+
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
 both
@@ -162,7 +168,7 @@ by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
 remaining Diff command-family adoption.
 
-Target-bound Platform catalog routing separately materializes its query and
+Target-bound Platform locator routing separately materializes its query and
 route correspondence as primary Content in an internal host-neutral
 inspection envelope. The CLI consumes that envelope silently before entering
 the existing rich Type or member compatibility path. This does not adopt
@@ -195,7 +201,7 @@ The adopting Release gate assignments are:
   owns complete Outcome and endpoint-issue serialization and round trips.
 - [`AssemblyResolutionProvenanceJsonTests.cs`](../../tests/ILInspector.Metadata.Tests/AssemblyResolutionProvenanceJsonTests.cs)
   owns round-trip coverage for all six provenance cases.
-- [`BrowserEngineBoundaryTypeDependencyTests.cs`](../../inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTypeDependencyTests.cs)
+- [`BrowserEngineBoundaryTypeDependencyTests.cs`](../../tests/DotnetInspect.Web.Tests/BrowserEngineBoundaryTypeDependencyTests.cs)
   test `QueryTypeProjection_RetainsDependencySubjectWireFacts` owns the real
   Browser managed-export boundary: subject identity and provenance survive
   without test-deserializer compensation.
@@ -443,7 +449,7 @@ Serialization never recaptures evidence or projects Share.
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
 | `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
-| `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
+| `--verbose`, `--trace`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
 | `--fields`, `--columns`, `--raw`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
@@ -740,11 +746,11 @@ with structural `explain`.
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
 exist to be selected. The family has two currencies: the IL coordinate, and the
-heap coordinate accepted by `library coordinate` (see
+heap coordinate accepted by `library address` (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not syntax elements, because one currency
-can have more than one spelling. `library coordinate` accepts either one exact
+can have more than one spelling. `library address` accepts either one exact
 IL coordinate or `--file` for batch reporting. Exact and file modes are
 mutually exclusive, so they are one member of this family rather than two.
 
@@ -760,7 +766,7 @@ Carriers behave consistently:
   so `-D` reflects the carrier (see the IL-offset case study below).
 - Absent the carrier, requesting a coordinate-scoped section is an error that
   names the missing carrier, for example
-  `IL coordinate sections require library coordinate <token>+<offset>`.
+  `IL coordinate sections require library address <token>+<offset>`.
 - Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
   `--columns`, `--count`, and the rest of the ladder like any other.
 
@@ -867,7 +873,7 @@ An evaluated query produces one `TypeDeclarationLocatorSectionAnswer` per
 original request in request order. Every answer retains:
 
 - an owner-issued row-set identity, separate from request text;
-- the typed exact or pattern request;
+- the typed exact, pattern, or namespace request;
 - the number of known candidates before output row selection;
 - an always-present selected candidate array;
 - realization and evaluation completeness independently; and
@@ -875,7 +881,8 @@ original request in request order. Every answer retains:
 
 The row unit is one `TypeDeclarationLocatorSectionCandidate`: a typed
 four-arm Package/Platform/Project/Local coordinate, structured Metadata name,
-declaration kind, and one detached observation. The observation retains
+declaration kind, exact module version ID, and one detached observation. The
+observation retains
 population-issued context/member order, assembly identity, source realization,
 and image-selection provenance as separate typed values. Equal logical
 coordinates observed through different feeds, targets, views, or occurrences
@@ -920,10 +927,11 @@ so the failure cannot become a scoped miss or a uniqueness claim.
 
 Typed JSON is source-generated from the same section result. It preserves the
 request and coordinate unions, structured Metadata name, declaration kind,
-realization, selection context, per-context and per-member coverage, selected
-candidate arrays, pre-selection candidate counts, and any row-selection
-failure. Zero, one, and many candidates use the same array shape. It does not
-serialize live Workspace handles or configured package-source authorities.
+module version ID, realization, selection context, per-context and per-member
+coverage, selected candidate arrays, pre-selection candidate counts, and any
+row-selection failure. Zero, one, and many candidates use the same array shape.
+It does not serialize live Workspace handles or configured package-source
+authorities.
 
 Reference observations use the `platform-reference` realization alternative,
 not the legacy implementation-pack `platform` realization. It retains the
@@ -934,6 +942,12 @@ result-local integer ordinals: equal owner tokens receive equal ordinals
 within that one result, and distinct tokens remain distinct. Those ordinals
 are neither portable versions nor keys for reopening a source. A null
 or omitted `requested_assembly` denotes a complete source-population demand.
+
+Transferred PlatformHouse population observations use the `platform`
+realization alternative with family, target framework, version, source
+capability, assembly, and Focus/BindingSupport role. These are detached
+source-owner facts; the projection does not retain a Library owner, operation
+lease, or Artifact session.
 
 Context gaps use a closed `context-load` / `reference-source` /
 `reference-image` union. Source outcomes and diagnostic codes stay separate,
@@ -1053,6 +1067,12 @@ expose one object containing the active cache `location`, formatted `total`,
 and a `categories` array whose rows contain `name`, `size`, and `items`.
 JSONL emits that complete object as exactly one line. An empty cache retains the
 same object shape with `categories: []`.
+
+The Browser-focused
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) contract does not
+change this or another public CLI JSONL shape. It consumes the established
+one-complete-JSON-value-per-line convention while using a separately declared
+compact positional row only for its explicit managed Browser stream.
 
 This boundary exists because generated Markout list sections do not emit an
 empty section, so lowered JSON cannot preserve the required empty array.
@@ -1361,7 +1381,7 @@ resolved by discarding one.
 
 A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library coordinate --file` and the `-D`/`--discover` listing. Each renders a
+`library address --file` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.
 
@@ -1452,9 +1472,9 @@ complete result records incrementally, including typed row failures, as
 described by the historical #4677 target. It remains pending focused L3
 payload-projection ownership and gates.
 
-Tool-authored companion sections still use the stream split: for example,
-`package X -S "Package README file" --print --info` writes the framed, encoded
-document to stdout and the `# Info` table to stderr.
+Tool-authored companion output still uses the stream split: for example,
+`package X -S "Package README file" --print` writes the framed, encoded
+document to stdout and any tips or diagnostics to stderr.
 
 Two consequences define the boundary:
 
@@ -1601,7 +1621,7 @@ member MyType Method:1 --library MyLib.dll -S "Decompiled Source" > Method.cs
 
 ### Case study: IL offset as a shape catalogue
 
-`library coordinate` is a compact example of the shape ladder because one
+`library address` is a compact example of the shape ladder because one
 resolved coordinate can expose multiple sibling sections. The source-location
 section is useful as a human fact sheet, a row, a scalar, a URL, a path, or a
 source-line payload; the member-context section projects the same coordinate to
@@ -1614,7 +1634,7 @@ The default stays evidence-oriented and renders all applicable coordinate-scoped
 sections:
 
 ```bash
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll
+dotnet-inspect library address 0x06000002+0x1 --library My.dll
 ```
 
 ```md
@@ -1703,7 +1723,7 @@ dotnet-inspect library My.dll -D
 # Context: Source Location, Context: Member, Context: Instruction, Context: Exception,
 # Context: Callsite, and Context: Return Address are omitted.
 
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll -D
+dotnet-inspect library address 0x06000002+0x1 --library My.dll -D
 # Context: Source Location
 # Context: Member
 # Context: Instruction
@@ -1716,27 +1736,27 @@ The source-location section then projects cleanly:
 
 ```bash
 # Scalar
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the visually encoded resolved source line
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --print --raw
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
-dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
+dotnet-inspect library address 0x06000002+0x1 --library My.dll \
   -S "Context: Source Location" --count
 # 1
 ```
@@ -1782,7 +1802,7 @@ The stable vocabulary is:
   decoration modifier.
 - `--plaintext` remains distinct from `--raw`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `library coordinate` supplies coordinate input that has no other expression
+- `library address` supplies coordinate input that has no other expression
   and gates the sections it makes meaningful. Coordinate input does not narrow
   a shape, and syntax qualifies for this family only if its input is a new
   currency. Exact and file IL coordinates spell the same currency, so they are

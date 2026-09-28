@@ -39,6 +39,13 @@ public static class ApiCommandDefinitions
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var suppressRuntimeTypeFallbackOption =
+            new Option<string?>(
+                RouterCommandDefinition
+                    .SuppressRuntimeTypeFallbackOptionName)
+            {
+                Hidden = true,
+            };
         var workspaceOption = new Option<string?>("--workspace")
         {
             Description = "Source: canonical Base64URL Workspace packet string",
@@ -79,6 +86,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
+        typeCommand.Options.Add(suppressRuntimeTypeFallbackOption);
         typeCommand.Options.Add(workspaceOption);
         typeCommand.Options.Add(matchOption);
         typeCommand.Options.Add(shareOption);
@@ -118,7 +126,8 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, unsafeOption, repoOption, memberOption, kindOption, atOption,
-            workspaceOption, shareOption);
+            workspaceOption, shareOption,
+            suppressRuntimeTypeFallbackOption);
         structuralArgs = commandArgs;
 
         CliRowSelectionCommandRegistry.Register(
@@ -522,8 +531,22 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            if (IsExactCallGraphTransportSelection(
+                    parseResult,
+                    opts)
+                && !ApiCommand.ValidateCallGraphTransport(
+                    CreateCallGraphTransportPreflightOptions(
+                        parseResult,
+                        opts)))
+            {
+                return 1;
+            }
+
             if (parseResult.GetValue(opts.Envelope)
-                && !parseResult.GetValue(matchOption))
+                && !parseResult.GetValue(matchOption)
+                && !IsExactCallGraphEnvelopeSelection(
+                    parseResult,
+                    opts))
             {
                 CommandError.Write("--envelope on member requires --match.");
                 return 1;
@@ -691,6 +714,98 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    internal static bool IsExactCallGraphEnvelopeSelection(
+        ParseResult parseResult,
+        SharedOptions opts) =>
+        parseResult.GetValue(opts.Envelope)
+        && HasExactCallGraphSelector(parseResult, opts);
+
+    private static bool IsExactCallGraphTransportSelection(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        if (!HasExactCallGraphSelector(parseResult, opts))
+            return false;
+
+        return parseResult.GetValue(opts.Envelope)
+            || opts.ResolveFormat(parseResult) == OutputFormat.Json;
+    }
+
+    private static bool HasExactCallGraphSelector(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        if (opts.ParseSelectDefault(parseResult))
+        {
+            return false;
+        }
+
+        string[] selectors =
+        [
+            .. (opts.ParseSelect(parseResult) ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.CallGraph,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static MemberOptions CreateCallGraphTransportPreflightOptions(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        OutputFormat format = opts.ResolveFormat(parseResult);
+        return new()
+        {
+            EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+            JsonOutput = format == OutputFormat.Json,
+            FormatExplicitlySet =
+                opts.IsFormatExplicitlySet(parseResult),
+            FormatFlagExplicitlySet =
+                opts.IsFormatFlagExplicitlySet(parseResult),
+            MarkdownExplicitlySet =
+                parseResult.GetResult(opts.Markdown)
+                    is { Implicit: false },
+            PlainText = parseResult.GetValue(opts.PlainText),
+            Tabular =
+                format is OutputFormat.Table
+                    or OutputFormat.Tsv
+                    or OutputFormat.Jsonl,
+            Tsv = format == OutputFormat.Tsv,
+            Jsonl = format == OutputFormat.Jsonl,
+            MermaidOutput = format == OutputFormat.Mermaid,
+            EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
+            Tree = parseResult.GetValue(opts.Tree),
+            NoHeader = parseResult.GetValue(opts.NoHeaders),
+            Count = parseResult.GetValue(opts.Count),
+            Limit = parseResult.GetValue(opts.Limit),
+            LineWindowExplicitlySet =
+                parseResult.GetResult(opts.Limit) is { Implicit: false }
+                || parseResult.GetResult(opts.Head)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Tail)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Lines)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.TailLines)
+                    is { Implicit: false },
+            Rows = opts.ParseRows(parseResult),
+            Print = parseResult.GetValue(opts.Print),
+            PrintRow = opts.ParsePrintRow(parseResult),
+            Value = parseResult.GetValue(opts.Value),
+            Urls = parseResult.GetValue(opts.Urls),
+            Paths = parseResult.GetValue(opts.Paths),
+            JsonArray = parseResult.GetValue(opts.JsonArray),
+            Columns = opts.ParseColumns(parseResult),
+            Fields = opts.ParseFields(parseResult),
+            Select = opts.ParseSelect(parseResult),
+            IncludeSections = [SectionNames.CallGraph],
+            ExactIncludeSectionsOverride = [SectionNames.CallGraph],
+            MemberSectionsPreResolved = true,
+        };
     }
 
     private static bool IsProjectedMemberFactsJson(

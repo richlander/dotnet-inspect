@@ -47,6 +47,7 @@ export type { AnnotatedSourceResult } from "./annotated-source-session.ts";
 export interface AnnotatedSourceRenderOptions {
   result: AnnotatedSourceResult;
   session: AnnotatedSourceSession;
+  message?: string;
   escapeHtml: (value: unknown) => string;
   highlightCSharp?: (
     source: string,
@@ -149,6 +150,28 @@ export function renderAnnotatedSourcePageActions(enabled: boolean): string {
       data-annotated-action="explore"${disabled}>Explore</button>`;
 }
 
+export function annotatedSourcePresentationText(
+  result: AnnotatedSourceResult,
+  session: AnnotatedSourceSession,
+): string {
+  const visible = new Set(session.visibleMedia);
+  const view = buildAnnotatedView(result.document, {
+    media: {
+      CSharp: visible.has("CSharp"),
+      Il: visible.has("Il"),
+    },
+  });
+  const body = view.lines
+    .map(line => line.segments
+      .filter(segment => segment.visible)
+      .map(segment => segment.text)
+      .join(""))
+    .join("\n");
+  return body.length > 0
+    ? `${result.signature}\n${body}`
+    : result.signature;
+}
+
 export function renderAnnotatedSourceModal(
   options: AnnotatedSourceRenderOptions,
 ): string {
@@ -170,6 +193,12 @@ export function renderAnnotatedSourceModal(
               data-annotated-action="close-modal">Close</button>
           </div>
         </header>
+        ${options.message
+          ? `<div id="annotated-destination-error"
+              class="graph-drill-error" role="alert" tabindex="-1">${
+                escapeHtml(options.message)
+              }</div>`
+          : ""}
         <div class="annotated-modal-controls" data-annotated-scroll="modal-controls">
           <fieldset class="annotated-control-group">
             <legend>Annotations <span>${reported}</span></legend>
@@ -398,6 +427,13 @@ function renderSource(context: SourceRenderContext): string {
   return `
     <div class="annotated-source-code" data-annotated-surface="${session.surface}"
       data-annotated-scroll="${session.surface}-source-code">
+      <div class="annotated-source-line annotated-source-signature">
+        <span class="annotated-line-number"></span>
+        ${session.surface === "modal"
+          ? `<span class="annotated-medium-label">API</span>`
+          : ""}
+        <code>${escapeHtml(model.result.signature)}</code>
+      </div>
       ${view.lines.map(line => {
         const annotationRows =
           groupLineAnnotations(lineAnnotations.get(line.number) ?? []);

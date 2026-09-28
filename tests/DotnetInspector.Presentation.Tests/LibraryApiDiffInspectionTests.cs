@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Presentation.Tests;
@@ -60,6 +61,38 @@ public sealed class LibraryApiDiffInspectionTests
         Assert.True(document.Summary.ChangedMemberCount > 0);
         Assert.True(document.Summary.BreakingCount > 0);
         Assert.True(document.Summary.AdditiveCount > 0);
+
+        ComparisonSubject<LibraryApiTypeDiff> constraintChange =
+            Assert.Single(
+                document.Comparison.Subjects,
+                subject => subject.Display
+                    == "LibraryApiDiffFixture.MethodConstraintChange");
+        Assert.Collection(
+            constraintChange.Comparison.CompatibilityChanges,
+            tightened =>
+            {
+                Assert.Equal(
+                    ChangeKind.TypeParameterConstraintTightened,
+                    tightened.Kind);
+                Assert.Equal(
+                    "LibraryApiDiffFixture.Dependency.AfterConstraint",
+                    tightened.NewValue?.ToString());
+                Assert.Equal(
+                    ApiChangeSubjectKind.Member,
+                    tightened.Subject.Kind);
+            },
+            loosened =>
+            {
+                Assert.Equal(
+                    ChangeKind.TypeParameterConstraintLoosened,
+                    loosened.Kind);
+                Assert.Equal(
+                    "LibraryApiDiffFixture.Dependency.BeforeConstraint",
+                    loosened.OldValue?.ToString());
+                Assert.Equal(
+                    ApiChangeSubjectKind.Member,
+                    loosened.Subject.Kind);
+            });
     }
 
     [Fact]
@@ -92,7 +125,7 @@ public sealed class LibraryApiDiffInspectionTests
     {
         var limits = new ApiSurfaceProjectionLimits(
             maxParticipants: 64,
-            maxTypes: 6,
+            maxTypes: 7,
             maxMembers: 1_000_000,
             maxInspectionFailures: int.MaxValue,
             maxTypeForwarders: int.MaxValue,
@@ -137,61 +170,32 @@ public sealed class LibraryApiDiffInspectionTests
         Assert.True(rejected.After.IsComplete);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Execute_ForwardedConstraint_PreservesDependencyEvidenceAcrossHosts(bool includeBase)
-    {
-        var pathBacked = await ExecuteForwardedConstraint(
-            memoryBacked: false, includeBase, GenerousLimits);
-        var memoryBacked = await ExecuteForwardedConstraint(
-            memoryBacked: true, includeBase, GenerousLimits);
-
-        Assert.Equal(pathBacked, memoryBacked);
-        if (includeBase)
-        {
-            var available = Assert.IsType<LibraryApiDiffOutcome.Available>(pathBacked.Content);
-            Assert.Empty(available.Document.Comparison.Subjects);
-        }
-        else
-        {
-            var unavailable = Assert.IsType<LibraryApiDiffOutcome.Unavailable>(pathBacked.Content);
-            Assert.False(unavailable.Before.IsComplete);
-            Assert.False(unavailable.After.IsComplete);
-            var issue = Assert.Single(
-                unavailable.Before.Issues.OfType<LibraryApiDiffEndpointIssue.InspectionFailures>());
-            Assert.Contains(issue.Details, failure =>
-                failure.Operation.ToString() == ApiSurfaceInspectionFailure.GenericParameterConstraintResolutionOperation
-                && failure.DependencyAssembly?.Name == "DotnetInspector.Services.RouteLearning.Base");
-        }
-    }
-
     [Fact]
-    public async Task Execute_ConstraintFailureExceedsBudget_ReturnsTruncationInsteadOfEmptySuccess()
+    public async Task Execute_ForwardedConstraint_DoesNotResolveDependencyAcrossHosts()
     {
         var limits = new ApiSurfaceProjectionLimits(
             1, 1_000_000, 1_000_000, 0, 1_000_000, 10_000_000);
-        var envelope = await ExecuteForwardedConstraint(
-            memoryBacked: true, includeBase: false, limits);
+        var pathBacked = await ExecuteForwardedConstraint(
+            memoryBacked: false, limits);
+        var memoryBacked = await ExecuteForwardedConstraint(
+            memoryBacked: true, limits);
 
-        var unavailable = Assert.IsType<LibraryApiDiffOutcome.Unavailable>(envelope.Content);
-        var truncated = Assert.Single(
-            unavailable.Before.Issues.OfType<LibraryApiDiffEndpointIssue.Truncated>());
-        Assert.Equal(ApiSurfaceProjectionLimit.InspectionFailures, truncated.Truncation.Limit);
+        Assert.Equal(pathBacked, memoryBacked);
+        var available =
+            Assert.IsType<LibraryApiDiffOutcome.Available>(pathBacked.Content);
+        Assert.Empty(available.Document.Before.Issues);
+        Assert.Empty(available.Document.After.Issues);
+        Assert.Empty(available.Document.Comparison.Subjects);
     }
 
     static async Task<InspectionEnvelope<LibraryApiDiffOutcome>> ExecuteForwardedConstraint(
         bool memoryBacked,
-        bool includeBase,
         ApiSurfaceProjectionLimits limits)
     {
         string[] paths =
         [
             FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath(),
             FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("middle"),
-            .. includeBase
-                ? new[] { FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("base") }
-                : [],
         ];
         ResolvedAssemblyReference[] assemblies =
         [

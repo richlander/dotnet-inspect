@@ -14,8 +14,19 @@ internal sealed record FindSearchResult<T>(
 {
     public bool SourceSelectionIncomplete { get; init; }
 
-    public IReadOnlyList<TypeDeclarationLocatorSectionResult> LocatorSections
-    { get; init; } = [];
+    public IReadOnlyList<
+        InspectionEnvelope<TypeDeclarationLocatorSectionResult>>
+        LocatorInspections
+    {
+        get;
+        init;
+    } = [];
+
+    public IReadOnlyList<TypeDeclarationLocatorSectionResult> LocatorSections =>
+        [
+            .. LocatorInspections.Select(
+                static inspection => inspection.Content),
+        ];
 }
 
 /// <summary>

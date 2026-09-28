@@ -2391,12 +2391,28 @@ public class CfgSampleClass
         int Add(int v) => v + n;
     }
 
-    // Capturing local-bodied local functions still stay lowered: capture
-    // substitution prints in the host scope, so local-bodied capture recovery
-    // needs an additional nested-scope representation.
+    // Capturing local-bodied local functions use an isolated nested scope while
+    // parameter-backed captures retain their enclosing binder identity.
     public static int CapturingLocalFunctionWithLocal(int n)
     {
         return AddSquare(5);
+
+        int AddSquare(int v)
+        {
+            int y = v + n;
+            return y * y;
+        }
+    }
+
+    // The captured parameter is also read by the host after the display-class
+    // store, and every helper call sits inside later structured control flow.
+    public static int CapturingLocalFunctionWithHostReadAndBranches(int n)
+    {
+        if (n == 0)
+            return AddSquare(5);
+        if (n == 1)
+            return AddSquare(7);
+        return AddSquare(9);
 
         int AddSquare(int v)
         {

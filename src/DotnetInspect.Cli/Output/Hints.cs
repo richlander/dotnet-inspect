@@ -24,12 +24,7 @@ public static class Hints
 
     public static void WriteTips(TipLevel level, Tip[] tips, bool randomize)
     {
-        // --info shows the info block instead of tips. It used to arrange that by
-        // appending "-T:q" to the argument array, which every subcommand that does
-        // not declare --tips then rejected as an unrecognized argument. The tracker
-        // is already the process-wide truth for the mode, so asking it here
-        // suppresses tips for every command without touching the parser.
-        if (level == TipLevel.Quiet || InfoTracker.Enabled || tips.Length == 0) return;
+        if (level == TipLevel.Quiet || tips.Length == 0) return;
         int max = level == TipLevel.Minimal ? 3 : 6;
 
         var visible = randomize

@@ -1259,7 +1259,6 @@ public class LibraryFindingConsumerTests
             Assert.NotEqual(
                 Path.GetFileNameWithoutExtension(replacementPath),
                 inspection.AssemblyInfo.AssemblyName);
-            Assert.Equal(originalTimestamp, inspection.LastModified);
             Assert.Same(entry, inspection.AssemblyIntegrationsEntry);
             Assert.Same(
                 opportunitiesEntry,

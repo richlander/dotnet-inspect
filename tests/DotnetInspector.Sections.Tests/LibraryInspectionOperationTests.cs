@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 
 using DotnetInspector.Libraries;
@@ -17,6 +18,22 @@ public sealed class LibraryInspectionOperationTests
             maxTypeForwarders: 10_000,
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters: 20_000_000);
+
+    [Fact]
+    public void
+        NamespaceDiscoveryNamesakeCandidatesAreLongestFirstAndBounded()
+    {
+        Assert.Equal(
+            ["System.Text.Json", "System.Text"],
+            LibraryNamespaceDiscovery.NamesakeLibraryCandidates(
+                "System.Text.Json.Nodes"));
+        Assert.Empty(
+            LibraryNamespaceDiscovery.NamesakeLibraryCandidates(
+                "System.Text"));
+        Assert.Empty(
+            LibraryNamespaceDiscovery.NamesakeLibraryCandidates(
+                "System..Text"));
+    }
 
     [Fact]
     public async Task
@@ -42,13 +59,16 @@ public sealed class LibraryInspectionOperationTests
         Assert.True(document.Work.RetainedTextCharacters > 0);
         Assert.Equal(
             document.ModuleVersionId,
-            document.Types.Binding.ModuleVersionId);
+            document.Types!.Binding.ModuleVersionId);
         Assert.Equal(
             LibraryTypeAccessibility.Public,
             document.Types.Binding.Accessibility);
         Assert.Equal(
             LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
             document.Types.Binding.DeclarationSelection);
+        Assert.Equal(
+            ApiTypeInventoryKinds.All,
+            document.Types.Binding.DefinitionKinds);
         LibraryTypePopulationCountOutcome.Counted count =
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
                     document.Types.Count);
@@ -77,6 +97,47 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        GenericDefinitionWithoutArityMarkerRetainsTypeParameterDisplay()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] original = Encoding.UTF8.GetBytes("JsonConverter`1");
+        byte[] replacement = Encoding.UTF8.GetBytes("JsonConverterXX");
+        Assert.Equal(original.Length, replacement.Length);
+        int offset = content.AsSpan().IndexOf(original);
+        Assert.True(offset >= 0);
+        Assert.Equal(
+            -1,
+            content.AsSpan(offset + original.Length).IndexOf(original));
+        replacement.CopyTo(content, offset);
+
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 5_000,
+                    memberCount: new())));
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types!.Rows);
+
+        Assert.Contains(
+            rows.Items,
+            row =>
+                row.DisplayName.ToString()
+                    == "System.Text.Json.Serialization.JsonConverterXX<T>");
+
+        await library.RetireAsync();
+        AssertDetachedContract();
+    }
+
+    [Fact]
+    public async Task
         RealSystemTextJson_BoundedRowsDrainToCountWithRequestedMemberCounts()
     {
         byte[] content =
@@ -96,7 +157,7 @@ public sealed class LibraryInspectionOperationTests
                 rowsRequest));
         LibraryTypePopulationCountOutcome.Counted count =
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
-                first.Types.Count);
+                first.Types!.Count);
         LibraryTypePopulationRowsOutcome.Read segment =
             Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
                 first.Types.Rows);
@@ -113,7 +174,7 @@ public sealed class LibraryInspectionOperationTests
                         maximumRows: 7,
                         memberCount: new(),
                         continuation: continuation)));
-            Assert.Null(next.Types.Count);
+            Assert.Null(next.Types!.Count);
             Assert.Equal(first.Types.Binding, next.Types.Binding);
             segment =
                 Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
@@ -127,6 +188,16 @@ public sealed class LibraryInspectionOperationTests
             rows.Count,
             rows.Select(static row => row.Identity).Distinct().Count());
         Assert.All(rows, static row => Assert.True(row.IsPublicSurface));
+        Assert.Equal(
+            "System.Text.Json.Serialization.JsonConverter<T>",
+            rows.Single(
+                    row =>
+                        row.Identity
+                            == Name(
+                                "System.Text.Json.Serialization",
+                                "JsonConverter`1"))
+                .DisplayName
+                .ToString());
         Assert.Equal(
             16,
             Assert.IsType<LibraryTypeMemberCountOutcome.Counted>(
@@ -163,6 +234,460 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        RealSystemTextJson_ExactNamespaceCountAndRowsShareMembership()
+    {
+        const string Namespace = "System.Text.Json.Nodes";
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument qualified = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                @namespace: Namespace));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                qualified.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                qualified.Types.Rows);
+
+        Assert.Equal(Namespace, qualified.Types.Binding.Namespace);
+        Assert.True(rows.IsComplete);
+        Assert.True(count.Total > 0);
+        Assert.Equal(count.Total, rows.Items.Length);
+        Assert.All(
+            rows.Items,
+            row => Assert.Equal(Namespace, row.Namespace.ToString()));
+        Assert.Contains(
+            rows.Items,
+            row => row.Identity == Name(Namespace, "JsonArray"));
+        Assert.DoesNotContain(
+            rows.Items,
+            row =>
+                row.Identity
+                    == Name("System.Text.Json", "JsonDocument"));
+
+        LibraryDocument probe = Document(
+            Execute(
+                library,
+                LibraryNamespaceDiscovery.CreateProbePlan(
+                    Namespace,
+                    s_bounds)));
+        LibraryTypePopulationRowsOutcome.Read probeRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                LibraryNamespaceDiscovery.ProbeRows(
+                    probe,
+                    Namespace));
+        Assert.Single(probeRows.Items);
+
+        LibraryTypePopulationRowsOutcome.Read unqualified =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                Document(
+                    Execute(
+                        library,
+                        count: false,
+                        new(maximumRows: 5_000)))
+                    .Types!.Rows);
+        Assert.True(rows.Items.Length < unqualified.Items.Length);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealFacade_ExactNamespaceIncludesFirstClassForwarders()
+    {
+        const string Namespace = "System";
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealNetstandardAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(
+                    maximumRows: 5_000,
+                    memberCount: new()),
+                @namespace: Namespace));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.True(rows.IsComplete);
+        Assert.True(count.Forwarders > 0);
+        Assert.Equal(count.Total, rows.Items.Length);
+        Assert.All(
+            rows.Items,
+            row => Assert.Equal(Namespace, row.Namespace.ToString()));
+        Assert.All(
+            rows.Items.Where(
+                static row =>
+                    row.DeclarationKind
+                        == LibraryTypeDeclarationKind.Forwarder),
+            static row =>
+            {
+                Assert.Null(row.DefinitionKind);
+                Assert.Null(row.DefinitionAccessibility);
+                Assert.Equal(
+                    LibraryTypeMemberCountNotApplicableReason.Forwarder,
+                    Assert.IsType<
+                            LibraryTypeMemberCountOutcome.NotApplicable>(
+                            row.MemberCount)
+                        .Reason);
+            });
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        NamespaceSuffixCountAndRowsShareExhaustiveMembership()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary
+                .NamespaceSuffixFixtureAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 1),
+                @namespace: ".Nodes",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read first =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+        LibraryTypePopulationContinuation continuation =
+            Assert.IsType<LibraryTypePopulationContinuation>(
+                first.Continuation);
+        LibraryTypePopulationRowsOutcome.Read second =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                Document(
+                    Execute(
+                        library,
+                        count: false,
+                        new(
+                            maximumRows: 1,
+                            continuation: continuation),
+                        @namespace: ".Nodes",
+                        namespaceMatch:
+                            MetadataNamespaceMatch.Suffix))
+                    .Types!.Rows);
+
+        Assert.Equal(".Nodes", document.Types.Binding.Namespace);
+        Assert.Equal(
+            MetadataNamespaceMatch.Suffix,
+            document.Types.Binding.NamespaceMatch);
+        Assert.Equal(2, count.Total);
+        Assert.Null(second.Continuation);
+        LibraryTypeShape[] rows =
+            [.. first.Items, .. second.Items];
+        Assert.Equal(count.Total, rows.Length);
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Nodes", "Foo"));
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Green.Nodes", "Bar"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Node", "NearSingular"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.MyNodes", "NearName"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Nodes.More", "Descendant"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("Nodes", "Root"));
+
+        AssertRowsRejection(
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
+                @namespace: ".Nodes"),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        NamespaceChildrenCountAndRowsIncludeSelfAndDescendants()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary
+                .NamespaceSuffixFixtureAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 1),
+                @namespace: "World.Blue.Nodes",
+                namespaceMatch:
+                    MetadataNamespaceMatch.ExactOrDescendant));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read first =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+        LibraryTypePopulationContinuation continuation =
+            Assert.IsType<LibraryTypePopulationContinuation>(
+                first.Continuation);
+        LibraryTypePopulationRowsOutcome.Read second =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                Document(
+                    Execute(
+                        library,
+                        count: false,
+                        new(
+                            maximumRows: 1,
+                            continuation: continuation),
+                        @namespace: "World.Blue.Nodes",
+                        namespaceMatch:
+                            MetadataNamespaceMatch.ExactOrDescendant))
+                    .Types!.Rows);
+
+        Assert.Equal(
+            "World.Blue.Nodes",
+            document.Types.Binding.Namespace);
+        Assert.Equal(
+            MetadataNamespaceMatch.ExactOrDescendant,
+            document.Types.Binding.NamespaceMatch);
+        Assert.Equal(2, count.Total);
+        Assert.Null(second.Continuation);
+        LibraryTypeShape[] rows =
+            [.. first.Items, .. second.Items];
+        Assert.Equal(count.Total, rows.Length);
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Nodes", "Foo"));
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name(
+                        "World.Blue.Nodes.More",
+                        "Descendant"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.MyNodes", "NearName"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Green.Nodes", "Bar"));
+
+        AssertRowsRejection(
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
+                @namespace: "World.Blue.Nodes"),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealFacade_NamespaceSuffixIncludesFirstClassForwarders()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealNetstandardAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                @namespace: ".Generic",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.True(rows.IsComplete);
+        Assert.True(count.Forwarders > 0);
+        Assert.Equal(count.Total, rows.Items.Length);
+        Assert.All(
+            rows.Items,
+            row =>
+                Assert.EndsWith(
+                    ".Generic",
+                    row.Namespace.ToString(),
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            rows.Items,
+            static row =>
+                row.DeclarationKind
+                    == LibraryTypeDeclarationKind.Forwarder);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSystemTextJson_DefinitionKindFacetBindsCountAndRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        const ApiTypeInventoryKinds selection =
+            ApiTypeInventoryKinds.Classes
+            | ApiTypeInventoryKinds.Structs;
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                declarationSelection:
+                    LibraryTypeDeclarationSelection.Definitions,
+                definitionKinds: selection));
+
+        Assert.Equal(
+            selection,
+            document.Types!.Binding.DefinitionKinds);
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+        Assert.True(rows.IsComplete);
+        Assert.True(count.Classes > 0);
+        Assert.True(count.Structs > 0);
+        Assert.Equal(0, count.Forwarders);
+        Assert.Equal(0, count.Interfaces);
+        Assert.Equal(0, count.Enums);
+        Assert.Equal(0, count.Delegates);
+        Assert.Equal(count.Total, rows.Items.Length);
+        Assert.All(
+            rows.Items,
+            static row =>
+            {
+                Assert.Equal(
+                    LibraryTypeDeclarationKind.Definition,
+                    row.DeclarationKind);
+                Assert.True(
+                    row.DefinitionKind
+                        is ApiTypeInventoryKind.Class
+                            or ApiTypeInventoryKind.Struct);
+            });
+        LibraryDocument allDefinitions = Document(
+            Execute(
+                library,
+                count: false,
+                new(maximumRows: 5_000),
+                declarationSelection:
+                    LibraryTypeDeclarationSelection.Definitions));
+        Assert.True(
+            document.Work.RetainedTextCharacters
+                < allDefinitions.Work.RetainedTextCharacters);
+        Assert.True(
+            rows.Items.Length
+                < Assert.IsType<
+                        LibraryTypePopulationRowsOutcome.Read>(
+                        allDefinitions.Types!.Rows)
+                    .Items
+                    .Length);
+        LibraryDocument classesAndForwarders = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                definitionKinds:
+                    ApiTypeInventoryKinds.Classes));
+        LibraryTypePopulationCountOutcome.Counted mixedCount =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                classesAndForwarders.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read mixedRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                classesAndForwarders.Types.Rows);
+        Assert.True(mixedCount.Classes > 0);
+        Assert.True(mixedCount.Forwarders > 0);
+        Assert.Equal(0, mixedCount.Structs);
+        Assert.Equal(0, mixedCount.Interfaces);
+        Assert.Equal(0, mixedCount.Enums);
+        Assert.Equal(0, mixedCount.Delegates);
+        Assert.Equal(mixedCount.Total, mixedRows.Items.Length);
+        Assert.All(
+            mixedRows.Items,
+            static row =>
+                Assert.True(
+                    row.DeclarationKind
+                        == LibraryTypeDeclarationKind.Forwarder
+                    || row.DefinitionKind
+                        == ApiTypeInventoryKind.Class));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         RealFacade_RowsRetainForwarderEvidenceWithoutTargetResolution()
     {
         byte[] content =
@@ -181,7 +706,7 @@ public sealed class LibraryInspectionOperationTests
                     memberCount: new()));
         LibraryDocument document = Document(envelope);
 
-        Assert.Null(document.Types.Count);
+        Assert.Null(document.Types!.Count);
         LibraryTypePopulationRowsOutcome.Read rows =
             Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
                 document.Types.Rows);
@@ -225,7 +750,7 @@ public sealed class LibraryInspectionOperationTests
                 Assert.Single(
                         Assert.IsType<
                                 LibraryTypePopulationRowsOutcome.Read>(
-                                Document(roundTrippedEnvelope).Types.Rows)
+                                Document(roundTrippedEnvelope).Types!.Rows)
                             .Items,
                         row =>
                             row.Identity
@@ -273,13 +798,18 @@ public sealed class LibraryInspectionOperationTests
                     declarationSelection: selection));
             LibraryTypePopulationCountOutcome.Counted count =
                 Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
-                    document.Types.Count);
+                    document.Types!.Count);
             LibraryTypePopulationRowsOutcome.Read rows =
                 Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
                     document.Types.Rows);
 
             Assert.True(rows.IsComplete);
             Assert.Equal(selection, document.Types.Binding.DeclarationSelection);
+            Assert.Equal(
+                selection == LibraryTypeDeclarationSelection.Definitions
+                    ? ApiTypeInventoryKinds.All
+                    : ApiTypeInventoryKinds.None,
+                document.Types.Binding.DefinitionKinds);
             Assert.Equal(count.Total, rows.Items.Length);
             Assert.NotEmpty(rows.Items);
             if (selection == LibraryTypeDeclarationSelection.Definitions)
@@ -326,7 +856,7 @@ public sealed class LibraryInspectionOperationTests
                 new(maximumRows: 5_000)));
         LibraryTypePopulationCountOutcome.Counted combinedCount =
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
-                combined.Types.Count);
+                combined.Types!.Count);
         LibraryTypePopulationRowsOutcome.Read combinedRows =
             Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
                 combined.Types.Rows);
@@ -360,7 +890,7 @@ public sealed class LibraryInspectionOperationTests
                     LibraryTypeDeclarationSelection.Forwarders));
         LibraryTypePopulationCountOutcome.Counted forwarderCount =
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
-                forwarders.Types.Count);
+                forwarders.Types!.Count);
         LibraryTypePopulationRowsOutcome.Read forwarderRows =
             Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
                 forwarders.Types.Rows);
@@ -388,7 +918,7 @@ public sealed class LibraryInspectionOperationTests
                     LibraryTypeDeclarationSelection.Definitions));
         LibraryTypePopulationCountOutcome.Counted definitionCount =
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
-                definitions.Types.Count);
+                definitions.Types!.Count);
         LibraryTypePopulationRowsOutcome.Read definitionRows =
             Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
                 definitions.Types.Rows);
@@ -434,7 +964,7 @@ public sealed class LibraryInspectionOperationTests
                             json,
                             count: false,
                             new(maximumRows: 1)))
-                        .Types.Rows)
+                        .Types!.Rows)
                 .Continuation!;
         AssertRowsRejection(
             Execute(
@@ -471,6 +1001,39 @@ public sealed class LibraryInspectionOperationTests
                 .IncompatibleContinuation);
         AssertRowsRejection(
             Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
+                definitionKinds:
+                    ApiTypeInventoryKinds.Classes),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+        LibraryTypePopulationContinuation namespaceContinuation =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                    Document(
+                        Execute(
+                            json,
+                            count: false,
+                            new(maximumRows: 1),
+                            @namespace:
+                                "System.Text.Json.Nodes"))
+                        .Types!.Rows)
+                .Continuation!;
+        AssertRowsRejection(
+            Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: namespaceContinuation),
+                @namespace:
+                    "System.Text.Json.Serialization"),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+        AssertRowsRejection(
+            Execute(
                 facade,
                 count: false,
                 new(
@@ -481,10 +1044,10 @@ public sealed class LibraryInspectionOperationTests
         byte[] payload =
             Convert.FromBase64String(
                 continuation.Value.ToString());
-        payload[21] = 0xFF;
-        payload[22] = 0xFF;
-        payload[23] = 0xFF;
-        payload[24] = 0x7F;
+        payload[24] = 0xFF;
+        payload[25] = 0xFF;
+        payload[26] = 0xFF;
+        payload[27] = 0x7F;
         AssertRowsRejection(
             Execute(
                 json,
@@ -531,7 +1094,7 @@ public sealed class LibraryInspectionOperationTests
 
         LibraryDocument document = Document(envelope);
         Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
-            document.Types.Count);
+            document.Types!.Count);
         LibraryTypePopulationRowsOutcome.Incomplete incomplete =
             Assert.IsType<LibraryTypePopulationRowsOutcome.Incomplete>(
                 document.Types.Rows);
@@ -575,18 +1138,18 @@ public sealed class LibraryInspectionOperationTests
             LibraryTypePopulationCountBound.Definitions,
             Assert.IsType<
                     LibraryTypePopulationCountOutcome.Incomplete>(
-                    Document(envelope).Types.Count)
+                    Document(envelope).Types!.Count)
                 .Bound);
         Assert.Equal(
             1,
             Assert.IsType<
                     LibraryTypePopulationCountOutcome.Incomplete>(
-                    Document(envelope).Types.Count)
+                    Document(envelope).Types!.Count)
                 .Limit);
         Assert.True(
             Assert.IsType<
                     LibraryTypePopulationCountOutcome.Incomplete>(
-                    Document(envelope).Types.Count)
+                    Document(envelope).Types!.Count)
                 .Measured > 1);
         Assert.Equal(
             "library-inspection.types.count.incomplete.definitions",
@@ -610,7 +1173,7 @@ public sealed class LibraryInspectionOperationTests
 
         LibraryTypePopulationCountOutcome.Counted count =
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
-                Document(envelope).Types.Count);
+                Document(envelope).Types!.Count);
         Assert.True(count.Forwarders > 0);
         Assert.Equal(
             count.Total,
@@ -648,7 +1211,7 @@ public sealed class LibraryInspectionOperationTests
 
         LibraryTypePopulationCountOutcome.Incomplete incomplete =
             Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
-                Document(envelope).Types.Count);
+                Document(envelope).Types!.Count);
         Assert.Equal(
             LibraryTypePopulationCountBound.Forwarders,
             incomplete.Bound);
@@ -683,7 +1246,7 @@ public sealed class LibraryInspectionOperationTests
         LibraryDocument document = Document(envelope);
         LibraryTypePopulationCountOutcome.Incomplete incomplete =
             Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
-                document.Types.Count);
+                document.Types!.Count);
         Assert.Equal(
             LibraryTypePopulationCountBound.MetadataRows,
             incomplete.Bound);
@@ -721,7 +1284,7 @@ public sealed class LibraryInspectionOperationTests
         LibraryDocument document = Document(envelope);
         LibraryTypePopulationCountOutcome.Incomplete incomplete =
             Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
-                document.Types.Count);
+                document.Types!.Count);
         Assert.Equal(
             LibraryTypePopulationCountBound.RetainedDeclarations,
             incomplete.Bound);
@@ -760,7 +1323,7 @@ public sealed class LibraryInspectionOperationTests
         LibraryDocument document = Document(envelope);
         LibraryTypePopulationCountOutcome.Incomplete incomplete =
             Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
-                document.Types.Count);
+                document.Types!.Count);
         Assert.Equal(
             LibraryTypePopulationCountBound.RetainedTextCharacters,
             incomplete.Bound);
@@ -866,7 +1429,7 @@ public sealed class LibraryInspectionOperationTests
                 .UnsupportedModuleExport,
             Assert.IsType<
                     LibraryTypePopulationCountOutcome.Unavailable>(
-                    Document(envelope).Types.Count)
+                    Document(envelope).Types!.Count)
                 .Reason);
         Assert.Equal(
             "library-inspection.types.count.unavailable.unsupported-module-export",
@@ -897,7 +1460,7 @@ public sealed class LibraryInspectionOperationTests
                 .UnsupportedModuleExport,
             Assert.IsType<
                     LibraryTypePopulationRowsOutcome.Unavailable>(
-                    Document(envelope).Types.Rows)
+                    Document(envelope).Types!.Rows)
                 .Reason);
         Assert.Equal(
             "library-inspection.types.rows.unavailable.unsupported-module-export",
@@ -907,7 +1470,7 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
-        DeclarationKindSelectionExcludesUnsupportedModuleExports()
+        FacetSelectionExcludesUnsupportedModuleExports()
     {
         byte[] content =
             LibraryInspectionTestLibrary.BuildMetadataImage(
@@ -918,11 +1481,21 @@ public sealed class LibraryInspectionOperationTests
                 LibraryInspectionTestLibrary.ProbeIdentity());
 
         foreach (
-            LibraryTypeDeclarationSelection selection
+            (
+                LibraryTypeDeclarationSelection Declarations,
+                ApiTypeInventoryKinds DefinitionKinds) selection
             in new[]
             {
-                LibraryTypeDeclarationSelection.Definitions,
-                LibraryTypeDeclarationSelection.Forwarders,
+                (
+                    LibraryTypeDeclarationSelection.Definitions,
+                    ApiTypeInventoryKinds.All),
+                (
+                    LibraryTypeDeclarationSelection.Forwarders,
+                    ApiTypeInventoryKinds.None),
+                (
+                    LibraryTypeDeclarationSelection
+                        .DefinitionsAndForwarders,
+                    ApiTypeInventoryKinds.Classes),
             })
         {
             InspectionEnvelope<LibraryInspectionOutcome> envelope =
@@ -930,12 +1503,15 @@ public sealed class LibraryInspectionOperationTests
                     library,
                     count: true,
                     new(maximumRows: 1),
-                    declarationSelection: selection);
+                    declarationSelection:
+                        selection.Declarations,
+                    definitionKinds:
+                        selection.DefinitionKinds);
             LibraryDocument document = Document(envelope);
             LibraryTypePopulationCountOutcome.Counted count =
                 Assert.IsType<
                     LibraryTypePopulationCountOutcome.Counted>(
-                    document.Types.Count);
+                    document.Types!.Count);
             LibraryTypePopulationRowsOutcome.Read rows =
                 Assert.IsType<
                     LibraryTypePopulationRowsOutcome.Read>(
@@ -946,6 +1522,71 @@ public sealed class LibraryInspectionOperationTests
             Assert.True(rows.IsComplete);
             Assert.Empty(envelope.Diagnostics);
         }
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        NamespaceFacetExcludesMatchingUnsupportedModuleExport()
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                includeModuleExport: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 1),
+                @namespace: "Probe"));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.Equal(0, count.Total);
+        Assert.Empty(rows.Items);
+        Assert.True(rows.IsComplete);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task GlobalNamespaceFacetIsDistinctFromNoFacet()
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                includeGlobalType: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 10),
+                @namespace: ""));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.Equal("", document.Types.Binding.Namespace);
+        Assert.Equal(1, count.Total);
+        LibraryTypeShape row = Assert.Single(rows.Items);
+        Assert.Equal("", row.Namespace.ToString());
+        Assert.Equal(Name("", "GlobalProbe"), row.Identity);
 
         await library.RetireAsync();
     }
@@ -1088,6 +1729,81 @@ public sealed class LibraryInspectionOperationTests
     }
 
     [Fact]
+    public void PopulationRequestRejectsInvalidDefinitionKindSelections()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                definitionKinds:
+                    (ApiTypeInventoryKinds)int.MaxValue));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                declarationSelection:
+                    LibraryTypeDeclarationSelection.Definitions,
+                definitionKinds:
+                    ApiTypeInventoryKinds.None));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                declarationSelection:
+                    LibraryTypeDeclarationSelection.Forwarders,
+                definitionKinds:
+                    ApiTypeInventoryKinds.Classes));
+    }
+
+    [Fact]
+    public void PopulationRequestRejectsInvalidNamespaceText()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace:
+                    new string(
+                        'N',
+                        MetadataSafetyPolicy
+                            .MaxTypeNameCharacters
+                        + 1)));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: "\uD800"));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: ".",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: "Nodes",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: null,
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: "",
+                namespaceMatch:
+                    MetadataNamespaceMatch.ExactOrDescendant));
+    }
+
+    [Fact]
     public void PlanAndClosedOutcomeSerializeWithSourceGeneration()
     {
         Guid moduleVersionId = Guid.NewGuid();
@@ -1103,7 +1819,11 @@ public sealed class LibraryInspectionOperationTests
                             new InertString(
                                 TextPolicy.Field,
                                 "opaque-receipt"))),
-                LibraryTypeDeclarationSelection.Forwarders),
+                LibraryTypeDeclarationSelection
+                    .DefinitionsAndForwarders,
+                ApiTypeInventoryKinds.Classes
+                    | ApiTypeInventoryKinds.Structs,
+                @namespace: "Example"),
             s_bounds);
         var document = new LibraryDocument(
             new(
@@ -1117,7 +1837,9 @@ public sealed class LibraryInspectionOperationTests
                     moduleVersionId,
                     LibraryTypeAccessibility.Public,
                     LibraryTypeDeclarationSelection
-                        .DefinitionsAndForwarders),
+                        .DefinitionsAndForwarders,
+                    ApiTypeInventoryKinds.All,
+                    Namespace: "Example"),
                 new LibraryTypePopulationCountOutcome.Counted(
                     forwarders: 6,
                     classes: 1,
@@ -1159,7 +1881,7 @@ public sealed class LibraryInspectionOperationTests
                 new LibraryInspectionOutcome.Available(
                     document with
                     {
-                        Types = document.Types with
+                        Types = document.Types! with
                         {
                             Count =
                                 new LibraryTypePopulationCountOutcome
@@ -1172,7 +1894,7 @@ public sealed class LibraryInspectionOperationTests
                 new LibraryInspectionOutcome.Available(
                     document with
                     {
-                        Types = document.Types with
+                        Types = document.Types! with
                         {
                             Count =
                                 new LibraryTypePopulationCountOutcome
@@ -1198,7 +1920,15 @@ public sealed class LibraryInspectionOperationTests
         Assert.Contains("\"count\"", planJson, StringComparison.Ordinal);
         Assert.Contains("\"rows\"", planJson, StringComparison.Ordinal);
         Assert.Contains(
-            "\"declarationSelection\": \"Forwarders\"",
+            "\"declarationSelection\": \"DefinitionsAndForwarders\"",
+            planJson,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"definitionKinds\": \"Classes, Structs\"",
+            planJson,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"namespace\": \"Example\"",
             planJson,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1212,11 +1942,22 @@ public sealed class LibraryInspectionOperationTests
                     .LibraryInspectionPlan)
             ?? throw new InvalidOperationException(
                 "The Library inspection plan did not deserialize.");
-        Assert.NotNull(roundTrippedPlan.Types.Count);
+        Assert.NotNull(roundTrippedPlan.Types!.Count);
         Assert.NotNull(roundTrippedPlan.Types.Rows);
         Assert.Equal(
-            LibraryTypeDeclarationSelection.Forwarders,
+            LibraryTypeDeclarationSelection
+                .DefinitionsAndForwarders,
             roundTrippedPlan.Types.DeclarationSelection);
+        Assert.Equal(
+            ApiTypeInventoryKinds.Classes
+                | ApiTypeInventoryKinds.Structs,
+            roundTrippedPlan.Types.DefinitionKinds);
+        Assert.Equal(
+            "Example",
+            roundTrippedPlan.Types.Namespace);
+        Assert.Equal(
+            MetadataNamespaceMatch.Exact,
+            roundTrippedPlan.Types.NamespaceMatch);
         Assert.NotNull(
             roundTrippedPlan.Types.Rows.MemberCount);
         Assert.Equal(
@@ -1272,11 +2013,24 @@ public sealed class LibraryInspectionOperationTests
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Execute(
         LibraryInspectionTestLibrary library,
+        LibraryInspectionPlan plan) =>
+        LibraryInspectionOperation.Execute(
+            new(library.Reference, plan),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> Execute(
+        LibraryInspectionTestLibrary library,
         bool count,
         LibraryTypePopulationRowsRequest rows,
         ApiSurfaceExtractionBounds? bounds = null,
         LibraryTypeDeclarationSelection declarationSelection =
-            LibraryTypeDeclarationSelection.DefinitionsAndForwarders) =>
+            LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
+        ApiTypeInventoryKinds definitionKinds =
+            ApiTypeInventoryKinds.All,
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -1287,7 +2041,10 @@ public sealed class LibraryInspectionOperationTests
                             ? new LibraryTypePopulationCountRequest()
                             : null,
                         rows,
-                        declarationSelection),
+                        declarationSelection,
+                        definitionKinds,
+                        @namespace,
+                        namespaceMatch),
                     bounds ?? s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
@@ -1299,7 +2056,7 @@ public sealed class LibraryInspectionOperationTests
             expected,
             Assert.IsType<
                     LibraryTypePopulationRowsOutcome.Rejected>(
-                    Document(envelope).Types.Rows)
+                    Document(envelope).Types!.Rows)
                 .Reason);
 
     private static MetadataTypeDefinitionName Name(

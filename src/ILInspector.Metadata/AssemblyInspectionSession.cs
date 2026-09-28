@@ -188,6 +188,55 @@ public sealed class AssemblyInspectionSession :
         => AssemblyInspector.ExtractReferenceIdentities(_image.PEReader);
 
     /// <summary>
+    /// Produces detached Metadata-owned relation evidence over this exact image.
+    /// </summary>
+    public MetadataRelationInspectionOutcome Relations(
+        MetadataRelationInspectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection.Execute(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes request-driven Count and bounded Rows over this image's
+    /// canonical assembly-reference relation population.
+    /// </summary>
+    public MetadataAssemblyReferenceRelationPopulationOutcome
+        AssemblyReferenceRelations(
+            MetadataAssemblyReferenceRelationPopulationRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection
+            .ExecuteAssemblyReferencePopulation(
+                _image.PEReader,
+                request,
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes request-driven Count and bounded Rows over this image's
+    /// canonical extension relation population for one exact receiver Type.
+    /// </summary>
+    public MetadataExtensionRelationPopulationOutcome ExtensionRelations(
+        MetadataExtensionRelationPopulationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection.ExecuteExtensionPopulation(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
     /// <see cref="AssemblyInfo"/> when only reachability by name is needed: it decodes no
@@ -205,7 +254,8 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll,
-        bool typesOnly) =>
+        bool typesOnly,
+        bool includeCompilerGenerated) =>
         ApiSurface(
             source,
             catalog,
@@ -213,7 +263,8 @@ public sealed class AssemblyInspectionSession :
             includeAll
                 ? ApiSurfaceExtractionScope.IncludeAll
                 : ApiSurfaceExtractionScope.Public,
-            typesOnly);
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>
     /// Projects one explicit API scope with resolution-aware generic
@@ -224,14 +275,16 @@ public sealed class AssemblyInspectionSession :
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        bool typesOnly = false) =>
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,
             catalog,
             bindingPolicy,
             scope,
-            typesOnly);
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>
     /// Reads a TypeDef's instance-field primitive after the durable address
@@ -416,6 +469,26 @@ public sealed class AssemblyInspectionSession :
     {
         _image.EnsureAlive();
         return AssemblyDetailScanner.ScanAuditMetadata(_image.PEReader);
+    }
+
+    /// <summary>
+    /// Library enablement facts decided from this image alone
+    /// (<c>docs/design/library-enablements.md</c>).
+    /// </summary>
+    public LibraryEnablementFacts Enablements()
+    {
+        _image.EnsureAlive();
+        return LibraryEnablementFacts.Read(_image.PEReader);
+    }
+
+    /// <summary>
+    /// Image and Description facts read from this image alone
+    /// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+    /// </summary>
+    public AssemblyLibraryFactsObservation LibraryFacts()
+    {
+        _image.EnsureAlive();
+        return AssemblyLibraryFactsObservation.Read(_image.PEReader);
     }
 
     /// <summary>Presence flags for assembly-level features.</summary>

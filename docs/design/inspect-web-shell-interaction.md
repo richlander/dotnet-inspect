@@ -9,6 +9,11 @@ interaction. It does not own which subject, target, or lens is active, the
 contents of coordinate selectors, or the consumer effect lifecycle that
 resolves focus after a navigation result installs; those are separately owned.
 
+Rendered-interaction continuity is tracked end to end by
+[#8617](https://github.com/richlander/dotnet-inspect/issues/8617). The focused
+Spotlight adoption is
+[#8618](https://github.com/richlander/dotnet-inspect/issues/8618).
+
 ## Ownership and boundaries
 
 This owner defines:
@@ -22,8 +27,9 @@ This owner defines:
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
   Keyboard help, and the full-bleed Annotated Source viewer;
-- the classification that Home, Workspace, Package query, Package Activity,
-  and Diagnostics are routed full-bleed surfaces rather than dialogs;
+- the classification that Home, Workspace, Type Explorer, Package query,
+  Package Activity, and Diagnostics are routed full-bleed surfaces rather than
+  dialogs;
 - Spotlight Search's input and package-scope behavior;
 - the local-artifact Open overlay; and
 - the command palette's keyboard-driven counterpart to the visible
@@ -121,6 +127,7 @@ dotnet-inspect
   Query
   Workspace
   Activity
+  Demos
   ───────────
   Open Library…
 ```
@@ -151,6 +158,8 @@ The shell may land before adjacent redesign owners. During that transition:
 - the `dotnet-inspect` product-navigation menu is the sole persistent Home
   affordance, with Home as its first item and Open Library as its separated
   product action;
+- that menu is also the sole Open Library affordance on routed pages; Home
+  and Demos carry no separate Open Library button;
 - existing direct Share, Settings, and keyboard Help controls may remain in the
   shell until
   [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
@@ -180,11 +189,17 @@ The Application menu starts from three established patterns:
   Palette. The useful transfer is action parity, not VS Code's desktop
   application menu bar or user-editable keybinding system
   ([VS Code keyboard shortcuts](https://code.visualstudio.com/docs/configure/keybindings)).
+- React list keys and Lit's keyed `repeat` preserve the association between one
+  logical list item and its rendered instance while collections change. The
+  useful transfer is stable item identity, not either framework or its
+  component model
+  ([React list keys](https://react.dev/learn/rendering-lists#keeping-list-items-in-order-with-key),
+  [Lit keyed lists](https://lit.dev/docs/templates/lists/#the-repeat-directive)).
 
 The deliberate divergence is that the separate Application menu remains small
 and non-navigational. It contains only the shell-owned Share, Settings, and
-Keyboard help actions. Home, Query, Workspace, and Activity instead live in
-the brand-triggered product-navigation menu, where they remain prominent
+Keyboard help actions. Home, Query, Workspace, Activity, and Demos instead live
+in the brand-triggered product-navigation menu, where they remain prominent
 without competing horizontally with Subject and Inspector navigation.
 Open Library follows those destinations as a separated product action rather
 than pretending to be a routed destination or an application utility. Search,
@@ -197,13 +212,15 @@ becomes scarce.
 
 The visible `dotnet-inspect` wordmark and product mark form one button with a
 disclosure indicator. Activation opens a vertically stacked navigation
-popover containing Home, Query, Workspace, and Activity in that order,
-followed by a separator and Open Library. The current routed destination is
-marked with `aria-current="page"`; ordinary inspection has no falsely selected
-destination. Open Library is a modal product action, never receives
-`aria-current`, and keeps the existing Open overlay's visible startup,
+popover containing Home, Query, Workspace, Activity, and Demos in that
+order, followed by a separator and Open Library. The current routed
+destination is marked with `aria-current="page"`; ordinary inspection has no
+falsely selected destination. Open Library is a modal product action, never
+receives `aria-current`, and keeps the existing Open overlay's visible startup,
 progress, validation, and failure behavior. Workspace remains visible but is
 `aria-disabled` with an accessible reason when no Workspace is available.
+Demos is always available; the Demos page reports its own catalog loading or
+unavailability, and `/demos` marks Demos as the current destination.
 Query and Activity likewise remain visible but are `aria-disabled` with an
 accessible reason while runtime startup, inspection loading, or an inspection
 error prevents their route handlers from entering those destinations.
@@ -218,17 +235,18 @@ Home, and End move through destinations and Open Library; Escape closes it and
 returns focus to the trigger. Tab follows ordinary document order. Outside
 pointer or focus movement closes it without stealing focus.
 Shell maintenance that replaces an open menu while the current routed product
-destination remains Home, Query, Workspace, or Activity preserves the open
-state and the focused stable destination. A product-destination change closes
+destination remains Home, Query, Workspace, Activity, or Demos preserves the
+open state and the focused stable destination. A product-destination change closes
 the outgoing menu and follows the ordinary routed destination-focus contract.
+Maintenance replacement also preserves focus when the closed trigger owns it.
 Surfaces outside that product-destination inventory retain their own
 replacement-focus contract.
 
-Home, Query, Activity, and Workspace continue to use their existing routed
-navigation outcomes, browser-history classification, retained Workspace
-state, and destination-focus behavior. Returning from Query or Activity to an
-inspection focuses the current rendered product-navigation trigger rather
-than a destroyed menu item.
+Home, Query, Activity, Workspace, and Demos continue to use their existing
+routed navigation outcomes, browser-history classification, retained
+Workspace state, and destination-focus behavior. Returning from Query or
+Activity to an inspection focuses the current rendered product-navigation
+trigger rather than a destroyed menu item.
 Activating Open Library closes the menu before opening the existing modal.
 Ordinary modal dismissal focuses the current rendered product-navigation
 trigger, including after shell replacement.
@@ -326,7 +344,8 @@ modal action commits navigation, the modal closes without applying its
 ordinary-dismissal return rule and synchronously parks focus as defined by
 the navigation consumer (see below). An inspection destination then focuses
 its active-subject level-one heading;
-Home, Workspace, or Diagnostics focuses the routed surface's level-one heading.
+Home, Workspace, Type Explorer, or Diagnostics focuses the routed surface's
+level-one heading.
 If the transition returns a typed failure, the prior surface and history remain
 active, the failure is visible, and focus moves to the modal's stable invoking
 control when it is still rendered, otherwise to the retained surface's
@@ -336,12 +355,17 @@ returning focus to the invoker, then performs the history transition. History
 navigation focuses the restored destination heading without reopening the
 modal.
 
-Home, Workspace, Package query, Package Activity, and Diagnostics are routed
-full-bleed surfaces rather than dialogs. Navigation places focus on their
-visible level-one heading or, for Package query, its prefix input, and for
-Package Activity, its package-set selector under that heading. Browser Back
-returns to the prior routed surface and restores focus through the history
-transition.
+Home, Workspace, Type Explorer, Package query, Package Activity, and
+Diagnostics are routed full-bleed surfaces rather than dialogs. Navigation
+places focus on their visible level-one heading or, for Package query, its
+prefix input, and for Package Activity, its package-set selector under that
+heading. Type Explorer's entry, exact-Type route state, return, and restoration
+effects are separately owned by
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) and its
+viewer-local interaction is owned by
+[Inspect Web Type Explorer](inspect-web-type-explorer.md). Browser Back returns
+to the prior history destination, including an inspection surface such as Type
+Source, and restores focus through the history transition.
 
 The focus-parking step referenced above, and the effect-authority validation
 that governs whether a result-derived destination actually receives focus, are
@@ -395,6 +419,30 @@ owner](inspect-web-spotlight-destination-activation.md) supplies each exact
 result's effect and settled product outcome. Shell Interaction retains only
 Spotlight opening, dismissal, focus, keyboard, and modal behavior; it does not
 classify Workspace coverage or reconstruct activation from the selected row.
+
+Each rendered Spotlight result is bound to the exact
+`spotlightResultIdentity` that produced it. Array position remains a transient
+presentation coordinate for selection and `aria-activedescendant`; it is never
+activation identity. Spotlight admits at most one interactive control for each
+exact result identity; alternate discovery paths coalesce at their first
+occurrence. When asynchronous search or shell maintenance renders the same
+result identity again, the Browser preserves that result control's DOM identity
+and updates its position, selected state, content, and exact current descriptor
+in place. Activation resolves only that identity's current rendered descriptor.
+If the identity is absent, activation has no effect; another result that
+occupies the former index cannot receive it.
+
+This preserves native pointer, keyboard, focus, and assistive-technology
+behavior rather than replaying a gesture through application code. It applies
+only to interactive Spotlight result controls. Static group labels, loading
+hints, empty and failure messages, and results whose identity disappeared may
+be replaced normally.
+
+The motivating production asset is `System.Text.Json@9.0.4`. Under the
+published application gate in #8567, ordinary asynchronous rendering could
+replace its exact package result during a physical pointer sequence. #8578
+made that scenario atomic at the test boundary; #8618 moves the guarantee into
+the Shell-owned production renderer.
 
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.
@@ -484,6 +532,23 @@ Initial focus moves to the dialog's visible heading. The dialog follows the
 shared modal containment, Escape, close, one-modal-at-a-time, and
 ordinary-dismissal focus-return rules.
 
+## Notice retry
+
+A query notice that carries a retry action shows the same `retry` control on
+every surface that renders it, including Home and Demos, and the control
+reruns that action. The `retry` and dismiss controls do not overlap.
+
+After a redeploy, an open tab can still reference hashed code chunks that no
+longer exist, so a lazy import fails and an in-place retry would request the
+same missing URL. When Vite reports a failed dynamic import
+(`vite:preloadError`), the shell records a stale deployment without
+suppressing the original failure. A retryable notice then says that
+dotnet-inspect was updated and that retry reloads the page, and retry reloads
+onto the current build. A lazily imported module whose load fails is not
+memoized, so a transient failure can succeed on the next attempt. The
+load-error screen and surface-specific retry controls keep their existing
+behavior.
+
 ## Command palette
 
 The existing command palette is the keyboard counterpart to the visible
@@ -569,8 +634,8 @@ outcomes.
 1. Confirm that row one contains the `dotnet-inspect` product-navigation
    control, Subject and Inspector navigation, Back and Forward, Search, and
    the Application menu, with no Package coordinate controls. Open the
-   product-navigation menu and confirm Home, Query, Workspace, Activity, a
-   separator, and Open Library in that order. Activate Open Library and confirm
+   product-navigation menu and confirm Home, Query, Workspace, Activity, Demos,
+   a separator, and Open Library in that order. Activate Open Library and confirm
    that the existing modal opens, receives its owned initial focus, and returns
    focus to the current product-navigation trigger on ordinary dismissal.
 2. Confirm that row one contains no workspace tabs, numeric workspace
@@ -664,6 +729,33 @@ outcomes.
     visible within the modal.
 13. Confirm that Spotlight exposes no Platform scope or root result and that a
     matching installed framework assembly appears only as a Library result.
+14. Press a rendered package result, publish an ordinary asynchronous package
+    search update before release, and confirm that a surviving exact result
+    retains the same DOM node and activates exactly that package once.
+15. Focus a rendered package result, press Space, publish an ordinary
+    asynchronous package search update before release, and confirm that the
+    surviving exact result retains focus and activates exactly that package
+    once on release.
+16. In modal Spotlight, focus a rendered package result, press Space, replace
+    the whole application shell, and wait through the next focus-restoration
+    frame. Confirm that the surviving exact result retains the same DOM node
+    and browser focus and activates exactly once on release.
+17. In Add package, retain the active result and modal backdrop while a shell
+    replacement installs a new input and Cancel control. Confirm that Tab and
+    Shift+Tab cycle through the current controls rather than a detached input.
+18. With the resident runtime surface loaded, search in All scope for a Type
+    discovered through both general Type matching and framework-Library
+    matching. Confirm that production composition renders one exact result,
+    then hold Space across an asynchronous result refresh and confirm that the
+    same focused control activates once.
+19. Press a framework-Library result on its descendant label while ordinary
+    acquisition changes that result's visible metadata. Confirm that the
+    button and pressed descendant remain connected and release activates once.
+20. On Home, hold Space on a result while a whole-application render changes
+    its positional DOM ID. Confirm that focus remains on the exact result
+    identity and release activates that result once.
+21. Repeat while removing the pressed result identity and confirm that release
+    does not activate the result that inherited its former array position.
 
 ### Local Open
 
@@ -695,12 +787,12 @@ outcomes.
 8. From that viewer, open Decompiler style Settings and confirm that the viewer
    closes, Settings receives focus, and closing Settings returns to inline
    Annotated Source without reopening the viewer.
-9. Navigate to Home, Workspace, Package query, Package Activity, and
-   Diagnostics and confirm that each is a routed surface with one visible
+9. Navigate to Home, Workspace, Type Explorer, Package query, Package Activity,
+   and Diagnostics and confirm that each is a routed surface with one visible
    level-one heading, no coordinate/subject command, and a persistent
-   `dotnet-inspect` control that opens Workspace. Confirm that Package query
-   places initial focus on its prefix input and Package Activity on its
-   package-set selector under their headings.
+   `dotnet-inspect` control that opens Workspace. Confirm that Type Explorer
+   focuses its heading, Package query places initial focus on its prefix input,
+   and Package Activity focuses its package-set selector under its heading.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.

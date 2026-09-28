@@ -14,6 +14,7 @@ export interface GraphNodeBinding {
 
 export interface GraphPanZoomBindingOptions {
   keybindings: KeybindingRegistry;
+  focusNodeSelector?: string;
   resolveCallGraphNode?: (
     nodeId: string,
   ) => GraphNodeBinding | null;
@@ -25,10 +26,11 @@ export interface GraphPanZoomBindingOptions {
   ) => GraphNodeBinding | { unavailableLabel: string } | null;
 }
 
-export function graphControlsHtml(): string {
+export function graphControlsHtml(includeTarget = false): string {
   return `<div class="graph-controls" role="group" aria-label="Graph view controls">
     <button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
     <button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+    ${includeTarget ? '<button type="button" class="target" data-zoom="target" title="Center target" aria-label="Target">Target</button>' : ""}
     <button type="button" class="reset" data-zoom="reset" title="Fit graph" aria-label="Fit">Fit</button>
   </div>`;
 }
@@ -65,8 +67,9 @@ export function bindGraphPanZoom(
   svg.setAttribute("width", String(naturalWidth));
   svg.setAttribute("height", String(naturalHeight));
 
-  type FitMode = "automatic" | "full";
+  type FitMode = "automatic" | "focus" | "full";
   const automaticMinScale = 0.2;
+  const focusMinScale = 0.65;
   const fullExtentMinScale = 0.05;
   const maxFitScale = 1.5;
   const maxScale = 8;
@@ -80,12 +83,36 @@ export function bindGraphPanZoom(
       `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
   }
 
+  function focusTarget(rect: DOMRect, fitScale: number): boolean {
+    const focusNode = options.focusNodeSelector
+      ? renderedSvg.querySelector<SVGGraphicsElement>(options.focusNodeSelector)
+      : null;
+    if (!focusNode) return false;
+    const bounds = focusNode.getBoundingClientRect();
+    const focusX =
+      (bounds.left + bounds.width / 2 - rect.left - view.x) / view.scale;
+    const focusY =
+      (bounds.top + bounds.height / 2 - rect.top - view.y) / view.scale;
+    view.scale = clampScale(Math.max(fitScale, focusMinScale));
+    view.x = rect.width / 2 - focusX * view.scale;
+    view.y = rect.height / 2 - focusY * view.scale;
+    apply();
+    return true;
+  }
+
   function fit(mode: FitMode) {
     const rect = viewport.getBoundingClientRect();
     if (!naturalWidth || !naturalHeight || !rect.width) return;
     const fitScale =
       Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92;
     fitMode = mode;
+    const explorerFocus = mode === "automatic"
+      && fitScale < focusMinScale
+      && viewport.closest(".graph-explorer") !== null;
+    if ((mode === "focus" || explorerFocus)
+      && focusTarget(rect, fitScale)) {
+      return;
+    }
     view.scale = clampScale(
       Math.min(fitScale, maxFitScale),
       mode === "automatic" ? automaticMinScale : fullExtentMinScale);
@@ -171,6 +198,8 @@ export function bindGraphPanZoom(
         } else if (mode === "out") {
           markUserAdjusted();
           zoomAt(rect.width / 2, rect.height / 2, 0.8);
+        } else if (mode === "target") {
+          fit("focus");
         } else {
           fit("full");
         }

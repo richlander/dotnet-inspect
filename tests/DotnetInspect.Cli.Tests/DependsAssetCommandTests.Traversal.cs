@@ -595,7 +595,7 @@ public partial class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task BareSelect_DoesNotRequestExpandablePackageTraversal()
+    public async Task DependencyGraphSelection_DoesNotRequestExpandablePackageTraversal()
     {
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
@@ -603,6 +603,7 @@ public partial class DependsAssetCommandTests
             "--package",
             "/missing/second-audit.nupkg",
             "-S",
+            DependsAssetSections.Dependencies,
             "--json",
             "--compact",
         ]);

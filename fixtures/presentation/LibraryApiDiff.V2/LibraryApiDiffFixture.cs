@@ -30,6 +30,14 @@ public class OtherHardChangedType
     public int Second() => 2;
 }
 
+public sealed class MethodConstraintChange
+{
+    public void Apply<T>()
+        where T : Dependency.AfterConstraint
+    {
+    }
+}
+
 public sealed class AddedType
 {
     public int First() => 1;

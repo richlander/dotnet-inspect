@@ -5,9 +5,9 @@ using DotnetInspector.SourceHouse;
 
 namespace DotnetInspector.Queries;
 
-public sealed record AssemblyMemberSourcePairRequest
+public sealed record AssemblyMemberSourcePairEndpointRequest
 {
-    public AssemblyMemberSourcePairRequest(
+    public AssemblyMemberSourcePairEndpointRequest(
         MetadataTypeDefinitionName type,
         MemberAnchor member)
     {
@@ -20,7 +20,7 @@ public sealed record AssemblyMemberSourcePairRequest
     public MetadataTypeDefinitionName Type { get; }
     public MemberAnchor Member { get; }
 
-    public static AssemblyMemberSourcePairRequest From(
+    public static AssemblyMemberSourcePairEndpointRequest From(
         ApiType type,
         ApiMember member)
     {
@@ -32,9 +32,50 @@ public sealed record AssemblyMemberSourcePairRequest
     }
 }
 
+public sealed record AssemblyMemberSourcePairRequest
+{
+    public AssemblyMemberSourcePairRequest(
+        MetadataTypeDefinitionName type,
+        MemberAnchor member)
+        : this(
+            new AssemblyMemberSourcePairEndpointRequest(type, member),
+            new AssemblyMemberSourcePairEndpointRequest(type, member))
+    {
+    }
+
+    public AssemblyMemberSourcePairRequest(
+        AssemblyMemberSourcePairEndpointRequest? before,
+        AssemblyMemberSourcePairEndpointRequest? after)
+    {
+        if (before is null && after is null)
+            throw new ArgumentException(
+                "At least one member Source endpoint must be requested.");
+        Before = before;
+        After = after;
+    }
+
+    public AssemblyMemberSourcePairEndpointRequest? Before { get; }
+    public AssemblyMemberSourcePairEndpointRequest? After { get; }
+
+    public static AssemblyMemberSourcePairRequest From(
+        ApiType type,
+        ApiMember member)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        AssemblyMemberSourcePairEndpointRequest endpoint =
+            AssemblyMemberSourcePairEndpointRequest.From(type, member);
+        return new(endpoint, endpoint);
+    }
+}
+
 public abstract record AssemblyMemberSourcePairEndpoint(
     AssemblyContextSubject Subject)
 {
+    public sealed record Unrequested(
+        AssemblyContextSubject Subject)
+        : AssemblyMemberSourcePairEndpoint(Subject);
+
     public sealed record Resolved(
         AssemblyContextSubject Subject,
         AssemblyMemberSourceRequest Request,
@@ -135,7 +176,7 @@ public static partial class AssemblyContextMemberSourcePairQuery
             await AcquireEndpointAsync(
                 beforeGroup,
                 beforeParticipant,
-                request,
+                request.Before,
                 context,
                 beforeVersion,
                 cancellationToken).ConfigureAwait(false);
@@ -143,7 +184,7 @@ public static partial class AssemblyContextMemberSourcePairQuery
             await AcquireEndpointAsync(
                 afterGroup,
                 afterParticipant,
-                request,
+                request.After,
                 context,
                 afterVersion,
                 cancellationToken).ConfigureAwait(false);
@@ -228,12 +269,15 @@ public static partial class AssemblyContextMemberSourcePairQuery
     static async Task<AssemblyMemberSourcePairEndpoint> AcquireEndpointAsync(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
-        AssemblyMemberSourcePairRequest request,
+        AssemblyMemberSourcePairEndpointRequest? request,
         AssemblyContextSourceQueryContext context,
         AssemblyBindingPolicyVersion version,
         CancellationToken cancellationToken)
     {
         var subject = new AssemblyContextSubject(participant.Assembly);
+        if (request is null)
+            return new AssemblyMemberSourcePairEndpoint.Unrequested(subject);
+
         try
         {
             AssemblyImageAccessResult<MemberSeed> access =

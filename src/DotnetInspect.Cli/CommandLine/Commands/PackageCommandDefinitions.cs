@@ -656,7 +656,6 @@ public static class PackageCommandDefinitions
                 opts.Tsv,
                 opts.Jsonl,
                 opts.NoHeaders,
-                opts.Info,
                 opts.Limit,
                 opts.Count,
                 opts.Source,

@@ -429,14 +429,12 @@ public class CommandErrorOwnershipTests
     ///
     /// Passing <c>Console.Error</c> to a renderer as a sink stays allowed,
     /// because no static rule can tell a containing renderer from a
-    /// non-containing one. That allowance is the known blind spot and it has
-    /// been exploited once: <c>--trace-mermaid</c> handed the stream to a
-    /// bespoke writer that escaped only the two Mermaid metacharacters, so a
-    /// line terminator in a package name forged an unindented stderr line with
-    /// no <c>Console.Error.Write</c> anywhere in the source. Two reviewers
-    /// found it independently. Each sink is therefore accounted for by name,
-    /// and carries a <c>#pragma warning disable RS0030</c> with its
-    /// justification at the site.
+    /// non-containing one. That allowance is the known blind spot: a sink that
+    /// hands the stream to a bespoke writer can forge an unindented stderr
+    /// line with no <c>Console.Error.Write</c> anywhere in the source. Each
+    /// sink is therefore accounted for by name, and carries a
+    /// <c>#pragma warning disable RS0030</c> with its justification at the
+    /// site.
     ///
     /// Counting bounds <em>where</em> stderr is reached, not <em>what</em> is
     /// written there, and the difference is measurable. Replacing the contained
@@ -448,11 +446,9 @@ public class CommandErrorOwnershipTests
     /// hostile argv and asserts the emitted diagnostics are contained, and the
     /// same tamper turns eight of its cases red. That class is the nearest
     /// member of the gate rather than the whole of it, and its reach is wider
-    /// than its name: the <c>--trace-mermaid</c> channel is one of its cases,
-    /// which is how the sink blind spot described above is held. The
-    /// metadata-derived routes are gated by its siblings -- among them
-    /// <c>PayloadLensContainmentTests</c>, which drives <c>--info</c> onto
-    /// this stream and scans what lands there, alongside
+    /// than its name. The metadata-derived routes are gated by its siblings --
+    /// among them <c>PayloadLensContainmentTests</c>, which scans what a
+    /// payload lens leaves on this stream, alongside
     /// <c>UntrustedLibraryViewContainmentTests</c> and
     /// <c>UntrustedProjectViewContainmentTests</c>. Those three share the
     /// <c>HostileOutputAssert</c> oracle. <c>MarkoutRowContainmentTests</c>
@@ -490,10 +486,6 @@ public class CommandErrorOwnershipTests
             // rows is contained where the row is built.
             ["dotnet-inspect!DotnetInspect.Cli.Output.Hints.WriteTips(DotnetInspect.Cli.Options.TipLevel, DotnetInspect.Cli.Output.Tip[], bool)"] = 1,
             ["dotnet-inspect!DotnetInspect.Cli.Output.Hints.WriteLegend(DotnetInspect.Cli.Views.LegendEntry[])"] = 1,
-
-            // --info and --trace-mermaid, both in top-level code, so IL sees one
-            // method where the source shows two statements.
-            ["dotnet-inspect!Program.<Main>$(string[])"] = 2,
 
             // The network traffic log. Its caller is behind #if DEBUG, but this
             // method is not: it is public API and the reference to the stream is

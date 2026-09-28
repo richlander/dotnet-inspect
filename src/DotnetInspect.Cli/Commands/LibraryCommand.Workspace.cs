@@ -48,6 +48,22 @@ public partial class LibraryCommand
                     ? new PackageLibraryTarget.Aggregate()
                     : new PackageLibraryTarget.Exact(
                         options.AssemblyName);
+        if (options.TypeNamespace is not null
+            && selection is PackageLibraryTarget.Aggregate)
+        {
+            CommandError.Write(
+                "library --namespace requires one exact Library. Name the "
+                    + "assembly within the package.");
+            return 1;
+        }
+        if (RequestsLibraryMetricsTransport(options)
+            && selection is PackageLibraryTarget.Aggregate)
+        {
+            CommandError.Write(
+                "Complete Library Metrics JSON requires one exact Library. "
+                    + "Name the Library or use --namesake-library.");
+            return 1;
+        }
 
         InspectionOptions packageOptions =
             CreatePackageOptions(
@@ -95,12 +111,18 @@ public partial class LibraryCommand
                 selection is PackageLibraryTarget.Aggregate,
             NamesakeLibrary =
                 selection is PackageLibraryTarget.Namesake,
+            TypeNamespace = options.TypeNamespace,
+            IncludeNamespaceChildren =
+                options.IncludeNamespaceChildren,
             PackageLibrary = selection switch
             {
                 PackageLibraryTarget.Namesake => "",
                 PackageLibraryTarget.Exact exact => exact.Library,
                 _ => null,
             },
+            LibraryAddressRequest = options.AddressRequest,
+            LibraryAddressRowSelection =
+                options.AddressRowSelection,
             Tfm = options.Tfm,
             IncludePrerelease = options.IncludePrerelease,
             ShowDependencies = options.IncludeDependencies,
@@ -110,6 +132,8 @@ public partial class LibraryCommand
             IntegrationQuery = options.IntegrationQuery,
             MetadataRoot = options.MetadataRoot,
             JsonOutput = options.JsonOutput,
+            EnvelopeOutput = options.EnvelopeOutput,
+            CompactJson = options.CompactJson,
             Format = options.Format,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,
@@ -151,6 +175,8 @@ public partial class LibraryCommand
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet =
+                options.FormatFlagExplicitlySet,
             NoHeader = options.NoHeader,
             OutputPath = options.OutputPath,
         };

@@ -150,12 +150,27 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
-    public void CapturingLocalFunctionWithLocal_StaysLowered()
+    public void CapturingLocalFunctionWithLocal_RaisesWithIsolatedScope()
     {
         string output = PrintRaised(nameof(CfgSampleClass.CapturingLocalFunctionWithLocal));
 
-        Assert.Contains("DisplayClass", output);
-        Assert.DoesNotContain("int AddSquare(int v)", output);
+        Assert.Contains("int AddSquare(int v)", output);
+        Assert.Contains("= v + n;", output);
+        Assert.DoesNotContain("DisplayClass", output);
+    }
+
+    [Fact]
+    public void CapturingLocalFunctionWithHostReadAndBranches_Raises()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CapturingLocalFunctionWithHostReadAndBranches));
+
+        Assert.Contains("if (n == 0)", output);
+        Assert.Contains("return AddSquare(5);", output);
+        Assert.Contains("return AddSquare(7);", output);
+        Assert.Contains("return AddSquare(9);", output);
+        Assert.Contains("int AddSquare(int v)", output);
+        Assert.DoesNotContain("DisplayClass", output);
     }
 
     [Fact]
@@ -461,6 +476,60 @@ public class LocalFunctionRaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void CapturingLocalFunctionHostReadBeforeCaptureStore_StaysLowered()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(
+            storeBeforeCall: true,
+            hostReadBeforeStore: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CapturingLocalFunctionBranchBypassingCaptureStore_StaysLowered()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(
+            storeBeforeCall: true,
+            branchBypassesStore: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CapturingLocalFunctionWithBodyLocalAndHostLocalCapture_StaysLowered()
+    {
+        var (function, context) = CapturingLocalFunctionOrderFixture(
+            storeBeforeCall: true,
+            bodyHasLocal: true);
+
+        new LocalFunctionRaisingPass().Run(function, context);
+
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => GeneratedCodeIdentity.IsLocalFunctionMethod(call.Callee));
+        function.CheckInvariant();
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, index = 0;
@@ -472,7 +541,11 @@ public class LocalFunctionRaisingPassTests
         return count;
     }
 
-    static (IrFunction Function, PassContext Context) CapturingLocalFunctionOrderFixture(bool storeBeforeCall)
+    static (IrFunction Function, PassContext Context) CapturingLocalFunctionOrderFixture(
+        bool storeBeforeCall,
+        bool hostReadBeforeStore = false,
+        bool branchBypassesStore = false,
+        bool bodyHasLocal = false)
     {
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var envType = TypeRef.Definition("Synthetic", "Samples", "<>c__DisplayClass0_0", ValueTypeHint.ValueType);
@@ -490,8 +563,16 @@ public class LocalFunctionRaisingPassTests
 
         var captureStore = new StoreField(field, new LoadLocalAddress(0, envType), new LoadLocal(1, s_int));
         var call = new ExpressionStatement(new Call(method, isVirtual: false, [new LoadLocalAddress(0, envType)]));
+        call.SetSourceOffset(0x20);
         var block = new Block();
         block.Add(new StoreLocal(1, s_int, new Constant(42, s_int)));
+        if (hostReadBeforeStore)
+        {
+            block.Add(new ExpressionStatement(
+                new LoadField(field, new LoadLocal(0, envType))));
+        }
+        if (branchBypassesStore)
+            block.Add(new Branch(0x20));
         if (storeBeforeCall)
         {
             block.Add(captureStore);
@@ -514,7 +595,14 @@ public class LocalFunctionRaisingPassTests
             body);
         var context = new PassContext(
             new Stepper(enabled: false),
-            importMethodBody: imported => imported == method ? CapturingLocalFunctionBody(method, field, byRefEnv) : null);
+            importMethodBody: imported => imported == method
+                ? bodyHasLocal
+                    ? CapturingLocalFunctionBodyWithLocal(
+                        method,
+                        field,
+                        byRefEnv)
+                    : CapturingLocalFunctionBody(method, field, byRefEnv)
+                : null);
         return (function, context);
     }
 
@@ -529,6 +617,33 @@ public class LocalFunctionRaisingPassTests
             method.DeclaringType,
             new MethodSignature(method.ReturnType, [new Parameter("env", byRefEnv)], HasThis: false, GenericParameterCount: 0),
             [],
+            body);
+    }
+
+    static IrFunction CapturingLocalFunctionBodyWithLocal(
+        MethodRef method,
+        FieldRef field,
+        TypeRef byRefEnv)
+    {
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            s_int,
+            new LoadField(
+                field,
+                new LoadArgument(0, "env", byRefEnv))));
+        block.Add(new Return(new LoadLocal(0, s_int)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            method.Name,
+            method.DeclaringType,
+            new MethodSignature(
+                method.ReturnType,
+                [new Parameter("env", byRefEnv)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [s_int],
             body);
     }
 

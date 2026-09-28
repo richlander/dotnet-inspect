@@ -50,7 +50,7 @@ type PackageOperations =
   | "runPackageQuery"
   | "searchTypes";
 
-type LibraryOperations = "openUploadedLibrary";
+type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
@@ -69,10 +69,14 @@ type MetadataOperations =
 type AnalysisOperations =
   | "queryCloneCandidates"
   | "queryMemberFacts"
+  | "queryPackageImplementationProfiles"
+  | "queryPackageTypeImplementationHeat"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
+  | "queryPlatformImplementationProfiles"
+  | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
@@ -86,6 +90,7 @@ type SourceOperations =
   | "queryMemberSource"
   | "queryMethodBodyComparison"
   | "queryMethodBodyComparisonTargets"
+  | "queryTypeExplorer"
   | "queryTypeMemberSource"
   | "queryTypeSource";
 
@@ -140,10 +145,18 @@ export interface EngineClient {
     queryMemberSourceComparison(
       ...args: Parameters<SourceFacade["queryMemberSourceComparison"]>
     ): Promise<BrowserSourceComparisonResult>;
+    cancelTypeExplorerQuery(
+      ...args: Parameters<SourceFacade["cancelTypeExplorerQuery"]>
+    ): void;
     cancelTypeSourceQuery(
       ...args: Parameters<SourceFacade["cancelTypeSourceQuery"]>
     ): void;
   };
   readonly callGraph: AsyncFacade<CallGraphFacade, CallGraphOperations>;
   readonly catalog: AsyncFacade<CatalogFacade, CatalogOperations>;
+  /** Outstanding ordinary-Worker requests; background work waits for idle. */
+  readonly activity: {
+    outstanding(): number;
+    whenIdle(): Promise<void>;
+  };
 }
