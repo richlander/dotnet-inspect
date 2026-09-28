@@ -173,13 +173,17 @@ public partial class LibraryCommand
         {
             return 1;
         }
+        bool packageAddress =
+            ShouldExecutePackageAddress(
+                options,
+                source,
+                preResolvedPackage: null);
         if (source.Selector is SourceSelector.PackageSource
+            && !packageAddress
             && (options.WorkspacePacket is not null
-                || options.AddressRequest is null
-                || options.JsonOutput
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
-                || string.Equals(
+                || !string.Equals(
                     options.Tfm,
                     "all",
                     StringComparison.OrdinalIgnoreCase)))
@@ -196,6 +200,22 @@ public partial class LibraryCommand
             preResolvedPackage: null,
             cancellationToken).ConfigureAwait(false);
     }
+
+    private static bool ShouldExecutePackageAddress(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        PackageExtractionResult? preResolvedPackage) =>
+        source.Selector is SourceSelector.PackageSource
+        && preResolvedPackage is null
+        && options.AddressRequest is not null
+        && options.WorkspacePacket is null
+        && !options.JsonOutput
+        && !options.NamesakeLibrary
+        && !string.IsNullOrWhiteSpace(options.AssemblyName)
+        && !string.Equals(
+            options.Tfm,
+            "all",
+            StringComparison.OrdinalIgnoreCase);
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
         LibraryOptions options,
@@ -1234,13 +1254,10 @@ public partial class LibraryCommand
             else if (source.Selector
                 is SourceSelector.PackageSource)
             {
-                if (preResolvedPackage is null
-                    && options.AddressRequest is not null
-                    && options.WorkspacePacket is null
-                    && !options.JsonOutput
-                    && !options.NamesakeLibrary
-                    && !string.IsNullOrWhiteSpace(
-                        options.AssemblyName))
+                if (ShouldExecutePackageAddress(
+                        options,
+                        source,
+                        preResolvedPackage))
                 {
                     return await ExecutePackageAddressAsync(
                         source.PackageTarget!,
