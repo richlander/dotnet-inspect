@@ -230,14 +230,15 @@ public static class Scorecard
         ScorecardColumn<TAsset, TRow> oracle,
         IReadOnlyList<ScorecardColumn<TAsset, TRow>> columns,
         Func<TRow, string> rowText,
-        IEqualityComparer<TRow>? rowComparer = null)
+        IEqualityComparer<TRow>? rowComparer = null,
+        IReadOnlyList<ScorecardClosing>? closings = null)
     {
         var mismatches = new List<ScorecardMismatch>();
         var windowFailures = new List<string>();
         int compared = 0;
         foreach (ScorecardAsset<TAsset> asset in assets)
         {
-            foreach (ScorecardClosing closing in Closings)
+            foreach (ScorecardClosing closing in closings ?? Closings)
             {
                 ScorecardAnswer<TRow> expected = oracle.Answer(closing, asset.Asset);
                 if (closing == ScorecardClosing.Window && expected.WindowFailed)
@@ -267,8 +268,10 @@ public static class Scorecard
         IReadOnlyList<ScorecardAsset<TAsset>> assets,
         IReadOnlyList<ScorecardColumn<TAsset, TRow>> columns,
         ScorecardTiming timing,
-        Action<string>? progress = null)
+        Action<string>? progress = null,
+        IReadOnlyList<ScorecardClosing>? closings = null)
     {
+        IReadOnlyList<ScorecardClosing> measured = closings ?? Closings;
         var rounds = new Dictionary<(int, ScorecardClosing, string), List<double>>();
         var failed = new HashSet<(int, ScorecardClosing, string)>();
         for (int round = 0; round < timing.Rounds; round++)
@@ -276,7 +279,7 @@ public static class Scorecard
             for (int a = 0; a < assets.Count; a++)
             {
                 ScorecardAsset<TAsset> asset = assets[a];
-                foreach (ScorecardClosing closing in Closings)
+                foreach (ScorecardClosing closing in measured)
                 {
                     for (int i = 0; i < columns.Count; i++)
                     {
@@ -305,7 +308,7 @@ public static class Scorecard
         for (int a = 0; a < assets.Count; a++)
         {
             ScorecardAsset<TAsset> asset = assets[a];
-            foreach (ScorecardClosing closing in Closings)
+            foreach (ScorecardClosing closing in measured)
             {
                 foreach (ScorecardColumn<TAsset, TRow> column in columns)
                 {
@@ -332,7 +335,7 @@ public static class Scorecard
         var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
         string[] columns = [.. cells.Select(c => c.Column).Distinct()];
         int[] assets = [.. cells.Select(c => c.AssetIndex).Distinct()];
-        foreach (ScorecardClosing closing in Closings)
+        foreach (ScorecardClosing closing in Closings.Where(c => cells.Any(cell => cell.Closing == c)))
         {
             foreach (string column in columns)
             {
@@ -380,7 +383,7 @@ public static class Scorecard
         foreach (string _ in columns)
             text.Append(" ---: |");
         text.AppendLine();
-        foreach (ScorecardClosing closing in Closings)
+        foreach (ScorecardClosing closing in Closings.Where(c => cells.Any(cell => cell.Closing == c)))
         {
             ScorecardSummary scored = summary.First(s => s.Closing == closing && s.Column == oracle);
             text.Append("| ").Append(shape.Label(closing)).Append(" | ")
@@ -409,7 +412,7 @@ public static class Scorecard
         var byKey = cells.ToDictionary(c => (c.AssetIndex, c.Closing, c.Column));
         foreach ((int index, string name) in assets)
         {
-            foreach (ScorecardClosing closing in Closings)
+            foreach (ScorecardClosing closing in Closings.Where(c => cells.Any(cell => cell.Closing == c)))
             {
                 text.Append("| ").Append(name).Append(" | ").Append(shape.Label(closing)).Append(" |");
                 foreach (string column in columns)

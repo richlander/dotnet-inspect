@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Equivalence audit of the classified-methods analyzers' performance scorecard.
+       Scratch branch exp/analyzer-scorecard-audit; not for main. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>analyzer-audit</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
+  </ItemGroup>
+</Project>
