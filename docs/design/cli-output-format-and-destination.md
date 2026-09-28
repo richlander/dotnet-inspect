@@ -25,9 +25,10 @@ or destination mechanics.
 > destination with `-o <path>` or `--output <path>`. Keep `-f` available for
 > framework selection. Format selection preserves the command owner's
 > Content, semantic selection, acquisition, and existing representation;
-> destination selection writes the same selected bytes that stdout would
-> otherwise receive. Unsupported values, unsupported command-format pairs,
-> and conflicting output operations fail before acquisition or output commit.
+> destination selection preserves the current output owner's rendered,
+> structured, or exact-transfer byte contract. Unsupported values, unsupported
+> command-format pairs, and conflicting output operations fail before
+> acquisition or output commit.
 
 This owner defines:
 
@@ -237,9 +238,16 @@ The primary destination option is:
 Both spellings are co-equal current syntax. `--out` is retired.
 
 When no destination is selected, output retains its current stdout behavior.
-When a destination is selected, the destination receives the same bytes that
-stdout would otherwise receive for the selected format and shape, subject to
-the existing output owner's exact-transfer or publication contract.
+When a destination is selected, its current output owner determines the bytes:
+
+- rendered or structured output receives the same selected bytes that stdout
+  would otherwise receive; and
+- an owner-issued exact-transfer operation preserves its existing payload-byte
+  contract even when stdout would visually encode that payload.
+
+The migration from `--out` to `-o` / `--output` changes only the option
+spelling. It does not convert an exact transfer into rendered output or make a
+rendered destination claim exact source-byte fidelity.
 
 Destination selection:
 
@@ -364,7 +372,9 @@ Release gates for the implementation demonstrate:
 - `--format` has no `-f` alias, leaving that spelling available to framework
   owners;
 - `--format` is long-only and selects each command's existing representation;
-- `-o` and `--output` write the same bytes that stdout would otherwise receive;
+- `-o` and `--output` preserve each current output owner's bytes:
+  stdout-equivalent for rendered or structured output and exact payload bytes
+  for owner-issued exact-transfer operations;
 - `-o json` selects a destination named `json`, not JSON format;
 - unsupported values, unsupported command-format pairs, repeated format
   selection, and conflicting operations fail before acquisition;
