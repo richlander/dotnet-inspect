@@ -39,6 +39,9 @@ type PackageFacade = typeof PackageFacadeModule;
 type SourceFacade = typeof SourceFacadeModule;
 
 type PackageOperationName =
+  | "activatePlatformForwarder"
+  | "closePlatformForwarderView"
+  | "openPlatformForwarderView"
   | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
@@ -1030,6 +1033,24 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["loadRuntimePackAssembly"]>
       ) => facades.package.loadRuntimePackAssembly(...args),
     ),
+    openPlatformForwarderView: valueOperation(
+      "ordinary-package-open-platform-forwarder-view",
+      4,
+      (facades, ...args: Parameters<PackageFacade["openPlatformForwarderView"]>) =>
+        facades.package.openPlatformForwarderView(...args),
+    ),
+    activatePlatformForwarder: valueOperation(
+      "ordinary-package-activate-platform-forwarder",
+      1,
+      (facades, ...args: Parameters<PackageFacade["activatePlatformForwarder"]>) =>
+        facades.package.activatePlatformForwarder(...args),
+    ),
+    closePlatformForwarderView: valueOperation(
+      "ordinary-package-close-platform-forwarder-view",
+      1,
+      (facades, ...args: Parameters<PackageFacade["closePlatformForwarderView"]>) =>
+        facades.package.closePlatformForwarderView(...args),
+    ),
     getPackageDocument: valueOperation(
       "ordinary-package-get-document",
       3,
@@ -1840,6 +1861,15 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       loadRuntimePackAssembly: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePackAssembly,
+      ),
+      openPlatformForwarderView: bind(
+        engineWorkerOrdinaryOperations.package.openPlatformForwarderView,
+      ),
+      activatePlatformForwarder: bind(
+        engineWorkerOrdinaryOperations.package.activatePlatformForwarder,
+      ),
+      closePlatformForwarderView: bind(
+        engineWorkerOrdinaryOperations.package.closePlatformForwarderView,
       ),
       getPackageDocument: bind(
         engineWorkerOrdinaryOperations.package.getPackageDocument,
