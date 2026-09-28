@@ -29,7 +29,7 @@ export function bindPlatformForwarders(
   actions: { retry(): void; activate(rowId: string): void },
 ) {
   root.querySelectorAll<HTMLButtonElement>("[data-forwarder-inventory-retry]")
-    .forEach(button => button.addEventListener("click", actions.retry));
+    .forEach(button => button.addEventListener("click", () => actions.retry()));
   root.querySelectorAll<HTMLButtonElement>("[data-platform-forwarder]")
     .forEach(button => button.addEventListener("click", () => {
       const rowId = button.dataset.platformForwarder;
