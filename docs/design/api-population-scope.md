@@ -57,8 +57,7 @@ a separate axis: they are admitted and marked, as the default already does.
 
 - The default population is the `public` bucket without hidden declarations:
   the ordinary public-facing API. The Metadata owner's admission decides its
-  exact members, including how explicit interface implementations and other
-  contract roles classify.
+  exact members, and the spelling below decides how records form them.
 - An `accessibility` term selects one or more buckets. By itself it does not
   admit hidden declarations.
 - `--all` selects every bucket and admits hidden declarations into their
@@ -71,6 +70,40 @@ under the same admission rules, as the Rows each bucket would return. The
 Metadata owner's admission decides which declarations are compiler-generated.
 Those declarations are not API declarations and belong to no bucket. A host
 does not narrow the population further by name.
+
+### Spelling within API visibility scope
+
+The same Member population has two spellings. Spelling is independent of
+accessibility, hidden status, and `--all`.
+
+**C# spelling** is the default. It composes metadata records into one
+declaration wherever some consumer can see them as a single unit:
+
+- A property or event and its accessors are one declaration, even when one
+  accessor is narrower. Code inside the class sees
+  `Utf8JsonWriter.BytesPending { get; private set; }` as one property.
+- An explicit interface implementation's property or event record and its
+  accessor methods are one declaration. Any holder of the interface sees
+  `IEnumerator.Current` as one property.
+- Each method overload stays its own declaration. A family of overloads is
+  grouped by name, not composed.
+
+A composed declaration belongs to the bucket of its declared accessibility,
+which is its most visible part. A narrower accessor is part of that
+declaration's shape, not a separate member. An explicit interface
+implementation belongs to `public`, because the interface makes it reachable.
+A finalizer belongs to `protected`, its declared accessibility. A view shows
+each declaration with the parts visible at its selected accessibility:
+`public` shows `BytesPending { get; }`, and every bucket shows
+`BytesPending { get; private set; }`.
+
+**Metadata spelling** composes nothing. It shows one row per metadata record
+(method, property, event, or field), including accessor methods, and each
+record belongs to the bucket of its own accessibility flag.
+
+In both spellings the buckets partition that spelling's population, and every
+Count is in that spelling's unit: declarations for C# spelling, records for
+metadata spelling.
 
 ### Implementation operations with named API roots
 
@@ -117,6 +150,7 @@ the implementation analysis complete.
 | --- | --- | --- |
 | Which API declarations should an API inventory show? | The ordinary public-facing API | Include the command's non-public, hidden, and obsolete declarations |
 | Which accessibility should a Type's Member inventory show? | The `public` bucket without hidden declarations; an `accessibility` term selects other buckets, still without hidden declarations | Every bucket plus hidden declarations; an added `accessibility` term narrows the buckets and hidden declarations stay admitted |
+| How should a Type's Member inventory spell its rows? | C# spelling: records compose into declarations wherever a consumer sees a single unit | Unchanged; metadata spelling is a separate, explicit choice |
 | Which declarations should an API comparison match? | The comparison's ordinary API population | Widen the API population where that comparison admits the option |
 | Which named root should a body operation resolve? | Roots in the ordinary public-facing API | Include a non-public, hidden, or obsolete root; the resulting implementation analysis is unchanged |
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |

@@ -12,7 +12,7 @@ The operator approved this cross-owner scope.
 
 | Owner | Contract this map relies on |
 | --- | --- |
-| [API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope) | Accessibility buckets and hidden status as independent visibility axes; `public` without hidden declarations as the default; `--all` and the `accessibility` term |
+| [API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope) | Accessibility buckets and hidden status as independent visibility axes; `public` without hidden declarations as the default; `--all` and the `accessibility` term; [C# and metadata spelling](api-population-scope.md#spelling-within-api-visibility-scope) |
 | [Type, MemberGroup, and Member inspection documents](type-member-inspection-documents.md#composition-count) | The `accessibility` projection over the Type Members row set, and Composition Count in one pass |
 
 ## What the reader sees
@@ -48,8 +48,26 @@ bucket whatever bucket is selected. The selection stays for the session, so
 the next Type opens on `private` with its own truthful count, even when that
 count is 0.
 
+The same `Filters` disclosure, collapsed by default, offers a spelling row:
+
+```text
+Accessibility   public 16 · protected 0 · internal 44 · private 27
+Spelling        C# spelling (selected) · Metadata spelling
+```
+
+C# spelling serves consumers: one row per declaration, as the code that uses
+the Type sees it. Metadata spelling serves readers who need the assembly as it
+is, such as .NET team engineers: one row per metadata record. On
+`JsonElement.ArrayEnumerator`, C# spelling lists `IEnumerator.Current` once, as
+a `public` property (8 public, 1 internal, 3 private). Metadata spelling lists
+the private `IEnumerator.Current` property record and its private
+`IEnumerator.get_Current` method separately (6 public, 1 internal, 7 private).
+The chips follow the selected spelling, and the spelling choice stays for the
+session like the accessibility choice.
+
 The CLI asks the same questions of the same population and reports the same
-counts. Its Type-subject Count already counts actual members (see
+counts. `--spelling metadata` selects metadata spelling; C# spelling is the
+default. Its Type-subject Count already counts actual members (see
 [subject-default API count](progressive-disclosure.md#subject-default-api-count)).
 After adoption:
 
@@ -66,16 +84,18 @@ rows it has loaded.
 
 ## Typed handoffs
 
-1. The Metadata owner issues, for each declaration of a Type, its admission as
-   an API declaration, its accessibility bucket, its hidden status, and its
-   receiver form. One predicate issues these facts for both extraction and
-   counting.
+1. The Metadata owner issues, for each metadata record of a Type, its
+   admission as an API record, its accessibility flag, its hidden status, and
+   its receiver form, together with which records compose into one C#
+   declaration and that declaration's bucket. One predicate issues these facts
+   for extraction and counting in both spellings.
 2. The Type document owner binds the `accessibility` and `receiver`
    projections to those facts. It returns Member-group Rows for one intent, or
    the Composition Count, whose declaration Counts total the nested overload
    Counts of those Rows.
-3. The CLI lowers `--where "accessibility=…"`, `--all`, and `--count` to that
-   request. Inspect Web lowers the chip selection to the same request.
+3. The CLI lowers `--where "accessibility=…"`, `--spelling`, `--all`, and
+   `--count` to that request. Inspect Web lowers the chip and spelling
+   selections to the same request.
 
 ## Requirements on related work
 
@@ -88,16 +108,15 @@ rows it has loaded.
   CLI's name heuristic (`MemberFilters.IsCompilerGenerated`) drops ordinary
   fields such as `JsonDocument.s_nullLiteral`, so it cannot stay between the
   Count and the CLI's Rows.
-- **Contract roles.** An explicit interface implementation or finalizer that
-  the public default admits today stays in the `public` bucket, with its role
-  visible, as `ApiAccessibility.Classify` already does. The Browser's host-side
-  mapping of those roles to `private` and `protected` retires. Explicit
-  implementations of every member kind classify the same way. Today an
-  explicit-implementation method is admitted as `public`, while the property
-  it implements (such as `JsonElement.ArrayEnumerator`'s
-  `IEnumerator.Current`) is excluded by default and spelled `private`. The
-  shared predicate resolves that split toward `public`, so the property joins
-  the default population beside its accessor methods.
+- **Composition.** The predicate composes records into C# declarations by the
+  [spelling rule](api-population-scope.md#spelling-within-api-visibility-scope).
+  Today `--all` lists the explicit `IEnumerator.Current` twice: as a public
+  `IEnumerator.get_Current` method row and as a private property row. Under C#
+  spelling it becomes one `public` declaration, and under metadata spelling
+  two `private` records. A C# finalizer, which the public default shows today
+  through its MethodImpl, moves to `protected`, its declared accessibility.
+  The Browser's host-side mapping of explicit implementations to `private`
+  and finalizers to `protected` retires.
 - **Heat over non-public rows.**
   [Implementation profiles](inspect-web-implementation-profiles.md) currently
   states that methods outside the public roster are never rows. Showing heat
@@ -125,7 +144,8 @@ the step says otherwise.
 
 1. Lock this map and its owner amendments.
 2. Share one Metadata admission predicate between extraction and the Count
-   kernel, and add the one-pass composition kernel.
+   kernel, including the C# composition rule, and add the one-pass
+   composition kernel for both spellings.
 3. Deliver #8430 step 7 with the `accessibility` projection and Composition
    Count.
 4. CLI: route Type-subject Rows and `--count` through that population, and
@@ -137,8 +157,9 @@ the step says otherwise.
    heading, and color overload family rows' names as
    [Inspect Web navigation presentation](inspect-web-navigation-presentation.md#type-navigation)
    states.
-   Request Rows per selected bucket, and keep the selection for the session.
-   This retires the host-side composition counting and role mapping.
+   Offer the spelling row in `Filters`. Request Rows per selected bucket and
+   spelling, and keep both selections for the session. This retires the
+   host-side composition counting and role mapping.
 6. Implementation profiles: show heat on non-public rows (a separate focused
    change).
 
