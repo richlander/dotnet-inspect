@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -60,6 +66,65 @@ test("retained Workspace clone projects every callable AppState field", () => {
   }
 });
 
+test("constructor-only state values are function-bearing", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "retained-workspace-cloneability-"),
+  );
+  try {
+    writeFileSync(join(fixtureRoot, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        strict: true,
+        target: "ES2022",
+        noEmit: true,
+      },
+      files: ["state.ts"],
+    }));
+    writeFileSync(join(fixtureRoot, "state.ts"), `
+class ConstructorOnly {}
+type SyntheticState = {
+  direct: typeof ConstructorOnly;
+  nested: { constructorValue: typeof ConstructorOnly };
+  plain: { value: string };
+};
+`);
+
+    const opened = openTypeScriptSemanticFacts(
+      join(fixtureRoot, "tsconfig.json"),
+    );
+    assert.equal(opened.kind, "Opened");
+    if (opened.kind !== "Opened") return;
+
+    const session = opened.session;
+    try {
+      const source = sourceByPath(session, "state.ts");
+      const text = readFileSync(join(fixtureRoot, "state.ts"), "utf8");
+      const state = declaredTypeAlias(
+        session,
+        source,
+        text,
+        "SyntheticState",
+      );
+      assert.deepEqual(
+        propertiesContainingCallables(session, state),
+        ["direct", "nested"],
+      );
+    } finally {
+      session.dispose();
+    }
+
+    assert.throws(
+      () => structuredClone({ value: ConstructorOnlyFixture }),
+      { name: "DataCloneError" },
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+class ConstructorOnlyFixture {
+  readonly value = 0;
+}
+
 function propertiesContainingCallables(
   session: TypeScriptSemanticFactsSession,
   objectType: TypeFact,
@@ -93,7 +158,10 @@ function callableReachableTypes(
     if (visited.has(type.handle)) continue;
     visited.add(type.handle);
 
-    if (applicable(session.getCallSignatures(type.handle)).length > 0) {
+    if (
+      applicable(session.getCallSignatures(type.handle)).length > 0
+      || applicable(session.getConstructSignatures(type.handle)).length > 0
+    ) {
       direct.add(type.handle);
     }
 
