@@ -622,6 +622,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         public TypeRef ResolveType(int token)
             => owner.ResolveTypeToken(token, scope);
 
+        public bool TokenTypeMatchesSignature(
+            TypeRef tokenType,
+            TypeRef signatureType) =>
+            owner._signatureComparer.TokenMatchesSignature(
+                tokenType,
+                signatureType);
+
         public MemberRef ResolveMember(int token)
             => owner.ResolveMethod(
                 token,
