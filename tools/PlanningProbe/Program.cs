@@ -66,11 +66,14 @@ if (args[0] == "pccheck")
         var img = ImmutableArray.Create(File.ReadAllBytes(dll));
         foreach (string closing in (string[])["exists", "count", "head", "tail", "rows", "window"])
         {
-            string[] answers = [.. ((string[])["before", "nlinq", "after"]).Select(impl => Run($"pc:{closing}:{impl}", dll, img))];
+            // mat, linq, nlinq, and after answer the same open query and must agree.
+            // old is the legacy classified rows; its difference is reported, not forced.
+            string[] answers = [.. ((string[])["mat", "linq", "nlinq", "after"]).Select(impl => Run($"pc:{closing}:{impl}", dll, img))];
             bool agree = answers.All(a => a == answers[0]);
             if (!agree)
                 mismatches++;
-            Console.WriteLine($"{Path.GetFileName(dll),-36} {closing,-7} {(agree ? answers[0] : "MISMATCH " + string.Join(" / ", answers))}");
+            string old = Run($"pc:{closing}:old", dll, img);
+            Console.WriteLine($"{Path.GetFileName(dll),-36} {closing,-7} {(agree ? answers[0] : "MISMATCH " + string.Join(" / ", answers))}\told={old}{(old == answers[0] ? " (same)" : " (differs)")}");
         }
     }
 

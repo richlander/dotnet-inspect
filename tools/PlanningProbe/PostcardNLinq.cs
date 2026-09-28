@@ -136,7 +136,9 @@ static class PostcardProbe
         string[] parts = variant.Split(':');
         return parts[2] switch
         {
-            "before" => Postcard.Before(parts[1], peReader),
+            "old" => Postcard.Old(parts[1], peReader),
+            "mat" or "before" => Postcard.Before(parts[1], peReader),
+            "linq" => Postcard.Linq(parts[1], peReader),
             "nlinq" => PostcardNLinq.Run(parts[1], peReader),
             "after" => Postcard.After(parts[1], path, peReader),
             _ => throw new ArgumentException(variant),

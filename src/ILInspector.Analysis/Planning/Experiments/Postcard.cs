@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Metadata;
+
 namespace ILInspector.Analysis.Planning.Experiments;
 
 // Experiment only: the "postcard" comparison. One open query (the dense
@@ -182,7 +184,73 @@ public static class Postcard
         return rows.MoveToImmutable();
     }
 
-    // Before ------------------------------------------------------------
+    // Old ---------------------------------------------------------------
+
+    /// <summary>
+    /// The legacy product code as the CLI runs it today: MethodClassificationScanner
+    /// rows, then LINQ. The scanner applies the dense scope itself (public,
+    /// non-accessor, type name not starting with '&lt;') but emits a row only for
+    /// a P/Invoke, async, or pointer-signature method, and a method that is both
+    /// async and has a pointer signature emits two rows. Its rows carry no
+    /// visibility or raw type-name field, so no further filter is possible or
+    /// needed; the answers are those of the classified subset.
+    /// </summary>
+    public static PostcardAnswer Old(string closing, PEReader peReader)
+    {
+        List<MethodTextRow> all = MethodClassificationScanner.Scan(peReader)
+            .Select(static m => new MethodTextRow(m.MethodName, m.DeclaringType, m.Signature))
+            .ToList();
+        return FromList(closing, all);
+    }
+
+    // LINQ --------------------------------------------------------------
+
+    /// <summary>An idiomatic streaming System.Linq pipeline, written as an ordinary C# author would.</summary>
+    public static PostcardAnswer Linq(string closing, PEReader peReader)
+    {
+        MetadataReader reader = peReader.GetMetadataReader();
+        IEnumerable<MethodTextRow> rows = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .SelectMany(type => type.GetMethods().Select(handle => (Type: type, Method: reader.GetMethodDefinition(handle))))
+            .Where(m => ClassifiedScope.IsScopedType(reader, m.Type) && ClassifiedScope.IsScopedMethod(reader, m.Method))
+            .Select(m => MethodText.Row(reader, m.Type, m.Method));
+        switch (closing)
+        {
+            case "exists":
+                return new(rows.Any(), null, null, false);
+            case "count":
+                return new(null, rows.Count(), null, false);
+            case "head":
+                return new(null, null, rows.Take(N).ToList(), false);
+            case "tail":
+                return new(null, null, rows.TakeLast(N).ToList(), false);
+            case "rows":
+                return new(null, null, rows.ToList(), false);
+            case "window":
+            {
+                int take = WindowLast - WindowFirst + 1;
+                List<MethodTextRow> window = rows.Skip(WindowFirst - 1).Take(take).ToList();
+                return window.Count == take ? new(null, null, window, false) : new(null, null, null, true);
+            }
+            default:
+                throw new ArgumentException(closing);
+        }
+    }
+
+    static PostcardAnswer FromList(string closing, IReadOnlyList<MethodTextRow> all) => closing switch
+    {
+        "exists" => new(all.Any(), null, null, false),
+        "count" => new(null, all.Count(), null, false),
+        "head" => new(null, null, all.Take(N).ToList(), false),
+        "tail" => new(null, null, all.TakeLast(N).ToList(), false),
+        "rows" => new(null, null, all, false),
+        "window" => all.Count >= WindowLast
+            ? new(null, null, all.Skip(WindowFirst - 1).Take(WindowLast - WindowFirst + 1).ToList(), false)
+            : new(null, null, null, true),
+        _ => throw new ArgumentException(closing),
+    };
+
+    // Materialize -------------------------------------------------------
 
     /// <summary>Today's shape: build every row, then answer with ordinary LINQ over them.</summary>
     public static PostcardAnswer Before(string closing, PEReader peReader)

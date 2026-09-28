@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # usage: bench-postcard.sh <outfile> <budget-ms> <dll>...
-# Postcard: six closings x Before/NLinq/After, rotated across 6 rounds.
+# Postcard: six closings x Old/Materialize/LINQ/NLinq/After, rotated across 6 rounds.
 # Columns: variant round load1 assembly answer samples median p10 p90 alloc
 set -euo pipefail
 OUT=$1; BUDGET=$2; shift 2; DLLS=("$@")
 P=${PROBE:-/tmp/pp-bench/postcard-probe/PlanningProbe}
 V=()
-for c in exists count head tail rows window; do for i in before nlinq after; do V+=("pc:$c:$i"); done; done
+for c in exists count head tail rows window; do for i in old mat linq nlinq after; do V+=("pc:$c:$i"); done; done
 load1() { uptime | sed -E 's/.*load averages?: *([0-9.]+).*/\1/'; }
 : > "$OUT"
 for r in 1 2 3 4 5 6; do
