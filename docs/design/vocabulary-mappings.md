@@ -8,7 +8,8 @@ The pattern is designed. Core construction and Product Vocabulary CLI adoption
 are implemented by
 [#8754](https://github.com/richlander/dotnet-inspect/issues/8754); Inspect Web
 adoption and retirement of its superseded local shape are tracked by
-[#8755](https://github.com/richlander/dotnet-inspect/issues/8755).
+[#8755](https://github.com/richlander/dotnet-inspect/issues/8755) and implemented
+by [#8861](https://github.com/richlander/dotnet-inspect/pull/8861).
 
 [Product Vocabulary](vocabulary.md) is the first adopter. Its existing CLI
 output and Browser catalog prove the need and supply the first production data.
