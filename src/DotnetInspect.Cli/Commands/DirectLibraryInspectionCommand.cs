@@ -9,7 +9,7 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class DirectLibraryInspectionCommand
 {
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
+    internal static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,

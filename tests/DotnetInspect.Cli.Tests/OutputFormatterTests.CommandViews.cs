@@ -514,7 +514,6 @@ public partial class OutputFormatterTests
     [Fact]
     public void LibraryCompactView_AllSourcePaths_ShowSameFields()
     {
-        var modified = new DateTime(2025, 6, 15, 0, 0, 0, DateTimeKind.Utc);
         var assemblyInfo = new AssemblyInfo
         {
             AssemblyName = "TestLib",
@@ -531,7 +530,6 @@ public partial class OutputFormatterTests
             FileSize = 1024,
             Source = SourceKind.Platform,
             PlatformVersion = "10.0.1",
-            LastModified = modified
         };
 
         var nuget = new LibraryInspection
@@ -541,7 +539,6 @@ public partial class OutputFormatterTests
             AssemblyInfo = assemblyInfo,
             FileSize = 1024,
             Source = "NuGet",
-            LastModified = modified
         };
 
         var file = new LibraryInspection
@@ -551,7 +548,6 @@ public partial class OutputFormatterTests
             AssemblyInfo = assemblyInfo,
             FileSize = 1024,
             Source = "File",
-            LastModified = modified
         };
 
         var platformOutput = Serialize(platform, topFieldsOnly: true);
@@ -581,7 +577,9 @@ public partial class OutputFormatterTests
         Assert.Contains("Arch", platformFields);
         Assert.Contains("Size", platformFields);
         Assert.Contains("Source", platformFields);
-        Assert.Contains("Modified", platformFields);
+        // Modified describes the local copy, not the Library
+        // (docs/design/library-info-composition.md).
+        Assert.DoesNotContain("Modified", platformFields);
     }
 
     /// <summary>
