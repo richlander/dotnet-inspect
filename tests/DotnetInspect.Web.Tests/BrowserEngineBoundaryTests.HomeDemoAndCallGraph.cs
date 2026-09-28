@@ -587,7 +587,8 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
+    public async Task
+        DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
     {
         var connectorIdentity = new AssemblyReferenceIdentity(
             "Microsoft.Extensions.Options",
@@ -878,6 +879,13 @@ public sealed partial class BrowserEngineBoundaryTests
                                 Member.Name: "Get",
                             },
                     }).Id;
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
         var document =
             new PackageDependencyMemberCallGraphDocument(
                 TraversalTargetFrameworkPolicy.ProductDefault,
@@ -897,6 +905,9 @@ public sealed partial class BrowserEngineBoundaryTests
                         "ecosystem.aspnetcore",
                         "ecosystem.microsoft-extensions",
                     ]),
+                MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                    scope,
+                    registrations),
                 [],
                 [
                     new PackageDependencyMemberCallGraphPackageSubject(
