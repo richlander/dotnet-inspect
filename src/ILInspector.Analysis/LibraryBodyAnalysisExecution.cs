@@ -372,7 +372,9 @@ public sealed class LibraryBodyAnalysisExecution
                     AddSiblingRelationshipParticipation(
                         actualStages,
                         bodies,
-                        plan.RequestedFeatures);
+                        plan.RequestedFeatures
+                            & LibraryBodyAnalysisFeatures
+                                .ImplementationProfiles);
             }
         }
 
@@ -439,6 +441,10 @@ public sealed class LibraryBodyAnalysisExecution
 
         return new(
             implementationProfiles.WasRequested
+                && CanReuseSiblingRelationships(
+                    bodies,
+                    implementationProfiles
+                        .OverloadRelationships)
                 ? implementationProfiles
                     .OverloadRelationships
                 : MethodImplementationProfileAnalysis
@@ -450,6 +456,14 @@ public sealed class LibraryBodyAnalysisExecution
                         callGraph.DeclaredMethodMap),
             relationshipDiagnostics.ToImmutable());
     }
+
+    static bool CanReuseSiblingRelationships(
+        ImmutableArray<MethodImplementationMetricEvidence> bodies,
+        ImmutableArray<OverloadCallRelationship> relationships)
+        => relationships.All(relationship =>
+            bodies.Any(body =>
+                body.EvidenceMethod.MetadataToken
+                    == relationship.EvidenceMethod.MetadataToken));
 
     static ImmutableArray<DirectCall> SelectMetricDirectCalls(
         ImmutableArray<MethodImplementationMetricEvidence> bodies,

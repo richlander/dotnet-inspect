@@ -107,6 +107,26 @@ public sealed class LibraryBodyAnalysisExecutionTests
             migrated.OverloadRelationships
                 == migratedExecution.ImplementationMetrics
                     .SiblingRelationships!.Relationships);
+        ImplementationMetricStageParticipation legacyProjection =
+            Assert.Single(
+                legacyExecution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .SiblingRelationshipProjection);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            legacyProjection.FeatureCauses);
+        ImplementationMetricStageParticipation migratedProjection =
+            Assert.Single(
+                migratedExecution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .SiblingRelationshipProjection);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.None,
+            migratedProjection.FeatureCauses);
     }
 
     [Fact]
@@ -1132,6 +1152,105 @@ public sealed class LibraryBodyAnalysisExecutionTests
             candidate => candidate.EvidenceMethod.MetadataToken
                 == boundedOutToken);
         Assert.False(relationships.IsComplete);
+        ImplementationMetricStageParticipation projection =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .SiblingRelationshipProjection);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.None,
+            projection.FeatureCauses);
+    }
+
+    [Fact]
+    public void
+        MetricExecution_CompleteProfileRelationshipsRespectFiniteBodyLimit()
+    {
+        string path =
+            typeof(ImplementationProfileHiddenImplementationSample)
+                .Assembly.Location;
+        MethodInfo[] wrappers =
+        [
+            .. typeof(ImplementationProfileHiddenImplementationSample)
+                .GetMethods(
+                    BindingFlags.Public
+                    | BindingFlags.Static)
+                .Where(method =>
+                    method.Name
+                        == nameof(
+                            ImplementationProfileHiddenImplementationSample
+                                .Parse))
+                .OrderBy(static method =>
+                    method.MetadataToken),
+        ];
+        Assert.Equal(2, wrappers.Length);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: 10_000,
+            maximumAttributionProbeBodies: 1_000,
+            maximumAttributionProbeIlBytes: 1_000_000);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        wrappers
+                            .Select(static method =>
+                                method.MetadataToken)
+                            .ToHashSet(),
+                        LibraryBodyAnalysisFeatures.MethodEvidence));
+
+        int admittedToken = Assert.Single(
+                execution.ImplementationMetrics.Bodies)
+            .EvidenceMethod.MetadataToken;
+        int boundedOutToken = Assert.Single(
+            wrappers,
+            wrapper => wrapper.MetadataToken != admittedToken)
+            .MetadataToken;
+        Assert.Contains(
+            execution.CallGraph.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                == boundedOutToken);
+        Assert.True(execution.ImplementationProfiles.WasRequested);
+        Assert.Equal(
+            2,
+            execution.ImplementationProfiles
+                .OverloadRelationships.Length);
+        ImplementationMetricSiblingRelationships relationships =
+            Assert.IsType<
+                ImplementationMetricSiblingRelationships>(
+                execution.ImplementationMetrics
+                    .SiblingRelationships);
+        OverloadCallRelationship relationship =
+            Assert.Single(relationships.Relationships);
+        Assert.Equal(
+            admittedToken,
+            relationship.EvidenceMethod.MetadataToken);
+        Assert.DoesNotContain(
+            relationships.Relationships,
+            candidate => candidate.EvidenceMethod.MetadataToken
+                == boundedOutToken);
+        Assert.False(
+            relationships.Relationships
+                == execution.ImplementationProfiles
+                    .OverloadRelationships);
+        Assert.False(relationships.IsComplete);
+        ImplementationMetricStageParticipation projection =
+            Assert.Single(
+                execution.ImplementationMetrics
+                    .Participation!.ActualStages,
+                stage => stage.Stage
+                    == ImplementationMetricWorkStage
+                        .SiblingRelationshipProjection);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.None,
+            projection.FeatureCauses);
     }
 
     [Fact]
