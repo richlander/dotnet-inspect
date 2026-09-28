@@ -2,10 +2,14 @@
 
 ## Status and authority
 
-Focused Research design for [#7987](https://github.com/richlander/dotnet-inspect/issues/7987).
+Focused Research design for
+[#7987](https://github.com/richlander/dotnet-inspect/issues/7987) and the
+Type structural-leverage extension in
+[#8819](https://github.com/richlander/dotnet-inspect/issues/8819).
 Its Analysis coverage prerequisite is tracked by
-[#7989](https://github.com/richlander/dotnet-inspect/issues/7989) and is
-consumed as an issued receipt by this report.
+[#7989](https://github.com/richlander/dotnet-inspect/issues/7989), and its
+Type-relationship producers are tracked by the extension adoption plan. The
+report consumes each input as owner-issued evidence.
 
 The **Library Metrics** report is the single normative owner for a
 descriptive structural population report over one exact compiled library.
@@ -14,6 +18,13 @@ Its claim is:
 > Given one exact library's complete Analysis-issued implementation-profile
 > population, preserve the population receipt, coverage qualifications, and
 > deterministic descriptive distributions of selected compiled-IL structure.
+
+The Type structural-leverage extension adds this claim:
+
+> Given one exact library's owner-issued signature and body Type relationships,
+> preserve their separate qualifications and use Graph-issued directed
+> distinct-neighbor degree to identify sea-level foundations, mountain-peak
+> orchestrators, and their combined structural role.
 
 The report is compiled implementation evidence. It is not authored-source C#
 complexity, decompiled-source evidence, a quality score, a defect prediction,
@@ -38,6 +49,18 @@ redefines Analysis metrics nor chooses a threshold, weight, rank, or remedy.
 The report answers this question for one release only. A change report requires
 cross-version correspondence; a corpus report requires a separately selected
 multi-library population. Neither is inferred from one report.
+
+The Type structural-leverage extension answers two additional questions:
+
+- Which Types are used by the most distinct peer Types in declaration
+  signatures?
+- Which Types use the most distinct peer Types in their implementation bodies?
+
+It also labels connected Types as foundations, hubs, or orchestrators from the
+incoming share of their combined signature-and-body peer relationships. The
+rankings remain separate because the prototype evidence in #8732 found that
+signature relationships answer the first question best while body
+relationships answer the second best.
 
 ## Imported evidence and population
 
@@ -65,6 +88,20 @@ coverage receipt. The [Analysis coverage prerequisite](https://github.com/richla
 owns that receipt's construction, identity, scope, accounting, and failure
 semantics. Research carries it unchanged and never infers its categories from
 missing profiles or presentation rows.
+
+Type structural leverage additionally consumes two complete, separately
+qualified relationship populations:
+
+- Metadata owns signature relationships from base Types, implemented
+  interfaces, generic constraints, and member signatures.
+- Analysis owns body relationships from resolved Type-bearing IL operands and
+  the logical declared-Type owner of each physical body.
+
+Each producer issues exact Library identity, admitted source and target Type
+definition identities, completeness, and visible failures. Research neither
+rescans metadata nor decodes IL to reconstruct a missing population. A
+relationship population from another Library generation cannot compose with
+this report.
 
 One report requires `ImplementationProfiles` to have been requested and
 the Analysis coverage receipt to establish a full method-evidence scope. A
@@ -97,7 +134,11 @@ host-neutral boundary carries the document through an
   physical-body denominator;
 - deterministic per-declaring-type summaries over complete physical profiles;
 - a bounded set of cross-type relationships selected by distinct neighboring
-  type count, call-site volume, and qualified type identity; and
+  type count, call-site volume, and qualified type identity;
+- complete Type structural-leverage rows with separate sea-level and
+  mountain-peak positions, Graph-issued peer counts, a combined structural
+  role, and the relationship-population and Graph-work receipts that qualify
+  them;
 - bounded extreme-body evidence for each distribution; and
 - the original Analysis diagnostics and profile incompleteness evidence.
 
@@ -200,6 +241,82 @@ summaries. Whole-library dependency communities require a separate Research
 contract over the complete admitted graph and are tracked by
 [#8406](https://github.com/richlander/dotnet-inspect/issues/8406).
 
+### Type structural leverage
+
+The extension consumes two directed relationship kinds over exact Type
+definition identities in the selected Library:
+
+- **Signature use:** `A -> B` means an admitted declaration owned by Type `A`
+  refers to Type `B` through its base Type, implemented interfaces, generic
+  constraints, or a field, property, event, parameter, or return Type.
+- **Body use:** `A -> B` means an admitted physical body logically owned by
+  Type `A` contains a resolved Type-bearing IL operand whose definition is
+  Type `B`.
+
+Constructed generic Types lower to their owner-issued generic definition.
+Analysis-issued logical ownership folds compiler-created nested implementation
+Types into their declared Type owner; Research does not infer that owner from a
+generated name. An otherwise unfurled nested Type remains its own exact
+definition. Both endpoints must belong to the selected Library generation.
+External Types are outside this Library-scoped population. Accessibility does
+not alter topology, canonical-row retention, or either default order: public
+API foundations and internal implementation orchestrators are both product
+evidence.
+
+A relationship from a Type to itself is not a peer relationship and contributes
+to no degree. Parallel occurrences and a pair present under both relationship
+kinds remain evidence, but each selected Graph degree counts the opposite Type
+once. Research admits one immutable Graph document containing both typed
+relationship kinds and requests three directed distinct-neighbor views:
+
+1. signature incoming degree for the **sea-level** ranking;
+2. body outgoing degree for the **mountain-peak** ranking; and
+3. incoming and outgoing degree over the union of both kinds for structural
+   role.
+
+The role denominator is combined incoming plus combined outgoing degree. A
+connected Type is a **foundation** when its incoming share is at least `0.7`,
+an **orchestrator** when that share is at most `0.3`, and a **hub** otherwise.
+An isolated Type has no role and enters neither ranking.
+
+The report retains one canonical leverage row per connected Type. Each row
+contains exact Type identity, signature incoming degree, body outgoing degree,
+combined incoming and outgoing degree, and role. Research also publishes the
+complete sea-level and mountain-peak orders. Each order sorts descending by
+its named degree, then by exact metadata Type identity; a displayed name never
+breaks a tie.
+
+Ranking eligibility is separate from structural population. Universal base
+Types and Types whose owner-issued metadata classification is enum, attribute,
+exception, or delegate remain in the graph as peer evidence but do not enter
+either ordered ranking. Removing them from topology would silently change the
+degree and role of otherwise eligible Types. Helper-looking names such as
+`SR` or `ThrowHelper` are not an identity or classification contract and do
+not justify exclusion. A future owner-issued implementation-helper
+characteristic may extend ranking eligibility without changing Graph degree.
+
+Ranking eligibility is local to these two degree-ordered views. It is not a
+low-value classification and cannot suppress the canonical leverage row or
+transfer to another query. A low-degree or ranking-ineligible Type may still
+be a call-graph bridge, an async blocking boundary, the only unsafe or native
+operation carrier, a reflection or serialization activation point, or a
+meaningful exception, attribute, delegate, or protocol state. Those questions
+retain their own relationship populations and owners.
+
+Signature and body completion remain independent. A complete signature
+population cannot qualify body degree, and complete body evidence cannot
+qualify signature degree. An available report may retain healthy rows when one
+population is incomplete, but every affected ranking and role remains visibly
+qualified by the producer receipt and failures. Missing or failed evidence
+does not become a zero-degree success.
+
+Graph owns relationship selection, direction, selected adjacency,
+distinct-neighbor counting, self-loop treatment, deterministic structural
+results, and its work receipts. Research owns which producer-issued
+relationships enter each plan, ranking eligibility, the two orders, role
+meaning, and qualification in the Library report. Neither host recomputes a
+degree, rank, role, or exclusion.
+
 ## Interpretation boundary
 
 The report can say that a measure has a given value, that an exact number of
@@ -207,6 +324,14 @@ complete physical bodies contribute to a percentile, and that named bodies
 attain the maximum. It cannot say that a high value is bad, that a percentile
 is unusual across another library, that an extreme body is a performance
 hotspot, or that an API needs refactoring.
+
+Likewise, the report can say that a Type has a given directed distinct-peer
+degree, appears at a position in one of the two Library-local orders, or has a
+role under the stated union threshold. It cannot call a Type important,
+unimportant, safe, unsafe, blocking, or non-blocking from that evidence.
+Degree is not reachability, centrality, execution frequency, implementation
+risk, or runtime behavior. Ranking omission is specific to the named view and
+does not hide the Type from other analyses.
 
 Local implementation-diff percentiles and structural cohorts remain
 request-local comparison context. They have different denominators and must
@@ -222,20 +347,36 @@ need its own explicit Analysis/Metadata population owner.
 ## Composition and rendering
 
 The report composes owner-issued implementation profiles, the optional
-same-execution call graph, and the population coverage receipt from
+same-execution call graph, signature-use relationships, body-use relationships,
+and their population coverage receipts from
 [#7989](https://github.com/richlander/dotnet-inspect/issues/7989). Analysis
-defines how these inputs are constructed and qualified; Research defines how
-the report preserves them and derives report-local distributions, type
-summaries, and the bounded relationship projection. No host rebuilds
-coverage, completeness, or a statistic from display text.
+and Metadata define how their respective inputs are constructed and qualified;
+Graph defines how the admitted closed document is structurally evaluated;
+Research defines how the report preserves that evidence and derives
+report-local distributions, type summaries, leverage rows, rankings, roles,
+and the bounded relationship projection. No host rebuilds coverage,
+completeness, topology, or a statistic from display text.
+
+This closed-document composition separates Graph optimization from QuerySpace
+optimization. QuerySpace and its providers can reduce which domain facts must
+be acquired and admitted; Graph answers the requested structural question over
+the admitted population with only the necessary topology and traversal state.
+The first leverage implementation still acquires complete producer-owned
+relationship populations before Graph executes. Its typed Graph plans make a
+later provider-backed demand path possible but do not themselves claim
+acquisition pushdown. In short: QuerySpace gets Graph the smallest relevant
+domain population; Graph answers the structural question with the smallest
+necessary topology and state.
 
 The resource-free Research document is the structured rendering input. The CLI
 adoption owns the exact-name-only `Library Metrics` section and its `Markout`
 lowering. That section renders population receipt rows, distribution rows,
-maximum evidence, async disposition, and diagnostic rows without changing their
-Research-owned meaning. Markout's existing Markdown, table, TSV, JSONL, and
-projected-JSON lowerings remain format mechanics; numeric measures and
-coverage states stay typed until that boundary.
+maximum evidence, async disposition, sea-level rows, mountain-peak rows, and
+diagnostic rows without changing their Research-owned meaning. The two
+rankings remain separately named and ordered; the CLI does not blend them into
+one score. Markout's existing Markdown, table, TSV, JSONL, and projected-JSON
+lowerings remain format mechanics; numeric measures, role, ranking
+disposition, and coverage states stay typed until that boundary.
 
 Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
 view. Its host-specific lowering serializes the same typed document through
@@ -250,12 +391,23 @@ relationship stroke width represents retained call-site count. Complexity
 Explorer omits zero-body relationship-only summaries because they carry no
 implementation volume. Relationship Crossing renders every endpoint and edge
 in Research's bounded relationship projection; the Browser performs no second
-topology selection. A treemap cell discloses its type summary on pointer hover
-or keyboard focus and activates the exact metadata type key to continue the
-settled Library-to-Type-to-Member journey. The synthetic `Other types`
-aggregate discloses its combined summary but is not a Type navigation target.
-These visuals are structural evidence; they do not
-add a quality score, Compare surface, complete graph, or a second report model.
+topology selection.
+
+The existing Metrics lens adds a `Type Leverage` view rather than new
+persistent workspace chrome. It presents separate sea-level and mountain-peak
+lists in their Research-issued order. Each visible row discloses its named
+degree and structural role and activates the exact metadata Type key. A
+presentation limit may take a prefix of each issued order, but Browser does not
+sort, merge, exclude, or recompute the rows. Relationship Crossing may decorate
+an already selected exact Type with its report-issued role; it does not infer
+role from the bounded call projection.
+
+A treemap cell discloses its type summary on pointer hover or keyboard focus
+and activates the exact metadata type key to continue the settled
+Library-to-Type-to-Member journey. The synthetic `Other types` aggregate
+discloses its combined summary but is not a Type navigation target. These
+visuals are structural evidence; they do not add a quality score, Compare
+surface, complete graph, or a second report model.
 
 ## Real-library probe
 
@@ -280,6 +432,25 @@ The highest observed complexity was 33 for
 That observation motivates traceable maximum evidence; it is not a quality
 claim about Markout or that method.
 
+Issue #8732 records the SRM-only structural-leverage prototype over real
+Library assets. On System.Text.Json 10.0.0, the signature population measured
+in 1.1 ms and the body population in 3.5 ms (median of five warm CoreCLR runs).
+Its leading signature-incoming Types included
+`JsonSerializerOptions` (135 distinct peers), `Utf8JsonReader` (92), and
+`Utf8JsonWriter` (84); its leading body-outgoing Types included
+`JsonMetadataServices` (82), `DefaultJsonTypeInfoResolver` (41), and
+`JsonSerializer` (37). Those values motivate the two different relationship
+populations and are not yet product-output evidence.
+
+The .NET 11 RC1 System.Private.CoreLib Library is the scale and noise-pathology
+asset. Its 1,418 public Types produced the prototype signature population in
+16.7 ms and body population in 30.2 ms. Enums, universal bases, and
+implementation helpers demonstrated why topology membership, canonical row
+retention, and default ranking eligibility must remain separate decisions.
+Those timings are reproducible design evidence rather than a performance
+contract; the owner-sized implementation slices record their own production
+measurements.
+
 The durable contract fixture includes one logical async method with multiple
 physical profiles, using the existing `ImplementationProfileSample.AnalyzeAsync`
 scenario. Its gate proves that the report preserves both evidence bodies and
@@ -287,8 +458,8 @@ does not collapse them into one source-owned profile.
 
 ## Validation gates
 
-The implementation belongs in the Release
-`ILInspector.Research.Tests` executable. It must demonstrate:
+The original report implementation belongs in the Release
+`ILInspector.Research.Tests` executable. It demonstrates:
 
 - `LibraryStructuralReport_RejectsScopedProfilePopulation`: A profile result
   from scoped method evidence is unavailable and retains its receipt.
@@ -310,6 +481,35 @@ The implementation belongs in the Release
   ordering, and the additional-tie count.
 - `LibraryStructuralReport_RejectsDuplicateOrUnaccountedEvidenceIdentity`:
   Invalid owner input cannot issue a plausible report.
+
+The structural-leverage extension distributes gates with their owner and then
+repeats the product contract through Research and each host:
+
+- Graph fixtures prove that parallel edges count one peer, self-edges count no
+  peer, selected incoming and outgoing adjacency remain separate, union degree
+  does not double-count a peer present under both relationship kinds, exact
+  identities with the same display name remain distinct, and work receipts
+  account for the selected topology.
+- Metadata fixtures prove signature relationship identity, generic-definition
+  folding, Library scope, and visible completion. Analysis fixtures prove body
+  Type-operand identity, logical declared-Type ownership of compiler-created
+  bodies, Library scope, and independent visible completion.
+- Research fixtures prove the two named orders, exact-identity tie-breaking,
+  union-derived role thresholds, all-accessibility participation, canonical
+  retention of ranking-ineligible Types, row-only exclusion from each default
+  order, and visible qualification when either producer population is
+  incomplete.
+- CLI fixtures prove that the explicit `Library Metrics` section lowers both
+  issued orders and their qualifications through Markout without introducing
+  them into default `-v:m` output.
+- Browser/Wasm fixtures prove that the existing Metrics lens consumes the same
+  exact Type keys and issued order, limits only by taking a disclosed prefix,
+  and never reconstructs degree, role, or ranking from the bounded call
+  projection.
+- System.Text.Json 10.0.0 proves the production package path and useful
+  separation of foundations and orchestrators. System.Private.CoreLib proves
+  bounded scale, deterministic results, and that ranking omission never
+  removes a Type or relationship from canonical evidence.
 
 The probe command is reproducible design evidence, not a CI gate. Fixture
 tests establish the deterministic contract; an eventual pinned package corpus
@@ -343,3 +543,28 @@ three are shared. The completed CLI adoption establishes the `Library Metrics`
 section spelling and Markout row-group renderer. Browser deliberately lowers
 the same typed document into its interactive summary instead of introducing a
 second Research model or using Markout for the Library-detail view.
+
+Type structural leverage extends that established path through an owner-sized
+stack. Each slice has one normative owner and lands a usable typed contract:
+
+1. Graph publishes closed-document selected incoming/outgoing adjacency,
+   directed distinct-neighbor degree, union selection, and work receipts.
+2. Metadata publishes the complete qualified Library signature-use
+   relationship population and exact Type-definition identities.
+3. Analysis publishes the complete qualified Library body-use relationship
+   population with logical declared-Type ownership.
+4. Research composes both populations through Graph, publishes canonical
+   leverage rows, independent orders, roles, eligibility, and qualification,
+   and retires its superseded private undirected `HashSet` degree calculation
+   wherever the new evidence serves the same question.
+5. The CLI adds the two named `Library Metrics` row groups through Markout
+   without changing the command's explicit-only disclosure.
+6. Browser/Wasm extends the existing Metrics lens through the settled managed
+   facade and shared Research document.
+7. A later provider-backed composition may push Graph demand into Metadata and
+   Analysis acquisition. It is a separately evidenced QuerySpace optimization,
+   not a condition of the closed-document stack.
+
+The stack composition map records the contracts joining adjacent slices; it
+does not broaden this Research design into normative Graph, Metadata, Analysis,
+CLI, or Browser internals.

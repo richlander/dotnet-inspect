@@ -1613,22 +1613,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SingleOverloadFilter_MultipleDetailSections_RenderBoth()
+    public async Task Member_SingleOverloadFilter_MixedInfoAndDetailSelect_RendersDetail()
     {
         var options = new MemberOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Signature", "IL"]
+            Select = ["Info", "IL"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Signature", output);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("IL_0000:", output);
     }
 
@@ -2353,6 +2352,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_FindingCensusUnindexedSelection_RendersEnvelope()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt),
+            "-S", "Finding Census", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Finding Census", output);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.NotEqual(
+            Guid.Empty,
+            envelope.RootElement
+                .GetProperty("fact_census_receipt")
+                .GetGuid());
+        Assert.NotEqual(
+            JsonValueKind.Null,
+            envelope.RootElement
+                .GetProperty("annotated_source_document")
+                .ValueKind);
+        Assert.Equal(
+            JsonValueKind.Array,
+            envelope.RootElement
+                .GetProperty("source_fact_instances")
+                .ValueKind);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_FindingCensusDefault_RendersEnvelope()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2371,24 +2400,6 @@ public partial class CommandExecutionTests
                     .GetString(),
                 out Guid receipt));
         Assert.NotEqual(Guid.Empty, receipt);
-    }
-
-    [Fact]
-    public async Task Member_SelectedOverload_FindingCensusNative_RendersEnvelope()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(FactsTableFixture).FullName!,
-            "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt),
-            "-S", "Finding Census", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.DoesNotContain("## Finding Census", output);
-        Assert.DoesNotContain("```json", output);
-        Assert.Contains("\"fact_census_receipt\":", output);
-        Assert.Contains("\"annotated_source_document\":", output);
-        Assert.Contains("\"source_fact_instances\":", output);
     }
 
     [Fact]
@@ -3246,19 +3257,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_CostOverlay_IsExplicitOnly_NotShownAtDetailed()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-v:d", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.DoesNotContain("## Cost Overlay", output);
-        Assert.DoesNotContain("cost.callee", output);
-    }
-
-    [Fact]
     public async Task Member_SelectedOverload_SelectCostOverlay_RendersExplicitCostFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3274,16 +3272,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_CostOverlay_DefaultRendersPayload()
+    public async Task Member_CostOverlay_IsExplicitOnly_NotShownAtDetailed()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--tips", "q");
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-v:d", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.DoesNotContain("## Cost Overlay", output);
-        Assert.Contains("cost.callee", output);
+        Assert.DoesNotContain("cost.callee", output);
     }
 
     [Fact]
@@ -3300,19 +3298,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SemanticsOverlay_IsExplicitOnly_NotShownAtDetailed()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-v:d", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.DoesNotContain("## Semantics Overlay", output);
-        Assert.DoesNotContain("semantics.callee", output);
-    }
-
-    [Fact]
     public async Task Member_SelectedOverload_SelectSemanticsOverlay_RendersExplicitFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3325,6 +3310,19 @@ public partial class CommandExecutionTests
         Assert.Contains("semantics.callee", output);
         Assert.Contains("may-throw FormatException", output);
         Assert.DoesNotContain("cost.callee", output);
+    }
+
+    [Fact]
+    public async Task Member_SemanticsOverlay_IsExplicitOnly_NotShownAtDetailed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Semantics Overlay", output);
+        Assert.DoesNotContain("semantics.callee", output);
     }
 
     [Fact]
