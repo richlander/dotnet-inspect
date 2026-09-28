@@ -87,6 +87,30 @@ valid document can still be semantically invalid for a product vocabulary.
 The product composer must reject that input before or while binding it into the
 carrier under its own Release gates.
 
+### Populated structure and graph-local questions
+
+`Inspector.Graph` is a graph-shaped collection boundary, not a relationship
+discovery owner. A producer or product composer that understands a domain maps
+its subjects to `TSubject`, maps its relationship kinds to `TRelationship`, and
+supplies the corresponding nodes, edges, and occurrences. Graph does not
+inspect a method body or derive that method A calls method B.
+
+Once that caller has supplied nodes for A and B and a directed `Calls` edge
+between them, Graph may answer questions intrinsic to the populated structure.
+For example, a graph-local operation can determine whether this document
+contains the typed relationship from A to B; a future traversal operation can
+determine whether B is reachable from A through a caller-selected relationship.
+The caller owns what the method identities and `Calls` value mean. Graph owns
+the structural lookup or walk over those typed values.
+
+Such an answer is scoped to the supplied document. A missing edge means that
+the relationship is not present in this graph. It proves that A does not
+directly call B within the represented scope only when the product contract
+and producer-owned completion evidence establish that the graph exhaustively
+covers that relationship and scope. This boundary admits shape-native Graph
+operations, but the concrete lookup, traversal, reachability, and terminal
+contracts remain focused successor designs.
+
 ## Typed carrier
 
 The conceptual carrier has six independent caller-owned payload planes:
