@@ -652,7 +652,7 @@ async function installFacades(
         forwarderView = {
           id, surface, family: "runtime", framework: tfm, version, assembly: assembly.name,
           forwarders: target ? [{
-            id: assembly.name + ":System.Xml.XmlReader", name: "XmlReader",
+            id: assembly.name + ":System.Xml.XmlReader", name: "System.Xml.XmlReader",
             namespace: "System.Xml", targetAssembly: target, action: id + ":XmlReader",
           }] : [],
           selectedTypeId: null,

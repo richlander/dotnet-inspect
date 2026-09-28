@@ -3209,7 +3209,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     const forwardedRows = page.locator("#type-list [data-type] small").filter({ hasText: "Forwarded" });
     expect(await forwardedRows.count()).toBeGreaterThan(100);
     await page.locator('[data-type="System.Xml:System.Xml.XmlReader"]').click();
-    await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+    await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
     await expect(page.locator('[data-inspector-tab]')).toHaveCount(1);
     await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
     await page.locator("[data-platform-forwarder]").click();

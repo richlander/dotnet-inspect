@@ -10,7 +10,7 @@ import { renderTypeNav } from "../src/type-panel.ts";
 
 const xmlReader = {
   id: "System.Xml:System.Xml.XmlReader",
-  name: "XmlReader",
+  name: "System.Xml.XmlReader",
   namespace: "System.Xml",
   targetAssembly: "System.Xml.ReaderWriter",
   action: "opaque-action",
