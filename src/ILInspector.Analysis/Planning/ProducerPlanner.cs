@@ -5,8 +5,11 @@ namespace ILInspector.Analysis.Planning;
 /// <summary>The terminal a request asks of a producer.</summary>
 public enum ProducerTerminal
 {
-    /// <summary>Every unit in scope contributes to the result.</summary>
-    All,
+    /// <summary>
+    /// Complete the fold: every unit in scope contributes to the result, and
+    /// the request never stops early.
+    /// </summary>
+    Complete,
 
     /// <summary>
     /// The request is settled by the first unit fact the producer reports as
@@ -18,7 +21,7 @@ public enum ProducerTerminal
 /// <summary>One requested producer and the terminal the requester needs.</summary>
 public sealed record ProducerRequest(
     ProducerDeclaration Producer,
-    ProducerTerminal Terminal = ProducerTerminal.All);
+    ProducerTerminal Terminal = ProducerTerminal.Complete);
 
 public enum ProducerRejectionReason
 {
@@ -261,8 +264,8 @@ public static class ProducerPlanner
                 terminals.TryGetValue(
                     request.Producer,
                     out ProducerTerminal existing)
-                && existing == ProducerTerminal.All
-                    ? ProducerTerminal.All
+                && existing == ProducerTerminal.Complete
+                    ? ProducerTerminal.Complete
                     : request.Terminal;
         }
 
@@ -270,11 +273,11 @@ public static class ProducerPlanner
         foreach (ProducerDeclaration producer in closure)
         {
             if (!requested.Contains(producer))
-                terminals[producer] = ProducerTerminal.All;
+                terminals[producer] = ProducerTerminal.Complete;
             foreach (ProducerDependency dependency in producer.Dependencies)
             {
                 if (dependency.Producer is { } target)
-                    terminals[target] = ProducerTerminal.All;
+                    terminals[target] = ProducerTerminal.Complete;
             }
         }
 
