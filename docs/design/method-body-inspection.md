@@ -330,9 +330,12 @@ object binds the canonical context and Layer-1 query methods before other topic
 producers run. When allocation collection is selected, one scan populates that
 same object with both the discovered and escape-refined occurrences. The
 published allocation facts take the classified occurrences, and
-`OptimizationOpportunityAnalysis` reuses the discovered occurrences plus the
-query methods
+`OptimizationOpportunityAnalysis` reuses the classified occurrences, including
+their owner-issued lifetime verdicts, plus the query methods
 (`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`).
+It does not run a second array escape analysis. The focused
+[Allocation Lifetime Analysis](allocation-lifetime-analysis.md) design owns
+the meaning and limits of those verdicts.
 `FactsBundlesBindContextOccurrencesAndQueries` gates the bundle's context,
 occurrence, and query coherence.
 `OptimizationOpportunityAnalysis` owns the per-method optimization instruction

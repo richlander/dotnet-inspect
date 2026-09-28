@@ -888,6 +888,7 @@ internal sealed class MethodAllocationFacts
     {
         var instructions = _context.Instructions.Instructions;
         int stackValuesAbove = 0;
+        int trackedCopies = 1;
         for (int index = startIndex; index < instructions.Length; index++)
         {
             var instruction = instructions[index];
@@ -895,6 +896,11 @@ internal sealed class MethodAllocationFacts
             switch (opcode)
             {
                 case ILOpCode.Nop:
+                    continue;
+                case ILOpCode.Dup:
+                    if (stackValuesAbove != 0)
+                        return EscapeClassification.Unknown;
+                    trackedCopies++;
                     continue;
                 case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
                     or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
@@ -907,20 +913,51 @@ internal sealed class MethodAllocationFacts
                     or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga:
                     stackValuesAbove++;
                     continue;
+                case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
+                    or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
+                    or ILOpCode.Conv_u2 or ILOpCode.Conv_u1 or ILOpCode.Conv_i or ILOpCode.Conv_u
+                    or ILOpCode.Conv_r_un or ILOpCode.Neg or ILOpCode.Not:
+                    if (stackValuesAbove < 1)
+                        return EscapeClassification.Unknown;
+                    continue;
+                case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div
+                    or ILOpCode.Div_un or ILOpCode.Rem or ILOpCode.Rem_un or ILOpCode.And
+                    or ILOpCode.Or or ILOpCode.Xor or ILOpCode.Shl or ILOpCode.Shr
+                    or ILOpCode.Shr_un or ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un
+                    or ILOpCode.Clt or ILOpCode.Clt_un:
+                    if (stackValuesAbove < 2)
+                        return EscapeClassification.Unknown;
+                    stackValuesAbove--;
+                    continue;
                 case ILOpCode.Pop:
                     if (stackValuesAbove == 0)
-                        return EscapeClassification.LocalOnly;
+                        return trackedCopies == 1
+                            ? EscapeClassification.LocalOnly
+                            : EscapeClassification.Unknown;
                     stackValuesAbove--;
                     continue;
                 case ILOpCode.Ldlen:
-                    return stackValuesAbove == 0 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
+                    return stackValuesAbove == 0
+                        && trackedCopies == 1
+                            ? EscapeClassification.LocalOnly
+                            : EscapeClassification.Unknown;
                 case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
                     or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
                     or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref:
-                    return stackValuesAbove == 1 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
+                    return stackValuesAbove == 1
+                        && trackedCopies == 1
+                            ? EscapeClassification.LocalOnly
+                            : EscapeClassification.Unknown;
                 case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
                     or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
                     or ILOpCode.Stelem_ref:
+                    if (stackValuesAbove == 2
+                        && trackedCopies > 1)
+                    {
+                        trackedCopies--;
+                        stackValuesAbove = 0;
+                        continue;
+                    }
                     return stackValuesAbove switch
                     {
                         0 => EscapeClassification.Escapes(AllocationEscapeKind.Collection),
@@ -928,7 +965,14 @@ internal sealed class MethodAllocationFacts
                         _ => EscapeClassification.Unknown,
                     };
                 default:
-                    return ClassifyImmediateConsumer(resolver, instruction, AllocationKind.Array, allocatedType, stackValuesAbove);
+                    return trackedCopies == 1
+                        ? ClassifyImmediateConsumer(
+                            resolver,
+                            instruction,
+                            AllocationKind.Array,
+                            allocatedType,
+                            stackValuesAbove)
+                        : EscapeClassification.Unknown;
             }
         }
         return EscapeClassification.Unknown;
@@ -994,7 +1038,7 @@ internal sealed class MethodAllocationFacts
             {
                 int token = MethodInstructionFacts.OperandInt32(instruction);
                 var callee = resolver.ResolveMember(token);
-                return IsSpanSafeLocalSink(callee, allocatedType)
+                return IsNonCapturingLocalSink(callee, allocatedType)
                     ? EscapeClassification.LocalOnly
                     : EscapeClassification.Unknown;
             }
@@ -1230,10 +1274,24 @@ internal sealed class MethodAllocationFacts
         return true;
     }
 
-    static bool IsSpanSafeLocalSink(MemberRef member, TypeRef? allocatedType)
+    static bool IsNonCapturingLocalSink(
+        MemberRef member,
+        TypeRef? allocatedType)
     {
         if (member.Kind == MemberKind.Unsupported)
             return false;
+
+        if (allocatedType is not null
+            && member.Name == ".ctor"
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.DeclaringType,
+                "System",
+                "String")
+            && member.ParameterTypes is [var parameter]
+            && SameTypeIgnoringByRef(parameter, allocatedType))
+        {
+            return true;
+        }
 
         if (FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Text", "System.Text", "StringBuilder")
             && member.Name is "Append" or "AppendLine")
