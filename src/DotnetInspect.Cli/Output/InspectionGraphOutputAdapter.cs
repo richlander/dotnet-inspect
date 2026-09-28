@@ -157,7 +157,7 @@ internal sealed class InspectionGraphOutputAdapter
         [
             .. document.Failures.Select(failure =>
                 new InspectionGraphFailureRow(
-                    failure.Descriptor.Id,
+                    failure.Payload.Descriptor.Id,
                     Target(document, failure.Target),
                     FailureDetail(failure))),
         ];
@@ -536,7 +536,7 @@ internal sealed class InspectionGraphOutputAdapter
     {
         InspectionGraphTarget? target = failure.Target;
         InspectionGraphJsonFailureDetail[] details =
-            failure.Evidence
+            failure.Payload.Evidence
                 is InspectionGraphIntegrationFailureEvidence evidence
                 ?
                 [
@@ -562,7 +562,7 @@ internal sealed class InspectionGraphOutputAdapter
                 ]
                 : [];
         return new InspectionGraphJsonFailure(
-            failure.Descriptor.Id,
+            failure.Payload.Descriptor.Id,
             Target(document, target),
             target?.Kind.ToString(),
             target?.Id,
@@ -634,10 +634,10 @@ internal sealed class InspectionGraphOutputAdapter
 
     static string FailureDetail(InspectionGraphFailure failure)
     {
-        if (failure.Evidence
+        if (failure.Payload.Evidence
             is not InspectionGraphIntegrationFailureEvidence evidence)
         {
-            return failure.Evidence?.Descriptor.Id
+            return failure.Payload.Evidence?.Descriptor.Id
                 ?? "No failure detail was supplied.";
         }
 
