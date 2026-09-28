@@ -12,7 +12,7 @@ function unused(): never {
 
 const client = {
   host: { buildIdentity: unused },
-  package: { queryPackage: unused },
+  package: { queryPackage: unused, loadRuntimePack: unused },
   analysis: {
     queryMemberFacts: unused,
     queryPackagePerformance: unused,
@@ -33,7 +33,10 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
     "source",
   ]);
   assert.deepEqual(Object.keys(bridge.host), ["buildIdentity"]);
-  assert.deepEqual(Object.keys(bridge.package), ["queryPackage"]);
+  assert.deepEqual(
+    Object.keys(bridge.package),
+    ["queryPackage", "loadRuntimePack"],
+  );
   assert.deepEqual(Object.keys(bridge.analysis).sort(), [
     "queryMemberFacts",
     "queryPackagePerformance",
@@ -44,6 +47,10 @@ test("published runtime benchmark bridge exposes only owned operations", () => {
   ]);
   assert.equal(bridge.host.buildIdentity, client.host.buildIdentity);
   assert.equal(bridge.package.queryPackage, client.package.queryPackage);
+  assert.equal(
+    bridge.package.loadRuntimePack,
+    client.package.loadRuntimePack,
+  );
   assert.equal(
     bridge.analysis.queryMemberFacts,
     client.analysis.queryMemberFacts,
