@@ -582,6 +582,23 @@ public sealed record BrowserRetainedNavigationResult(
     string Synchronization,
     BrowserRetainedNavigationAuthority? Authority);
 
+public sealed record BrowserSpotlightTypeSelection(
+    string DefinitionId,
+    string AssemblyName);
+
+/// <summary>
+/// One settled opaque Spotlight action. Status is <c>navigation</c>,
+/// <c>frameworkType</c>, <c>frameworkLibrary</c>, or <c>blocked</c>.
+/// </summary>
+public sealed record BrowserSpotlightActionResult(
+    string Status,
+    BrowserRetainedNavigationResult? Navigation,
+    BrowserPackageSurface? Surface,
+    BrowserTypeSurface? SelectedType,
+    BrowserSpotlightTypeSelection? Selection,
+    string? ActivationStatus,
+    string? Reason);
+
 public sealed record BrowserRetainedWorkspacePackage(
     string NavigationId,
     int ContextIndex,
@@ -787,6 +804,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
+[JsonSerializable(typeof(BrowserSpotlightActionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
 [JsonSerializable(typeof(Dictionary<

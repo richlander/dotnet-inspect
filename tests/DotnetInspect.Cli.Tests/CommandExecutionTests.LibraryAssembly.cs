@@ -2109,9 +2109,6 @@ public partial class CommandExecutionTests
     public async Task
         LibraryCommand_MixedAndFixedScalarSelectionsRejectCount()
     {
-        string fixedSelection = string.Join(
-            ';',
-            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
@@ -2127,7 +2124,7 @@ public partial class CommandExecutionTests
             "library",
             missingPath,
             "-S",
-            fixedSelection,
+            LibraryFixedOverviewSelection,
             "--count",
             "--tips",
             "q");

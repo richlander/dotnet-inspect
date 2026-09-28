@@ -680,6 +680,20 @@ a literal package-ID prefix. Explicit `--take` bounds candidate work before
 `-n` selects final package rows. Without explicit `--take`, a simple `-n N`
 also bounds direct package-row acquisition to N, up to the 1,000-candidate
 execution ceiling. Larger semantic heads remain valid and use that ceiling.
+
+`package query --ecosystem <id>`, or `--where "ecosystem=<id>"`, replaces the
+package argument with one Ecosystem's population: its core packages in
+authored order, each resolved exactly, then every package under each recorded
+prefix, admitting each package once under the shared candidate bound. The
+identity may be short (`aspire`) or canonical (`ecosystem.aspire`). It cannot
+be combined with a package ID or prefix argument, and `ecosystem=` is the only
+population term `--where` admits:
+
+```bash
+dotnet-inspect package query --ecosystem aspire -n 5
+dotnet-inspect package query --where "ecosystem=ai" --where "license=MIT"
+```
+
 `find PATTERN --package-prefix PREFIX` remains API search across
 packages matching the prefix:
 
@@ -699,7 +713,8 @@ dependency whose package ID begins with that prefix. The match is literal and
 case-insensitive; include a trailing `.` to express a dot-delimited family.
 Use
 `depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
-against the ecosystem's registered exact packages and package prefixes:
+against the ecosystem's core packages (matched exactly) and its package
+prefixes:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \

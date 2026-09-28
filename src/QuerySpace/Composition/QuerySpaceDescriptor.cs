@@ -29,6 +29,9 @@ public sealed class QuerySpaceOperationTermDescriptor
             binding.Description.Values,
             nameof(capability));
         Summary = binding.Description.Summary;
+        Examples = QuerySpaceCompositionContract.CopyValues(
+            binding.Description.Examples,
+            nameof(capability));
         Effects = QuerySpaceCompositionContract.Copy(
             binding.Effects,
             nameof(capability));
@@ -51,6 +54,8 @@ public sealed class QuerySpaceOperationTermDescriptor
     public IReadOnlyList<string> Values { get; }
 
     public string Summary { get; }
+
+    public IReadOnlyList<string> Examples { get; }
 
     public IReadOnlyList<QueryOperationEffect> Effects { get; }
 }

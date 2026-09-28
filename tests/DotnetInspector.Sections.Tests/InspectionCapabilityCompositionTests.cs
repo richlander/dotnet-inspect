@@ -82,6 +82,7 @@ public sealed class InspectionCapabilityCompositionTests
             "package-query.term.library-literal",
             facet.Identity);
         Assert.Equal("decoded UTF-16 text", facet.ValueKind);
+        Assert.Equal(["https://"], facet.Examples);
         Assert.Equal(
             [PortableQueryOperator.Equal],
             facet.Operators);
@@ -275,6 +276,7 @@ public sealed class InspectionCapabilityCompositionTests
         Assert.Equal(PackageQuery.LibraryLiteralTermKey, details.Key);
         Assert.Equal("decoded UTF-16 text", details.ValueKind);
         Assert.Equal(["eq"], details.Operators);
+        Assert.Equal(["https://"], details.Examples);
         Assert.Contains(
             envelope.Content.Relationships,
             relationship =>

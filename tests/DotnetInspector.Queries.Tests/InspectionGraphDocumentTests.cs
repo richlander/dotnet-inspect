@@ -677,7 +677,7 @@ public sealed class InspectionGraphDocumentTests
             InspectionGraphNeighborhoodRequest.SingleSeed(
                 member,
                 relationships,
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 2);
 
         relationships.Clear();
@@ -688,20 +688,20 @@ public sealed class InspectionGraphDocumentTests
         Assert.Equal([member], request.Seeds);
         Assert.Equal(2, request.MaxDepth);
         Assert.Equal(
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             request.Direction);
         Assert.Throws<ArgumentException>(
             () => InspectionGraphNeighborhoodRequest.SingleSeed(
                 member,
                 [],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1));
         Assert.Throws<ArgumentException>(
             () => InspectionGraphNeighborhoodRequest.SingleSeed(
                 member,
                 default(ImmutableArray<
                     InspectionGraphRelationshipDescriptor>),
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1));
         Assert.Throws<ArgumentException>(
             () => InspectionGraphNeighborhoodRequest.SingleSeed(
@@ -710,19 +710,19 @@ public sealed class InspectionGraphDocumentTests
                     CallGraphInspectionGraphCatalog.Call,
                     CallGraphInspectionGraphCatalog.Call,
                 ],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => InspectionGraphNeighborhoodRequest.SingleSeed(
                 member,
                 [CallGraphInspectionGraphCatalog.Call],
-                (InspectionGraphTraversalDirection)42,
+                (GraphTraversalDirection)42,
                 maxDepth: 1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => InspectionGraphNeighborhoodRequest.SingleSeed(
                 member,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: -1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new InspectionGraphNeighborhoodDepthBoundEvidence(-1));
@@ -742,7 +742,7 @@ public sealed class InspectionGraphDocumentTests
             InspectionGraphNeighborhoodRequest.PeerSeeds(
                 peers,
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Both,
+                GraphTraversalDirection.Both,
                 maxDepth: 2);
 
         peers.Clear();
@@ -753,7 +753,7 @@ public sealed class InspectionGraphDocumentTests
             () => InspectionGraphNeighborhoodRequest.PeerSeeds(
                 [member],
                 [CallGraphInspectionGraphCatalog.Call],
-                InspectionGraphTraversalDirection.Both,
+                GraphTraversalDirection.Both,
                 maxDepth: 1));
 
         InspectionGraphSubject package =
@@ -769,7 +769,7 @@ public sealed class InspectionGraphDocumentTests
                 () => InspectionGraphNeighborhoodRequest.PeerSeeds(
                     [member, package],
                     [CallGraphInspectionGraphCatalog.Call],
-                    InspectionGraphTraversalDirection.Both,
+                    GraphTraversalDirection.Both,
                     maxDepth: 1));
 
         Assert.Contains("package seed", unsupported.Message);
@@ -793,7 +793,7 @@ public sealed class InspectionGraphDocumentTests
                 () => InspectionGraphNeighborhoodRequest.SingleSeed(
                     package,
                     [CallGraphInspectionGraphCatalog.Call],
-                    InspectionGraphTraversalDirection.Outgoing,
+                    GraphTraversalDirection.Outgoing,
                     maxDepth: 1));
         InspectionQueryException wrongDirection = Assert.Throws<
             InspectionQueryException>(
@@ -803,7 +803,7 @@ public sealed class InspectionGraphDocumentTests
                         InspectionGraphIntegrationsCatalog
                             .IntegrationObserved,
                     ],
-                    InspectionGraphTraversalDirection.Incoming,
+                    GraphTraversalDirection.Incoming,
                     maxDepth: 1));
         InspectionGraphNeighborhoodRequest outgoing =
             InspectionGraphNeighborhoodRequest.SingleSeed(
@@ -812,7 +812,7 @@ public sealed class InspectionGraphDocumentTests
                     InspectionGraphIntegrationsCatalog
                         .IntegrationObserved,
                 ],
-                InspectionGraphTraversalDirection.Outgoing,
+                GraphTraversalDirection.Outgoing,
                 maxDepth: 1);
 
         Assert.Contains("package seed", unsupported.Message);

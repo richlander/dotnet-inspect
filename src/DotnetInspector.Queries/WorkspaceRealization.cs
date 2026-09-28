@@ -197,6 +197,7 @@ public abstract record WorkspaceRealizationCandidateStartResult
 public enum WorkspaceRealizationCandidateRejection
 {
     StaleCandidate,
+    PredecessorChanged,
     CompletionInProgress,
     AlreadyReady,
     NotReady,
@@ -688,12 +689,33 @@ public sealed class WorkspaceReplacementCoordinator : IAsyncDisposable
     }
 
     public WorkspaceRealizationCutoverResult CutOver(
-        WorkspaceRealizationCandidate candidate)
+        WorkspaceRealizationCandidate candidate) =>
+        CutOverCore(
+            candidate,
+            expectedPredecessor: null);
+
+    /// <summary>
+    /// Atomically cuts over only while the expected predecessor definition
+    /// remains current.
+    /// </summary>
+    public WorkspaceRealizationCutoverResult CutOver(
+        WorkspaceRealizationCandidate candidate,
+        WorkspaceDefinitionSnapshot expectedPredecessor)
+    {
+        ArgumentNullException.ThrowIfNull(expectedPredecessor);
+        return CutOverCore(
+            candidate,
+            expectedPredecessor);
+    }
+
+    WorkspaceRealizationCutoverResult CutOverCore(
+        WorkspaceRealizationCandidate candidate,
+        WorkspaceDefinitionSnapshot? expectedPredecessor)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         WorkspaceRealizationRetirement? predecessor = null;
         RealizationState? startClose = null;
-        WorkspaceRealization realization;
+        WorkspaceRealizationCutoverResult result;
         lock (_gate)
         {
             if (!ReferenceEquals(candidate.Owner, this))
@@ -717,32 +739,61 @@ public sealed class WorkspaceReplacementCoordinator : IAsyncDisposable
                     WorkspaceRealizationCandidateRejection.NotReady);
             }
 
-            RealizationState successor = candidate.State;
-            successor.Phase = RealizationPhase.Active;
-            successor.AdmissionOpen = true;
-            successor.Published = new WorkspaceRealization(
-                successor.Workspace.Identity,
-                successor.OriginPlan,
-                successor.InitialDefinition!);
-            realization = successor.Published;
-
-            if (_active is { } current)
+            WorkspaceRealizationCutoverResult Activate()
             {
-                (predecessor, startClose) = RetireLocked(
-                    current,
-                    WorkspaceRealizationRetirementReason.Replaced);
+                RealizationState successor = candidate.State;
+                successor.Phase = RealizationPhase.Active;
+                successor.AdmissionOpen = true;
+                successor.Published = new WorkspaceRealization(
+                    successor.Workspace.Identity,
+                    successor.OriginPlan,
+                    successor.InitialDefinition!);
+
+                if (_active is { } current)
+                {
+                    (predecessor, startClose) = RetireLocked(
+                        current,
+                        WorkspaceRealizationRetirementReason.Replaced);
+                }
+                _active = successor;
+                _candidate = null;
+                _currentAttempt = null;
+                _candidateBarrier = Task.CompletedTask;
+                return new WorkspaceRealizationCutoverResult.Activated(
+                    successor.Published,
+                    predecessor);
             }
-            _active = successor;
-            _candidate = null;
-            _currentAttempt = null;
-            _candidateBarrier = Task.CompletedTask;
+
+            if (expectedPredecessor is { } expected)
+            {
+                if (_active is not { } current
+                    || !ReferenceEquals(
+                        current.Identity,
+                        expected.Workspace))
+                {
+                    return new WorkspaceRealizationCutoverResult.Rejected(
+                        WorkspaceRealizationCandidateRejection
+                            .PredecessorChanged);
+                }
+
+                result = current.Workspace.ExecuteIfCurrentDefinition<
+                    WorkspaceRealizationCutoverResult>(
+                        expected,
+                        Activate,
+                        static () =>
+                            new WorkspaceRealizationCutoverResult.Rejected(
+                                WorkspaceRealizationCandidateRejection
+                                    .PredecessorChanged));
+            }
+            else
+            {
+                result = Activate();
+            }
         }
 
         if (startClose is not null)
             StartClose(startClose);
-        return new WorkspaceRealizationCutoverResult.Activated(
-            realization,
-            predecessor);
+        return result;
     }
 
     public WorkspaceRealizationCandidateRetirementResult AbandonCandidate(

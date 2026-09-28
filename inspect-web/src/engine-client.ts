@@ -48,12 +48,14 @@ type PackageOperations =
   | "resolvePackageDependencyVersion"
   | "runPackageActivity"
   | "runPackageQuery"
+  | "searchCapabilities"
   | "searchTypes";
 
 type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
+  | "findTypes"
   | "queryLibraryApiDiff"
   | "queryMemberDeclaration"
   | "queryPlatformMemberDeclaration"
@@ -105,6 +107,7 @@ type CatalogOperations =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
+  | "activateSpotlightDestination"
   | "cancelRetainedWorkspaceActivation"
   | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"

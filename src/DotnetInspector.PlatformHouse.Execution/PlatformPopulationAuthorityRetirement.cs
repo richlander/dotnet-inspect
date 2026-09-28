@@ -2,23 +2,36 @@ using DotnetInspector.Libraries;
 
 namespace DotnetInspector.PlatformHouse;
 
-internal sealed class PlatformPopulationAuthorityRetirementResult
+/// <summary>
+/// Terminal cleanup evidence for one untransferred completed Platform
+/// population.
+/// </summary>
+public sealed class PlatformPopulationAuthorityRetirementResult
 {
     internal PlatformPopulationAuthorityRetirementResult(
         IReadOnlyList<PlatformHouseFailureKind> failureKinds,
         IReadOnlyList<Exception> failures)
     {
-        FailureKinds = failureKinds;
-        Failures = failures;
+        FailureKinds = Array.AsReadOnly([.. failureKinds]);
+        Failures = Array.AsReadOnly([.. failures]);
     }
 
-    internal IReadOnlyList<PlatformHouseFailureKind> FailureKinds { get; }
-    internal IReadOnlyList<Exception> Failures { get; }
+    public IReadOnlyList<PlatformHouseFailureKind> FailureKinds { get; }
+
+    public IReadOnlyList<Exception> Failures { get; }
+
+    public bool Succeeded =>
+        FailureKinds.Count == 0
+        && Failures.Count == 0;
 }
 
-internal static class PlatformPopulationAuthorityRetirement
+/// <summary>
+/// Settles an untransferred completed Platform population and all adjacent
+/// Artifact authority.
+/// </summary>
+public static class PlatformPopulationAuthorityRetirement
 {
-    internal static async ValueTask<
+    public static async ValueTask<
         PlatformPopulationAuthorityRetirementResult> RetireAsync(
             PlatformPopulationArtifactMaterializationOutcome.Completed
                 completed)

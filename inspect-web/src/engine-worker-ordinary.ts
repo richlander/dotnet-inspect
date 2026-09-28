@@ -43,6 +43,7 @@ type PackageOperationName =
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "matchPackageDependencyCoordinate"
+  | "searchCapabilities"
   | "searchTypes"
   | "activateWorkspacePackageOccurrence"
   | "clearWorkspacePackageOccurrences"
@@ -67,6 +68,7 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
+  | "findTypes"
   | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
@@ -117,6 +119,7 @@ type CatalogOperationName =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
+  | "activateSpotlightDestination"
   | "cancelRetainedWorkspaceActivation"
   | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
@@ -943,6 +946,14 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.package.matchPackageDependencyCoordinate(...args),
     ),
+    searchCapabilities: valueOperation(
+      "ordinary-package-search-capabilities",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["searchCapabilities"]>
+      ) => facades.package.searchCapabilities(...args),
+    ),
     searchTypes: valueOperation(
       "ordinary-package-search-types",
       2,
@@ -1112,6 +1123,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
       ) => facades.metadata.cancelLibraryApiDiff(...args),
+    ),
+    findTypes: valueOperation(
+      "ordinary-metadata-find-types",
+      4,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["findTypes"]>
+      ) => facades.metadata.findTypes(...args),
     ),
     queryLibraryApiDiff: valueOperation(
       "ordinary-metadata-query-library-api-diff",
@@ -1491,6 +1510,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args,
       ),
     ),
+    activateSpotlightDestination: valueOperation(
+      "ordinary-catalog-activate-spotlight-destination",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["activateSpotlightDestination"]
+        >
+      ) => facades.catalog.activateSpotlightDestination(...args),
+    ),
     cancelRetainedWorkspaceActivation: valueOperation(
       "ordinary-catalog-cancel-retained-workspace-activation",
       1,
@@ -1780,6 +1809,9 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.package
           .matchPackageDependencyCoordinate,
       ),
+      searchCapabilities: bind(
+        engineWorkerOrdinaryOperations.package.searchCapabilities,
+      ),
       searchTypes: bind(
         engineWorkerOrdinaryOperations.package.searchTypes,
       ),
@@ -1846,6 +1878,9 @@ export function bindEngineWorkerOrdinaryClient(
     metadata: {
       cancelLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
+      ),
+      findTypes: bind(
+        engineWorkerOrdinaryOperations.metadata.findTypes,
       ),
       queryLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
@@ -2007,6 +2042,10 @@ export function bindEngineWorkerOrdinaryClient(
       activateRetainedWorkspaceDefinitionWithCredentials: bind(
         engineWorkerOrdinaryOperations.catalog
           .activateRetainedWorkspaceDefinitionWithCredentials,
+      ),
+      activateSpotlightDestination: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .activateSpotlightDestination,
       ),
       cancelRetainedWorkspaceActivation: bind(
         engineWorkerOrdinaryOperations.catalog

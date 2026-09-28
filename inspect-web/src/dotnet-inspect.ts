@@ -511,12 +511,27 @@ import {
 } from "./platform-subject.ts";
 import {
   createSpotlight,
+  type ManagedTypeResult,
+  spotlightCapabilityDraftValue,
   type RemovableSpotlightResult,
+  type SpotlightCapabilityResult,
   type SpotlightPackageResult,
   type SpotlightPackageHit,
   type SpotlightResult,
   type SpotlightScope,
 } from "./spotlight.ts";
+import {
+  commitManagedSpotlightSelection,
+  createSpotlightTypeFind,
+  spotlightTypeCandidatesForScope,
+} from "./spotlight-type-find.ts";
+import {
+  createSpotlightCapabilitySearch,
+  normalizeSpotlightCapabilitySearchSnapshot,
+  spotlightCapabilitySearchMessage,
+  visibleSpotlightCapabilityResults,
+  type SpotlightCapabilitySearchResultState,
+} from "./spotlight-capability-search.ts";
 import {
   createSpotlightPackageSearch,
   normalizeSpotlightPackageSearchSnapshot,
@@ -746,6 +761,8 @@ import type {
   BrowserRetainedWorkspacePlatform,
   BrowserRetainedWorkspacePlatformInventory,
   BrowserRetainedWorkspacePosting,
+  BrowserRetainedNavigationResult,
+  BrowserSpotlightActionResult,
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
 
@@ -788,6 +805,7 @@ let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
 let inspectRunPackageActivity: EngineClient["package"]["runPackageActivity"];
+let inspectSearchCapabilities: EngineClient["package"]["searchCapabilities"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   EngineClient["package"]["queryWorkspacePackageOccurrences"];
@@ -965,6 +983,7 @@ async function loadEngineModule() {
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
       runPackageQuery: inspectRunPackageQuery,
+      searchCapabilities: inspectSearchCapabilities,
       searchTypes: inspectSearchTypes,
       queryWorkspacePackageOccurrences:
         inspectQueryWorkspacePackageOccurrences,
@@ -1363,6 +1382,7 @@ const initialState = {
   spotlightScope: "all" as const,
   spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
+  spotlightCapabilitySearch: { status: "idle" as const },
   spotlightPackageSearch: { status: "idle" as const },
   runtimePackLoading: false,
   runtimePackError: "",
@@ -1457,6 +1477,7 @@ interface StateOverrides {
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
+  spotlightCapabilitySearch: SpotlightCapabilitySearchResultState;
   spotlightPackageSearch: SpotlightPackageSearchResultState;
   spotlightFocus: "input" | "chips";
   spotlightScope: SpotlightScope;
@@ -1670,6 +1691,8 @@ CanonicalWorkspaceRestoreSnapshot {
       platformStack: structuredClone(state.platformStack),
       platformRecent: structuredClone(state.platformRecent),
       recentPackages: structuredClone(state.recentPackages),
+      spotlightCapabilitySearch:
+        structuredClone(state.spotlightCapabilitySearch),
       spotlightPackageSearch:
         structuredClone(state.spotlightPackageSearch),
       history: [...state.history],
@@ -1744,6 +1767,10 @@ function normalizeWorkspaceAsyncSnapshotState(
   }
   snapshotState.docViewer =
     normalizeDocumentViewerSnapshot(snapshotState.docViewer);
+  snapshotState.spotlightCapabilitySearch =
+    normalizeSpotlightCapabilitySearchSnapshot(
+      snapshotState.spotlightCapabilitySearch,
+    );
   snapshotState.spotlightPackageSearch =
     normalizeSpotlightPackageSearchSnapshot(
       snapshotState.spotlightPackageSearch,
@@ -1928,6 +1955,7 @@ function captureRetainedHostState() {
     spotlightScope: state.spotlightScope,
     spotlightFocus: state.spotlightFocus,
     spotlightChipIndex: state.spotlightChipIndex,
+    spotlightCapabilitySearch: state.spotlightCapabilitySearch,
     spotlightPackageSearch: state.spotlightPackageSearch,
     styleTiers: state.styleTiers,
     styleOptions: state.styleOptions,
@@ -4390,6 +4418,30 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
 });
+const spotlightTypeFind = createSpotlightTypeFind({
+  findTypes: (
+    retainedDefinitionId,
+    realizationId,
+    resultGeneration,
+    text,
+  ) => engineClient.metadata.findTypes(
+    retainedDefinitionId,
+    realizationId,
+    resultGeneration,
+    text,
+  ),
+  schedule: (callback, delay) => setTimeout(callback, delay),
+  cancelScheduled: handle => clearTimeout(handle),
+  updateResults: () => spotlight.updateResults(),
+});
+const spotlightCapabilitySearch = createSpotlightCapabilitySearch({
+  state,
+  searchCapabilities: (query, maximumResults) =>
+    inspectSearchCapabilities(query, maximumResults),
+  schedule: (callback, delay) => setTimeout(() => void callback(), delay),
+  cancelScheduled: handle => clearTimeout(handle),
+  updateResults: () => spotlight.updateResults(),
+});
 const catalogRequests = createCatalogRequests({
   state,
   queryPackageVersions: pkg => inspectPackageVersions(pkg.id, pkg.version),
@@ -4483,10 +4535,21 @@ const spotlight = createSpotlight({
     : null,
   schedulePackageFetch: () => spotlightPackageSearch.schedule(),
   resetPackageSearch: () => spotlightPackageSearch.reset(),
+  resetTypeSearch: () => spotlightTypeFind.reset(),
   packageSearchLoading: () =>
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
+  typeSearchLoading: () => spotlightTypeFind.loading(),
+  typeSearchError: () => spotlightTypeFind.error(),
+  typeSearchNotice: () => spotlightTypeFind.notice(),
+  scheduleCapabilitySearch: () => spotlightCapabilitySearch.schedule(),
+  resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
+  capabilitySearchMessage: () =>
+    spotlightCapabilitySearchMessage(
+      state.spotlightCapabilitySearch,
+      state.spotlightQuery.trim(),
+    ),
   packageCount: () => state.packages.length,
   render,
   focusAfterDismiss: () =>
@@ -12343,7 +12406,8 @@ function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
   for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
     results.push({ ...lib, kind: "framework-lib" });
   }
-  if (platformSurfaceLoaded()) {
+  if (platformSurfaceLoaded()
+    && activeRetainedWorkspacePosting === null) {
     const typeSource = query ? spotlightTypeMatches(query) : [];
     for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
       results.push({ ...match, kind: "type" });
@@ -12380,6 +12444,12 @@ function spotlightResults(): SpotlightResult[] {
   }
 
   const all = spotlightScope === "all";
+  const requestsTypes = all || spotlightScope === "types";
+  spotlightTypeFind.schedule(
+    activeRetainedWorkspacePosting,
+    query,
+    state.spotlightOpen && requestsTypes,
+  );
   const results: SpotlightResult[] = [];
 
   if (all || spotlightScope === "packages") {
@@ -12437,7 +12507,38 @@ function spotlightResults(): SpotlightResult[] {
     });
     results.push({ kind: "package-activity" });
   }
-  if ((all || spotlightScope === "types") && query) {
+  if (all && query) {
+    for (const capability of visibleSpotlightCapabilityResults(
+      state.spotlightCapabilitySearch,
+      query,
+    )) {
+      results.push({
+        kind: "capability",
+        query,
+        capability,
+        ranges: computeHighlightRanges(
+          capability.resourceName,
+          query.toLowerCase(),
+        ),
+      });
+    }
+  }
+  if (requestsTypes && activeRetainedWorkspacePosting !== null) {
+    for (const candidate of spotlightTypeCandidatesForScope(
+      spotlightTypeFind.results(),
+      all,
+    )) {
+      results.push({
+        kind: "managed-type",
+        ...candidate,
+        typeKind: candidate.declarationKind,
+        ranges: computeHighlightRanges(
+          candidate.name,
+          query.toLowerCase(),
+        ),
+      });
+    }
+  } else if ((all || spotlightScope === "types") && query) {
     for (const match of spotlightTypeMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "type" });
   } else if (spotlightScope === "types" && !query) {
     for (const match of spotlightTypeMatches("").slice(0, 40)) results.push({ ...match, kind: "type" });
@@ -12765,6 +12866,29 @@ async function switchPackageFramework(
 
 
 // Routes a blended result to the right navigation path per its kind.
+const PACKAGE_QUERY_BROWSER_BINDING_IDENTITY =
+  "dotnet-inspect.web/package-query";
+
+function openSpotlightCapability(result: SpotlightCapabilityResult): void {
+  const { capability } = result;
+  const binding = capability.productionBindings.find(candidate =>
+    candidate.consumerKind === "Browser"
+    && candidate.identity === PACKAGE_QUERY_BROWSER_BINDING_IDENTITY);
+  if (!binding) {
+    showToast("This capability has no available Browser destination.");
+    return;
+  }
+  if (!openPackageQueryRoute("")) return;
+  if (capability.resourceKind !== "QueryFacet") return;
+  const termKey = capability.canonicalKeys[0];
+  if (termKey) {
+    addPackageQueryTerm(
+      termKey,
+      spotlightCapabilityDraftValue(result),
+    );
+  }
+}
+
 function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
@@ -12773,6 +12897,9 @@ function pickSpotlightResult(result: SpotlightResult) {
       break;
     case "package-activity":
       openPackageActivityRoute();
+      break;
+    case "capability":
+      openSpotlightCapability(result);
       break;
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
     case "pkg-nuget":
@@ -12806,6 +12933,16 @@ function pickSpotlightResult(result: SpotlightResult) {
       break;
     case "type":
       observeAsync(pickSpotlight(result.pkg, result.type.id), "Opening a Spotlight type");
+      break;
+    case "managed-type":
+      if (result.action === null) {
+        showToast(result.reason ?? "This Type is unavailable.");
+      } else {
+        observeAsync(
+          pickManagedSpotlightType(result),
+          "Opening a managed Spotlight Type",
+        );
+      }
       break;
     default:
       observeAsync(executeCommand(result.value, result), "Running a Spotlight command");
@@ -13193,6 +13330,344 @@ async function pickSpotlight(
   state.memberBrowseTypeId = "";
   resetMemberFilters();
   state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+  state.graphMemberNavigationError = "";
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+  if (rollbackSnapshot
+    && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
+  const selectionData = loadSelectionData();
+  render({ synchronizeUrl: rollbackSnapshot === null });
+  await selectionData;
+  if (navigationGeneration !== spotlightFocusGeneration) return;
+  requestAnimationFrame(() => {
+    if (navigationGeneration !== spotlightFocusGeneration) return;
+    document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
+  });
+  focusTypeList(navigationGeneration, focusGeneration);
+}
+
+async function pickManagedSpotlightType(
+  result: ManagedTypeResult,
+): Promise<void> {
+  const posting = activeRetainedWorkspacePosting;
+  if (posting === null || result.action === null) {
+    showToast(result.reason ?? "The managed Type is no longer available.");
+    return;
+  }
+
+  const navigationSeq = navigationSequence.begin();
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
+  spotlight.reset();
+  render({ synchronizeUrl: false });
+
+  let navigationAuthority:
+    readonly [string, number, string, string, string, string] | null = null;
+  let navigationSettled = false;
+  try {
+    const activation = await engineClient.catalog
+      .activateSpotlightDestination(result.action);
+    if (!navigationSequence.isCurrent(navigationSeq)
+      || activeRetainedWorkspacePosting?.realizationId
+        !== posting.realizationId) {
+      await abandonManagedSpotlightNavigation(posting, activation);
+      return;
+    }
+
+    if (activation.status === "navigation") {
+      if (activation.navigation === null) {
+        throw new Error(
+          "Managed Type activation omitted its Navigation result.",
+        );
+      }
+      navigationAuthority = managedSpotlightNavigationAuthority(
+        posting,
+        activation.navigation,
+      );
+      await recordManagedSpotlightNavigation(
+        activation.navigation,
+        navigationAuthority,
+      );
+    }
+
+    const selected = await projectManagedSpotlightActivation(
+      posting,
+      activation,
+    );
+    if (!navigationSequence.isCurrent(navigationSeq)
+      || activeRetainedWorkspacePosting?.realizationId
+        !== posting.realizationId) {
+      throw new Error("Managed Type activation was superseded.");
+    }
+
+    const authorityToAcknowledge = navigationAuthority;
+    const settlement = await commitManagedSpotlightSelection({
+      isCurrent: () =>
+        navigationSequence.isCurrent(navigationSeq)
+        && activeRetainedWorkspacePosting?.realizationId
+          === posting.realizationId,
+      commit: () => {
+        if (selected.navigation !== null) {
+          activeRetainedWorkspacePosting = selected.navigation.posting;
+          retainedWorkspacePostings.set(
+            selected.navigation.posting.retainedDefinitionId,
+            selected.navigation.posting,
+          );
+          retainedWorkspacePresentation = selected.navigation.presentation;
+        }
+        installManagedSpotlightType(selected.pkg, selected.type);
+        render({ synchronizeUrl: false });
+      },
+      ...(authorityToAcknowledge === null
+        ? {}
+        : {
+            acknowledge: () =>
+              engineClient.catalog
+                .acknowledgeRetainedWorkspaceNavigation(
+                  ...authorityToAcknowledge,
+                ),
+          }),
+    });
+    navigationSettled = settlement.acknowledged;
+    if (!settlement.committed) {
+      throw new Error("Managed Type activation was superseded.");
+    }
+    if (!settlement.current) return;
+    const selectionData = loadSelectionData();
+    await selectionData;
+    if (navigationGeneration !== spotlightFocusGeneration) return;
+    requestAnimationFrame(() => {
+      if (navigationGeneration !== spotlightFocusGeneration) return;
+      document.querySelector(
+        `[data-type="${CSS.escape(state.selectedTypeId)}"]`,
+      )?.scrollIntoView({ block: "nearest" });
+    });
+    focusTypeList(navigationGeneration, focusGeneration);
+  } catch (error) {
+    if (navigationAuthority !== null && !navigationSettled) {
+      const abandoned = await engineClient.catalog
+        .abandonRetainedWorkspaceNavigation(...navigationAuthority);
+      if (abandoned !== "accepted" && abandoned !== "invalidAuthority") {
+        throw new AggregateError(
+          [error, new Error(
+            `Managed Navigation abandonment returned '${abandoned}'.`,
+          )],
+          "Managed Spotlight Type activation and Navigation abandonment failed.",
+          { cause: error },
+        );
+      }
+    }
+    throw error;
+  }
+}
+
+async function recordManagedSpotlightNavigation(
+  navigation: BrowserRetainedNavigationResult,
+  args: readonly [string, number, string, string, string, string],
+): Promise<void> {
+  if (navigation.outcome.kind !== "Applied") {
+    throw new Error(
+      navigation.outcome.message
+      ?? navigation.outcome.rejection
+      ?? `Managed Navigation returned '${navigation.outcome.kind}'.`,
+    );
+  }
+  if (!await engineClient.catalog
+      .validateRetainedWorkspaceNavigationAuthority(...args)) {
+    throw new Error(
+      "Managed Navigation effect authority is no longer current.",
+    );
+  }
+  const recorded = await engineClient.catalog
+    .recordRetainedWorkspaceNavigationPosting(...args);
+  if (recorded !== "accepted") {
+    throw new Error(
+      `Managed Navigation posting record returned '${recorded}'.`,
+    );
+  }
+}
+
+function managedSpotlightNavigationAuthority(
+  posting: BrowserRetainedWorkspacePosting,
+  navigation: BrowserRetainedNavigationResult,
+): readonly [string, number, string, string, string, string] {
+  const authority = navigation.authority;
+  if (authority === null) {
+    throw new Error(
+      "Applied managed Navigation omitted its effect authority.",
+    );
+  }
+  const args = [
+    posting.realizationId,
+    posting.publicationOrdinal,
+    authority.session,
+    authority.revision,
+    authority.intent,
+    authority.epoch,
+  ] as const;
+  return args;
+}
+
+async function abandonManagedSpotlightNavigation(
+  posting: BrowserRetainedWorkspacePosting,
+  activation: BrowserSpotlightActionResult,
+): Promise<void> {
+  if (activation.status !== "navigation"
+    || activation.navigation?.authority === null
+    || activation.navigation === null) {
+    return;
+  }
+  const abandoned = await engineClient.catalog
+    .abandonRetainedWorkspaceNavigation(
+      ...managedSpotlightNavigationAuthority(posting, activation.navigation),
+    );
+  if (abandoned !== "accepted" && abandoned !== "invalidAuthority") {
+    throw new Error(
+      `Managed Navigation abandonment returned '${abandoned}'.`,
+    );
+  }
+}
+
+async function projectManagedSpotlightActivation(
+  posting: BrowserRetainedWorkspacePosting,
+  activation: BrowserSpotlightActionResult,
+): Promise<{
+  pkg: AppPackage;
+  type: AppTypeSurface;
+  navigation: {
+    posting: BrowserRetainedWorkspacePosting;
+    presentation: NavigationDescriptorPresentation;
+  } | null;
+}> {
+  if (activation.status === "blocked") {
+    throw new Error(
+      activation.reason
+      ?? `Type activation was ${activation.activationStatus ?? "blocked"}.`,
+    );
+  }
+
+  if (activation.status === "navigation") {
+    if (activation.navigation === null || activation.selection === null) {
+      throw new Error(
+        "Managed Type activation omitted its Navigation result or selection.",
+      );
+    }
+    return await projectManagedNavigationType(
+      posting,
+      activation.navigation,
+      activation.selection,
+    );
+  }
+
+  if (activation.status === "frameworkType") {
+    if (activation.surface === null || activation.selectedType === null) {
+      throw new Error(
+        "Managed framework Type activation omitted its selected surface.",
+      );
+    }
+    const pkg = createRuntimePackageModel(activation.surface);
+    const matches = pkg.types.filter(type =>
+      type.id === activation.selectedType?.id
+      && type.definitionId === activation.selectedType.definitionId
+      && type.assemblyName.toLowerCase()
+        === activation.selectedType.assemblyName.toLowerCase());
+    if (matches.length !== 1) {
+      throw new Error(
+        "Managed framework Type activation did not project one exact Type.",
+      );
+    }
+    return {
+      pkg,
+      type: matches[0]!,
+      navigation: null,
+    };
+  }
+
+  throw new Error(
+    `Managed Type activation returned unsupported status '${activation.status}'.`,
+  );
+}
+
+async function projectManagedNavigationType(
+  posting: BrowserRetainedWorkspacePosting,
+  navigation: BrowserRetainedNavigationResult,
+  selection: { readonly definitionId: string; readonly assemblyName: string },
+): Promise<{
+  pkg: AppPackage;
+  type: AppTypeSurface;
+  navigation: {
+    posting: BrowserRetainedWorkspacePosting;
+    presentation: NavigationDescriptorPresentation;
+  };
+}> {
+  if (navigation.outcome.kind !== "Applied") {
+    throw new Error(
+      navigation.outcome.message
+      ?? navigation.outcome.rejection
+      ?? `Managed Navigation returned '${navigation.outcome.kind}'.`,
+    );
+  }
+
+  const updatedPosting = { ...posting, navigation };
+  const presentation = createNavigationDescriptorPresentation(updatedPosting);
+  const currentPackages = presentation.packages.filter(
+    candidate => candidate.subject.current,
+  );
+  if (currentPackages.length !== 1) {
+    throw new Error(
+      "Managed Navigation did not select one exact Package.",
+    );
+  }
+  const inventory = updatedPosting.packages.find(
+    candidate =>
+      candidate.navigationId === currentPackages[0]!.navigationId,
+  );
+  if (inventory === undefined) {
+    throw new Error(
+      "Managed Navigation selected a Package without retained inventory.",
+    );
+  }
+
+  const admitted = await admitRetainedPackage(updatedPosting, inventory);
+  const pkg = createNuGetPackageModel(admitted.surface);
+  const matches = pkg.types.filter(type =>
+    type.definitionId === selection.definitionId
+    && type.assemblyName.toLowerCase()
+      === selection.assemblyName.toLowerCase());
+  if (matches.length !== 1) {
+    throw new Error(
+      "Managed Navigation did not project one exact selected Type.",
+    );
+  }
+  return {
+    pkg,
+    type: matches[0]!,
+    navigation: {
+      posting: updatedPosting,
+      presentation,
+    },
+  };
+}
+
+function installManagedSpotlightType(
+  pkg: AppPackage,
+  type: AppTypeSurface,
+): void {
+  const existing = state.packages.find(candidate =>
+    packageIdentityKey(candidate) === packageIdentityKey(pkg));
+  state.packages = existing
+    ? state.packages.map(candidate => candidate === existing ? pkg : candidate)
+    : [...state.packages, pkg];
+  state.home = false;
+  activateSpotlightTypePackage(pkg);
+  enterTypeSubject(type);
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  resetMemberFilters();
+  state.selectedOverloadIndex = null;
   state.memberSection = "overview";
   state.selectedBodyTarget = null;
   state.memberSource = { status: "idle" };
@@ -13210,18 +13685,9 @@ async function pickSpotlight(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
-  if (rollbackSnapshot
-    && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
-  const selectionData = loadSelectionData();
-  render({ synchronizeUrl: rollbackSnapshot === null });
-  await selectionData;
-  if (navigationGeneration !== spotlightFocusGeneration) return;
-  requestAnimationFrame(() => {
-    if (navigationGeneration !== spotlightFocusGeneration) return;
-    document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
-  });
-  focusTypeList(navigationGeneration, focusGeneration);
+  state.typeCursor = filteredTypes().findIndex(
+    candidate => candidate.id === state.selectedTypeId,
+  );
 }
 
 function executeCommand(
@@ -16808,7 +17274,7 @@ function togglePackageQueryPreset(presetId: string, text: string) {
   submitPackageQueryRequest(togglePreset(current, preset));
 }
 
-function addPackageQueryTerm(termKey: string) {
+function addPackageQueryTerm(termKey: string, initialValue = "") {
   const descriptor = state.packageQueryTerms.find(
     candidate => candidate.key === termKey);
   if (!descriptor || descriptor.operators.length === 0) {
@@ -16821,7 +17287,7 @@ function addPackageQueryTerm(termKey: string) {
   state.packageQueryState.termDraft = {
     descriptor,
     operator: descriptor.operators[0] ?? "",
-    value: "",
+    value: initialValue,
   };
   state.packageQueryNavigationError = "";
   render();

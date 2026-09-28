@@ -3038,10 +3038,6 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Package_FixedOverviewCountValidatesFieldsAndRenderedColumns()
     {
-        string fixedSelection = string.Join(
-            ';',
-            PackageSectionDescriptors.CreatePipeline()
-                .FixedOverviewSectionNames);
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
                 "Test.Overview.Projection.One",
@@ -3059,7 +3055,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                fixedSelection,
+                PackageFixedOverviewSelection,
                 "--count",
                 "--fields",
                 "Bogus");
@@ -3067,7 +3063,7 @@ public partial class CommandExecutionTests
                 "package",
                 firstPackage,
                 "-S",
-                fixedSelection,
+                PackageFixedOverviewSelection,
                 "--count",
                 "--columns",
                 "Field");
@@ -3075,7 +3071,7 @@ public partial class CommandExecutionTests
                 "package",
                 firstPackage,
                 "-S",
-                fixedSelection,
+                PackageFixedOverviewSelection,
                 "--columns",
                 "Field");
             var selectedCount = await RunAppAsync(
@@ -3143,10 +3139,6 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Package_MultiplePackages_MixedCountMapUsesCombinedColumns()
     {
-        string fixedSelection = string.Join(
-            ';',
-            PackageSectionDescriptors.CreatePipeline()
-                .FixedOverviewSectionNames);
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
                 "Test.MixedProjection.One",
@@ -3182,7 +3174,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                fixedSelection,
+                PackageFixedOverviewSelection,
                 "--count",
                 "--columns",
                 "Package");
@@ -3191,7 +3183,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                fixedSelection,
+                PackageFixedOverviewSelection,
                 "--count",
                 "--columns",
                 "Value");
@@ -3449,10 +3441,6 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Package_MultiSectionCountUsesTheReducedTableShape()
     {
-        string fixedSelection = string.Join(
-            ';',
-            PackageSectionDescriptors.CreatePipeline()
-                .FixedOverviewSectionNames);
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.MultiSectionCountFormat",
             "README.md",
@@ -3479,7 +3467,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 packagePath,
                 "-S",
-                fixedSelection,
+                PackageFixedOverviewSelection,
                 "--tsv",
                 "--count");
 
@@ -3903,12 +3891,8 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_FixedOverviewCountPopulatesSections()
+    public async Task Package_MultiplePackages_SelectedCountPopulatesSections()
     {
-        string fixedSelection = string.Join(
-            ';',
-            PackageSectionDescriptors.CreatePipeline()
-                .FixedOverviewSectionNames);
         var (firstPackagePath, firstTempDir) =
             CreateLocalReadmePackage(
                 "Test.FixedOverview.One",
@@ -3926,7 +3910,7 @@ public partial class CommandExecutionTests
                 firstPackagePath,
                 secondPackagePath,
                 "-S",
-                fixedSelection,
+                "Package nuspec file;Signature",
                 "--count",
                 "--json");
 
@@ -3939,7 +3923,7 @@ public partial class CommandExecutionTests
                     row => row.GetProperty("section").GetString()!,
                     row => row.GetProperty("count").GetInt32(),
                     StringComparer.Ordinal);
-            Assert.Equal(2, counts["Package README file"]);
+            Assert.Equal(2, counts["Package nuspec file"]);
             Assert.Equal(6, counts["Signature"]);
         }
         finally

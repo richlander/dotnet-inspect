@@ -3751,12 +3751,8 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_FixedOverviewCountIncludesReadmeFiles()
+    public async Task Package_MultiplePackages_FileCountIncludesPackageFiles()
     {
-        string fixedSelection = string.Join(
-            ';',
-            PackageSectionDescriptors.CreatePipeline()
-                .FixedOverviewSectionNames);
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
                 "Test.Overview.One",
@@ -3774,13 +3770,13 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
-                fixedSelection,
+                "@Files",
                 "--count");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
+            Assert.Contains("| Package nuspec file | 2 |", output);
             Assert.Contains("| Package README file | 2 |", output);
-            Assert.DoesNotContain("| Package nuspec file |", output);
         }
         finally
         {

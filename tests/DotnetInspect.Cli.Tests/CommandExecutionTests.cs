@@ -64,6 +64,16 @@ public partial class CommandExecutionTests
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
+    private static readonly string LibraryFixedOverviewSelection =
+        string.Join(
+            ';',
+            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
+
+    private static readonly string PackageFixedOverviewSelection =
+        string.Join(
+            ';',
+            PackageSectionDescriptors.CreatePipeline().FixedOverviewSectionNames);
+
     private static void AssertLibraryAsset(string output, string assemblyName)
     {
         string field = Assert.Single(
