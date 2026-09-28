@@ -749,22 +749,19 @@ static PlatformCatalog LoadPlatformCatalog(
             "*.dll",
             SearchOption.TopDirectoryOnly))
         {
-            try
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(path);
+            if (!session.HasMetadata)
             {
-                using AssemblyInspectionSession session =
-                    AssemblyInspectionSession.Open(path);
-                if (session.HasMetadata)
-                {
-                    assemblies.Add(
-                        new PlatformAssembly(
-                            family,
-                            path,
-                            session.AssemblyIdentity()));
-                }
+                throw new InvalidDataException(
+                    $"Reference-pack member '{path}' has no Metadata.");
             }
-            catch (BadImageFormatException)
-            {
-            }
+
+            assemblies.Add(
+                new PlatformAssembly(
+                    family,
+                    path,
+                    session.AssemblyIdentity()));
         }
     }
 }
