@@ -82,6 +82,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         + "dependencies=cross-prefix matches a dependency from another first ID segment; "
         + "depends-ecosystem=<ecosystem ID> matches a registered package population; "
         + "dependency-target=all|<TFM> selects its manifest-group scope. "
+        + "ecosystem=<ecosystem ID> (or --ecosystem) replaces the package argument "
+        + "with an Ecosystem's core packages and recorded prefixes. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
         + "Selecting a nuspec-expensive term evaluates at most "
@@ -125,6 +127,33 @@ public sealed record PackageQueryOptions : IProjectionOptions
         string? targetFramework,
         out PackageQueryOptions? options,
         out OptionError error)
+        => TryCreate(
+            input,
+            ecosystem: null,
+            expressions,
+            nuspecOnly,
+            take,
+            rowSelection,
+            includePrerelease,
+            targetFramework,
+            out options,
+            out error);
+
+    /// <summary>
+    /// Plans a package query whose population is a positional package ID or
+    /// prefix, or an Ecosystem from --ecosystem or --where ecosystem=.
+    /// </summary>
+    public static bool TryCreate(
+        string? input,
+        string? ecosystem,
+        IReadOnlyList<string> expressions,
+        bool nuspecOnly,
+        int? take,
+        RowSelectionIntent<string>? rowSelection,
+        bool includePrerelease,
+        string? targetFramework,
+        out PackageQueryOptions? options,
+        out OptionError error)
     {
         options = null;
         var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
@@ -135,6 +164,45 @@ public sealed record PackageQueryOptions : IProjectionOptions
                     out RowPredicateSyntax syntax,
                     out error))
             {
+                return false;
+            }
+
+            if (syntax.Field.Equals(
+                    PackageQuery.EcosystemTermKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (RowPredicateSyntaxParser.PortableOperator(syntax.Operator)
+                    != PortableQueryOperator.Equal)
+                {
+                    error =
+                        $"Package Query term '{PackageQuery.EcosystemTermKey}' "
+                        + "supports only '=' predicates.";
+                    return false;
+                }
+
+                if (ecosystem is null)
+                    ecosystem = syntax.Value;
+                else
+                {
+                    terms.Add(new PortableQueryTerm(
+                        PackageQuery.EcosystemTermKey,
+                        PortableQueryOperator.Equal,
+                        syntax.Value));
+                }
+                continue;
+            }
+
+            if (syntax.Field.Equals(
+                    PackageQuery.PackageTermKey,
+                    StringComparison.OrdinalIgnoreCase)
+                || syntax.Field.Equals(
+                    PackageQuery.PrefixTermKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                error =
+                    $"Package Query term '{syntax.Field}' is positional; pass "
+                    + "an exact package ID or a prefix ending in '*' as the "
+                    + "package argument.";
                 return false;
             }
 
@@ -209,7 +277,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
             : requiresPackageContent
                 ? PackageQuery.MaximumPackageContentCandidates
                 : requestedHead is int head
-                    && input.Trim().EndsWith('*')
+                    && (ecosystem is not null
+                        || input?.Trim().EndsWith('*') == true)
                     && terms.Count == 0
                     ? Math.Min(head, MaximumCandidates)
                     : PackageQuery.DefaultMaximumCandidates;
@@ -221,15 +290,40 @@ public sealed record PackageQueryOptions : IProjectionOptions
             return false;
         }
 
-        PackageQueryPlanResult result = PackageQuery.PlanInput(
-            input,
-            EcosystemPackCatalog.PackageQueryMemberships,
-            terms.ToImmutable(),
-            maximumCandidates,
-            maximumMatches: semanticHead,
-            includePrerelease,
-            rowSelection,
-            targetFramework);
+        if (ecosystem is not null && input is not null)
+        {
+            error =
+                "Package Query --ecosystem and --where ecosystem= cannot be "
+                + "combined with a package ID or prefix argument.";
+            return false;
+        }
+        if (ecosystem is null && input is null)
+        {
+            error =
+                "Package Query requires an exact package ID, a literal "
+                + "package-ID prefix ending in '*', or --ecosystem <id>.";
+            return false;
+        }
+
+        PackageQueryPlanResult result = ecosystem is not null
+            ? PackageQuery.PlanEcosystemInput(
+                ecosystem,
+                EcosystemPackCatalog.PackageQueryMemberships,
+                terms.ToImmutable(),
+                maximumCandidates,
+                maximumMatches: semanticHead,
+                includePrerelease,
+                rowSelection,
+                targetFramework)
+            : PackageQuery.PlanInput(
+                input!,
+                EcosystemPackCatalog.PackageQueryMemberships,
+                terms.ToImmutable(),
+                maximumCandidates,
+                maximumMatches: semanticHead,
+                includePrerelease,
+                rowSelection,
+                targetFramework);
         if (result is PackageQueryPlanResult.Rejected rejected)
         {
             error = rejected.Failure.Message;
