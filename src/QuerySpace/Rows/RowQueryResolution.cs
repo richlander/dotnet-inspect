@@ -104,17 +104,6 @@ public sealed class ResolvedRowQueryPlan<TRow>
         SelectionPlan
     { get; }
 
-    public bool MatchesPredicates(TRow row)
-    {
-        for (int index = 0; index < _predicates.Count; index++)
-        {
-            if (!_predicates[index](row))
-                return false;
-        }
-
-        return true;
-    }
-
     internal IReadOnlyList<Predicate<TRow>> Predicates =>
         _predicates;
 

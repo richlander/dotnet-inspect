@@ -402,8 +402,10 @@ not authorize a broad rename.
 
 `DotnetInspector.SourceDelegation` is a candidate for a separately reviewed
 family correction because its contract is generic and currently carries no
-domain dependency. `QueryOverflow` is instead a QuerySpace companion. Both
-need focused consumer and dependency censuses before any rename.
+domain dependency. Resumable QuerySpace and Source execution remains an
+investigation under
+[#8766](https://github.com/richlander/dotnet-inspect/issues/8766), not a
+current library naming candidate.
 
 ## Conventional basis
 
@@ -444,8 +446,7 @@ Adoption is staged by owner:
 7. **Diff census:** a separate issue determines whether reusable Diff execution
    mechanics exist beyond `Inspector.Findings`; no project is created without
    that evidence.
-8. **Naming audits:** Source Delegation and QueryOverflow are considered
-   independently.
+8. **Naming audit:** Source Delegation is considered independently.
 
 The OpenTelemetry external-focused call view is the first real Graph scenario.
 Its complete semantic document, edge Rows, and exact Count expose the terminal
@@ -505,7 +506,7 @@ This pattern does not:
 - add runtime plugins, reflection discovery, expression trees, or arbitrary
   executable portable content;
 - change CLI grammar, command defaults, output formats, or Workspace lifetime;
-- rename Source Delegation, QueryOverflow, or any existing project; or
+- rename Source Delegation or any existing project; or
 - authorize one PR to extract Graph, add QuerySpace execution, specialize
   terminals, migrate both hosts, and retire the old path.
 

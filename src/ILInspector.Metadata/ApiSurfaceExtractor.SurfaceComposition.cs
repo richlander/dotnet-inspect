@@ -562,11 +562,7 @@ public static partial class ApiSurfaceExtractor
     /// positive-evidence checks applied by callers.
     /// </summary>
     static bool IsSurfaceableFieldName(string name, bool includeCompilerGenerated)
-    {
-        if (name.StartsWith('<'))
-            return includeCompilerGenerated;
-        return true;
-    }
+        => !IsExcludedCompilerNamedMember(name, includeCompilerGenerated);
 
     /// <summary>
     /// The field handles that make up a type's declarable field surface: ordinary fields,
@@ -593,11 +589,15 @@ public static partial class ApiSurfaceExtractor
         foreach (var fieldHandle in typeDef.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
-            if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public && !includeAll)
+            if (!AdmitsMemberAccess(
+                    (field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Public,
+                    includeAll))
+            {
                 continue;
+            }
 
             string fieldName = reader.GetString(field.Name);
-            if (isEnum && fieldName == "value__")
+            if (IsEnumStorageField(isEnum, fieldName))
                 continue; // An enum's storage slot is not a declarable field member
             if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                 continue;
