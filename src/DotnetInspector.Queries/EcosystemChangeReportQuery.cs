@@ -400,12 +400,8 @@ public static class EcosystemChangeReportQuery
         string packageId) =>
         selection switch
         {
-            EcosystemChangePackageSelection.PackageSet packageSet =>
-                packageSet.Contains(packageId),
             EcosystemChangePackageSelection.PackagePrefix prefix =>
-                packageId.StartsWith(
-                    prefix.Prefix.Prefix,
-                    StringComparison.OrdinalIgnoreCase),
+                prefix.Matches(packageId),
             _ => throw new InvalidOperationException(
                 $"Unsupported package selection {selection.GetType().Name}."),
         };

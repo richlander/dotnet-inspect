@@ -34,6 +34,39 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
+    public void PackageActivitySelectsRecordedPrefixesNeverCorePackages()
+    {
+        EcosystemPackDescriptor[] selectable =
+            [.. EcosystemPackCatalog.DiscoverPackageActivity()];
+        Assert.Equal(
+            EcosystemPackCatalog.Discover().Select(pack => pack.Id),
+            selectable.Select(pack => pack.Id));
+
+        foreach (EcosystemPackDescriptor pack in selectable)
+        {
+            EcosystemChangePackageSelection.PackagePrefix selection =
+                Assert.IsType<EcosystemChangePackageSelection.PackagePrefix>(
+                    EcosystemPackCatalog.SelectPackageActivity(pack));
+            PackageQueryEcosystemMembershipDeclaration membership =
+                Assert.Single(
+                    EcosystemPackCatalog.PackageQueryMemberships.Declarations,
+                    candidate => candidate.Id.Value == pack.Id.Value);
+            Assert.Equal(pack.Id.Value, selection.SelectionId);
+            Assert.Equal(
+                membership.PackagePrefixes.Select(prefix => prefix.Prefix),
+                selection.Prefixes.Select(prefix => prefix.Prefix));
+        }
+
+        Assert.Equal(
+            ["Aspire."],
+            EcosystemPackCatalog.SelectPackageActivity(
+                Assert.IsType<EcosystemPackLookupResult.Known>(
+                    EcosystemPackCatalog.Lookup(EcosystemPackIds.Aspire))
+                    .Descriptor)!
+                .Prefixes.Select(prefix => prefix.Prefix));
+    }
+
+    [Fact]
     public void PackageQueryExactMembershipIsTheCoreNotThePackageSet()
     {
         foreach (EcosystemPackDescriptor pack in EcosystemPackCatalog.Discover())

@@ -1265,7 +1265,7 @@ the main thread.
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
 results for build identity, vocabulary, home demos, Package Query facets, and
-the product-issued Package Activity package-set catalog.
+the product-issued Package Activity Ecosystem catalog.
 Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
@@ -1473,9 +1473,10 @@ outside this gesture.
 
 The routed `/activity` surface is the Browser's Package Activity entry beside
 `/query`; neither route renders the retired Packages/Activity peer selector.
-Package Activity discovers product-owned package sets from the managed startup
-catalog, submits the default 42-day interval or one validated paired UTC
-interval, and streams the existing `package-changes` Worker operation. That
+Package Activity discovers product Ecosystems and their recorded package
+prefixes from the managed startup catalog, submits the selected Ecosystem with
+the default 42-day interval or one validated paired UTC interval, and streams
+the existing `package-changes` Worker operation. That
 operation name, the same-origin bridge path, and the
 `BrowserPackageChanges*` wire records remain stable internal identifiers. Its
 bounded row window renders typed current-advisory, fixed-version, receipt,

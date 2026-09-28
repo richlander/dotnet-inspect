@@ -12,31 +12,37 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserPackageChangesOperationsTests
 {
     [Fact]
-    public void PackageSets_ProjectProductOrderWithoutMembership()
+    public void Ecosystems_ProjectProductOrderWithRecordedPrefixes()
     {
-        BrowserPackageChangesPackageSetCatalog catalog =
-            BrowserPackageChangesOperations.PackageSets();
+        BrowserPackageChangesEcosystemCatalog catalog =
+            BrowserPackageChangesOperations.Ecosystems();
 
         Assert.Equal(
-            BrowserPackageChangesOperations.PackageSetCatalogVersion,
+            BrowserPackageChangesOperations.EcosystemCatalogVersion,
             catalog.Version);
-        Assert.NotEmpty(catalog.PackageSets);
+        Assert.NotEmpty(catalog.Ecosystems);
         Assert.Equal(
-            catalog.PackageSets.OrderBy(packageSet => packageSet.Order),
-            catalog.PackageSets);
+            catalog.Ecosystems.OrderBy(ecosystem => ecosystem.Order),
+            catalog.Ecosystems);
         Assert.All(
-            catalog.PackageSets,
-            packageSet =>
+            catalog.Ecosystems,
+            ecosystem =>
             {
-                Assert.StartsWith("package-set.", packageSet.Id);
-                Assert.False(string.IsNullOrWhiteSpace(packageSet.Title));
-                Assert.False(string.IsNullOrWhiteSpace(packageSet.Summary));
+                Assert.StartsWith("ecosystem.", ecosystem.Id);
+                Assert.False(string.IsNullOrWhiteSpace(ecosystem.Title));
+                Assert.False(string.IsNullOrWhiteSpace(ecosystem.Summary));
+                Assert.NotEmpty(ecosystem.Prefixes);
             });
+        Assert.Equal(
+            ["Aspire."],
+            Assert.Single(
+                catalog.Ecosystems,
+                ecosystem => ecosystem.Id == "ecosystem.aspire").Prefixes);
 
         string json = JsonSerializer.Serialize(
             catalog,
             BrowserPackageJsonContext.Default
-                .BrowserPackageChangesPackageSetCatalog);
+                .BrowserPackageChangesEcosystemCatalog);
         Assert.DoesNotContain(
             "\"members\"",
             json,
@@ -44,14 +50,14 @@ public sealed class BrowserPackageChangesOperationsTests
     }
 
     [Fact]
-    public void ResolvePlan_UsesOnlyRegisteredPackageSetsAndPairedIntervals()
+    public void ResolvePlan_UsesOnlyRegisteredEcosystemsAndPairedIntervals()
     {
         var clock = new FixedTimeProvider(
             new DateTimeOffset(2026, 4, 1, 12, 0, 0, TimeSpan.Zero));
         EcosystemChangeReportPlan defaults =
             BrowserPackageChangesOperations.ResolvePlan(
                 new(
-                    "package-set.microsoft-extensions",
+                    "ecosystem.microsoft-extensions",
                     null,
                     null,
                     SecurityOnly: true,
@@ -59,12 +65,14 @@ public sealed class BrowserPackageChangesOperationsTests
                 clock);
 
         var selection =
-            Assert.IsType<EcosystemChangePackageSelection.PackageSet>(
+            Assert.IsType<EcosystemChangePackageSelection.PackagePrefix>(
                 defaults.Request.PackageSelection);
         Assert.Equal(
-            "package-set.microsoft-extensions",
+            "ecosystem.microsoft-extensions",
             selection.SelectionId);
-        Assert.NotEmpty(selection.PackageIds);
+        Assert.Equal(
+            ["Microsoft.Extensions."],
+            selection.Prefixes.Select(prefix => prefix.Prefix));
         Assert.True(defaults.UsedDefaultInterval);
         Assert.Equal(25, defaults.Request.MaximumRows);
         Assert.Equal(
@@ -74,7 +82,7 @@ public sealed class BrowserPackageChangesOperationsTests
         EcosystemChangeReportPlan explicitInterval =
             BrowserPackageChangesOperations.ResolvePlan(
                 new(
-                    "package-set.aspnetcore",
+                    "ecosystem.aspnetcore",
                     "2026-03-01T01:00:00.0000000+01:00",
                     "2026-03-02T01:00:00.0000000+01:00",
                     SecurityOnly: false,
@@ -90,7 +98,7 @@ public sealed class BrowserPackageChangesOperationsTests
         Assert.Throws<ArgumentException>(() =>
             BrowserPackageChangesOperations.ResolvePlan(
                 new(
-                    "package-set.unknown",
+                    "ecosystem.unknown",
                     null,
                     null,
                     false,
@@ -99,7 +107,7 @@ public sealed class BrowserPackageChangesOperationsTests
         Assert.Throws<ArgumentException>(() =>
             BrowserPackageChangesOperations.ResolvePlan(
                 new(
-                    "package-set.aspnetcore",
+                    "ecosystem.aspnetcore",
                     "2026-03-01T00:00:00.0000000Z",
                     null,
                     false,
@@ -108,7 +116,7 @@ public sealed class BrowserPackageChangesOperationsTests
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             BrowserPackageChangesOperations.ResolvePlan(
                 new(
-                    "package-set.aspnetcore",
+                    "ecosystem.aspnetcore",
                     null,
                     null,
                     false,
@@ -209,7 +217,7 @@ public sealed class BrowserPackageChangesOperationsTests
             serialized,
             StringComparison.Ordinal);
         Assert.Contains(
-            "\"content\":{\"schemaVersion\":1",
+            "\"content\":{\"schemaVersion\":2",
             serialized,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -287,10 +295,9 @@ public sealed class BrowserPackageChangesOperationsTests
                 new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero),
                 false,
                 new(
-                    EcosystemChangePackageScopeKind.PackageSet,
-                    "package-set.microsoft-extensions",
-                    null,
-                    ["Example.Package"]),
+                    EcosystemChangePackageScopeKind.PackagePrefix,
+                    "ecosystem.microsoft-extensions",
+                    ["Microsoft.Extensions."]),
                 EcosystemChangeSecuritySelection.AllActivity,
                 MaximumRows: 100,
                 MaximumCandidateEvents: 1_000,

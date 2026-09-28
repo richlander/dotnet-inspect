@@ -1,7 +1,7 @@
 import type {
   BrowserPackageChangesInspection,
-  BrowserPackageChangesPackageSetCatalog,
-  BrowserPackageChangesPackageSetDescriptor,
+  BrowserPackageChangesEcosystemCatalog,
+  BrowserPackageChangesEcosystemDescriptor,
   BrowserPackageChangesRequest,
   BrowserPackageChangesResult,
 } from "./facades/inspect-web-package.d.ts";
@@ -30,37 +30,43 @@ export interface BrowserPackageChangesDataSourceOptions {
   ) => void;
 }
 
-export function packageChangesPackageSets(
-  catalog: BrowserPackageChangesPackageSetCatalog,
-): BrowserPackageChangesPackageSetDescriptor[] {
+export const packageChangesMaximumEcosystemPrefixes = 16;
+
+export function packageChangesEcosystems(
+  catalog: BrowserPackageChangesEcosystemCatalog,
+): BrowserPackageChangesEcosystemDescriptor[] {
   if (catalog.version !== 1) {
     throw new Error(
-      `Package Activity package-set catalog version '${catalog.version}' is unsupported.`);
+      `Package Activity Ecosystem catalog version '${catalog.version}' is unsupported.`);
   }
-  if (catalog.packageSets.length === 0) {
-    throw new Error("Package Activity requires at least one product package set.");
+  if (catalog.ecosystems.length === 0) {
+    throw new Error("Package Activity requires at least one product Ecosystem.");
   }
   const ids = new Set<string>();
   let priorOrder: number | null = null;
-  return catalog.packageSets.map(packageSet => {
-    if (!packageSet.id.trim()
-        || !packageSet.title.trim()
-        || !packageSet.summary.trim()
-        || !Number.isSafeInteger(packageSet.order)) {
+  return catalog.ecosystems.map(ecosystem => {
+    if (!ecosystem.id.trim()
+        || !ecosystem.title.trim()
+        || !ecosystem.summary.trim()
+        || !Number.isSafeInteger(ecosystem.order)
+        || ecosystem.prefixes.length === 0
+        || ecosystem.prefixes.length > packageChangesMaximumEcosystemPrefixes
+        || ecosystem.prefixes.some(prefix => !prefix.trim())
+        || new Set(ecosystem.prefixes).size !== ecosystem.prefixes.length) {
       throw new TypeError(
-        "The Package Activity package-set catalog contains an invalid descriptor.");
+        "The Package Activity Ecosystem catalog contains an invalid descriptor.");
     }
-    if (ids.has(packageSet.id)) {
+    if (ids.has(ecosystem.id)) {
       throw new TypeError(
-        `The Package Activity package-set catalog repeats '${packageSet.id}'.`);
+        `The Package Activity Ecosystem catalog repeats '${ecosystem.id}'.`);
     }
-    ids.add(packageSet.id);
-    if (priorOrder !== null && packageSet.order <= priorOrder) {
+    ids.add(ecosystem.id);
+    if (priorOrder !== null && ecosystem.order <= priorOrder) {
       throw new TypeError(
-        "The Package Activity package-set catalog is not in product order.");
+        "The Package Activity Ecosystem catalog is not in product order.");
     }
-    priorOrder = packageSet.order;
-    return { ...packageSet };
+    priorOrder = ecosystem.order;
+    return { ...ecosystem, prefixes: [...ecosystem.prefixes] };
   });
 }
 

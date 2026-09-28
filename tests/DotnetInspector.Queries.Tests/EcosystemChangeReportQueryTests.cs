@@ -29,7 +29,7 @@ public class EcosystemChangeReportQueryTests
     public void PlanFreezesDefaultAndExplicitIntervals()
     {
         EcosystemChangePackageSelection selection =
-            PackageSet("Microsoft.Extensions.AI");
+            Prefixes("Microsoft.Extensions.AI");
         var request = new EcosystemChangeReportRequest(selection);
 
         EcosystemChangeReportPlan defaultPlan =
@@ -133,12 +133,12 @@ public class EcosystemChangeReportQueryTests
             advisoryClient,
             timeProvider: new FixedTimeProvider(ReferenceTime));
         var selection =
-            new EcosystemChangePackageSelection.PackageSet(
-                "package-set.real-witness",
+            new EcosystemChangePackageSelection.PackagePrefix(
+                "ecosystem.real-witness",
                 [
-                    new PackageCoordinate("Microsoft.Extensions.AI"),
-                    new PackageCoordinate("Contoso.Fallback"),
-                    new PackageCoordinate("Contoso.Outside"),
+                    new PackagePrefixDeclaration("Microsoft.Extensions.AI"),
+                    new PackagePrefixDeclaration("Contoso.Fallback"),
+                    new PackagePrefixDeclaration("Contoso.Outside"),
                 ]);
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
@@ -230,7 +230,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet("Example.Filter"),
+                    Prefixes("Example.Filter"),
                     securitySelection:
                         EcosystemChangeSecuritySelection.SecurityRelevant,
                     maximumRows: 1),
@@ -342,7 +342,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet("Example.Availability")),
+                    Prefixes("Example.Availability")),
                 new FixedTimeProvider(ReferenceTime));
 
         IReadOnlyList<EcosystemChangeReportEvent> events =
@@ -438,7 +438,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet(
+                    Prefixes(
                         "Example.Limited",
                         "Example.Missing",
                         "Example.Deleted"),
@@ -503,7 +503,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet("Example.Bounded")),
+                    Prefixes("Example.Bounded")),
                 new FixedTimeProvider(ReferenceTime));
 
         IReadOnlyList<EcosystemChangeReportEvent> events =
@@ -542,7 +542,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet("Example.Horizon")),
+                    Prefixes("Example.Horizon")),
                 new FixedTimeProvider(ReferenceTime));
 
         IReadOnlyList<EcosystemChangeReportEvent> events =
@@ -586,7 +586,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet("Example.Boundary"),
+                    Prefixes("Example.Boundary"),
                     new NuGetCatalogRequest(From, through)),
                 new FixedTimeProvider(ReferenceTime));
 
@@ -618,7 +618,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet("Example.Deadline")),
+                    Prefixes("Example.Deadline")),
                 new FixedTimeProvider(ReferenceTime));
         using var deadline = new CancellationTokenSource();
         deadline.Cancel();
@@ -664,7 +664,7 @@ public class EcosystemChangeReportQueryTests
         EcosystemChangeReportPlan plan =
             EcosystemChangeReportPlan.Resolve(
                 new EcosystemChangeReportRequest(
-                    PackageSet("Example.Cancel")),
+                    Prefixes("Example.Cancel")),
                 new FixedTimeProvider(ReferenceTime));
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
@@ -690,12 +690,46 @@ public class EcosystemChangeReportQueryTests
             async () => await enumerator.MoveNextAsync().AsTask());
     }
 
-    private static EcosystemChangePackageSelection.PackageSet PackageSet(
-        params string[] packageIds) =>
+    [Fact]
+    public void PrefixSelectionValidatesItsOrderedSet()
+    {
+        var selection = new EcosystemChangePackageSelection.PackagePrefix(
+            "ecosystem.blazor",
+            [
+                new PackagePrefixDeclaration("Microsoft.AspNetCore.Components"),
+                new PackagePrefixDeclaration("Microsoft.Authentication.WebAssembly"),
+            ]);
+        Assert.Equal("ecosystem.blazor", selection.SelectionId);
+        Assert.Equal(
+            ["Microsoft.AspNetCore.Components", "Microsoft.Authentication.WebAssembly"],
+            selection.Prefixes.Select(prefix => prefix.Prefix));
+
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemChangePackageSelection.PackagePrefix("ecosystem.empty", []));
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemChangePackageSelection.PackagePrefix(
+                "ecosystem.duplicate",
+                [
+                    new PackagePrefixDeclaration("Example."),
+                    new PackagePrefixDeclaration("example."),
+                ]));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new EcosystemChangePackageSelection.PackagePrefix(
+                "ecosystem.wide",
+                Enumerable.Range(0, EcosystemChangePackageSelection.PackagePrefix.MaximumPrefixes + 1)
+                    .Select(index => new PackagePrefixDeclaration($"Example{index}."))));
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemChangePackageSelection.PackagePrefix(
+                "",
+                [new PackagePrefixDeclaration("Example.")]));
+    }
+
+    private static EcosystemChangePackageSelection.PackagePrefix Prefixes(
+        params string[] prefixes) =>
         new(
-            "package-set.test",
-            packageIds.Select(static packageId =>
-                new PackageCoordinate(packageId)));
+            "ecosystem.test",
+            prefixes.Select(static prefix =>
+                new PackagePrefixDeclaration(prefix)));
 
     private static EcosystemChangeReportRow[] Rows(
         IReadOnlyList<EcosystemChangeReportEvent> events) =>
