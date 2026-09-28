@@ -102,7 +102,17 @@ public static class InspectionCommandDefinitions
             Description = "Implementation Diff: read PDB-mapped source from local git clone(s) by SourceLink commit + PDB checksum, before the network. Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
-        var findingOption = new Option<string?>("--finding") { Description = "Finding producer: api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety" };
+        var findingOption = new Option<string?>("--finding") { Description = "History only: Finding producer (api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety); pairwise diff uses --analysis" };
+        var analysisOption = new Option<string[]>("--analysis")
+        {
+            Description =
+                "Analyses to compare, comma-separated or repeated: "
+                + string.Join(", ", DiffAnalysisCommandCapability.Identities)
+                + " (default: api)",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        analysisOption.CompletionSources.Add(
+            [.. DiffAnalysisCommandCapability.Identities]);
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Diff JSON (use with unprojected --json or --envelope)" };
 
@@ -145,6 +155,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(legacyAuthoredSourceOption);
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
+        diffCommand.Options.Add(analysisOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
 #if DEBUG
@@ -254,7 +265,7 @@ public static class InspectionCommandDefinitions
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
             implementationOption,
             historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
-            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
+            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -546,7 +557,7 @@ public static class InspectionCommandDefinitions
             }
         });
         assemblyCommand.Subcommands.Add(
-            LibraryCoordinateCommandDefinitions.Create(
+            LibraryAddressCommandDefinitions.Create(
                 opts,
                 assemblyCommand,
                 assemblyPathArg,

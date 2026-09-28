@@ -587,7 +587,8 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
+    public async Task
+        DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
     {
         var connectorIdentity = new AssemblyReferenceIdentity(
             "Microsoft.Extensions.Options",
@@ -774,30 +775,35 @@ public sealed partial class BrowserEngineBoundaryTests
             [
                 .. graph.Limits,
                 new InspectionGraphLimit(
-                    CallGraphInspectionGraphCatalog
-                        .TraversalNodeBound,
-                    InspectionGraphTarget.Node(0),
-                    new CallGraphTraversalNodeBoundEvidence(50)),
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .TraversalNodeBound,
+                        new CallGraphTraversalNodeBoundEvidence(50)),
+                    InspectionGraphTarget.Node(0)),
                 new InspectionGraphLimit(
-                    InspectionGraphNeighborhoodCatalog.DepthBound,
-                    InspectionGraphTarget.Node(0),
-                    new InspectionGraphNeighborhoodDepthBoundEvidence(3)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphNeighborhoodCatalog.DepthBound,
+                        new InspectionGraphNeighborhoodDepthBoundEvidence(3)),
+                    InspectionGraphTarget.Node(0)),
                 new InspectionGraphLimit(
-                    CallGraphInspectionGraphCatalog
-                        .CorrespondenceIncomplete,
-                    InspectionGraphTarget.Node(0),
-                    new CallGraphCorrespondenceIncompleteEvidence(
-                        incompleteNodeCount: 2,
-                        incompleteEdgeCount: 3,
-                        bindingIdentityConflictCount: 4)),
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .CorrespondenceIncomplete,
+                        new CallGraphCorrespondenceIncompleteEvidence(
+                            incompleteNodeCount: 2,
+                            incompleteEdgeCount: 3,
+                            bindingIdentityConflictCount: 4)),
+                    InspectionGraphTarget.Node(0)),
                 new InspectionGraphLimit(
-                    ExternalFocusedCallGraphInspectionCatalog
-                        .BoundaryClassificationIncomplete,
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphFocusCatalog
+                            .ScopeClassificationIncomplete),
                     InspectionGraphTarget.Edge(
                         unclassifiedBoundaryEdgeId)),
                 new InspectionGraphLimit(
-                    ExternalFocusedCallGraphInspectionCatalog
-                        .BoundaryClassificationIncomplete,
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphFocusCatalog
+                            .ScopeClassificationIncomplete),
                     InspectionGraphTarget.Edge(
                         unclassifiedUnknownEdgeId)),
             ],
@@ -814,19 +820,27 @@ public sealed partial class BrowserEngineBoundaryTests
                     ((InspectionGraphMemberIdentity.CallGraph)
                         target.Identity).Member.Name switch
                     {
-                        "AddOptions" => "connector",
-                        "Get" => "boundary",
-                        "WriteLine" => "unclassified-boundary",
-                        "Invoke" => "unclassified-boundary",
+                        "AddOptions" =>
+                            InspectionGraphFocusCatalog
+                                .ConnectorRole,
+                        "Get" =>
+                            InspectionGraphFocusCatalog.ExitRole,
+                        "WriteLine" =>
+                            InspectionGraphFocusCatalog
+                                .UnclassifiedBoundaryRole,
+                        "Invoke" =>
+                            InspectionGraphFocusCatalog
+                                .UnclassifiedBoundaryRole,
                         _ => throw new InvalidOperationException(
                             "Unexpected call-graph member."),
                     };
                 InspectionGraphTarget edgeTarget =
                     InspectionGraphTarget.Edge(edge.Id);
                 return new InspectionGraphCharacteristic(
-                    ExternalFocusedCallGraphInspectionCatalog.EdgeRole,
                     edgeTarget,
-                    new InspectionGraphValue.Token(role),
+                    new InspectionGraphCharacteristicPayload(
+                        InspectionGraphFocusCatalog.Role,
+                        new InspectionGraphValue.TokenSet([role])),
                     new InspectionGraphCharacteristicDerivation(
                         InspectionGraphCharacteristicDerivationKind
                             .Derived,
@@ -852,25 +866,32 @@ public sealed partial class BrowserEngineBoundaryTests
             node =>
                 node.Subject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.CallGraph
-                            {
-                                Member.Name: "AddOptions",
-                            },
-                    }).Id;
+                    {
+                        Member.Name: "AddOptions",
+                    },
+                }).Id;
         int boundaryNodeId = Assert.Single(
             graph.Nodes,
             node =>
                 node.Subject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.CallGraph
                             {
                                 Member.Name: "Get",
                             },
                     }).Id;
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
         var document =
             new PackageDependencyMemberCallGraphDocument(
                 TraversalTargetFrameworkPolicy.ProductDefault,
@@ -890,6 +911,10 @@ public sealed partial class BrowserEngineBoundaryTests
                         "ecosystem.aspnetcore",
                         "ecosystem.microsoft-extensions",
                     ]),
+                MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                    scope,
+                    registrations),
+                [],
                 [
                     new PackageDependencyMemberCallGraphPackageSubject(
                         connectorNodeId,

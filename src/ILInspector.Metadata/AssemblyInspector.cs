@@ -75,9 +75,11 @@ public static class AssemblyInspector
 
         info.Architecture = coffHeader.Machine switch
         {
+            // Compilers mark 32-bit-preferred AnyCPU with both flags; x86 has
+            // Requires32Bit alone.
             Machine.I386 =>
-                corHeader?.Flags.HasFlag(CorFlags.Requires32Bit) == true ? "x86" :
-                corHeader?.Flags.HasFlag(CorFlags.Prefers32Bit) == true ? "AnyCPU (32-bit preferred)" : "AnyCPU",
+                corHeader?.Flags.HasFlag(CorFlags.Prefers32Bit) == true ? "AnyCPU (32-bit preferred)" :
+                corHeader?.Flags.HasFlag(CorFlags.Requires32Bit) == true ? "x86" : "AnyCPU",
             Machine.Amd64 => "x64",
             Machine.Arm => "ARM",
             Machine.Arm64 => "ARM64",

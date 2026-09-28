@@ -74,18 +74,18 @@ public sealed class MemberCallGraphSessionTests
     static string ExternalFocusRole(
         InspectionGraphDocument document,
         InspectionGraphEdge edge) =>
-        Assert.IsType<InspectionGraphValue.Token>(
-            Assert.Single(
-                document.Characteristics,
-                characteristic =>
-                    ReferenceEquals(
-                        characteristic.Descriptor,
-                        ExternalFocusedCallGraphInspectionCatalog
-                            .EdgeRole)
-                    && characteristic.Target
-                        == InspectionGraphTarget.Edge(edge.Id))
-                .Value)
-            .Value;
+        Assert.Single(
+            Assert.IsType<InspectionGraphValue.TokenSet>(
+                Assert.Single(
+                    document.Characteristics,
+                    characteristic =>
+                        ReferenceEquals(
+                            characteristic.Payload.Descriptor,
+                            InspectionGraphFocusCatalog.Role)
+                        && characteristic.Target
+                            == InspectionGraphTarget.Edge(edge.Id))
+                    .Payload.Value)
+                .Values);
 
     [Fact]
     public async Task Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
@@ -170,7 +170,7 @@ public sealed class MemberCallGraphSessionTests
                     InspectionMember(
                         document.Nodes[edge.ToNodeId]).Name)));
         Assert.Equal(
-            "boundary",
+            "exit",
             ExternalFocusRole(
                 document,
                 Assert.Single(document.Edges)));
@@ -185,20 +185,20 @@ public sealed class MemberCallGraphSessionTests
                 Assert.Single(
                     document.Limits,
                     limit => ReferenceEquals(
-                        limit.Descriptor,
+                        limit.Payload.Descriptor,
                         InspectionGraphNeighborhoodCatalog
                             .DepthBound))
-                    .Evidence);
+                    .Payload.Evidence);
         Assert.Equal(2, depth.MaxDepth);
         var nodes = Assert.IsType<
             CallGraphTraversalNodeBoundEvidence>(
                 Assert.Single(
                     document.Limits,
                     limit => ReferenceEquals(
-                        limit.Descriptor,
+                        limit.Payload.Descriptor,
                         CallGraphInspectionGraphCatalog
                             .TraversalNodeBound))
-                    .Evidence);
+                    .Payload.Evidence);
         Assert.Equal(10, nodes.MaxNodes);
         Assert.Equal(
             new MemberCallGraphBuildCounts(0, 1, 1),
@@ -231,7 +231,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             [
                 ("RunOuter", "Run", "connector"),
-                ("Run", "Ping", "boundary"),
+                ("Run", "Ping", "exit"),
             ],
             document.Edges.Select(edge =>
                 (
@@ -279,7 +279,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .TraversalIncomplete));
     }
@@ -317,10 +317,10 @@ public sealed class MemberCallGraphSessionTests
                     Assert.Single(
                         document.Limits,
                         limit => ReferenceEquals(
-                            limit.Descriptor,
+                            limit.Payload.Descriptor,
                             InspectionGraphNeighborhoodCatalog
                                 .DepthBound))
-                    .Evidence)
+                    .Payload.Evidence)
                 .MaxDepth);
     }
 
@@ -356,7 +356,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .TraversalIncomplete));
     }
@@ -392,9 +392,9 @@ public sealed class MemberCallGraphSessionTests
         InspectionGraphLimit limit = Assert.Single(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
-                ExternalFocusedCallGraphInspectionCatalog
-                    .BoundaryClassificationIncomplete));
+                limit.Payload.Descriptor,
+                InspectionGraphFocusCatalog
+                    .ScopeClassificationIncomplete));
         Assert.Equal(
             InspectionGraphTarget.Edge(edge.Id),
             limit.Target);
@@ -427,13 +427,13 @@ public sealed class MemberCallGraphSessionTests
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
-                ExternalFocusedCallGraphInspectionCatalog
-                    .BoundaryClassificationIncomplete));
+                limit.Payload.Descriptor,
+                InspectionGraphFocusCatalog
+                    .ScopeClassificationIncomplete));
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .CorrespondenceIncomplete));
     }
@@ -473,14 +473,14 @@ public sealed class MemberCallGraphSessionTests
                 InspectionMember(
                     document.Nodes[edge.ToNodeId]).Name));
         Assert.Equal(
-            "boundary",
+            "exit",
             ExternalFocusRole(document, edge));
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
-                ExternalFocusedCallGraphInspectionCatalog
-                    .BoundaryClassificationIncomplete));
+                limit.Payload.Descriptor,
+                InspectionGraphFocusCatalog
+                    .ScopeClassificationIncomplete));
     }
 
     [Fact]
@@ -534,7 +534,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.DoesNotContain(
             inspectionGraph.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .PhysicalOccurrencesUnavailable));
 
@@ -612,8 +612,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -719,8 +718,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects = CrossParticipantAcquisition(),
             });
 
@@ -778,8 +776,7 @@ public sealed class MemberCallGraphSessionTests
                 new MemberCallGraphOptions
                 {
                     Features =
-                        Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                        | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                        Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 });
 
             _ = baselineGraph.Callees();
@@ -809,8 +806,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects = CrossParticipantAcquisition(),
             });
 
@@ -928,8 +924,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -952,42 +947,6 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             finding.Payload.Steps.Select(step => step.EdgeRow),
             finding.Payload.EdgeRows);
-        AnnotatedCallGraphOwnershipInspection legacy =
-            ArrayPoolOwnershipPathFindings.Inspect(
-                view,
-                complete.Document.CallGraph.Projection);
-        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
-            Assert.Single(legacy.Findings);
-        Assert.Equal(
-            finding.Payload.Steps.Select(step =>
-                (
-                    step.EdgeRow,
-                    step.CallerModuleVersionId,
-                    step.CallerMethodToken,
-                    step.ILOffset,
-                    step.OperandToken,
-                    step.CalleeParameterIndex)),
-            legacyFinding.Payload.Steps.Select(step =>
-                (
-                    step.EdgeRow,
-                    step.CallerModuleVersionId,
-                    step.CallerMethodToken,
-                    step.ILOffset,
-                    step.OperandToken,
-                    step.CalleeParameterIndex)));
-        Assert.Equal(
-            outcome switch
-            {
-                ResourceOwnershipPathOutcome.Released =>
-                    Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
-                ResourceOwnershipPathOutcome.Stored =>
-                    Analysis.ArrayPoolOwnershipUseKind.Stored,
-                ResourceOwnershipPathOutcome.ReturnedToCaller =>
-                    Analysis.ArrayPoolOwnershipUseKind.ReturnedToCaller,
-                _ => throw new ArgumentOutOfRangeException(
-                    nameof(outcome)),
-            },
-            legacyFinding.Payload.Outcome);
         Assert.Equal(
             new MemberCallGraphBuildCounts(0, 1, 0),
             graph.BuildCounts);
@@ -1010,8 +969,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -1036,17 +994,6 @@ public sealed class MemberCallGraphSessionTests
         Assert.False(
             inspection.Limits.HasFlag(
                 AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
-
-        AnnotatedCallGraphOwnershipInspection legacy =
-            ArrayPoolOwnershipPathFindings.Inspect(
-                view,
-                projection);
-        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
-            Assert.Single(legacy.Findings);
-        Assert.Equal(
-            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
-            legacyFinding.Payload.Outcome);
-        Assert.Empty(legacyFinding.Payload.Steps);
     }
 
     [Fact]
@@ -1066,8 +1013,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -1082,10 +1028,6 @@ public sealed class MemberCallGraphSessionTests
                 view,
                 projection,
                 ResourceOwnershipSearchOptions.ArrayPool);
-        AnnotatedCallGraphOwnershipInspection legacy =
-            ArrayPoolOwnershipPathFindings.Inspect(
-                view,
-                projection);
 
         Assert.Equal(
             [
@@ -1093,15 +1035,6 @@ public sealed class MemberCallGraphSessionTests
                 ResourceOwnershipPathOutcome.Stored,
             ],
             generic.Findings
-                .Select(finding => finding.Payload.Outcome)
-                .Order()
-                .ToArray());
-        Assert.Equal(
-            [
-                Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
-                Analysis.ArrayPoolOwnershipUseKind.Stored,
-            ],
-            legacy.Findings
                 .Select(finding => finding.Payload.Outcome)
                 .Order()
                 .ToArray());
@@ -1130,8 +1063,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -1146,10 +1078,6 @@ public sealed class MemberCallGraphSessionTests
                 view,
                 projection,
                 ResourceOwnershipSearchOptions.ArrayPool);
-        AnnotatedCallGraphOwnershipInspection legacy =
-            ArrayPoolOwnershipPathFindings.Inspect(
-                view,
-                projection);
 
         Finding<ResourceOwnershipPathWitness> genericFinding =
             Assert.Single(generic.Findings);
@@ -1161,13 +1089,6 @@ public sealed class MemberCallGraphSessionTests
             genericFinding.Payload.ResourceKind.Identity);
         Assert.False(genericFinding.Payload.IsComplete);
         Assert.Single(genericFinding.Payload.Steps);
-
-        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
-            Assert.Single(legacy.Findings);
-        Assert.Equal(
-            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
-            legacyFinding.Payload.Outcome);
-        Assert.Single(legacyFinding.Payload.Steps);
     }
 
     [Fact]
@@ -1187,8 +1108,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     ArrayPoolWithUnrelatedReleaseAdmission(),
             });
@@ -1219,10 +1139,6 @@ public sealed class MemberCallGraphSessionTests
                 view,
                 projection,
                 ResourceOwnershipSearchOptions.ArrayPool);
-        AnnotatedCallGraphOwnershipInspection legacy =
-            ArrayPoolOwnershipPathFindings.Inspect(
-                view,
-                projection);
 
         Finding<ResourceOwnershipPathWitness> genericFinding =
             Assert.Single(generic.Findings);
@@ -1231,13 +1147,6 @@ public sealed class MemberCallGraphSessionTests
             genericFinding.Payload.Outcome);
         Assert.False(genericFinding.Payload.IsComplete);
         Assert.Single(genericFinding.Payload.Steps);
-
-        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
-            Assert.Single(legacy.Findings);
-        Assert.Equal(
-            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
-            legacyFinding.Payload.Outcome);
-        Assert.Single(legacyFinding.Payload.Steps);
     }
 
     [Fact]
@@ -1256,8 +1165,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -1315,8 +1223,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -1358,8 +1265,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -1527,8 +1433,7 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphOptions
             {
                 Features =
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
                 ResourceEffects =
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
@@ -2649,16 +2554,6 @@ public sealed class MemberCallGraphSessionTests
                 {
                     Features =
                         Analysis.LibraryBodyAnalysisFeatures.None,
-                }));
-        Assert.Throws<ArgumentException>(
-            () => new MemberCallGraphSession(
-                context.Group,
-                context.Sources[0].Assembly,
-                run,
-                new()
-                {
-                    Features =
-                        Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
                 }));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new MemberCallGraphSession(

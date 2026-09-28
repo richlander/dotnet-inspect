@@ -72,6 +72,21 @@ that terminal is settled. Level 2 may stop the remaining work at the next unit
 boundary. Producers cut off by the stop report that they stopped because the
 request was satisfied, not that they completed.
 
+**Early exit happens at every level.** Library discovery asks whether an
+assembly exposes a public runtime-async method: a public, non-accessor method
+on a type that is not compiler-generated, carrying the runtime-async
+implementation flag. That is an Exists question over method definitions at
+declaration depth only. The population predicate and the flag are both
+declaration metadata, so no body is ever requested. The first matching
+definition settles the question, and no later definition is visited for it. The same holds at each
+level: a producer stops within a unit once its question for that unit is
+answered, a declaration finding means an optional body layer is never
+acquired, and level 2 stops visiting units for a request once its terminal is
+settled. Today the product answers runtime async inside a Metadata presence
+scan that computes several presence flags in one pass. When several Exists
+questions share one pass, each stops being charged as soon as it is settled,
+and the pass ends when the last one is settled.
+
 **A guard gates the work.** This example shows how protection could be
 orchestrated; it is not how the repository contains untrusted text.
 InertString containment remains construction-time, at the point data enters
@@ -97,6 +112,20 @@ In both scopes, a producer that does not depend on the guard keeps running.
 Which work stops is declared, not an accident of ordering. A guard failure is
 a failed prerequisite, which is a different outcome from work stopped because
 a request was satisfied.
+
+**A scope guard narrows the work.** Three questions ask about the same
+methods: which are P/Invoke, how many are async, and whether any other
+signature carries a pointer. They share one classification, computed cheapest
+first: in scope, then P/Invoke, then async. A classifier producer computes it
+once per unit and publishes each unit's class. The three question producers
+declare scope guards on it, so each is visited only for units in the classes it
+accepts. The classifier also declares a type scope, so a compiler-generated
+type is out of scope for it and for every producer it guards, and the
+traversal skips that type as a whole. A unit outside a producer's scope is
+neither attempted nor failed; the receipt counts only the units the producer
+visited. Asked alone, each question costs only the classification it needs.
+Asked together, the questions share one pass without repeating the
+classification.
 
 **A consumer owns its interpretation.** The JS export surface's JSON
 wire-contract rules need field-store, field-load, and return-flow facts.
@@ -166,8 +195,11 @@ level never merges them.
 
 A **unit** is what one visit covers; the first unit kind is one method
 definition. Its layers are its declaration metadata and, when it has a managed
-body, that body at the requested depth. A producer may also declare a **completion**, which runs after every unit
-in its scope has been visited and combines the per-unit facts into the
+body, that body at the requested depth. Each visited unit's fact folds into the
+producer's accumulator as the unit is visited, so a producer retains only what
+its result needs: an Exists or Count producer keeps a flag or a number, never
+the rows. A producer may also declare a **completion**, which runs after every
+unit in its scope has been visited and turns the accumulator into the
 published result. Whole-library facts such as leverage or a local call graph
 are completions, and a completion may depend on other producers' completed
 results.
@@ -237,7 +269,9 @@ producer discovers a new need while it runs; a conditional need is an optional
 request stated in the declaration.
 
 *Lets the lower levels:* compute collapse, cost, read demand, and pushdown
-before the first byte is read.
+before the first byte is read, and acquire only what some producer declared:
+an execution whose producers read only declarations never builds the module
+lookup.
 
 *Lesson:* LLVM's legacy pass manager and Roslyn's runtime callback
 registration show how much a scheduler loses when needs surface only during
@@ -268,7 +302,8 @@ optimizer for one consumer family. #8571 records today's drift.
 
 **Rule.** A producer does not mutate what it reads, does not keep state that
 spans units, and observes another producer only through that producer's
-declared result. Anything shared is a level 1 or level 2 input, never a
+declared result. The only state that spans units is its accumulator, which the
+executor holds and the producer only folds into. Anything shared is a level 1 or level 2 input, never a
 producer's lazily initialized field.
 
 *Lets the lower levels:* run units in parallel, visit independent producers
@@ -291,6 +326,122 @@ and schedule in parallel, all without producer changes.
 *Lesson:* Roslyn's operation callbacks and Go's shared `inspect` traversal give
 N analyzers one walk. Analyses that walk the program themselves cannot be
 interrupted, parallelized, or fused.
+
+### Scope is declared on the edge, not tested inside the visit
+
+**Rule.** A producer that applies to only some units says so in its
+declaration: a type scope for whole types, and a scope guard for units a
+classifier has classified. A scope guard names the unit classes it accepts,
+possibly all of them; naming them is what makes it a guard, and a guard always
+applies its classifier's type scope. The classifier is one of two kinds:
+
+- **The source gate.** The guard names classes from the source's
+  [method-row gate](#the-source-gate-owns-safety). It is declared on the
+  producer and adds no dependency, because the gate is part of the source.
+- **A classifying producer.** The guard is a same-unit, same-pass dependency
+  on a producer that classifies units, for a classification specific to a
+  domain.
+
+Both kinds have the same meaning. A type the guard excludes is outside the
+dependent's scope before the dependent's own type scope is asked. A unit the
+guard excludes is not attempted and is not failed, and the receipt counts
+only attempted units. Work that several producers need, such as a
+classification, is done once, by the gate or by its own producer; it is never
+repeated inside each visit. A scope guard is not a failure guard: a unit
+outside scope is not attempted, and nothing about it is reported as failed.
+The accepted classes are part of the producer's meaning. A wrong set silently
+drops units, so it is reviewed like any other result-shaping code, and the
+receipt's attempted counts show its effect.
+
+*Lets the lower levels:* skip whole types and units before any visit, share
+one classification among every producer that needs it, and give a fused pass
+the cost of a hand-written loop for that combination without anyone writing
+that loop.
+
+*Lesson:* a monolith fuses by always answering every question.
+`ClassifiedMethods` classifies P/Invoke, async, and pointer signatures for
+every public method even when a consumer wants one count. Separate producers
+that each test scope inside their own visits fuse into one traversal but keep
+the duplicated work, so that pass costs nearly as much as separate ones. Scope
+guards and type scopes are the query model's scope predicates at method and
+type grain. When method bodies become a QuerySpace source, tracked by #8577,
+they move to level 2 as its vocabulary.
+
+### The source gate owns safety
+
+**Rule.** Every method-definition source includes a **method-row gate**. The
+gate is part of the source, not a producer in the dependency graph. It applies
+the source's scope, classifies each row, and is the only path by which a
+producer reads a row's fields. A producer contains no safety code except a
+bound specific to its own domain. Unsafe presence's same-image correspondence
+budget is one such bound.
+
+The gate offers two tiers of access:
+
+- **Tier 1, bounded accessors:**
+  - flags;
+  - a name comparison done in place, with no string materialized;
+  - an attribute type match;
+  - a yes/no signature-shape walk;
+  - a result from a
+    [Metadata semantic substrate](metadata-semantic-substrates.md), such as
+    `StateMachineRelationshipIndex`, whose own budgets bound its total work.
+    The substrate's global budget exhaustion aborts the execution.
+    Its per-row rejection is a recoverable failure.
+
+  They charge no execution budget. Their total work across an execution is
+  linear in the image's metadata size. An accessor that walks a structure,
+  such as a signature or a type's parent chain, memoizes its answer per
+  metadata handle and per blob for the execution. That way each structure is
+  walked at most once, however many rows or nested arguments share it. A
+  fixed per-row cap backstops the walk, and exceeding the cap aborts the
+  execution with the typed critical failure. An accessor that walks nothing
+  costs a constant per row.
+- **Tier 2, identity text:** anchors and signature text. These go through the
+  gate's budgeted identity decoder and are returned as `InertString`, so they
+  are bounded in cost and inert in content.
+
+A row the gate cannot read is a recoverable failure, handled as in
+[Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed).
+
+**Field demand is declared before work.** A producer declares the fields it
+reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
+`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`,
+`StateMachineRelationship`, and `IdentityText`, beside `Body` and
+`ModuleLookup`. Reading an undeclared field
+throws `ProducerContractException`, exactly as reading an undeclared layer
+does. That runtime contract is the enforcement gate. From the declarations,
+the planner:
+
+- arms the gate's identity budget only when some requested producer declares
+  `IdentityText`, so a plan of Count, Exists, and classification spends no
+  identity budget as a property of the plan. Critical-abort handling is always
+  armed. A Tier 1 per-row cap, or a bound specific to a domain, can abort any
+  plan, including one that declares no `IdentityText`. The consequence is
+  that a plan with no `IdentityText` cannot notice hostility that lives in
+  identity text. It may answer, possibly misleadingly, where a plan that
+  decodes identities over the same image aborts. That follows from making
+  Count and Exists fast; it is not a promise that hostile images get an
+  answer;
+- reads each field shared by several producers once per row;
+- chooses the kernel; and
+- explains what a plan reads.
+
+The gate's classification is a unit class that source-gate scope guards
+accept, as
+[Scope is declared on the edge](#scope-is-declared-on-the-edge-not-tested-inside-the-visit)
+describes. A source-gate guard is not a dependency, so a producer asked alone
+still has no dependencies and still qualifies for a closed-query kernel. That kernel is
+one loop, specialized to the gate, the predicate, and the closing.
+
+*Lets the lower levels:* share scope, classification, and decoding among every
+producer without a classifier producer, and prove from the plan alone that a
+count reads no identity text.
+
+*Lesson:* `InertString` made untrusted text safe at construction, rather than
+at each use. The gate does the same for untrusted rows: bounded cost and inert
+content are properties of the only access path, so no producer needs to
+repeat them.
 
 ### Access is borrowed for the visit
 
@@ -335,14 +486,55 @@ facts are serializable by contract, which allows separate-process drivers.
 
 **Rule.** Each producer's result carries its own outcome: not requested,
 complete, incomplete with an owner-issued limitation, stopped because the
-request it served was satisfied, or failed. A failure is
-contained to that producer. Each dependent receives a typed prerequisite
+request it served was satisfied, failed, or aborted by a critical failure
+(see [Budget exhaustion aborts the execution](#budget-exhaustion-aborts-the-execution)).
+A failure is contained to that producer. Each dependent receives a typed prerequisite
 failure rather than a missing value, and independent producers are
 unaffected.
 
 *Lesson:* Roslyn contains a crashing analyzer as a diagnostic instead of
 failing the compilation. Retrofitting an outcome shape onto result types that
 never had one touches every consumer.
+
+### Budget exhaustion aborts the execution
+
+**Rule.** A containment budget bounds the effort an untrusted input can
+consume. Its unit might be work or a count of decode failures. The source
+gate owns one fixed budget for each execution; see
+[The source gate owns safety](#the-source-gate-owns-safety). A producer owns a
+budget only for a bound specific to its domain. Exhausting any budget is a
+**critical failure**, not a producer failure. The execution stops before the next untrusted read, and it
+publishes no producer's result. Every requested producer's outcome is
+**aborted**, and each carries the same critical failure: the owner of the
+exhausted budget (the gate or a producer), the budget's identity, and the unit
+being visited. The
+receipt records the same. A critical failure is never contained to one
+producer. It is never reported as `Failed` for one producer while others
+complete, and never presented as a partial or successful answer.
+
+Recoverable failures are unchanged. An unreadable body or an undecodable
+signature fails its producer as a contained failure, as
+[Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed)
+describes. Budget exhaustion is the one failure that is not contained,
+because once a bound meant for hostile input is reached, nothing established
+about that input can be trusted.
+
+A producer reports budget exhaustion with a typed signal that the execution
+recognizes, never a general exception that the recoverable-failure path
+could catch.
+
+Suggested shape:
+
+```text
+ProducerOutcome.Aborted
+CriticalFailure(Owner identity, Budget identity, Unit, Message)
+```
+
+*Lesson:* a stack overflow looks recoverable at the frame that sees it, but
+the process is already in unknown territory, and .NET does not let it be
+caught. The same holds for an input that has exhausted a hostile-input bound.
+Legacy classification failed all three of its questions together for the
+same reason.
 
 ### Participation is observed, not declared
 
@@ -378,6 +570,23 @@ identity; the catalog binds its manifest-grade identities to declarations.
 on link order and spelling. Research's string-keyed producers show the axis
 that [Assembly Inspection Query](assembly-inspection-query.md#prior-art-the-research-producer-registry)
 already flagged.
+
+### Producers are not discovery registrations
+
+**Rule.** Producer declarations are not capability registrations. Discovery
+surfaces such as `explain`, capability search, and `-D` draw on the
+registrations of [capability modules](inspection-capability-composition.md)
+and on catalog analyses, each as its owner defines, and a catalog analysis
+binds to the declarations that produce it. No declaration, work
+description, or receipt is registered with or listed by a discovery surface. A host may show a
+work description or receipt as execution evidence, and an explanation of a
+catalog analysis may describe the work its bound declarations imply. Neither
+adds a discoverable name.
+
+*Lesson:* discovery names are compatibility surfaces. If internal producers
+were discoverable, splitting or merging a producer would break what users
+and manifests can name, which is the coupling the catalog/producer identity
+split exists to prevent.
 
 ## Requirements on the lower levels
 
@@ -454,6 +663,7 @@ decided when the second tier adopts it.
 | --- | --- |
 | [Library body Analysis service](library-body-analysis-service.md) | First adopter. Its producer coordination, features, and fixed result slots become declarations and a work description; its focused result types are unchanged. |
 | [Analysis catalog and operation participation](analysis-surfaces-and-universes.md#operation-participation) | Selects manifest-grade analyses and binds each to declarations. It owns cost, defaults, and discovery. |
+| [Inspection capability composition](inspection-capability-composition.md) | Owns the capability registrations that discovery surfaces draw on. Producer declarations are not registered there. |
 | [Assembly image lifetime](assembly-image-lifetime.md) and [resource ownership](resource-ownership-and-borrowing.md) | Level 1. Supplies and tracks the borrowed subject. |
 | [QuerySpace](query-space-library.md) and [source delegation](source-delegation.md) | Level 2. Owns request meaning, collapse, and completion evidence, and plans reads against sources. |
 | [Package read demand](package-read-demand.md) | Consumes the declared requests in a work description. |
@@ -497,6 +707,17 @@ property above is **unverified**.
 - **Failure containment:** an injected producer failure leaves independent
   producers' results unchanged and gives dependents a typed prerequisite
   failure.
+- **Critical failure aborts:** when a budget is exhausted in a plan with
+  several producers, every requested producer is `Aborted` with the same
+  `CriticalFailure`, no result is published, and no unit is read after the one
+  that exhausted the budget. The same holds when a Tier 1 per-row cap is
+  exceeded in a plan that declares no `IdentityText`.
+- **Source-gate guards:** a producer guarded by the source gate has no
+  dependency and qualifies for a closed-query kernel. Units the gate excludes
+  are neither attempted nor failed, as with a producer-classifier guard.
+- **Field demand:** reading an undeclared gate field throws
+  `ProducerContractException`. A plan with no `IdentityText` declaration never
+  charges the identity budget.
 
 Equivalence between executors and pushdown equivalence are level 2 gates,
 tracked in #8577 and #8574.

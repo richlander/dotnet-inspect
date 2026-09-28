@@ -36,6 +36,15 @@
   --code-text: #d8d2e3;
   --syntax-kw: #d98a70;
   --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  /* Overload heat: one low-chroma amber hue whose lightness and chroma rise with size. */
+  --heat-l0: 0.205;
+  --heat-c0: 0.008;
+  --heat-l1: 0.32;
+  --heat-c1: 0.055;
+  --heat-h: 68;
+  --hub-strip: oklch(0.80 0.13 72);
+  --heat-cue-progress: #8ebb76;
+  --heat-cue-problem: #e06c6c;
   --graph-target-fill: #311a7f;
   --graph-target-stroke: #b9aaee;
   --graph-target-text: #f0edf7;
@@ -106,6 +115,14 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
+  --heat-l0: 0.985;
+  --heat-c0: 0.004;
+  --heat-l1: 0.915;
+  --heat-c1: 0.055;
+  --heat-h: 72;
+  --hub-strip: oklch(0.62 0.14 62);
+  --heat-cue-progress: #3f7d2c;
+  --heat-cue-problem: #b3261e;
   --bg: #ffffff;
   --panel: #ffffff;
   --panel-raised: #f8f6fc;
@@ -1101,12 +1118,43 @@ kbd {
 .nav-back-row small { color: var(--dim); font: 10px var(--mono); }
 .member-list .member-row { padding-left: 14px; }
 .member-list .member-row.active-group { background: rgba(255,255,255,.022); }
+/* Nested overloads need no branch glyph: they sit under their family row,
+   start where the family's icon does, and spend the width on parameters. */
 .member-list .overload-nav-row {
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   height: 28px;
-  padding: 0 12px 0 26px;
+  padding: 0 12px 0 16px;
 }
-.member-list .overload-nav-row .overload-branch { color: var(--dim); font: 11px var(--mono); }
+.member-list .overload-nav-row .overload-size { color: var(--muted); font: 10px var(--mono); font-variant-numeric: tabular-nums; }
+.sig-name { color: var(--text); }
+.sig-type { color: var(--blue); }
+.sig-keyword, .sig-modifier { color: var(--syntax-kw); }
+.sig-punct { color: var(--dim); }
+/* Heat anchors on the right edge so hover and selection keep the left edge; the
+   fade ends in the same hue at zero alpha so hover color shows through. */
+.member-list .overload-nav-row.heated {
+  --heat-color: oklch(
+    calc(var(--heat-l0) + var(--heat-t) * (var(--heat-l1) - var(--heat-l0)))
+    calc(var(--heat-c0) + var(--heat-t) * (var(--heat-c1) - var(--heat-c0)))
+    var(--heat-h));
+  background-image: linear-gradient(
+    270deg,
+    var(--heat-color) 0%,
+    color-mix(in oklch, var(--heat-color) 0%, transparent) var(--heat-reach));
+}
+.member-list .overload-nav-row.hub { position: relative; }
+.member-list .overload-nav-row.hub::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--hub-strip);
+}
+.member-row .family-heat-cue { color: var(--dim); }
+.member-row .family-heat-cue.progress { color: var(--heat-cue-progress); }
+.member-row .family-heat-cue.problem { color: var(--heat-cue-problem); }
 .member-list .overload-nav-row code {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1384,6 +1432,8 @@ kbd {
 .overview-subject-label { margin: 0 0 6px; color: var(--dim); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .overview-identity h1 { margin: 0; color: var(--text); font-size: 25px; line-height: 1.2; letter-spacing: -.025em; }
 .overview-identity-detail { margin: 8px 0 0; color: var(--muted); font: 11px/1.5 var(--mono); }
+.overview-enablements { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.overview-enablement { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--text); background: var(--chrome); font: 600 11px/1.6 var(--mono); }
 .overview-controls,
 .package-dependencies-controls,
 .package-metadata-controls { min-width: 0; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--chrome); }
@@ -3107,6 +3157,7 @@ kbd {
 .kind-icon.sl-member { color: var(--text); }
 .kind-icon.sl-lib { color: var(--accent); }
 .kind-icon.sl-command { color: var(--accent); font-size: 16px; }
+.kind-icon.sl-capability { color: var(--accent); font-size: 15px; }
 .spotlight-empty { padding: 26px 14px; color: var(--dim); font: 12px var(--mono); text-align: center; }
 .spotlight-foot {
   display: flex;

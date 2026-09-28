@@ -16,7 +16,33 @@ public sealed record PackageCompileAsset(
     string AssemblyName,
     string TargetFramework,
     PackageCompileAssetKind Kind,
-    string? RuntimeIdentifier = null);
+    string? RuntimeIdentifier = null)
+{
+    /// <summary>The same-directory XML documentation path, when this is a DLL.</summary>
+    public string? DocumentationCompanionPath =>
+        GetCompanionPath(".xml");
+
+    /// <summary>The same-directory Portable PDB path, when this is a DLL.</summary>
+    public string? PortablePdbCompanionPath =>
+        GetCompanionPath(".pdb");
+
+    private string? GetCompanionPath(string companionExtension)
+    {
+        int separator = Path.LastIndexOf('/');
+        int extension = Path.LastIndexOf('.');
+        if (extension <= separator
+            || !Path.AsSpan(extension).Equals(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return string.Concat(
+            Path.AsSpan(0, extension),
+            companionExtension);
+    }
+}
 
 /// <summary>One available compile slice and its complete candidate inventory.</summary>
 public sealed record PackageCompileAssetSlice(

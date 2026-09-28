@@ -84,6 +84,7 @@ function sourceComparisonJsonTextFixture(
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
   library: {
+    inspectLibrary: () => unexpected("inspectLibrary"),
     openUploadedLibrary: () => unexpected("openUploadedLibrary"),
   },
   package: {
@@ -93,6 +94,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
+    searchCapabilities: () => unexpected("searchCapabilities"),
     searchTypes: () => unexpected("searchTypes"),
     activateWorkspacePackageOccurrence: () =>
       unexpected("activateWorkspacePackageOccurrence"),
@@ -152,6 +154,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPackageImplementationProfiles"),
     queryPlatformImplementationProfiles: () =>
       unexpected("queryPlatformImplementationProfiles"),
+    queryPackageTypeImplementationHeat: () =>
+      unexpected("queryPackageTypeImplementationHeat"),
+    queryPlatformTypeImplementationHeat: () =>
+      unexpected("queryPlatformTypeImplementationHeat"),
     queryPackageIntegrations: () =>
       unexpected("queryPackageIntegrations"),
     queryPlatformIntegrations: () =>
@@ -1887,6 +1893,7 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
 test("the page client and Worker catalog expose only the closed allow-list", () => {
   const expected = {
     library: [
+      "inspectLibrary",
       "openUploadedLibrary",
     ],
     package: [
@@ -1912,6 +1919,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
+      "searchCapabilities",
       "searchTypes",
     ],
     metadata: [
@@ -1936,11 +1944,13 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageLibraryMetrics",
       "queryPackageOpportunities",
       "queryPackagePerformance",
+      "queryPackageTypeImplementationHeat",
       "queryPlatformImplementationProfiles",
       "queryPlatformIntegrations",
       "queryPlatformLibraryMetrics",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
+      "queryPlatformTypeImplementationHeat",
     ],
     source: [
       "cancelMemberSourceComparison",
@@ -1996,7 +2006,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 82);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 86);
 
   const state = fixture();
   const groups = [

@@ -713,12 +713,12 @@ current group:
    route, operation, Workspace revision, and current generation;
 2. the ladder suspends and returns control to the Workspace owner rather than
    ordering acquisition, preparation, retirement, or publication itself;
-3. the Workspace atomically stops new admission to the old generation before
-   replacement preparation begins, following the existing
-   retire-before-prepare lifecycle;
-4. a later authorized replacement demand acquires and realizes each owner's
+3. a later authorized replacement demand acquires and realizes each owner's
    complete chosen unit, constructs a complete route map and binding policy,
-   and publishes the replacement under the Workspace contract; and
+   and prepares the replacement while the old generation remains active;
+4. the Workspace publishes the replacement through atomic cutover, which stops
+   new admission to the old generation while preserving its already-admitted
+   operations until drainage; and
 5. the ladder continues the same logical request only after validating the
    replacement receipt, fresh owner-issued binding occurrence, resolver
    lineage, and new generation identity.

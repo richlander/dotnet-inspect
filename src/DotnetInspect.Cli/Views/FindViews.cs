@@ -226,13 +226,10 @@ public sealed class PackageProfileRow
 [MarkoutContext(typeof(ExtensionsResultView))]
 [MarkoutContext(typeof(ExtensionCountRow))]
 [MarkoutContext(typeof(ExtensionRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchResultView))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchBlockerRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchBlockCorrespondenceRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryView))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryBlockerRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryCandidateRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryCandidateTableView))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryView))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryBlockerRow))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryCandidateRow))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryCandidateTableView))]
 public partial class SearchViewContext : MarkoutSerializerContext
 {
 }

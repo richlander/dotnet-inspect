@@ -3012,14 +3012,17 @@ public sealed partial class CSharpPrinter
             : null;
 
     bool CanRenderConditionalForTarget(Conditional conditional, TypeRef target)
+        => CanRenderValueConditionalForTarget(conditional, target)
+            || conditional.CanAssignReferenceArmsTo(target, _function.TypeShapes);
+
+    bool CanRenderValueConditionalForTarget(Conditional conditional, TypeRef target)
         => (IsCoreChar(target)
                 && TryCharConstantText(conditional.WhenTrue, out _)
                 && TryCharConstantText(conditional.WhenFalse, out _))
             || (IsEnumLikeInteger(target)
                 && IsIntegerArm(conditional.WhenTrue)
                 && IsIntegerArm(conditional.WhenFalse))
-            || conditional.CanRenderPrimitiveJoinAt(target)
-            || conditional.CanAssignReferenceArmsTo(target, _function.TypeShapes);
+            || conditional.CanRenderPrimitiveJoinAt(target);
 
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);

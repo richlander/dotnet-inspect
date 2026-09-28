@@ -259,6 +259,13 @@ import {
   type ImplementationProfileFamilyRequest,
   type ImplementationProfileState,
 } from "./implementation-profiles.ts";
+import {
+  createTypeHeatCoordinator,
+  familyHeatCue,
+  familyHeatFor,
+  type TypeHeatRequest,
+  type TypeHeatState,
+} from "./implementation-heat.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -433,6 +440,7 @@ import {
   type ContentFrameFocusTarget,
   type ContentFramePane,
 } from "./content-frame.ts";
+import { createMemberListRevealer } from "./member-list-reveal.ts";
 import {
   bindTypePanel,
   createMemberSourcePartSelector,
@@ -503,12 +511,21 @@ import {
 } from "./platform-subject.ts";
 import {
   createSpotlight,
+  spotlightCapabilityDraftValue,
   type RemovableSpotlightResult,
+  type SpotlightCapabilityResult,
   type SpotlightPackageResult,
   type SpotlightPackageHit,
   type SpotlightResult,
   type SpotlightScope,
 } from "./spotlight.ts";
+import {
+  createSpotlightCapabilitySearch,
+  normalizeSpotlightCapabilitySearchSnapshot,
+  spotlightCapabilitySearchMessage,
+  visibleSpotlightCapabilityResults,
+  type SpotlightCapabilitySearchResultState,
+} from "./spotlight-capability-search.ts";
 import {
   createSpotlightPackageSearch,
   normalizeSpotlightPackageSearchSnapshot,
@@ -518,6 +535,9 @@ import {
   type SpotlightPackageSearchResultState,
 } from "./spotlight-package-search.ts";
 import { createPackageRemoval } from "./package-removal.ts";
+import {
+  replaceChildrenPreservingRenderedInteractions,
+} from "./rendered-interaction.ts";
 import {
   createCatalogRequests,
   type CatalogPackage,
@@ -707,6 +727,10 @@ export type {
   BrowserUploadedLibraryInspection,
 } from "./facades/inspect-web-library.d.ts";
 import type {
+  BrowserLibraryEnablements,
+  BrowserLibraryInspectionRequest,
+} from "./facades/inspect-web-library.d.ts";
+import type {
   BrowserMemberDeclaration,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
@@ -734,6 +758,8 @@ import type {
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
 
+const memberListRevealer = createMemberListRevealer();
+
 type ProductionEngineWorkerModule =
   typeof import("./engine-worker-client.ts");
 
@@ -758,6 +784,7 @@ let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectOpenUploadedLibrary:
   EngineClient["library"]["openUploadedLibrary"];
+let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
@@ -770,6 +797,7 @@ let inspectRequestPackageQueryMatches:
   EngineClient["package"]["requestPackageQueryMatches"];
 let inspectRunPackageQuery: EngineClient["package"]["runPackageQuery"];
 let inspectRunPackageActivity: EngineClient["package"]["runPackageActivity"];
+let inspectSearchCapabilities: EngineClient["package"]["searchCapabilities"];
 let inspectSearchTypes: EngineClient["package"]["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
   EngineClient["package"]["queryWorkspacePackageOccurrences"];
@@ -817,6 +845,10 @@ let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
 let inspectPlatformImplementationProfiles:
   EngineClient["analysis"]["queryPlatformImplementationProfiles"];
+let inspectPackageTypeImplementationHeat:
+  EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
+let inspectPlatformTypeImplementationHeat:
+  EngineClient["analysis"]["queryPlatformTypeImplementationHeat"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -943,6 +975,7 @@ async function loadEngineModule() {
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
       runPackageQuery: inspectRunPackageQuery,
+      searchCapabilities: inspectSearchCapabilities,
       searchTypes: inspectSearchTypes,
       queryWorkspacePackageOccurrences:
         inspectQueryWorkspacePackageOccurrences,
@@ -952,6 +985,7 @@ async function loadEngineModule() {
         inspectClearWorkspacePackageOccurrences,
     } = engineClient.package);
     ({
+      inspectLibrary: inspectLibraryDocument,
       openUploadedLibrary: inspectOpenUploadedLibrary,
     } = engineClient.library);
     ({
@@ -979,6 +1013,10 @@ async function loadEngineModule() {
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
       queryPlatformImplementationProfiles:
         inspectPlatformImplementationProfiles,
+      queryPackageTypeImplementationHeat:
+        inspectPackageTypeImplementationHeat,
+      queryPlatformTypeImplementationHeat:
+        inspectPlatformTypeImplementationHeat,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
@@ -1223,6 +1261,8 @@ const initialState = {
   memberTraitFilter: "",
   memberTextFilter: "",
   implementationProfiles: { status: "idle" as const },
+  typeHeat: { status: "idle" } as TypeHeatState,
+  implementationEvidenceKey: null as string | null,
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1244,6 +1284,8 @@ const initialState = {
     new Map<string, BrowserExactLibraryApiInspection>(),
   libraryApiLoads: new Set<string>(),
   libraryApiErrors: new Map<string, string>(),
+  libraryEnablements: new Map<string, BrowserLibraryEnablements | null>(),
+  libraryEnablementLoads: new Set<string>(),
   packageDependencies: null,
   packageDependenciesLoading: false,
   packageDependenciesError: "",
@@ -1332,6 +1374,7 @@ const initialState = {
   spotlightScope: "all" as const,
   spotlightFocus: "input" as const,
   spotlightChipIndex: 0,
+  spotlightCapabilitySearch: { status: "idle" as const },
   spotlightPackageSearch: { status: "idle" as const },
   runtimePackLoading: false,
   runtimePackError: "",
@@ -1388,6 +1431,8 @@ interface StateOverrides {
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
   implementationProfiles: ImplementationProfileState;
+  typeHeat: TypeHeatState;
+  implementationEvidenceKey: string | null;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -1403,6 +1448,9 @@ interface StateOverrides {
     Map<string, BrowserExactLibraryApiInspection>;
   libraryApiLoads: Set<string>;
   libraryApiErrors: Map<string, string>;
+  // Enablements per Library; null records a load that produced no facts.
+  libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
+  libraryEnablementLoads: Set<string>;
   packageDependencies: BrowserPackageDependencies | null;
   packagePruning: BrowserPackagePruningResult | null;
   dependenciesGroupIndex: number | null;
@@ -1421,6 +1469,7 @@ interface StateOverrides {
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
+  spotlightCapabilitySearch: SpotlightCapabilitySearchResultState;
   spotlightPackageSearch: SpotlightPackageSearchResultState;
   spotlightFocus: "input" | "chips";
   spotlightScope: SpotlightScope;
@@ -1634,6 +1683,8 @@ CanonicalWorkspaceRestoreSnapshot {
       platformStack: structuredClone(state.platformStack),
       platformRecent: structuredClone(state.platformRecent),
       recentPackages: structuredClone(state.recentPackages),
+      spotlightCapabilitySearch:
+        structuredClone(state.spotlightCapabilitySearch),
       spotlightPackageSearch:
         structuredClone(state.spotlightPackageSearch),
       history: [...state.history],
@@ -1708,6 +1759,10 @@ function normalizeWorkspaceAsyncSnapshotState(
   }
   snapshotState.docViewer =
     normalizeDocumentViewerSnapshot(snapshotState.docViewer);
+  snapshotState.spotlightCapabilitySearch =
+    normalizeSpotlightCapabilitySearchSnapshot(
+      snapshotState.spotlightCapabilitySearch,
+    );
   snapshotState.spotlightPackageSearch =
     normalizeSpotlightPackageSearchSnapshot(
       snapshotState.spotlightPackageSearch,
@@ -1803,6 +1858,8 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     platformIndex: null,
     retryAction: null,
     queryNoticeRetryAction: null,
+    implementationProfiles: { status: "idle" as const },
+    typeHeat: { status: "idle" as const },
   });
   const retainedState: AppState = {
     ...cloned,
@@ -1890,6 +1947,7 @@ function captureRetainedHostState() {
     spotlightScope: state.spotlightScope,
     spotlightFocus: state.spotlightFocus,
     spotlightChipIndex: state.spotlightChipIndex,
+    spotlightCapabilitySearch: state.spotlightCapabilitySearch,
     spotlightPackageSearch: state.spotlightPackageSearch,
     styleTiers: state.styleTiers,
     styleOptions: state.styleOptions,
@@ -3183,6 +3241,40 @@ let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
 const implementationProfileWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const typeHeat = createTypeHeatCoordinator({
+  state,
+  operationAuthority,
+  query: request => request.kind === "package"
+    ? inspectPackageTypeImplementationHeat(
+        request.packageId,
+        request.version,
+        request.targetFramework,
+        request.assemblyName,
+        request.typeDefinitionId)
+    : inspectPlatformTypeImplementationHeat(
+        request.targetFramework,
+        request.platformVersion,
+        request.assemblyFileName,
+        request.pack,
+        request.typeDefinitionId),
+  // Idle resolves while the last request settles; one macrotask lets that
+  // request's own continuation issue follow-up work before heat is sent.
+  whenWorkerIdle: async () => {
+    for (;;) {
+      await engineClient.activity.whenIdle();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (engineClient.activity.outstanding() === 0) return;
+    }
+  },
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error(
+      "Type implementation heat operation authority failure.",
+      diagnostic);
+    return undefined;
+  },
+  render: renderPreservingMemberFocus,
+});
 const implementationProfiles = createImplementationProfileCoordinator({
   state,
   operationAuthority,
@@ -3766,10 +3858,6 @@ function applyView(view: WorkspaceView) {
       observeAsync(loadSelectedMemberSource(), "Loading member source");
     else if (section === "annotated")
       observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-    else if (section === "implementation-profiles")
-      observeAsync(
-        loadSelectedImplementationProfiles(),
-        "Loading implementation profiles");
     else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
     else if (section === "facts")
@@ -4223,6 +4311,7 @@ let callGraphRenderOperation: {
 } | null = null;
 let spotlightFocusGeneration = 0;
 let documentFocusGeneration = 0;
+let packageActivityReturnFocusIntentGeneration = 0;
 let workspaceProductFocusParkingActive = false;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
@@ -4317,6 +4406,14 @@ function currentPackage(): AppPackage {
 const spotlightPackageSearch = createSpotlightPackageSearch({
   state,
   queryPackages: querySpotlightPackages,
+  schedule: (callback, delay) => setTimeout(() => void callback(), delay),
+  cancelScheduled: handle => clearTimeout(handle),
+  updateResults: () => spotlight.updateResults(),
+});
+const spotlightCapabilitySearch = createSpotlightCapabilitySearch({
+  state,
+  searchCapabilities: (query, maximumResults) =>
+    inspectSearchCapabilities(query, maximumResults),
   schedule: (callback, delay) => setTimeout(() => void callback(), delay),
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
@@ -4418,6 +4515,13 @@ const spotlight = createSpotlight({
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
+  scheduleCapabilitySearch: () => spotlightCapabilitySearch.schedule(),
+  resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
+  capabilitySearchMessage: () =>
+    spotlightCapabilitySearchMessage(
+      state.spotlightCapabilitySearch,
+      state.spotlightQuery.trim(),
+    ),
   packageCount: () => state.packages.length,
   render,
   focusAfterDismiss: () =>
@@ -6231,7 +6335,6 @@ function memberSourceHasConcreteOverload() {
 
 function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
-    || section === "implementation-profiles"
     || section === "call-graph"
     || section === "facts";
 }
@@ -6309,9 +6412,7 @@ function implementationProfileTarget(): {
     isCurrent: () =>
       state.package === pkg
       && selectedType()?.id === type.id
-      && selectedMember(selectedType())?.key === member.key
-      && state.memberSection === "implementation-profiles"
-      && state.selectedOverloadIndex === selectedOverloadIndex,
+      && selectedMember(selectedType())?.key === member.key,
   };
   return { request, selection };
 }
@@ -6336,6 +6437,180 @@ function currentImplementationProfileState(): ImplementationProfileState {
         selection: target.selection,
       }
     : { status: "idle" };
+}
+
+// Member-list heat: after a Type's member list paints, one request covers every
+// eligible overload family on the Type; expanding a family reads that record.
+let typeHeatScheduled = false;
+
+function typeHeatTarget(): {
+  request: TypeHeatRequest;
+  isCurrent: () => boolean;
+} | null {
+  const pkg = state.package;
+  const type = selectedType();
+  if (!pkg
+    || !type
+    || state.rootKind === "library"
+    || navMode() !== "member") {
+    return null;
+  }
+  const typeDefinitionId = type.definitionId;
+  const request: TypeHeatRequest = pkg.isRuntimePack
+    ? (() => {
+        const row = platformLibraryForRequest(pkg, type.assemblyId);
+        return {
+          kind: "platform",
+          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+          targetFramework: pkg.activeFramework,
+          platformVersion: pkg.version,
+          pack: row.pack,
+          assemblyFileName: platformAssemblyRequest(row),
+          typeDefinitionId,
+        };
+      })()
+    : {
+        kind: "package",
+        workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+        packageId: pkg.id,
+        version: pkg.version,
+        targetFramework: pkg.activeFramework,
+        assemblyName: type.assemblyId,
+        typeDefinitionId,
+      };
+  return {
+    request,
+    isCurrent: () =>
+      state.package === pkg
+      && selectedType()?.id === type.id,
+  };
+}
+
+// The producer's eligibility: at least two public overloads, and every public
+// member sharing the name is an ordinary method (an attached extension group
+// of the same name makes the family ineligible).
+function familyIsEligible(
+  type: AppTypeSurface,
+  group: { name: string; kind: string; overloads: readonly unknown[] },
+) {
+  return group.kind === "method"
+    && group.overloads.length > 1
+    && memberGroups(type).every(candidate =>
+      candidate.name !== group.name || candidate.kind === "method");
+}
+
+function typeHasEligibleFamily(type: AppTypeSurface) {
+  return memberGroups(type).some(group => familyIsEligible(type, group));
+}
+
+function currentTypeHeatState(): TypeHeatState {
+  const current = state.typeHeat;
+  return current.status !== "idle" && current.isCurrent()
+    ? current
+    : { status: "idle" };
+}
+
+function scheduleTypeHeat() {
+  if (typeHeatScheduled) return;
+  const type = selectedType();
+  if (!typeHeatTarget()
+    || !type
+    || !typeHasEligibleFamily(type)
+    || currentTypeHeatState().status !== "idle") {
+    return;
+  }
+  typeHeatScheduled = true;
+  requestAnimationFrame(() => setTimeout(() => {
+    typeHeatScheduled = false;
+    const target = typeHeatTarget();
+    if (!target || currentTypeHeatState().status !== "idle") return;
+    typeHeat.request(target.request, target.isCurrent);
+  }, 0));
+}
+
+// The implementation-evidence disclosure is the only family-detail request.
+// It belongs to the overload it was opened on, and it renders open only while
+// the published family detail still serves the current selection, so moving
+// to another overload or Type never issues a request by itself.
+function implementationEvidenceKey(stableSelector: string) {
+  return `${selectedType()?.id ?? ""}\u0000${stableSelector}`;
+}
+
+function implementationEvidenceIsOpen(stableSelector: string) {
+  const published = state.implementationProfiles;
+  return state.implementationEvidenceKey
+      === implementationEvidenceKey(stableSelector)
+    && published.status !== "idle"
+    && published.selection.isCurrent();
+}
+
+function navGroupSelectors(group: { key: string }) {
+  const type = selectedType();
+  const appGroup = type
+    ? memberGroups(type).find(candidate => candidate.key === group.key)
+    : undefined;
+  return type && appGroup && familyIsEligible(type, appGroup)
+    ? {
+        name: appGroup.name,
+        selectors: appGroup.overloads.map(overload => overload.stableSelector),
+      }
+    : null;
+}
+
+function memberNavOverloadHeat(group: { key: string }, index: number) {
+  const family = navGroupSelectors(group);
+  if (!family) return null;
+  const heat = familyHeatFor(
+    currentTypeHeatState(),
+    family.name,
+    family.selectors);
+  const selector = family.selectors[index];
+  const overload = heat?.overloads.find(item => item.stableSelector === selector);
+  return overload
+    ? {
+        heatStrength: overload.heatStrength,
+        hub: overload.hub,
+        description: overload.description,
+        size: overload.size,
+      }
+    : null;
+}
+
+function memberNavFamilyHeatCue(group: { key: string }) {
+  const family = navGroupSelectors(group);
+  return family
+    ? familyHeatCue(currentTypeHeatState(), family.name, family.selectors)
+    : null;
+}
+
+function renderOverloadImplementationEvidence(stableSelector: string) {
+  const member = selectedMember(selectedType());
+  if (!member || !implementationProfileTarget()) return "";
+  const evidenceOpen = implementationEvidenceIsOpen(stableSelector);
+  const selectors = member.overloads.map(overload => overload.stableSelector);
+  const heatState = currentTypeHeatState();
+  const overloadHeat = familyHeatFor(heatState, member.name, selectors)
+    ?.overloads.find(item => item.stableSelector === stableSelector);
+  const summary = heatState.status === "failed"
+    ? `<div class="implementation-heat-failure"><p>Implementation heat is unavailable (${escapeHtml(heatState.outcome)}): ${escapeHtml(heatState.message)}${heatState.outcome === "producer-failed" ? ' <button type="button" id="type-heat-retry" data-type-heat-retry>Retry heat</button>' : ""}</p>${heatState.diagnostics?.length ? `<ul>${heatState.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`
+    : overloadHeat
+      ? `<p class="implementation-profile-heat-summary">${escapeHtml(overloadHeat.description)}</p>`
+      : heatState.status === "loading"
+        ? '<p class="docs-loading">Measuring this Type\'s overloads…</p>'
+        : "";
+  return `<section class="learn-section member-implementation" aria-labelledby="member-implementation-title">
+    <h2 id="member-implementation-title">Implementation</h2>
+    ${summary}
+    <details class="implementation-evidence" data-implementation-evidence="${escapeHtml(stableSelector)}"${evidenceOpen ? " open" : ""}>
+      <summary>Implementation evidence</summary>
+      ${evidenceOpen
+        ? renderImplementationProfileState(
+            currentImplementationProfileState(),
+            escapeHtml,
+            stableSelector)
+        : ""}
+    </details>
+  </section>`;
 }
 
 function currentSourceOperationKind() {
@@ -6383,10 +6658,6 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
   else if (id === "annotated")
     observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-  else if (id === "implementation-profiles")
-    observeAsync(
-      loadSelectedImplementationProfiles(),
-      "Loading implementation profiles");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts")
@@ -6419,7 +6690,6 @@ function openMemberGroup(key: string) {
     const retainedSection = state.memberSection;
     let selectedFirstOverload = false;
     if (state.memberSection !== "overview"
-      && state.memberSection !== "implementation-profiles"
       && group
       && group.overloads.length > 1
       && state.selectedOverloadIndex == null) {
@@ -6428,11 +6698,6 @@ function openMemberGroup(key: string) {
       selectedFirstOverload = true;
     }
     retainMemberSectionIfSupported(group);
-    if (state.memberSection === "implementation-profiles") {
-      const target = implementationProfileTarget();
-      if (!target || !implementationProfiles.hasActivated(target.request))
-        state.memberSection = "overview";
-    }
     if (selectedFirstOverload && state.memberSection !== retainedSection) {
       state.selectedOverloadIndex = null;
       state.selectedBodyTarget = null;
@@ -6495,12 +6760,11 @@ function openOverload(index: number) {
 }
 
 // Switch the open member's section and kick off its lazy load. Shared by the scope-bar strip
-// click and the section shortcut. Family-level implementation profiles deliberately keep the
-// overload picker unresolved; overload-specific sections select the first overload as needed.
+// click and the section shortcut. Overload-specific sections select the first overload as
+// needed.
 function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
-  if (id !== "implementation-profiles"
-    && member
+  if (member
     && member.overloads.length > 1
     && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
@@ -6555,10 +6819,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
       } else {
         state.selectedOverloadIndex = null;
         clearMemberContentCache();
-        if (state.memberSection === "implementation-profiles")
-          loadMemberSectionContent(state.memberSection);
-        else
-          render();
+        render();
       }
     } else {
       openMemberGroup(entry.group.key);
@@ -6641,9 +6902,8 @@ function stepHorizontal(delta: number) {
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
   const overloadOpen = member
-    && (state.memberSection === "implementation-profiles"
-      || !(member.overloads.length > 1
-        && state.selectedOverloadIndex == null));
+    && !(member.overloads.length > 1
+      && state.selectedOverloadIndex == null);
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
@@ -6771,6 +7031,7 @@ type HomeFocusTarget =
     region: "home-bar" | "data-bar";
     href: string;
   }
+  | { kind: "spotlight-result"; identity: string }
   | { kind: "spotlight-scope"; scope: string }
   | { kind: "settings-theme"; theme: string }
   | { kind: "settings-taste"; taste: string };
@@ -6785,6 +7046,10 @@ function captureHomeFocus(
       ? "home"
       : null;
   if (!surface) return null;
+  const spotlightResult = focused.dataset.slResultIdentity;
+  if (surface === "home" && spotlightResult) {
+    return { kind: "spotlight-result", identity: spotlightResult };
+  }
   if (focused.id) return { kind: "id", surface, id: focused.id };
   if (surface === "settings") {
     const theme = focused.dataset.theme;
@@ -6808,7 +7073,17 @@ function captureHomeFocus(
 
 function restoreHomeFocus(target: HomeFocusTarget): boolean {
   let element: HTMLElement | null = null;
-  if (target.kind === "id") {
+  if (target.kind === "spotlight-result") {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement
+      && active.dataset.slResultIdentity === target.identity) {
+      return true;
+    }
+    element = [...document.querySelectorAll<HTMLElement>(
+      "[data-sl-result-identity]",
+    )].find(candidate =>
+      candidate.dataset.slResultIdentity === target.identity) ?? null;
+  } else if (target.kind === "id") {
     element = document.getElementById(target.id);
   } else if (target.kind === "spotlight-scope") {
     element = [...document.querySelectorAll<HTMLElement>("[data-sl-scope]")]
@@ -6849,6 +7124,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
+    memberListRevealer.afterRender(document);
+    scheduleTypeHeat();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),
@@ -7017,6 +7294,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   if (state.home) {
     renderHomeView(homeFocus);
+    restoreApplicationActivityReturnFocus();
     return;
   }
   if (scope() === "platform") {
@@ -7232,7 +7510,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   const applicationModalOpen =
     state.settings || state.keyboardHelp || state.libraryOpen;
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || annotatedPageContext || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
@@ -7333,7 +7611,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
     }, escapeHtml)}
-    ${renderAnnotatedSourceModal()}`;
+    ${renderAnnotatedSourceModal()}`);
 
   for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
     packageIcon.onerror = () => {
@@ -7414,6 +7692,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadVisibleSource();
     maybeAutoLoadTypeMetadata();
     maybeAutoLoadLibraryApi();
+    maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackageOpportunities();
@@ -7440,7 +7719,7 @@ function renderWorkspaceCatalogView() {
     label: "Workspace",
     copyable: false,
   }];
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         inspectedTargetHtml: `
@@ -7480,7 +7759,7 @@ function renderWorkspaceCatalogView() {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindScopeBarEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
@@ -7745,7 +8024,6 @@ function renderTypeNavPane(
     typeDisplayName,
     typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
-    shortKind,
   });
 }
 
@@ -7763,6 +8041,8 @@ function renderMemberNavPane(type: AppTypeSurface) {
     typeDisplayName,
     shortKind,
     highlight,
+    overloadHeat: memberNavOverloadHeat,
+    familyHeatCue: memberNavFamilyHeatCue,
   });
 }
 
@@ -9069,11 +9349,11 @@ function syncExplorerPageSize() {
 function renderMetadataExplorer() {
   const explorer = state.explorer;
   if (!explorer) return;
-  app.innerHTML = renderMetadataExplorerHtml({
+  replaceChildrenPreservingRenderedInteractions(app, renderMetadataExplorerHtml({
     explorer,
     escapeHtml,
     fmtBytes,
-  });
+  }));
   bindMetadataViewerEvents();
 }
 
@@ -9274,6 +9554,96 @@ function maybeAutoLoadLibraryApi() {
     `Loading ${library.name} public API`);
 }
 
+function libraryEnablementsRequest(
+  pkg: AppPackage,
+  library: ReturnType<typeof packageLibraries>[number],
+): BrowserLibraryInspectionRequest | null {
+  const plan = { enablements: true };
+  if (pkg.isRuntimePack) {
+    if (!library.platformPack) return null;
+    return {
+      library: {
+        kind: "Platform",
+        package: null,
+        platform: {
+          targetFramework: pkg.activeFramework,
+          platformVersion: pkg.version,
+          assemblyFileName: `${library.name}.dll`,
+          pack: library.platformPack,
+        },
+      },
+      plan,
+    };
+  }
+  if (state.rootKind === "library") return null;
+  return {
+    library: {
+      kind: "Package",
+      package: {
+        packageId: pkg.id,
+        version: pkg.version,
+        targetFramework: pkg.activeFramework,
+        assemblyId: library.id,
+      },
+      platform: null,
+    },
+    plan,
+  };
+}
+
+async function loadLibraryEnablements(
+  pkg: AppPackage,
+  library: ReturnType<typeof packageLibraries>[number],
+  request: BrowserLibraryInspectionRequest,
+) {
+  const key = libraryApiSignature(pkg, library);
+  state.libraryEnablementLoads.add(key);
+  try {
+    const inspection = await inspectLibraryDocument(request);
+    state.libraryEnablements.set(key, inspection.enablements ?? null);
+  } catch {
+    // Enablements are silent on failure: badges never guess.
+    state.libraryEnablements.set(key, null);
+  } finally {
+    state.libraryEnablementLoads.delete(key);
+    if (state.package
+      && packageIdentityEquals(state.package, pkg)
+      && selectedLibrary()?.id === library.id
+      && state.atLibraryRoot
+      && state.libraryLens === "overview") {
+      renderPreservingContentFrameFocus();
+    }
+  }
+}
+
+function maybeAutoLoadLibraryEnablements() {
+  if (!state.atLibraryRoot || state.libraryLens !== "overview") return;
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg || !library) return;
+  const key = libraryApiSignature(pkg, library);
+  if (state.libraryEnablements.has(key)
+    || state.libraryEnablementLoads.has(key)) return;
+  const request = libraryEnablementsRequest(pkg, library);
+  if (!request) return;
+  observeAsync(
+    loadLibraryEnablements(pkg, library, request),
+    `Reading ${library.name} enablements`);
+}
+
+function enabledLibraryEnablements(
+  pkg: AppPackage,
+  library: { id: string } | null,
+) {
+  if (!library) return [];
+  const facts =
+    state.libraryEnablements.get(libraryApiSignature(pkg, library));
+  if (!facts || facts.outcome !== "Available") return [];
+  return facts.items
+    .filter(item => item.kind === "enabled")
+    .map(item => ({ id: String(item.id), label: item.label }));
+}
+
 function renderPackageOverview() {
   const pkg = currentPackage();
   const documentsSection =
@@ -9366,6 +9736,7 @@ function renderLibraryCompositionOverview(
     details: library
       ? [library.asset || "Managed library", libraryIdentity(library)]
       : [`${libraries.length} managed ${libraries.length === 1 ? "library" : "libraries"}`, pkg.activeFramework],
+    enablements: enabledLibraryEnablements(pkg, library),
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
@@ -9457,6 +9828,7 @@ function renderLibraryOverview() {
     displayName: library.name,
     iconHtml: renderInspectedSubjectIcon(pkg),
     details: [library.asset || "Managed library", libraryIdentity(library)],
+    enablements: enabledLibraryEnablements(pkg, library),
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
@@ -9678,8 +10050,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && selectedOverloadIndex >= 0
     && selectedOverloadIndex < member.overloads.length;
   if (member.overloads.length > 1
-    && !hasSelectedOverload
-    && state.memberSection !== "implementation-profiles") {
+    && !hasSelectedOverload) {
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
@@ -9784,6 +10155,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
               ? "error"
               : "loaded",
         })}
+        ${renderOverloadImplementationEvidence(overload.stableSelector)}
       </article>
     `;
   } else if (state.memberSection === "call-graph") {
@@ -9856,10 +10228,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(state);
-  } else if (state.memberSection === "implementation-profiles") {
-    content = renderImplementationProfileState(
-      currentImplementationProfileState(),
-      escapeHtml);
   } else if (state.memberSection === "annotated") {
     const destinationError = state.annotatedDestinationError
       ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
@@ -9892,11 +10260,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
         <div class="member-surface-meta">
-          <p>${escapeHtml(member.kind)} <span>· ${
-            state.memberSection === "implementation-profiles"
-              ? `${member.overloads.length} overloads`
-              : `${overloadIndex + 1} of ${member.overloads.length}`
-          }</span></p>
+          <p>${escapeHtml(member.kind)} <span>· ${overloadIndex + 1} of ${member.overloads.length}</span></p>
           ${callGraphExplore}
         </div>
       </header>
@@ -11142,11 +11506,31 @@ function bindMemberFactsEvents() {
 }
 
 function bindImplementationProfileEvents() {
+  document.querySelector<HTMLDetailsElement>("[data-implementation-evidence]")
+    ?.addEventListener("toggle", event => {
+      const details = event.currentTarget;
+      if (!(details instanceof HTMLDetailsElement)) return;
+      const selector = details.dataset.implementationEvidence ?? "";
+      if (details.open === implementationEvidenceIsOpen(selector)) return;
+      state.implementationEvidenceKey = details.open
+        ? implementationEvidenceKey(selector)
+        : null;
+      if (details.open)
+        observeAsync(
+          loadSelectedImplementationProfiles(),
+          "Loading implementation evidence");
+      else
+        renderPreservingMemberFocus();
+    });
+  document.querySelector("[data-type-heat-retry]")
+    ?.addEventListener("click", () => {
+      const target = typeHeatTarget();
+      if (target) typeHeat.retry(target.request, target.isCurrent);
+    });
   bindImplementationProfileState(document, {
     onRetry: () => {
       observeAsync(
         loadSelectedImplementationProfiles(true).finally(() => {
-          if (state.memberSection !== "implementation-profiles") return;
           requestAnimationFrame(() =>
             document.querySelector<HTMLElement>(
               "#implementation-profile-retry, #implementation-profile-state-title")
@@ -11842,7 +12226,7 @@ function showPlatformRoot() {
 function renderPlatformView() {
   const target = selectedPlatformTarget();
   const idle = { loading: false, error: "" };
-  app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+  replaceChildrenPreservingRenderedInteractions(app, `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
     ${workbenchShellHtml({
       inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
       subjectInspectorHtml: renderScopeBar(["platform"]),
@@ -11875,7 +12259,7 @@ function renderPlatformView() {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   workbenchShellBinding = bindWorkbenchShell(document, workbenchShellActions);
@@ -12087,6 +12471,22 @@ function spotlightResults(): SpotlightResult[] {
       prefix: validPackageQuerySearchText(query),
     });
     results.push({ kind: "package-activity" });
+  }
+  if (all && query) {
+    for (const capability of visibleSpotlightCapabilityResults(
+      state.spotlightCapabilitySearch,
+      query,
+    )) {
+      results.push({
+        kind: "capability",
+        query,
+        capability,
+        ranges: computeHighlightRanges(
+          capability.resourceName,
+          query.toLowerCase(),
+        ),
+      });
+    }
   }
   if ((all || spotlightScope === "types") && query) {
     for (const match of spotlightTypeMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "type" });
@@ -12416,6 +12816,29 @@ async function switchPackageFramework(
 
 
 // Routes a blended result to the right navigation path per its kind.
+const PACKAGE_QUERY_BROWSER_BINDING_IDENTITY =
+  "dotnet-inspect.web/package-query";
+
+function openSpotlightCapability(result: SpotlightCapabilityResult): void {
+  const { capability } = result;
+  const binding = capability.productionBindings.find(candidate =>
+    candidate.consumerKind === "Browser"
+    && candidate.identity === PACKAGE_QUERY_BROWSER_BINDING_IDENTITY);
+  if (!binding) {
+    showToast("This capability has no available Browser destination.");
+    return;
+  }
+  if (!openPackageQueryRoute("")) return;
+  if (capability.resourceKind !== "QueryFacet") return;
+  const termKey = capability.canonicalKeys[0];
+  if (termKey) {
+    addPackageQueryTerm(
+      termKey,
+      spotlightCapabilityDraftValue(result),
+    );
+  }
+}
+
 function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
@@ -12424,6 +12847,9 @@ function pickSpotlightResult(result: SpotlightResult) {
       break;
     case "package-activity":
       openPackageActivityRoute();
+      break;
+    case "capability":
+      openSpotlightCapability(result);
       break;
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
     case "pkg-nuget":
@@ -13758,15 +14184,12 @@ function loadSelectionData() {
   const member = selectedMember(selectedType());
   if (!member) return undefined;
   if (member.overloads.length > 1
-    && state.selectedOverloadIndex == null
-    && state.memberSection !== "implementation-profiles") {
+    && state.selectedOverloadIndex == null) {
     return undefined;
   }
   switch (state.memberSection) {
     case "source": return loadSelectedMemberSource();
     case "annotated": return loadSelectedMemberAnnotatedSource();
-    case "implementation-profiles":
-      return loadSelectedImplementationProfiles();
     case "call-graph": return loadSelectedMemberCallGraph();
     case "facts": return loadSelectedMemberFactsSurface();
     case "overview": return loadSelectedMemberDocumentation();
@@ -13950,7 +14373,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
     ? 0
     : -((performance.now() - homeBotAnimationStartedAt)
       % HOME_BOT_ANIMATION_DURATION_MS);
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="home"${state.settings || state.libraryOpen ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
@@ -14006,7 +14429,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindHomeEvents(preservedFocus);
   bindLibraryOpenEvents();
   if (state.settings) {
@@ -14134,7 +14557,7 @@ function openProductDemos(): void {
 
 function renderProductDemosPage(): void {
   document.title = "Demos — dotnet-inspect";
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="home demos-page"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
@@ -14157,7 +14580,7 @@ function renderProductDemosPage(): void {
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
       error: state.libraryOpenError,
-    }, escapeHtml)}`;
+    }, escapeHtml)}`);
   bindHomeShell(document, homeShellActions);
   bindLibraryOpenEvents();
   bindWorkspaceSubjectEvents();
@@ -14835,7 +15258,9 @@ function openCredits() {
 
 function renderCreditsView() {
   document.title = "Credits · dotnet-inspect";
-  app.innerHTML = renderCreditsPage(state.theme === "light" ? "light" : "dark");
+  replaceChildrenPreservingRenderedInteractions(
+    app,
+    renderCreditsPage(state.theme === "light" ? "light" : "dark"));
   bindCreditsPanel(document, {
     onClose: goHome,
     onToggleTheme: toggleCreditsTheme,
@@ -14934,12 +15359,12 @@ function renderDiagnosticsPage() {
   }
   state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
   document.title = "Diagnostics · dotnet-inspect";
-  app.innerHTML = diagnosticsViewHtml({
+  replaceChildrenPreservingRenderedInteractions(app, diagnosticsViewHtml({
     runtime: diagnosticsRuntimeState(),
     build: diagnosticsBuildState(),
     packageCache: diagnosticsPackageCacheState(),
     capturedAtUtc: state.diagnosticsCapturedAtUtc,
-  }, value => escapeHtml(value));
+  }, value => escapeHtml(value)));
   bindDiagnosticsView(document, {
     onBack: closeDiagnosticsRoute,
   });
@@ -15157,13 +15582,20 @@ function restorePackageQueryReturnFocus() {
 function restorePackageActivityReturnFocus() {
   if (!state.packageActivityReturnFocusPending) return;
   if (state.packageActivityReturnFocus === "application-activity") {
-    afterCurrentNavigationFrame(() => {
-      afterCurrentNavigationFrame(() => {
-        if (focusRenderedElement(document.querySelector<HTMLElement>(
-          "[data-product-navigation-button]")) || focusLevelOneHeading()) {
-          state.packageActivityReturnFocus = null;
-          state.packageActivityReturnFocusPending = false;
+    const predecessorEntryId = state.packageActivityPredecessorEntryId;
+    const intentGeneration = packageActivityReturnFocusIntentGeneration;
+    const focusGeneration = documentFocusGeneration;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (focusGeneration !== documentFocusGeneration) {
+          retireApplicationActivityReturnFocus(
+            predecessorEntryId,
+            intentGeneration);
+          return;
         }
+        restoreApplicationActivityReturnFocus(
+          predecessorEntryId,
+          intentGeneration);
       });
     });
     return;
@@ -15175,6 +15607,42 @@ function restorePackageActivityReturnFocus() {
       state.packageActivityReturnFocusPending = false;
     }
   });
+}
+
+function retireApplicationActivityReturnFocus(
+  predecessorEntryId: string | null,
+  intentGeneration: number,
+): void {
+  if (!state.packageActivityReturnFocusPending
+    || state.packageActivityReturnFocus !== "application-activity"
+    || state.packageActivityPredecessorEntryId !== predecessorEntryId
+    || packageActivityReturnFocusIntentGeneration !== intentGeneration) {
+    return;
+  }
+  state.packageActivityReturnFocus = null;
+  state.packageActivityReturnFocusPending = false;
+}
+
+function restoreApplicationActivityReturnFocus(
+  predecessorEntryId = state.packageActivityPredecessorEntryId,
+  intentGeneration = packageActivityReturnFocusIntentGeneration,
+): boolean {
+  if (!state.packageActivityReturnFocusPending
+    || state.packageActivityReturnFocus !== "application-activity"
+    || state.packageActivityPredecessorEntryId !== predecessorEntryId
+    || packageActivityReturnFocusIntentGeneration !== intentGeneration
+    || !isPackageActivityPredecessor(
+      history.state,
+      predecessorEntryId)) {
+    return false;
+  }
+  if (!focusRenderedElement(document.querySelector<HTMLElement>(
+    "[data-product-navigation-button]")) && !focusLevelOneHeading()) {
+    return false;
+  }
+  state.packageActivityReturnFocus = null;
+  state.packageActivityReturnFocusPending = false;
+  return true;
 }
 
 function restorePackageQueryWorkspaceFocus() {
@@ -15809,7 +16277,7 @@ function renderTypeExplorerPage() {
   const viewState: TypeExplorerViewState = state.typeExplorerIntentError
     ? { status: "failed", error: state.typeExplorerIntentError }
     : state.typeExplorerView;
-  app.innerHTML = renderTypeExplorerView({
+  replaceChildrenPreservingRenderedInteractions(app, renderTypeExplorerView({
     typeDisplay: type?.displayName ?? type?.id ?? "Type",
     packageDisplay: pkg
       ? `${pkg.id} ${pkg.version} · ${pkg.activeFramework}${
@@ -15822,7 +16290,7 @@ function renderTypeExplorerPage() {
     outlineOpen: typeExplorerOutlineOpen,
     escapeHtml,
     highlightCSharp,
-  }) + renderAnnotatedSourceModal();
+  }) + renderAnnotatedSourceModal());
   if (state.memberAnnotatedModal !== null) {
     app.querySelector<HTMLElement>(".type-explorer-route")
       ?.setAttribute("inert", "");
@@ -16417,7 +16885,7 @@ function togglePackageQueryPreset(presetId: string, text: string) {
   submitPackageQueryRequest(togglePreset(current, preset));
 }
 
-function addPackageQueryTerm(termKey: string) {
+function addPackageQueryTerm(termKey: string, initialValue = "") {
   const descriptor = state.packageQueryTerms.find(
     candidate => candidate.key === termKey);
   if (!descriptor || descriptor.operators.length === 0) {
@@ -16430,7 +16898,7 @@ function addPackageQueryTerm(termKey: string) {
   state.packageQueryState.termDraft = {
     descriptor,
     operator: descriptor.operators[0] ?? "",
-    value: "",
+    value: initialValue,
   };
   state.packageQueryNavigationError = "";
   render();
@@ -16763,7 +17231,7 @@ function replacePackageQueryPage() {
     capturePackageQueryViewport(document) ?? packageQueryViewport;
   const announcement = takePackageQueryAnnouncement();
   document.title = "Package query · dotnet-inspect";
-  app.innerHTML = renderPackageQueryView({
+  replaceChildrenPreservingRenderedInteractions(app, renderPackageQueryView({
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availablePresets: state.packageQueryPresets,
@@ -16774,7 +17242,7 @@ function replacePackageQueryPage() {
     ].filter(Boolean).join(" "),
     escapeHtml,
     viewport,
-  });
+  }));
   bindPackageQueryView(document, packageQueryActions);
   restorePackageQueryViewport(document, viewport);
   packageQueryViewport =
@@ -16789,13 +17257,13 @@ function renderPackageActivityPage() {
     capturePackageChangesViewport(document, packageChangesViewport)
     ?? packageChangesViewport;
   document.title = "Package Activity · dotnet-inspect";
-  app.innerHTML = renderPackageChangesView({
+  replaceChildrenPreservingRenderedInteractions(app, renderPackageChangesView({
     state: state.packageChangesState,
     packageSets: state.packageChangesPackageSets,
     catalogError: state.packageChangesCatalogError,
     escapeHtml,
     viewport,
-  });
+  }));
   bindPackageChangesView(document, packageChangesActions);
   restorePackageChangesViewport(document, viewport);
   packageChangesViewport =
@@ -16865,7 +17333,7 @@ function renderLoading() {
     // The interstitial replaces every Workspace control, so its status can remain exposed.
     app.inert = false;
   }
-  app.innerHTML = `
+  replaceChildrenPreservingRenderedInteractions(app, `
     <div class="loading-screen">
       <a class="loading-brand" href="/" aria-label="dotnet inspect home"><span>◇</span> dotnet-inspect</a>
       ${state.error
@@ -16885,7 +17353,7 @@ function renderLoading() {
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
            </div>`
         : `<div class="load-progress" role="status"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
-    </div>`;
+    </div>`);
   bindLoadErrorShell(document, loadErrorShellActions);
   bindLibraryOpenEvents();
 }
@@ -16909,16 +17377,25 @@ async function loadSelectedMemberDocumentation() {
   }
   const signature = memberRequestSignature(type, overload);
   const pkg = currentPackage();
+  const platformCoordinates = pkg.isRuntimePack
+    ? (() => {
+        const row = platformLibraryForRequest(pkg, type.assemblyId);
+        return {
+          assemblyFileName: platformAssemblyRequest(row),
+          pack: row.pack,
+        };
+      })()
+    : null;
+  const assembly = platformCoordinates?.assemblyFileName ?? type.assembly;
+  const platformPack = platformCoordinates?.pack ?? "";
   await Promise.all([
     memberDetailInspection.loadDocumentation({
       signature,
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
-      assembly: type.assembly,
-      platformPack: pkg.isRuntimePack
-        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
-        : "",
+      assembly,
+      platformPack,
       overload,
       isRuntimePack: Boolean(state.package?.isRuntimePack),
       isCurrent: () => memberRequestIsCurrent(signature),
@@ -16928,11 +17405,9 @@ async function loadSelectedMemberDocumentation() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
-      assembly: type.assembly,
+      assembly,
       isRuntimePack: pkg.isRuntimePack,
-      platformPack: pkg.isRuntimePack
-        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
-        : "",
+      platformPack,
       typeIdentity: type.definitionId ?? type.id,
       member: overload.name,
       selectorKey: overload.graphSelectorKey,
@@ -22016,6 +22491,11 @@ installStaleDeploymentDetection(window);
 
 window.addEventListener("popstate", () => {
   void (async () => {
+  if (!state.packageActivityOpen
+    && state.packageActivityReturnFocusPending) {
+    state.packageActivityReturnFocus = null;
+    state.packageActivityReturnFocusPending = false;
+  }
   if (!isDiagnosticsPath(location.pathname)
     && document.querySelector(".diagnostics-view")) {
     diagnosticsDestinationFocusPending = true;
@@ -22069,6 +22549,22 @@ window.addEventListener("popstate", () => {
       sourceLeft: 0,
       outlineTop: 0,
     };
+  }
+  let leftPackageActivityForWorkspaceSuccessor = false;
+  if (state.packageActivityOpen
+    && !isPackageActivityPath(location.pathname)) {
+    state.packageActivityOpen = false;
+    packageChangesController.cancel("disposed");
+    state.packageActivityReturnFocusPending =
+      state.packageActivityReturnFocus !== null
+      && isPackageActivityPredecessor(
+        history.state,
+        state.packageActivityPredecessorEntryId);
+    if (state.packageActivityReturnFocusPending) {
+      packageActivityReturnFocusIntentGeneration++;
+    }
+    leftPackageActivityForWorkspaceSuccessor =
+      !state.packageActivityReturnFocusPending;
   }
   let leftPackageQueryForWorkspaceSuccessor = false;
   let unavailableWorkspaceAdmissionRejected = false;
@@ -22235,7 +22731,9 @@ window.addEventListener("popstate", () => {
     state.home = false;
     state.loading = !state.engineReady;
     render();
-    if (state.engineReady) focusPackageQueryInput();
+    if (!restoreApplicationActivityReturnFocus() && state.engineReady) {
+      focusPackageQueryInput();
+    }
     return;
   }
   if (isPackageActivityPath(location.pathname)) {
@@ -22268,18 +22766,9 @@ window.addEventListener("popstate", () => {
     leftPackageQueryForWorkspaceSuccessor =
       !state.packageQueryReturnFocusPending;
   }
-  if (state.packageActivityOpen) {
-    state.packageActivityOpen = false;
-    packageChangesController.cancel("disposed");
-    state.packageActivityReturnFocusPending =
-      state.packageActivityReturnFocus !== null
-      && isPackageActivityPredecessor(
-        history.state,
-        state.packageActivityPredecessorEntryId);
-    leftPackageQueryForWorkspaceSuccessor =
-      leftPackageQueryForWorkspaceSuccessor
-      || !state.packageActivityReturnFocusPending;
-  }
+  leftPackageQueryForWorkspaceSuccessor =
+    leftPackageQueryForWorkspaceSuccessor
+    || leftPackageActivityForWorkspaceSuccessor;
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();
     if (!clearWorkspaceRouteFailure()) {

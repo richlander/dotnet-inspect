@@ -77,6 +77,101 @@ insufficient. If there is no such trigger, omit the extra claim and gate.
   property must name the gate that enforces it, or explicitly mark the
   property as unverified.
 
+## NativeAOT before/after for modernization
+
+Every modernization or legacy-path replacement requires before/after
+performance evidence from exact NativeAOT production binaries. Measure every
+terminal supported by the adopted surface, like Count. A terminal omitted
+from the report is unverified and prevents a merge-readiness claim for that
+adoption.
+
+Compare the exact effective base with the exact candidate head. Run the
+complete production-host command or operation, including startup, acquisition,
+planning, execution, and output consumption. A lower-level benchmark may
+explain the result, but it does not replace the end-to-end comparison.
+
+The report must identify:
+
+- the base and head commits, product versions, NativeAOT target, and binary
+  identities;
+- the pinned real assets, exact commands or requests, and every measured
+  terminal;
+- representative zero, small, and population-sensitive scenarios when work
+  scales with candidate or result count;
+- warmup, sample count, execution ordering or interleaving, host, and relevant
+  machine state;
+- median and tail latency for base and head; and
+- expected and observed cardinality plus a stable content or identity check
+  where result values are produced.
+
+Interpret the result against the modernization's stated intent. Separate
+startup and fixed acquisition cost from work that grows with the population
+when that distinction matters. A slower result is not dismissed because the
+implementation follows the new architecture: explain it through changed
+behavior or work, show that it remains inside the named product target, and
+show that the overall intent still holds. Otherwise the candidate is not
+merge-ready.
+
+Use [#8411](https://github.com/richlander/dotnet-inspect/pull/8411) as the
+reporting precedent. It compared exact NativeAOT base/head apphosts for every
+supported terminal, verified result cardinality, reported median and p95, and
+explained a bounded terminal tradeoff alongside substantial end-to-end
+improvements.
+
+## Performance oracles for QuerySpace enablement
+
+The end-to-end comparison above proves what a user sees. It does not show
+how close the new execution comes to what the query could cost, because
+startup and acquisition often mask the work. QuerySpace enablement therefore
+also reports a kernel-level **postcard** against two fixtures.
+
+**The two fixtures:**
+
+- **Before** is the path being replaced, exactly as it runs today: a legacy
+  loop, or rows built and then filtered, counted, or trimmed. It is the
+  improvement target and leaves when the path it measures is retired.
+- **NLinq** is the standing oracle: an [NLinq](https://github.com/agocke/NLinq)
+  query over a struct source of the population, written as an NLinq author
+  would write it. The pinned fixture, its population sources, and any
+  operators it lacks are owned by the fixture, never written per question.
+
+Do not construct a hand-written loop as an oracle. What such a loop measures
+depends on its author's choices, and it costs one loop per question where
+NLinq costs one source per population. A hand-written loop appears only as
+the Before of a path that already exists.
+
+Every postcard closing has an NLinq query; when NLinq lacks an operator, the
+fixture adds it. A source-native answer, such as a count from a table size, is
+an After technique, not an exception: its ratio to NLinq shows what it skips.
+To show an After against a source-native ceiling, add a labeled column beside
+the three. It is not checked by regression tracking, and its answers must
+agree with the other columns.
+
+**The postcard** scores Before, NLinq, and After for Exists, Count, Head(N),
+Tail(N), Rows, and Rows(n..m), over one open query on pinned real assets:
+
+- Report each cell as a ratio to NLinq, measured by the same binary in the
+  same run. Give the geometric mean across assets and the range, with
+  absolute medians alongside.
+- Check that all three columns give the same answer for every closing and
+  asset: the Boolean, the count, or the rows' identity. Report a strict
+  window's failure as a failure, never as a success.
+- Mark each After cell as shipping in the candidate or measured only in an
+  experiment.
+- Run on at least two machines, and exclude a loaded run with its reason.
+
+Performance regression tracking uses only the NLinq ratio. It stays
+meaningful after Before is retired and cancels most machine differences. It
+moves when After's performance changes, which is the regression it tracks,
+and also when the query, the pinned oracle, or the measurement conditions
+change, so record those alongside each tracked ratio.
+
+Use the [Producer Planning
+postcard](https://github.com/richlander/dotnet-inspect/pull/8736) as the
+reporting precedent. It showed After at 0.47–1.02× of NLinq and Before at up
+to 7,000× on the same questions, while the end-to-end command stayed at
+parity because presence is a small part of it.
+
 ## Use evidence envelopes during command development
 
 `EvidenceInspectionEnvelope<TContent, TEvidence>` is the shared shape for
@@ -119,7 +214,7 @@ The current command families expose these useful evidence patterns:
 | Did a change begin at this version boundary? | Exact endpoint and build identities, work-item and pair counts, typed failures, and `PairFinding` state for the owner-issued Finding. | An adjacent `Added`, `Removed`, `Changed`, or `Present` classification for the selected pair. | A sparse timeline probe only locates a candidate boundary; a similarity score only ranks candidates. |
 | Why is decompiled or source-backed output different? | Module version ID, MethodDef token, IL offset, fidelity grade, stable `DEC####` causes, symbol source, and PDB checksum algorithm, value, and verification result. | The physical body inspected, why fidelity degraded, and whether fetched source bytes match the PDB. | Readable decompiled C# is not authored source; a checksum match does not validate semantic equivalence. |
 | Which static performance candidate should be measured? | Finding and candidate identity, provenance, module version ID, source and evidence MethodDef tokens, IL offset, operation token, loop/amplification facts, priority, and confidence. | The exact IL-visible shape and a stable coordinate for a runtime/static join. | Static evidence does not prove runtime heat, frequency, allocated bytes, or improvement; use a benchmark or profiler from the same build. |
-| Did acquisition use the intended input? | Admitted source authority, exact package/library coordinate, selected asset, provenance, bounded acquisition completion, and typed rejection or failure. | Which authorized input produced the inspection and why another candidate was rejected. | Do not retain credentials, sensitive locators, response bodies, or an unbounded request transcript. |
+| Did acquisition use the intended input? | Admitted source authority, exact package/library address, selected asset, provenance, bounded acquisition completion, and typed rejection or failure. | Which authorized input produced the inspection and why another candidate was rejected. | Do not retain credentials, sensitive locators, response bodies, or an unbounded request transcript. |
 
 Existing command-level traces remain useful while developing a host adapter.
 For example, library `--trace` shows query demand, prerequisite expansion,

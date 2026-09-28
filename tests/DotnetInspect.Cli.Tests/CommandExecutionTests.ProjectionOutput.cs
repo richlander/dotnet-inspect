@@ -436,10 +436,12 @@ public partial class CommandExecutionTests
                 "ecosystem",
                 "extensions",
                 "find",
+                "graph cluster",
                 "graph libraries",
                 "implements",
                 "library",
-                "library coordinate",
+                "library address",
+                "library query",
                 "member",
                 "package",
                 "package activity",
@@ -614,7 +616,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ProjectedJsonRoutingAudit_LibraryCoordinateFileFailsClosed()
+    public async Task ProjectedJsonRoutingAudit_LibraryAddressFileFailsClosed()
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -627,7 +629,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library",
-                "coordinate",
+                "address",
                 "--file",
                 path,
                 "--platform",
@@ -670,7 +672,7 @@ public partial class CommandExecutionTests
 
         AssertProjectedProperties(projected, ["name"]);
         AssertProjectedProperties(wildcard, ["name"]);
-        AssertProjectedProperties(allColumns, ["name", "kind"]);
+        AssertProjectedProperties(allColumns, ["name", "kind", "path"]);
         AssertProjectedProperties(overlapping, ["name"]);
 
         Assert.Equal(1, invalid.Exit);

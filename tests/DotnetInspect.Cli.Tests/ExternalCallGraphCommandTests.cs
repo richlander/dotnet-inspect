@@ -501,7 +501,7 @@ public sealed class ExternalCallGraphCommandTests
             count: true);
 
         Assert.Equal(0, execution.ExitCode);
-        Assert.Equal($"1{Environment.NewLine}", execution.Output);
+        Assert.Equal("1\n", execution.Output.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -540,7 +540,7 @@ public sealed class ExternalCallGraphCommandTests
         Assert.True(
             captured.ExitCode == 0,
             captured.Error);
-        Assert.Equal($"1{Environment.NewLine}", captured.Output);
+        Assert.Equal("1\n", captured.Output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain(
             "unprojected output",
             captured.Error);
@@ -898,6 +898,12 @@ public sealed class ExternalCallGraphCommandTests
                                         true,
                                 }))));
         await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 assemblies.Select(assembly =>
@@ -934,6 +940,10 @@ public sealed class ExternalCallGraphCommandTests
                         ["test.root"],
                         [],
                         []),
+                    MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                        scope,
+                        registrations),
+                    [],
                     [],
                     graph));
         return new InspectionEnvelope<

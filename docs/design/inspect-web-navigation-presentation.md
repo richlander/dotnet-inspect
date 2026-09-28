@@ -847,7 +847,25 @@ respective owners.
 ## Type navigation
 
 This owner renders product-issued Type inventory rows and their activation
-descriptors. Package and Library navigation may also expose Types where their
+descriptors.
+
+Inventory rows are a directed display, not a data list: a row says what its
+subject is rather than repeating which kind it is, because the kind icon
+already carries the kind.
+
+- A Type row shows its display name and its member count.
+- A single-member row shows a method's compact parameter list (the member
+  name and unqualified parameter types, as nested overload rows spell them)
+  or a property's, field's, or event's unqualified value type.
+- An overload family's parent row shows its overload count and family-level
+  status, and colors its name differently from single-member rows. The name
+  color marks a row that holds overloads, together with the overload count, so
+  it does not rely on color alone. It uses its own token, distinct from heat's
+  background tint and from the parent row's heat-status tokens. Its nested rows
+  follow
+  [Overload rows](inspect-web-implementation-profiles.md#overload-rows).
+- A row without structured detail, such as a graph-only target, keeps its
+  kind word. Package and Library navigation may also expose Types where their
 owning lens requires it, but no second Library filter is introduced. Placement
 beside Type and Member working surfaces and replacement by the narrow
 inventory/detail push state are owned by

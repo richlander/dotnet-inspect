@@ -61,8 +61,8 @@ the standalone `timeline` predecessor. Other root operations such as `match`,
 
 Related docs:
 
-- [Coordinate child command](coordinate-child-command.md) defines when a
-  required subordinate coordinate earns a child request surface under an
+- [Address child command](coordinate-child-command.md) defines when a
+  required physical or document-local address earns a child request surface under an
   already selected subject.
 - [Inspection graph modes](inspection-graph-modes.md) defines subject-first
   Graph sections and top-level Graph requests over single seeds, peer seeds,
@@ -114,7 +114,7 @@ the source option use the same domain word but play different roles.
 An IL offset is a point selector into method-body facts, not a standalone
 subject. It is reachable from more than one structural scope:
 
-- `library coordinate <MethodDef>+<offset>` supplies a composite coordinate
+- `library address <MethodDef>+<offset>` supplies a composite coordinate
   that is complete within the library and discovers its containing member;
 - member-focused body views already have the member identity and expose the
   peer offset-scoped facts within that narrower scope.
@@ -124,7 +124,7 @@ different meanings for the coordinate. Sections such as `Context: Instruction`
 choose the observation/projection, while raw `IL` is a representation lens.
 Neither changes coordinate identity.
 
-The target `library coordinate` child gives the Library entry point a closed
+The target `library address` child gives the Library entry point a closed
 request grammar without promoting the IL point to an independently navigable
 subject or creating another method-body architecture.
 
@@ -173,13 +173,15 @@ that scope.
 
 The governing cardinality rule is:
 
-> Every command declares how many location coordinates one invocation admits,
-> which semantic result identity families it can return, and whether each
-> selected result mode is scalar or vector. These are independent dimensions.
-> Unary Package, Library, Type, and Member inspection admits one location
-> coordinate; Workspace owns multi-location top-level inventory; search and
-> query operations admit multiple coordinates only when their operation
-> contract says so.
+> Every command mode declares how many location coordinates one invocation
+> admits, which semantic result identity families it can return, and whether
+> each selected result mode is scalar or vector. These are independent
+> dimensions.
+> Focused inspection, inventory, or analysis evaluates one selected subject
+> coordinate within a declared population context. Discovery ranges over
+> declared populations to produce coordinates or typed relations.
+> Operation-specific comparison, correlation, and traversal evaluate the
+> coordinate set or sequence their own contract defines.
 
 A **location coordinate** is one hierarchical address from a source root to
 the subject scope needed by the request. Depending on the command, its fields
@@ -202,12 +204,45 @@ an operation plan may evaluate:
 - a **multi-coordinate** operation may evaluate an operation-owned population
   of exact coordinates.
 
+An **inspection population** is an owner-defined address space from which
+coordinates may be selected. Its varying dimension may be Package identity,
+Package version, Library, project, platform, API identity, or another typed
+axis. Population count, source-root count, and coordinate count are therefore
+not interchangeable. A Diff over one Package version range names one Package
+lineage but evaluates multiple Package-version coordinates; its breadth lies
+along the version axis rather than across Package identities.
+
 This is a plan capability, not an observed count. A repeated exact-source
 gesture and a bounded population selector can both produce a multi-coordinate
 plan even when resolution later yields one or zero candidates. Conversely, a
 range plus an exact `--at` selection is single-coordinate because the operation
 may evaluate only the selected address. Expansion order, bounds, resolution,
 deduplication, and acquisition remain with the operation and source owners.
+
+### Operation shapes
+
+The cardinality contract follows the selected operation shape, not a fixed
+catalogue of command names:
+
+- **Focused inspection, inventory, or analysis** selects one focal subject
+  coordinate within a declared population context. It may return the subject,
+  an inventory of owned children or attached facets, or many analysis
+  observations without becoming a multi-subject operation.
+- **Coordinate or relation discovery** searches one or more declared
+  populations and returns typed coordinates or typed relations. Discovering a
+  coordinate does not imply inspecting that coordinate, and discovering a
+  relation does not turn its endpoints into independent focal inspections.
+- **Operation-owned set or sequence evaluation** lets a comparison,
+  correlation, traversal, or similar operation define the exact coordinates it
+  consumes, their ordering, and their arity. The coordinates may come from one
+  population declaration or several; the operation's breadth is determined by
+  the independently evaluated coordinates, not by how many Package names or
+  source roots appear in the request.
+
+These shapes are planning invariants rather than a strict command taxonomy. A
+command may expose modes with different shapes, but it selects the mode and its
+coordinate contract before acquisition. Repeating syntax adds coordinates only
+when that selected mode declares repetition as population breadth.
 
 Workspace is the aggregate owner for portable top-level location **inputs**,
 including inert population declarations that are not yet coordinates. The
@@ -348,25 +383,20 @@ rewrite the semantic contract. The content owner separately decides whether
 the completed value is a Result, Document, or owner-specific Outcome under
 [Host-observable content kinds](host-observable-content-kinds.md).
 
-### Target command classification
+### Operation shape determines breadth
 
-The target primary result contracts are:
+Focused Package, Library, Type, and Member inspection illustrates the first
+shape: one selected coordinate may yield a scalar subject, a vector inventory,
+or a multi-section analysis Document. Package files and versions, Library
+dependencies, Type members, and attached Findings do not create additional
+focal subjects merely because they render rows.
 
-| Operation | Location coordinates | Primary result identity | Result cardinality |
-| --- | ---: | --- | --- |
-| `package` inspection | One | Package | Scalar |
-| `library` inspection | One | Library | Scalar |
-| `type` inspection | One | Type | Scalar or vector, selected by gesture |
-| `member` inspection | One | Member | Scalar or vector, selected by gesture |
-| `find` | Multiple | Type or Member, selected by mode | Vector |
-| `find --literal` | Multiple | Assembly-semantic occurrence | Vector |
-| `package query` | Multiple | Package | Vector |
-| `workspace` definition | Multiple top-level inputs; no implied evaluation | Workspace definition | Scalar |
-
-The table classifies the command's primary semantic answer. Observations below
-that focus may contain other typed populations. Package files and versions,
-Library dependencies, Type members, and attached Findings do not change the
-primary identity merely because they render rows.
+Find and Package Query illustrate discovery: they search declared populations
+and return one typed result family without treating each match as an implicit
+inspection. Diff and timeline operations illustrate operation-owned sets or
+sequences: exact endpoints, a pair, or a version series are coordinates chosen
+under that operation's arity and ordering contract. These examples explain the
+shapes; they are not an exhaustive command matrix.
 
 Workspace inventory is one optional observation below the Workspace-definition
 result. Its closed entry union and vector cardinality describe that observation,
@@ -584,11 +614,11 @@ A command transition is justified when one of these changes:
    different failure semantics, backpressure, and content kinds. An explicit
    subject-owned operation or mode can express that transition without moving
    the operation to the root.
-3. **Required subordinate-coordinate grammar:** the parent subject remains
+3. **Required subordinate-address grammar:** the parent subject remains
    selected, but one required subordinate point establishes a coherent family
    of observations with its own useful default result.
-   [Coordinate child command](coordinate-child-command.md) owns this narrower
-   rule and its initial `library coordinate` adoption.
+   [Address child command](coordinate-child-command.md) owns this narrower
+   rule and its initial `library address` adoption.
 
 Keep the current command when only an observation producer, lens, section,
 traversal choice, or output projection changes. A type-presence census and a
@@ -604,13 +634,13 @@ An execution lifecycle is different when at least one of these is true:
 - operation outcomes have a structurally incompatible top-level schema;
 - the addressed subject has a different identity model.
 
-A coordinate child need not change the parent subject or top-level acquisition
+An address child need not change the parent subject or top-level acquisition
 for its exact mode. It is justified when the subordinate point is mandatory,
 resolving it is itself useful or several peer observations depend on it, and
 the bare child has a meaningful bounded result. A bounded population of those
 points is instead a multi-coordinate operation mode and must declare its own
 population, acquisition, result, and partial-failure contract. It may remain
-beneath the Coordinate child when that child is the closed grammar for the
+beneath the Address child when that child is the closed grammar for the
 same coordinate family. A section-specific predicate, metadata-root selector,
 traversal depth, row selector, or payload projection does not meet either rule.
 
@@ -907,35 +937,41 @@ Diff offers these views over the result:
 | --- | --- |
 | `Summary` | One row per selected analysis: outcome and transition counts |
 | `Changes` | `api`'s compatibility-classified changes |
-| `Finding Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
+| `Transitions` | Each selected analysis's per-Finding transitions, including `Present`, in selection order, and within an analysis in descriptor declaration order |
 
 A view is admitted only when the selected set contains an analysis it
-projects. `Changes` requires `api`. `Finding Transitions` requires the Type
+projects. `Changes` requires `api`. `Transitions` requires the Type
 or Member surface and a selected analysis that supports it. Otherwise the request
 is rejected before execution, naming the view and the missing analysis. A view
 never adds an analysis and never renders an empty success.
 
-`Finding Transitions` is a view, not a route. Today it is a command-owned
-route: it declares no query, runs its own per-type API comparison, and must be
+`Transitions` is a view, not a route. It replaces today's `Finding
+Transitions` section, which is a command-owned route: it declares no query, runs its own per-type API comparison, and must be
 selected alone. As a view of the `api` result, its API rows follow the `api`
 producer's scope and member matching instead of that separate comparison,
 including under `-a`, and at Type it shows `api.type` and `api.member` rows
 together. That is an **intentionally breaking** change under
-[CLI change classification](cli-change-classification.md). The view stays
-available at the Type and Member surfaces, as today. Offering it at the
-Library surface is a later decision.
+[CLI change classification](cli-change-classification.md). The rename is part
+of the same change and gets no alias. `-S "Finding Transitions"` is rejected
+with guidance naming `-S Transitions`. The name matches Diff History's
+`Transitions` view of the same `PairFinding` transitions, because History is
+Diff's temporal mode. The view stays available at the Type and Member
+surfaces, as today. Offering it at the Library surface is a later decision.
 
 #### Retiring pairwise `--finding`
 
 For pairwise requests, `--analysis` replaces `--finding` without an alias,
 under [CLI change classification](cli-change-classification.md). A pairwise
 request that supplies `--finding` is rejected with guidance naming the
-equivalent `--analysis` identity.
+equivalent `--analysis` identity. The guidance maps each former descriptor,
+including its former case-insensitive spellings, to the one analysis identity.
+It never accepts the old spelling as input.
 
 `--history` requests keep `--finding` as the
 [History](diff-history.md) producer selector, unchanged. History is not a
 Compare participation in this adoption. It adopts analysis selection, and
-retires `--finding` entirely, in its own #8545 slice.
+retires `--finding` entirely, in its own #8545 slice. Until then,
+`--history --analysis` is rejected.
 
 The `Analysis Diff`, `Implementation Diff`, Complexity Context, and
 Structural Context routes are not keyed Finding comparisons and are
@@ -964,7 +1000,7 @@ not add it automatically.
 The default view follows the single-high-value-section rule:
 
 - With one selected analysis, the default view is `Changes` for `api`, and
-  `Finding Transitions` for any other analysis.
+  `Transitions` for any other analysis.
 - With more than one selected analysis, the default view is one `Summary`
   section.
   - It has one row per selected analysis, in selection order.
@@ -972,45 +1008,80 @@ The default view follows the single-high-value-section rule:
     aggregated across the descriptors it declares for the request's surface.
   - Each analysis's detail view is available through `-S`.
 
-`Summary` projects no analysis-specific columns.
+`Summary` projects no analysis-specific columns. Its columns are the analysis
+identity, its outcome, and its `Added`, `Removed`, `Changed`, and `Present`
+transition counts, summed across the descriptors the analysis declares for the
+request's surface.
+
+API post-filters (`--breaking`, `--additive`, `--changed`, `--name-only`)
+refine the `Changes` view only. Selecting them with `Transitions` or `Summary`
+is rejected, as they are rejected with `Finding Transitions` today. A request
+without `--analysis`, including `-S @Diff`, keeps today's section selection
+and behavior.
 
 #### Content and failure
 
-A multi-analysis result is not a new Diff content type. Research already keeps
-typed comparisons in one descriptor-keyed container
-([Research composition](finding-nomenclature.md#research-composition)).
-Selecting analyses selects entries of that container, and each retains its
-native keyed comparison, such as `ApiFindingComparison` or
-`FindingComparison<T>`.
+A request with `--analysis` returns one Diff-owned `DiffAnalysisResult`: an
+ordered list of per-analysis outcomes, in selection order. It is Diff's own
+result shape for this operation, not a universal diff type. Each entry names
+its analysis identity and is exactly one of:
 
-- Each analysis keeps its own typed outcome. An unavailable or failed analysis
-  is reported as that analysis's outcome, and it neither erases nor empties
-  another analysis's result.
-- An analysis with no observation at either endpoint is a successful empty
-  comparison only when both endpoint censuses are complete. Otherwise it keeps
-  its incomplete or failed inspection state.
-- `--envelope` carries the same composed Content. Browser/Wasm adoption
-  consumes the same validation and container, with C# and TypeScript call
-  sites.
+- **Compared.** The analysis's native keyed comparison, such as
+  `ApiFindingComparison` or `FindingComparison<T>`. Research keeps the
+  body, attribute, C#, and IL comparisons in its descriptor-keyed container
+  ([Research composition](finding-nomenclature.md#research-composition)).
+- **Unavailable.** The analysis could not run at this surface for these
+  endpoints. It keeps its owner-issued typed reason, such as API "not
+  compared".
+- **Failed.** The analysis's producer failed. It keeps its owner-issued typed
+  diagnostic.
+
+One analysis's outcome neither erases nor empties another's. An analysis with
+no observation at either endpoint is a successful empty comparison only when
+both endpoint censuses are complete. Otherwise it keeps its incomplete or
+failed inspection state.
+
+A member-target resolution failure is a request failure, not an analysis
+outcome. When a selected member resolves nothing, drifts across versions, is
+ambiguous, or selects no Analysis method, the request exits non-zero with the
+typed target diagnostic before any analysis runs.
+
+A request without `--analysis` keeps today's Content. The default single-`api`
+Library request still delivers `InspectionEnvelope<LibraryApiDiffOutcome>`, so
+default output does not change. A request with `--analysis` delivers
+`InspectionEnvelope<DiffAnalysisResult>`. The JSON transport of that Content
+lands with its Browser/Wasm adoption. Until then, `--envelope` and `--json`
+with `--analysis` are rejected visibly rather than emitting a partial shape.
 
 #### Demo and evidence
 
 The motivating real case is the member-scoped request above, over
 `System.Text.Json@9.0.0..10.0.0`.
 
-Current production output for the equivalent single-descriptor
-`--finding analysis.call-site` request reports that no selected Finding exists
-at either endpoint. The member Finding Census for the same 10.0.0 body is also
-empty, although the annotated body source contains two direct `call`
-instructions (`GetTypeInfo` and `WriteString`). The call-site producer's
-result for this body must be diagnosed before this case can serve as the
-adoption demo. The complete-census rule under
-[Content and failure](#content-and-failure) forbids reporting an incomplete
-census as a successful empty comparison.
+Typed body-signal targeting
+([#8604](https://github.com/richlander/dotnet-inspect/pull/8604)) made this
+case work. The generic member now keeps its call-site Findings, `GetTypeInfo`
+and `WriteString`, which the former string target identity silently dropped
+([#8570](https://github.com/richlander/dotnet-inspect/issues/8570)).
 
 The neighboring case is filterless `diff --package
 System.Text.Json@9.0.0..10.0.0`. It selects the default set `api` at the
 Library surface and must produce today's `Changes` output unchanged.
+
+#### Adoption
+
+Two coherent steps deliver analysis selection to both production hosts:
+
+1. **CLI.** The analysis catalog and participation, `--analysis`, the
+   `Summary`, `Changes`, and `Transitions` views, the pairwise `--finding` and
+   `Finding Transitions` retirements, and discovery through `explain`, `-D`,
+   and help.
+2. **Transport and Browser/Wasm.** The JSON transport of `DiffAnalysisResult`
+   and the website's adoption of the same validation, catalog, and result,
+   with C# and TypeScript call sites.
+
+Shipped product skills are updated once both have landed
+([#8611](https://github.com/richlander/dotnet-inspect/issues/8611)).
 
 ### Migration and production path
 
@@ -1201,16 +1272,16 @@ Pairwise confirmation:
 dotnet-inspect diff \
   --package System.Text.Json@8.0.4..8.0.5 \
   --type System.Text.Json.JsonSerializer \
-  -S "Finding Transitions"
+  -S Transitions
 ```
 
 The endpoints are the two cells. For a non-default producer, the confirmation
-must retain its descriptor:
+must name its analysis:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.allocation
+  --analysis allocation -S Transitions
 ```
 
 ### Invalid or misleading range scenarios
@@ -1249,13 +1320,13 @@ These transitions answer different questions.
 
 ```text
 package -> library -> type -> member
-library coordinate + MethodDef/offset -> IL coordinate
+library address + MethodDef/offset -> IL coordinate
 member + body offset       -> IL coordinate
 ```
 
 The user changes what structural thing is being addressed. Identity and schema
 change; the operation remains unary inspection. The diagram shows common entry
-paths, not a required sequence: the composite library coordinate can jump
+paths, not a required sequence: the composite library address can jump
 directly to an IL point, while member scope can expose facts at offsets within
 the selected body. Zooming to a member means selecting one member as the input
 subject. It does not mean "observe the members owned by this type"; that remains
@@ -1301,15 +1372,15 @@ changing operations. A History-compatible Diff section or option makes the mode
 change explicit without conflating endpoint and temporal content contracts.
 The diagram describes axes, not positional argument grammar.
 
-### Coordinate child
+### Address child
 
-The exact Coordinate mode keeps the subject and unary inspection basis while
+The exact Address mode keeps the subject and unary inspection basis while
 establishing one required subordinate address. File mode is a bounded
 multi-coordinate operation over the same address family:
 
 ```text
-library -> library coordinate <coordinate> --library <source>
-        -> library coordinate --file <coordinate-population> --library <source>
+library -> library address <coordinate> --library <source>
+        -> library address --file <coordinate-population> --library <source>
 ```
 
 The initial coordinate families are MethodDef token plus IL offset and metadata
@@ -1320,7 +1391,7 @@ coordinate population, acquisition plan, Document result, and coordinate-local
 failure topology. The child is a CLI grammar boundary over the shared owner
 queries, not another method-body or metadata architecture.
 
-The coordinate owns the child's positional slot. Library acquisition remains
+The address owns the child's positional slot. Library acquisition remains
 source context and therefore uses named `--library`, `--package`, or
 `--platform` options, with their applicable selectors. This matches Type and
 Member grammar: positional values identify what is sought, while named source

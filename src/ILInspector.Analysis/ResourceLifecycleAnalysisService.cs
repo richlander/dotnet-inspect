@@ -613,7 +613,7 @@ internal static class ResourceLifecycleAnalysisService
             hasIndirectDispatch,
             hasUnprovenSetup);
 
-        void AddBoundary(ArrayPoolExceptionBoundary boundary)
+        void AddBoundary(ResourceExceptionBoundary boundary)
         {
             if (directCalls.TryGetValue(
                     boundary.ILOffset,

@@ -1100,6 +1100,13 @@ public static class MetadataDeclarationQuery
         return $"{returnType} {SanitizeMemberDisplayName(name)}{parameters}";
     }
 
+    public static string GetMethodSignatureText(
+        MetadataMethodDeclaration declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        return MethodSignatureText(declaration);
+    }
+
     static string PropertySignatureText(MetadataPropertyDeclaration declaration)
     {
         var returnType = declaration.Signature.ReturnType ?? "void";

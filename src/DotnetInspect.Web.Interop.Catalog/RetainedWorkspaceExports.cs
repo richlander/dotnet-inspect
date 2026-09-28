@@ -391,10 +391,8 @@ internal static class BrowserRetainedWorkspaceActivationService
         string,
         BrowserRetainedWorkspaceActivationSession> Sessions =
         new(StringComparer.Ordinal);
-    static BrowserRetainedWorkspaceActivationOwner _owner =
-        CreateOwner();
-
-    internal static BrowserRetainedWorkspaceActivationOwner Owner => _owner;
+    internal static BrowserRetainedWorkspaceActivationOwner Owner =>
+        BrowserRetainedWorkspaceActivationRegistry.Owner;
 
     internal static async Task<BrowserRetainedWorkspacePackageAdmissionResult>
         AdmitPackageAsync(
@@ -404,7 +402,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             int typeOffset)
     {
         PackageAdmission result =
-            await _owner.AdmitPackageAsync(
+            await Owner.AdmitPackageAsync(
                 retainedDefinitionId,
                 realizationId,
                 navigationId).ConfigureAwait(false);
@@ -430,7 +428,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             string navigationId,
             int typeOffset)
     {
-        PlatformAdmission result = await _owner.AdmitPlatformAsync(
+        PlatformAdmission result = await Owner.AdmitPlatformAsync(
             retainedDefinitionId, realizationId, navigationId).ConfigureAwait(false);
         return result switch
         {
@@ -495,7 +493,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         }
 
         BrowserRetainedWorkspaceActivationSession session =
-            _owner.BeginActivation(request);
+            Owner.BeginActivation(request);
         lock (Gate)
             Sessions.Add(session.Receipt, session);
 
@@ -717,7 +715,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         }
 
         DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
-            activation = await _owner.ActivateAsync(request)
+            activation = await Owner.ActivateAsync(request)
                 .ConfigureAwait(false);
         return Activation(activation);
     }
@@ -942,7 +940,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         string retainedDefinitionId)
     {
         DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult outcome =
-            await _owner.BeginDeactivationAsync(retainedDefinitionId)
+            await Owner.BeginDeactivationAsync(retainedDefinitionId)
                 .ConfigureAwait(false);
         BrowserRetainedWorkspaceDeactivationResult result = outcome switch
         {
@@ -979,7 +977,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             bool succeeded,
             string? failure) =>
         Completion(
-            _owner.CompleteConsumerDeactivation(
+            Owner.CompleteConsumerDeactivation(
                 receipt,
                 succeeded,
                 failure));
@@ -989,7 +987,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         long publicationOrdinal,
         NavigationEffectAuthority authority) =>
         AuthorityResult(
-            _owner.RecordConsumerPosting(
+            Owner.RecordConsumerPosting(
                 realizationId,
                 publicationOrdinal,
                 authority));
@@ -998,7 +996,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         string realizationId,
         long publicationOrdinal,
         NavigationEffectAuthority authority) =>
-        _owner.ValidateNavigationAuthority(
+        Owner.ValidateNavigationAuthority(
             realizationId,
             publicationOrdinal,
             authority);
@@ -1008,7 +1006,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         long publicationOrdinal,
         NavigationEffectAuthority authority) =>
         AuthorityResult(
-            _owner.Acknowledge(
+            Owner.Acknowledge(
                 realizationId,
                 publicationOrdinal,
                 authority));
@@ -1018,7 +1016,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         long publicationOrdinal,
         NavigationEffectAuthority authority) =>
         AuthorityResult(
-            _owner.Abandon(
+            Owner.Abandon(
                 realizationId,
                 publicationOrdinal,
                 authority));
@@ -1028,7 +1026,7 @@ internal static class BrowserRetainedWorkspaceActivationService
         string settlementId)
     {
         DotnetInspect.Web.BrowserRetainedWorkspaceSettlementResult outcome =
-            await _owner.ObserveSettlementAsync(settlementId)
+            await Owner.ObserveSettlementAsync(settlementId)
                 .ConfigureAwait(false);
         BrowserRetainedWorkspaceSettlementResult result = outcome switch
         {
@@ -1045,11 +1043,11 @@ internal static class BrowserRetainedWorkspaceActivationService
 
     internal static async Task ResetForTestsAsync()
     {
-        BrowserRetainedWorkspaceActivationOwner prior = _owner;
-        _owner = CreateOwner();
         lock (Gate)
             Sessions.Clear();
-        await prior.DisposeAsync().ConfigureAwait(false);
+        await BrowserRetainedWorkspaceActivationRegistry
+            .ResetForTestsAsync()
+            .ConfigureAwait(false);
     }
 
     static BrowserRetainedWorkspaceActivationSession? FindSession(
@@ -1060,9 +1058,6 @@ internal static class BrowserRetainedWorkspaceActivationService
         lock (Gate)
             return Sessions.GetValueOrDefault(receipt);
     }
-
-    static BrowserRetainedWorkspaceActivationOwner CreateOwner() =>
-        new(BrowserCompleteRestorationOptions.Create);
 
     static BrowserRetainedWorkspaceConsumerCompletionResult Completion(
         DotnetInspect.Web.BrowserRetainedWorkspaceConsumerCompletionResult

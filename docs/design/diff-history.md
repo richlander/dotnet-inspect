@@ -821,7 +821,7 @@ counts at the Diff/History cutover. Ordinary row selection continues to expose
 Evaluations and Transitions without Count.
 
 The section/query catalog is mode-aware before acquisition. Pairwise Changes,
-Analysis Diff, Implementation Diff, and Finding Transitions cannot be mixed
+Analysis Diff, Implementation Diff, and the analysis-set views cannot be mixed
 with History sections. A row window uses the existing
 [CLI row grammar](cli-row-selection.md) and
 [section-row shaping](section-row-shaping.md) contracts independently within

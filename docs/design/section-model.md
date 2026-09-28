@@ -563,8 +563,10 @@ but it may not understate query-owned work. Optional query dependencies execute
 only when independently demanded and therefore do not raise the consumer's
 cost.
 
-`Unbounded` work never enters an automatic verbosity preset. Network, source
-content, and other capability-gated work must remain explicit.
+`Unbounded` work never enters an automatic verbosity preset. Network use does
+not decide preset membership; the
+[network policy](progressive-disclosure.md#network-policy) owns which
+capabilities a gesture requests.
 
 ### Execution policy
 
@@ -606,9 +608,12 @@ Symbol and source inspection are augmentation with separate authority:
   availability alone does not grant it.
 - `PdbAcquire` permits acquiring a missing PDB.
 - `SourceContent` permits fetching or reading authored source content.
-- Default gestures must not acquire PDBs or access source content.
-- Package acquisition must not silently imply symbol acquisition.
-- Network-bound source and audit work requires an explicit gesture.
+- Outside `--offline`, default gestures may request `PdbAcquire`; plain `-D`
+  stays network-free. Whether source content is shown is a disclosure
+  decision. The [network policy](progressive-disclosure.md#network-policy)
+  owns both rules.
+- Package acquisition must not silently imply symbol acquisition; each
+  capability is requested and granted separately.
 
 The realized library probe and its positive, expansion-bound, and close-negative
 gates are documented in
@@ -802,7 +807,7 @@ Verbosity is an automatic preset over the base-category union.
 | --- | --- |
 | `-v:q` | Compact identity fields only |
 | `-v:m` | One high-value section |
-| `-v:n` | Multiple non-network base sections |
+| `-v:n` | Multiple base sections |
 | `-v:d` | All applicable base sections |
 
 Domain categories do not enter the ladder automatically. Users select them
@@ -914,9 +919,10 @@ The diff command's current authored ownership is:
 | `@Diff` | `Changes`, `Analysis Diff`, `Implementation Diff` |
 
 `@Diff` is the base category and groups the three comparison sections that may
-compose in one document. `Finding Transitions` remains exact-name-only because
-it requires a focused type or type-qualified member and does not compose with
-comparison sections.
+compose in one document. `Summary` and `Transitions` remain exact-name-only
+because they are views of an analysis-set result selected with `--analysis`
+([Analysis selection](command-transition-model.md#analysis-selection)) and do
+not compose with the comparison routes.
 
 ## Project category map
 
@@ -1063,7 +1069,8 @@ During migration:
 - Apply development practices to every proposed or existing legacy section
   alias, and use the CLI change-classification design for removal mechanics;
   section migration does not itself justify retention.
-- Keep network and source-content work explicit.
+- Follow the [network policy](progressive-disclosure.md#network-policy) for
+  PDB acquisition and source-content disclosure.
 - Add close negative tests for every new applicability predicate.
 - Update Markdown and structured-output tests together.
 - Prefer one authored category declaration over parallel catalog flags.
