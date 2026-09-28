@@ -108,7 +108,7 @@ Each Tier 1 test must equal the legacy test on every input:
     a typed `Failed` outcome that names the method.
   - The index's global `BudgetExceeded` aborts the execution.
   - The index builds once per reader, a fixed cost that the async analyzer
-    pays even for Count. Measured builds on the postcard assemblies were
+    pays even for Count. Measured builds on the performance scorecard assemblies were
     0.26 ms (Mono.Cecil) to 7.5 ms (Roslyn C#), against legacy per-method
     matching of 0.14 to 6.0 ms. Sharing one index across executions is
     assembly-session lifetime,
@@ -116,7 +116,7 @@ Each Tier 1 test must equal the legacy test on every input:
 
   This departs from legacy only for malformed or untrusted state-machine
   attributes, which legacy counted as async. On the repository's pinned
-  packages and the eight postcard assemblies, both classifications agree
+  packages and the eight performance scorecard assemblies, both classifications agree
   method for method. Across the repository's built fixtures they agree
   except for three methods with malformed or untrusted attributes:
 
@@ -346,7 +346,7 @@ work, tracked in #8733, and not part of this change.
 - **In-place attribute match**, for any producer that uses it. It equals the
   materialized comparison on attribute types that are defined, referenced,
   nested, and reached through a generic `TypeSpec` parent.
-- **Async from the index.** On the pinned packages, the eight postcard
+- **Async from the index.** On the pinned packages, the eight performance scorecard
   assemblies, and every built repository fixture, async rows equal legacy
   except for the three departures above, which the gates enumerate
   exactly. `MalformedAsyncSourceFixture::AnalyzeAsync` and the lookalike
@@ -379,7 +379,7 @@ work, tracked in #8733, and not part of this change.
 - **End to end.** A NativeAOT base/head comparison of the migrated sections,
   per the [evidence contract](../evidence-and-validation.md#nativeaot-beforeafter-for-modernization),
   on every supported terminal: rows, `--count`, `-n`, and `--rows`.
-- **Postcard.** Old, NLinq, and Planner over the async question, against the
+- **Performance scorecard.** Old, LINQ, NLinq, and Planner over the async question, against the
   NLinq fixture of
   [#8745](https://github.com/richlander/dotnet-inspect/issues/8745). The
   recorded 1.19–1.69× came from an experiment that treated async and pointer
