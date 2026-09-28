@@ -187,8 +187,10 @@ amends its owner's document with its code.
    core entry and set member already matches its pack's prefix; only the
    evidence basis changes. Set members match as exact packages today, so
    former set members that are not core entries move from exact-package to
-   package-prefix evidence, and core entries not already in a set (the
-   Microsoft.Extensions and AI cores) move from prefix to exact package. This lands before the data
+   package-prefix evidence, and every core entry not already in a set moves
+   from prefix to exact package: the Microsoft.Extensions, AI, Blazor, and
+   .NET MAUI cores, and Azure's until slice 3 removes it. ASP.NET Core's and
+   Aspire's core entries are already set members, and Runtime has no core. This lands before the data
    slice so AI's new roots match as soon as they exist.
 3. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions and
    ASP.NET Core cores; set the Aspire core; replace the AI core, reduce its
@@ -222,7 +224,10 @@ amends its owner's document with its code.
    `package-list-changes-package-sets` Worker startup kind become an
    Ecosystem catalog listing Ecosystems that record at least one prefix, and
    the `BrowserPackageChangesRequest.PackageSetId` and Worker `packageSetId`
-   request fields become an Ecosystem selection.
+   request fields become an Ecosystem selection. The
+   `skills/dotnet-inspect/SKILL.md` sentence describing package activity as an
+   exact package-set scan goes to the release tracker, because product skills
+   are release-managed.
 5. **Partitioned platform populations.** Assembly-name selection in platform
    populations, honored by realization and carried by the share packet and
    definition JSON, adopted by Runtime, ASP.NET Core, and
