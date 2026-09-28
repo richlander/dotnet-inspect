@@ -1,3 +1,8 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 
 using DotnetInspector.Fixtures;
@@ -144,6 +149,40 @@ public sealed class AllocationLifetimeAnalysisTests
             transferred.LifetimeEvidence.Limitations);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MetadataBackedObjectReadMatchesTokenType(
+        bool valueType)
+    {
+        ImmutableArray<byte> image =
+            ManagedObjectReadImage(valueType);
+        var index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            "ManagedObjectRead.dll",
+            image,
+            LibraryBodyAnalysisFeatures.Allocations);
+        MethodIdentity method = Assert.Single(
+            index.Methods,
+            candidate => candidate.Name == "ReadLength");
+        AllocationOccurrence allocation = Assert.Single(
+            index.GetAllocationOccurrences()[
+                method.MetadataToken],
+            occurrence =>
+                occurrence.Kind == AllocationKind.Array);
+
+        Assert.Equal(
+            AllocationEscape.LocalOnly,
+            allocation.Escape);
+        Assert.Equal(
+            new AllocationLifetimeUse(
+                14,
+                AllocationLifetimeUseKind.LengthRead),
+            Assert.Single(
+                allocation.LifetimeEvidence.Uses));
+        Assert.Empty(
+            allocation.LifetimeEvidence.Limitations);
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public void Jurassic_LocalSurrogateArrayBecomesStackallocCandidate()
@@ -216,5 +255,146 @@ public sealed class AllocationLifetimeAnalysisTests
                 method.MetadataToken],
             occurrence =>
                 occurrence.Kind == AllocationKind.Array);
+    }
+
+    static ImmutableArray<byte> ManagedObjectReadImage(
+        bool valueType)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(
+                "ManagedObjectRead.dll"),
+            metadata.GetOrAddGuid(
+                new Guid(
+                    "43d86b6b-84a0-47a3-9d74-3aa879467c6c")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "ManagedObjectRead"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+
+        AssemblyName coreAssembly =
+            typeof(object).Assembly.GetName();
+        AssemblyReferenceHandle coreReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    coreAssembly.Name!),
+                coreAssembly.Version!,
+                default,
+                metadata.GetOrAddBlob(
+                    coreAssembly.GetPublicKeyToken()!),
+                default,
+                default);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                coreReference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        TypeReferenceHandle valueTypeBase =
+            metadata.AddTypeReference(
+                coreReference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("ValueType"));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Holder"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle elementType =
+            metadata.AddTypeDefinition(
+                valueType
+                    ? TypeAttributes.Public
+                        | TypeAttributes.Sealed
+                        | TypeAttributes.SequentialLayout
+                    : TypeAttributes.Public,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString(
+                    valueType ? "Value" : "Item"),
+                valueType ? valueTypeBase : objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+
+        int codedElement =
+            MetadataTokens.GetRowNumber(elementType) << 2;
+        var arraySignature = new BlobBuilder();
+        arraySignature.WriteByte(0x1D);
+        arraySignature.WriteByte(
+            valueType ? (byte)0x11 : (byte)0x12);
+        arraySignature.WriteCompressedInteger(
+            codedElement);
+        TypeSpecificationHandle arrayType =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(arraySignature));
+
+        var localSignature = new BlobBuilder();
+        localSignature.WriteByte(0x07);
+        localSignature.WriteByte(0x01);
+        localSignature.WriteByte(0x1D);
+        localSignature.WriteByte(
+            valueType ? (byte)0x11 : (byte)0x12);
+        localSignature.WriteCompressedInteger(
+            codedElement);
+        StandaloneSignatureHandle locals =
+            metadata.AddStandaloneSignature(
+                metadata.GetOrAddBlob(localSignature));
+
+        var il = new BlobBuilder();
+        il.WriteByte((byte)ILOpCode.Ldc_i4_1);
+        il.WriteByte((byte)ILOpCode.Newarr);
+        il.WriteInt32(
+            MetadataTokens.GetToken(elementType));
+        il.WriteByte((byte)ILOpCode.Stloc_0);
+        il.WriteByte((byte)ILOpCode.Ldloca_s);
+        il.WriteByte(0);
+        il.WriteByte((byte)ILOpCode.Ldobj);
+        il.WriteInt32(
+            MetadataTokens.GetToken(arrayType));
+        il.WriteByte((byte)ILOpCode.Ldlen);
+        il.WriteByte((byte)ILOpCode.Pop);
+        il.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int body = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(il),
+                maxStack: 1,
+                localVariablesSignature: locals,
+                attributes:
+                    MethodBodyAttributes.InitLocals);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ReadLength"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            body,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToImmutableArray();
     }
 }

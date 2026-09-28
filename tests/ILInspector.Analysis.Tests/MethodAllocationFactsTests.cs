@@ -609,6 +609,51 @@ public sealed class MethodAllocationFactsTests
     }
 
     [Fact]
+    public void PresentRawTypeKindMismatchPublishesLimitation()
+    {
+        // ldc.i4.1; newarr Value; stloc.0; ldloca.s 0;
+        // ldobj class Value[]; ldlen; pop; ret
+        byte[] il =
+        [
+            0x17,
+            0x8D, 0x04, 0x00, 0x00, 0x01,
+            0x0A,
+            0x12, 0x00,
+            0x71, 0x05, 0x00, 0x00, 0x01,
+            0x8E,
+            0x26,
+            0x2A,
+        ];
+        TypeRef tokenElement = TypeRef.Definition(
+            "Fixture",
+            "Fixtures",
+            "Value");
+        tokenElement.RawTypeKind = 0x11;
+        TypeRef signatureElement = TypeRef.Definition(
+            "Fixture",
+            "Fixtures",
+            "Value");
+        signatureElement.RawTypeKind = 0x12;
+
+        var result = Collect(
+            il,
+            resolvedType: tokenElement,
+            resolvedLoadType:
+                TypeRef.SzArray(signatureElement));
+
+        AllocationOccurrence occurrence = Assert.Single(
+            result.ClassifiedOccurrences,
+            occurrence => occurrence.Kind == AllocationKind.Array);
+        Assert.Equal(AllocationEscape.Unknown, occurrence.Escape);
+        Assert.Empty(occurrence.LifetimeEvidence.Uses);
+        Assert.Equal(
+            AllocationLifetimeLimitationKind
+                .UnsupportedByReferenceFlow,
+            Assert.Single(
+                occurrence.LifetimeEvidence.Limitations).Kind);
+    }
+
+    [Fact]
     public void ByReferenceCallUsesCallCoordinate()
     {
         // ldc.i4.1; newarr int; stloc.0; ldloca.s 0;
@@ -1055,10 +1100,13 @@ public sealed class MethodAllocationFactsTests
             };
         }
 
-        public bool ExactSignatureTypesMatch(
-            TypeRef left,
-            TypeRef right) =>
-            TypeRef.ExactSignatureEquals(left, right);
+        public bool TokenTypeMatchesSignature(
+            TypeRef tokenType,
+            TypeRef signatureType) =>
+            TypeRef
+                .ExactSignatureEqualsWithUnspecifiedLeftRawTypeKind(
+                    tokenType,
+                    signatureType);
 
         public MemberRef ResolveMember(int token)
             => ThrowOnMemberResolution

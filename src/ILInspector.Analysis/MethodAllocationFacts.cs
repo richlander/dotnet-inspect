@@ -37,7 +37,9 @@ internal interface IMethodAllocationResolver
     /// True only when both types have complete signature identity and denote
     /// the same type in the current metadata image.
     /// </summary>
-    bool ExactSignatureTypesMatch(TypeRef left, TypeRef right);
+    bool TokenTypeMatchesSignature(
+        TypeRef tokenType,
+        TypeRef signatureType);
 
     /// <summary>
     /// Resolves a method/constructor operand token using the shared member
@@ -1004,9 +1006,9 @@ internal sealed class MethodAllocationFacts
                 instruction.Offset,
                 instruction.OpCode);
         }
-        if (!resolver.ExactSignatureTypesMatch(
-                loadedType,
-                allocatedType))
+        if (!resolver.TokenTypeMatchesSignature(
+                allocatedType,
+                loadedType))
         {
             return EscapeClassification.Unknown(
                 AllocationLifetimeLimitationKind

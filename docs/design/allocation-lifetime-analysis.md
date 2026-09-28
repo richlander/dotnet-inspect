@@ -86,10 +86,12 @@ operand has complete exact signature identity and matches the tracked value
 type, back to the produced value and resumes ordinary use classification. The
 comparison retains nested array shape, modifiers, function-pointer signatures,
 and same-image type provenance rather than using legacy display equality. A
-direct call consuming the managed reference is the by-reference boundary and
-uses the call offset. Unresolved, incompatible, or otherwise unsupported
-managed-reference shapes remain `Unknown` with a typed limitation at the first
-unsupported instruction.
+missing class/value-type marker on the tracked token-derived type is
+unspecified; two present, unequal markers remain incompatible. A direct call
+consuming the managed reference is the by-reference boundary and uses the call
+offset. Unresolved, incompatible, or otherwise unsupported managed-reference
+shapes remain `Unknown` with a typed limitation at the first unsupported
+instruction.
 
 Alias traversal classifies each reachable local definition at most once for an
 allocation occurrence. Joins retain distinct evidence rather than multiplying
@@ -159,8 +161,8 @@ Contract gates cover:
   coordinates;
 - managed-reference reads that resume value classification, by-reference calls
   located at the call, unresolved and incompatible `ldobj` operands (including
-  nested function-pointer mismatches), and typed unsupported managed-reference
-  flow;
+  nested function-pointer mismatches), metadata-backed class and value-type
+  token/signature matches, and typed unsupported managed-reference flow;
 - a convergent conditional-alias graph whose one terminal sink remains one
   evidence coordinate within a 2 MiB warmed thread-local allocation budget,
   rather than multiplying analysis work by alias paths;
