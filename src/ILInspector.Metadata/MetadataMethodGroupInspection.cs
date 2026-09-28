@@ -157,6 +157,17 @@ internal static class MetadataMethodGroupInspection
                     : null;
             bool groupExists = false;
             bool? extensionContainerForFilter = null;
+            HashSet<MethodDefinitionHandle> explicitImplementationBodies =
+                ApiSurfaceExtractor.GetExplicitImplementationBodies(
+                    reader,
+                    type);
+            Dictionary<
+                MethodDefinitionHandle,
+                ApiSurfaceExtractor.InterfaceImplementationAccess>
+                interfaceImplementations =
+                    ApiSurfaceExtractor.GetInterfaceImplementations(
+                        reader,
+                        type);
             foreach (MethodDefinitionHandle handle in type.GetMethods())
             {
                 MethodDefinition method =
@@ -172,7 +183,11 @@ internal static class MetadataMethodGroupInspection
                     continue;
                 groupExists = true;
                 if (!MatchesAccessibility(
-                        method.Attributes,
+                        ApiSurfaceExtractor.MethodEffectiveAccess(
+                            method.Attributes
+                                & MethodAttributes.MemberAccessMask,
+                            handle,
+                            interfaceImplementations),
                         accessibility)
                     || !MatchesReceiver(
                         reader,
@@ -181,10 +196,10 @@ internal static class MetadataMethodGroupInspection
                         receiver,
                         ref extensionContainerForFilter)
                     || (!includeHidden
-                        && AttributeReader
-                            .HasEditorBrowsableNeverAttribute(
-                                reader,
-                                method.GetCustomAttributes())))
+                        && ApiSurfaceExtractor.IsHiddenMethod(
+                            reader,
+                            method.GetCustomAttributes(),
+                            explicitImplementationBodies.Contains(handle))))
                 {
                     continue;
                 }
@@ -517,14 +532,16 @@ internal static class MetadataMethodGroupInspection
         return true;
     }
 
+    /// <summary>
+    /// Whether a method's effective access, as the shared member admission
+    /// defines it, falls in the filter's <c>api.accessibility</c> bucket.
+    /// </summary>
     private static bool MatchesAccessibility(
-        MethodAttributes attributes,
+        MethodAttributes effectiveAccess,
         MetadataMethodAccessibilityFilter filter)
     {
-        MethodAttributes accessibility =
-            attributes & MethodAttributes.MemberAccessMask;
         MetadataMethodAccessibilityFilter actual =
-            accessibility switch
+            effectiveAccess switch
             {
                 MethodAttributes.Public =>
                     MetadataMethodAccessibilityFilter.Public,

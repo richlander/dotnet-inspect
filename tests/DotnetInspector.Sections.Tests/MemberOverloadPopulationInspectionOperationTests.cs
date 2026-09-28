@@ -437,6 +437,56 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         await library.RetireAsync();
     }
 
+    /// <summary>
+    /// VB's <c>Collection.IListAdd</c> is a private body whose MethodImpl
+    /// implements the referenced <c>IList.Add</c>. The shared member admission
+    /// places it in the public bucket, so its overload population is public
+    /// too, as the Type's Member inventory lists it.
+    /// </summary>
+    [Fact]
+    public async Task
+        RealVisualBasicCollection_InterfaceImplementationTakesInterfaceBucket()
+    {
+        byte[] content = await File.ReadAllBytesAsync(
+            Path.Combine(
+                Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+                "Microsoft.VisualBasic.Core.dll"),
+            TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName collection =
+            Name("Microsoft.VisualBasic", "Collection");
+
+        (MemberOverloadAccessibilityFilter Accessibility, int Expected)[]
+            cases =
+            [
+                (MemberOverloadAccessibilityFilter.Public, 1),
+                (MemberOverloadAccessibilityFilter.Private, 0),
+                (MemberOverloadAccessibilityFilter.All, 1),
+            ];
+        foreach (var @case in cases)
+        {
+            MemberOverloadPopulationContent counted =
+                Available(
+                    Execute(
+                        library,
+                        "IListAdd",
+                        count: true,
+                        rows: null,
+                        accessibility: @case.Accessibility,
+                        declaringType: collection));
+            Assert.Equal(
+                @case.Expected,
+                Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                        counted.Overloads.Count)
+                    .Value);
+        }
+
+        await library.RetireAsync();
+    }
+
     [Fact]
     public async Task
         HiddenAdmissionAppliesToCountRowsAndContinuationBinding()
