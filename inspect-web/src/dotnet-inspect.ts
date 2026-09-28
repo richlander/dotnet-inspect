@@ -6994,7 +6994,8 @@ function drillIn() {
     }
   } else {
     const member = selectedMember(type);
-    if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+    if (ordinaryMethodGroup(member)
+      && state.selectedOverloadIndex == null) {
       showContentDetailAfterRender();
       openOverload(0);
     } else if (contentFrameUsesPush() && contentFrameMedia.matches) {
@@ -7008,7 +7009,8 @@ function drillIn() {
 function drillOut() {
   if (navMode() === "member") {
     const member = selectedMember(selectedType());
-    if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
+    if (ordinaryMethodGroup(member)
+      && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
       state.memberSection = "overview";
       clearMemberContentCache();
