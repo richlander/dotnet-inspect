@@ -137,7 +137,6 @@ src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
 src/Inspector.Artifacts.Local
 src/MsdlProxy
-src/QueryOverflow
 src/TsJsExport.Contracts
 src/mdi
 src/runfaster
@@ -204,8 +203,6 @@ tests/Inspector.Text.Tests
 tests/MsdlProxy.Tests
 tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
-tests/QueryOverflow.Consumer
-tests/QueryOverflow.Tests
 tests/QuerySpace.Consumer
 tests/TestExtensions
 tests/UntrustedDocuments.Tests
