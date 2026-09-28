@@ -284,11 +284,27 @@ public static class DiffAnalysisOperation
                 .SelectMany(binding => binding.Producer.Participation.Descriptors),
         ];
         ResearchComparison? bodySignals = null;
+        string? bodyPreparationFailure = null;
         if (bodyDescriptors.Length > 0)
         {
-            bodySignals = (input.PrepareBodySignals
+            var prepare = input.PrepareBodySignals
                 ?? throw new InvalidOperationException(
-                    "Body analyses require body-signal preparation."))(bodyDescriptors);
+                    "Body analyses require body-signal preparation.");
+            try
+            {
+                bodySignals = prepare(bodyDescriptors);
+            }
+            catch (DiffAnalysisTargetException)
+            {
+                // A member-target resolution failure fails the request.
+                throw;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // Any other shared preparation failure is each body
+                // analysis's own producer failure.
+                bodyPreparationFailure = exception.Message;
+            }
         }
 
         var outcomes = ImmutableArray.CreateBuilder<DiffAnalysisOutcome>(bindings.Length);
@@ -296,6 +312,15 @@ public static class DiffAnalysisOperation
         {
             AnalysisSurfaceParticipation participation = producer.Participation;
             DiffAnalysisOutcome outcome;
+            if (bodyPreparationFailure is not null
+                && participation.ProducerRoute == DiffAnalysisCatalog.BodySignalRoute)
+            {
+                outcomes.Add(new DiffAnalysisOutcome.Failed(
+                    analysis,
+                    participation,
+                    bodyPreparationFailure));
+                continue;
+            }
             try
             {
                 DiffAnalysisProduction production = producer.Produce(
@@ -315,6 +340,10 @@ public static class DiffAnalysisOperation
                     _ => throw new InvalidOperationException(
                         "Unknown Diff analysis production."),
                 };
+            }
+            catch (DiffAnalysisTargetException)
+            {
+                throw;
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -348,5 +377,17 @@ public static class DiffAnalysisOperation
             }
         }
         return comparison;
+    }
+}
+
+/// <summary>
+/// A member-target resolution failure. It fails the whole Diff request
+/// instead of becoming one analysis's outcome.
+/// </summary>
+public sealed class DiffAnalysisTargetException : InvalidOperationException
+{
+    public DiffAnalysisTargetException(string message)
+        : base(message)
+    {
     }
 }

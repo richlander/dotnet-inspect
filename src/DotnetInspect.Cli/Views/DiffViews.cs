@@ -194,6 +194,20 @@ public class DiffAnalysisSummaryView(
     public List<DiffAnalysisSummaryRow>? Rows { get; set; }
 }
 
+/// <summary>
+/// Diff's Compare-participating analyses, read from the same registration
+/// that dispatch uses.
+/// </summary>
+[MarkoutSerializable(FieldLayout = FieldLayout.Table)]
+public class DiffAnalysisDiscoveryView
+{
+    [MarkoutSection(Name = "Analyses")]
+    public List<DiffAnalysisDiscoveryRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record DiffAnalysisDiscoveryRow(string Analysis, string Surfaces, string Findings);
+
 [MarkoutSerializable]
 public record DiffAnalysisSummaryRow(
     [property: MarkoutIgnore, JsonIgnore] InertString AnalysisText,
@@ -652,6 +666,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffDetailedChangeRow))]
 [MarkoutContext(typeof(DiffDocumentView))]
 [MarkoutContext(typeof(TransitionsView))]
+[MarkoutContext(typeof(DiffAnalysisDiscoveryView))]
+[MarkoutContext(typeof(DiffAnalysisDiscoveryRow))]
 [MarkoutContext(typeof(DiffAnalysisSummaryView))]
 [MarkoutContext(typeof(DiffAnalysisSummaryRow))]
 [MarkoutContext(typeof(FindingTransitionRow))]

@@ -1,3 +1,4 @@
+using DotnetInspector.ResearchSections;
 using System.CommandLine;
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
@@ -2048,8 +2049,9 @@ public class DiffCommandTests
     public void BuildAnalysisDiff_MemberFilter_RejectsNonMethodTargets()
     {
         // A field resolves on both sides but has no method address, so it
-        // selects no Analysis method: a typed failure, never an empty diff.
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        // selects no Analysis method: a typed request-level target failure,
+        // never an empty diff.
+        var error = Assert.Throws<DiffAnalysisTargetException>(() =>
             DiffCommand.BuildAnalysisDiff(
                 [FixtureCatalog.DiffPair.OldAssemblyPath()],
                 [FixtureCatalog.DiffPair.NewAssemblyPath()],
@@ -3374,4 +3376,50 @@ public class DiffCommandTests
             ILInspector.Analysis.TypeRef.CoreLib("System", "Void"),
             MetadataToken: 0x06000001,
             IsStatic: true);
+    [Fact]
+    public async Task AnalysisSet_ChangesView_KeepsNonComparedOutcomesVisible()
+    {
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            DiffAnalysisCommandCapability.Catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Member,
+                targetCount: 1,
+                ["api", "call-site"]));
+        AnalysisDescriptor api = accepted.Analyses[0];
+        AnalysisDescriptor callSite = accepted.Analyses[1];
+        AnalysisSurfaceParticipation Participation(AnalysisDescriptor analysis)
+            => analysis.ParticipationFor(AnalysisOperationKind.Compare)!
+                .For(AnalysisReportSurfaceKind.Member)!;
+        var result = new DiffAnalysisResult(
+            AnalysisReportSurfaceKind.Member,
+            [
+                new DiffAnalysisOutcome.Failed(api, Participation(api), "api producer failed"),
+                new DiffAnalysisOutcome.Unavailable(callSite, Participation(callSite), "no body at this endpoint"),
+            ]);
+        var run = new DiffCommand.AnalysisSetRun(
+            result,
+            [.. result.Outcomes.Select(outcome =>
+                (outcome, (IReadOnlyList<FindingTransitionRow>)[]))]);
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiffCommand.WriteAnalysisSet(
+                "Sample",
+                new ApiSurface(),
+                new ApiSurface(),
+                "1.0.0",
+                "2.0.0",
+                new DiffOptions(),
+                new DiffCommand.DiffAnalysisPlan(accepted, [DiffSections.Changes.Name]),
+                run)));
+
+        // A failed api is never shown as an empty Changes report.
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("No API changes detected", output, StringComparison.Ordinal);
+        Assert.Contains("Analysis 'api' failed: api producer failed", error, StringComparison.Ordinal);
+        Assert.Contains(
+            "Analysis 'call-site' was not compared: no body at this endpoint",
+            error,
+            StringComparison.Ordinal);
+    }
+
 }

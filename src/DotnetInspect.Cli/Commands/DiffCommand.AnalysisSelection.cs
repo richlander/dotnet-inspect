@@ -196,29 +196,49 @@ public partial class DiffCommand
     /// </summary>
     static void WriteAnalysisDiscovery()
     {
-        Console.WriteLine();
-        Console.WriteLine("Analyses (--analysis; default api):");
-        Console.WriteLine();
-        Console.WriteLine("| Analysis | Surfaces | Findings |");
-        Console.WriteLine("| -------- | -------- | -------- |");
-        foreach (InspectionAnalysisRegistration registration
-                 in DiffAnalysisCommandCapability.Catalog.Analyses)
+        var view = new DiffAnalysisDiscoveryView
         {
-            if (registration.Analysis.ParticipationFor(
-                    AnalysisOperationKind.Compare) is not { } participation)
+            Rows =
+            [
+                .. DiffAnalysisCommandCapability.Catalog.Analyses
+                    .Select(registration => (
+                        registration.Analysis,
+                        Participation: registration.Analysis.ParticipationFor(
+                            AnalysisOperationKind.Compare)))
+                    .Where(entry => entry.Participation is not null)
+                    .Select(entry => new DiffAnalysisDiscoveryRow(
+                        entry.Analysis.Id.Value,
+                        string.Join(", ", entry.Participation!.Surfaces.Select(
+                            surface => surface.Surface)),
+                        string.Join(", ", entry.Participation.Surfaces
+                            .SelectMany(surface => surface.Descriptors)
+                            .Select(descriptor => descriptor.Id)
+                            .Distinct(StringComparer.Ordinal)))),
+            ],
+        };
+        var writer = new MarkoutWriter(new MarkdownFormatter());
+        DiffViewContext.Default.Serialize(view, writer);
+        Console.WriteLine();
+        Console.WriteLine(writer.Complete().TrimEnd());
+    }
+
+    static void WriteNonComparedOutcomes(DiffAnalysisResult result)
+    {
+        foreach (DiffAnalysisOutcome outcome in result.Outcomes)
+        {
+            switch (outcome)
             {
-                continue;
+                case DiffAnalysisOutcome.Failed failed:
+                    CommandError.Write(
+                        $"Analysis '{failed.Analysis.Id.Value}' failed: "
+                        + failed.Diagnostic);
+                    break;
+                case DiffAnalysisOutcome.Unavailable unavailable:
+                    CommandError.WriteWarning(
+                        $"Analysis '{unavailable.Analysis.Id.Value}' was not "
+                        + $"compared: {unavailable.Reason}");
+                    break;
             }
-            Console.WriteLine(
-                $"| {registration.Analysis.Id.Value} | "
-                + string.Join(", ", participation.Surfaces.Select(
-                    surface => surface.Surface))
-                + " | "
-                + string.Join(", ", participation.Surfaces
-                    .SelectMany(surface => surface.Descriptors)
-                    .Select(descriptor => descriptor.Id)
-                    .Distinct(StringComparer.Ordinal))
-                + " |");
         }
     }
 
@@ -371,7 +391,7 @@ public partial class DiffCommand
             toVersion,
             options);
 
-    sealed record AnalysisSetRun(
+    internal sealed record AnalysisSetRun(
         DiffAnalysisResult Result,
         IReadOnlyList<(DiffAnalysisOutcome Outcome, IReadOnlyList<FindingTransitionRow> Rows)>
             Projected);
@@ -475,8 +495,6 @@ public partial class DiffCommand
         DiffOptions options,
         DiffAnalysisPlan plan)
     {
-        AnalysisSetValidationResult.Accepted selection = plan.Selection;
-        bool selectsApi = selection.Analyses.Any(IsApi);
         AnalysisSetRun run = RunAnalysisSet(
             inputs.FromPaths,
             inputs.ToPaths,
@@ -485,15 +503,41 @@ public partial class DiffCommand
             inputs.FromVersion,
             inputs.ToVersion,
             options,
-            selection);
+            plan.Selection);
+        return WriteAnalysisSet(
+            inputs.Name,
+            inputs.FromSurface,
+            inputs.ToSurface,
+            inputs.FromVersion,
+            inputs.ToVersion,
+            options,
+            plan,
+            run);
+    }
+
+    /// <summary>
+    /// Writes the selected views over one analysis-set result.
+    /// </summary>
+    internal static int WriteAnalysisSet(
+        string name,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options,
+        DiffAnalysisPlan plan,
+        AnalysisSetRun run)
+    {
+        AnalysisSetValidationResult.Accepted selection = plan.Selection;
+        bool selectsApi = selection.Analyses.Any(IsApi);
         DiffAnalysisResult result = run.Result;
         var projected = run.Projected;
 
         IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures =
             selectsApi
                 ? ApiDiffAnalyzer.ProjectInspectionFailures(
-                    inputs.FromSurface,
-                    inputs.ToSurface)
+                    fromSurface,
+                    toSurface)
                 : [];
         bool failed = result.Outcomes.Any(static outcome =>
                 outcome is DiffAnalysisOutcome.Failed)
@@ -502,18 +546,18 @@ public partial class DiffCommand
         DiffAnalysisSummaryView? summaryView =
             plan.Views.Contains(DiffSections.Summary.Name)
                 ? DiffOutputFormatter.BuildAnalysisSummaryView(
-                    inputs.Name,
+                    name,
                     [.. projected.Select(entry => SummaryRow(entry.Outcome, entry.Rows))],
-                    inputs.FromVersion,
-                    inputs.ToVersion)
+                    fromVersion,
+                    toVersion)
                 : null;
         TransitionsView? transitionsView =
             plan.Views.Contains(DiffSections.Transitions.Name)
                 ? DiffOutputFormatter.BuildTransitionsView(
-                    inputs.Name,
+                    name,
                     [.. projected.SelectMany(entry => entry.Rows)],
-                    inputs.FromVersion,
-                    inputs.ToVersion)
+                    fromVersion,
+                    toVersion)
                 : null;
         ApiDiff? changes = null;
         if (plan.Views.Contains(DiffSections.Changes.Name)
@@ -525,9 +569,21 @@ public partial class DiffCommand
         {
             changes = BuildApiDiff(
                 api.Comparison,
-                inputs.FromSurface,
-                inputs.ToSurface,
+                fromSurface,
+                toSurface,
                 options);
+        }
+
+        // Every analysis that did not compare stays visible, whichever views
+        // are selected. The Changes view never stands in for an api
+        // analysis that did not compare.
+        WriteNonComparedOutcomes(result);
+        if (plan.Views.Contains(DiffSections.Changes.Name) && changes is null)
+        {
+            CommandError.Write(
+                "The Changes view requires a compared 'api' analysis, "
+                + "and 'api' did not compare; see the diagnostic above.");
+            return 1;
         }
 
         if (plan.Views is [var onlyView])
@@ -539,10 +595,10 @@ public partial class DiffCommand
                     : onlyView == DiffSections.Transitions.Name
                         ? transitionsView!
                         : DiffOutputFormatter.BuildDetailedChangesView(
-                            inputs.Name,
+                            name,
                             ApplyFilters(changes ?? new ApiDiff(), options),
-                            inputs.FromVersion,
-                            inputs.ToVersion);
+                            fromVersion,
+                            toVersion);
                 OutputFormatter.WriteProjectedTable(
                     Console.Out,
                     !options.NoHeader,
@@ -568,10 +624,10 @@ public partial class DiffCommand
                                 transitionsView!,
                                 OutputFormatter.CreateWindowedOptions(options.Rows))
                             : RenderDiff(
-                                inputs.Name,
+                                name,
                                 changes ?? new ApiDiff(),
-                                inputs.FromVersion,
-                                inputs.ToVersion,
+                                fromVersion,
+                                toVersion,
                                 options));
                 if (options.NameOnly)
                     WriteIncompleteComparisonDiagnostic(inspectionFailures);
@@ -582,16 +638,16 @@ public partial class DiffCommand
         DiffDetailedChangesView? changesView = changes is null
             ? null
             : DiffOutputFormatter.BuildDetailedChangesView(
-                inputs.Name,
+                name,
                 ApplyFilters(changes, options),
-                inputs.FromVersion,
-                inputs.ToVersion);
+                fromVersion,
+                toVersion);
         Console.WriteLine(
             DiffOutputFormatter.RenderDocumentView(
                 DiffOutputFormatter.BuildDocumentView(
-                    inputs.Name,
-                    inputs.FromVersion,
-                    inputs.ToVersion,
+                    name,
+                    fromVersion,
+                    toVersion,
                     changesView,
                     analysisDiff: null,
                     implementationDiff: null,

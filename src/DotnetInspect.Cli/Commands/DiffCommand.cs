@@ -1365,7 +1365,7 @@ public partial class DiffCommand
                     RequireSelectedEndpoints(resolution, compared.Correspondences, options);
                 return compared.Comparison;
             case BodySignalComparisonResult.TargetFailed failed:
-                throw new InvalidOperationException(
+                throw new DiffAnalysisTargetException(
                     (failed.Failures.All(static failure => failure.Kind
                             == BodySignalTargetFailureKind.EndpointWithoutMethodAddress)
                         ? $"{sectionName} --member requires a method-like target: "
@@ -1374,7 +1374,7 @@ public partial class DiffCommand
                         " ",
                         failed.Failures.Select(static failure => failure.Summary)));
             case BodySignalComparisonResult.PlanningRejected rejected:
-                throw new InvalidOperationException(
+                throw new DiffAnalysisTargetException(
                     $"{sectionName} --member target planning was rejected "
                     + $"({rejected.Rejection.Kind}): {rejected.Rejection.Summary}");
             case BodySignalComparisonResult.AdmissionRejected rejected:
@@ -1433,7 +1433,7 @@ public partial class DiffCommand
                     (attempt?.Outcome as ResearchTargetOutcome.NotFound)
                         ?.MetadataDiagnostic?.Message)
                 .FirstOrDefault(static message => message is not null);
-            throw new InvalidOperationException(
+            throw new DiffAnalysisTargetException(
                 diagnostic
                 ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
         }

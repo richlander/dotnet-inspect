@@ -200,13 +200,45 @@ public sealed class AnalysisParticipationRegistrationTests
                 targetCount: 1,
                 ["api", "allocation"]));
 
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<DiffAnalysisTargetException>(() =>
             DiffAnalysisOperation.Execute(
                 catalog,
                 accepted,
-                Input(_ => throw new InvalidOperationException("Member target 'Run' did not resolve."))));
+                Input(_ => throw new DiffAnalysisTargetException("Member target 'Run' did not resolve."))));
 
         Assert.Contains("did not resolve", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnalysisSet_SharedBodyPreparationFailureFailsOnlyBodyAnalyses()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Member,
+                targetCount: 1,
+                ["api", "call-site", "allocation"]));
+
+        // A non-target shared preparation failure, such as admission
+        // rejecting the body-signal inputs, is each body analysis's own
+        // producer failure. It does not erase the api outcome.
+        DiffAnalysisResult result = DiffAnalysisOperation.Execute(
+            catalog,
+            accepted,
+            Input(_ => throw new InvalidOperationException(
+                "body-signal inputs were not admitted (Rejected).")));
+
+        Assert.Equal(
+            ["api", "call-site", "allocation"],
+            result.Outcomes.Select(outcome => outcome.Analysis.Id.Value));
+        Assert.IsType<DiffAnalysisOutcome.Compared>(result.Outcomes[0]);
+        Assert.All(
+            result.Outcomes.Skip(1),
+            outcome => Assert.Contains(
+                "were not admitted",
+                Assert.IsType<DiffAnalysisOutcome.Failed>(outcome).Diagnostic,
+                StringComparison.Ordinal));
     }
 
     static DiffAnalysisInput Input(
