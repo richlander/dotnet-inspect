@@ -202,16 +202,27 @@ public sealed class ApiMemberBucketTests
         ApiMember readWithVerify = Attached(
             json, "System.Text.Json.Utf8JsonReader", "System.Text.Json.JsonHelpers", "ReadWithVerify");
         Assert.Equal("internal", readWithVerify.Accessibility);
+        // The bucket classifies the declaration; its spelling keeps the
+        // declared modifier.
+        Assert.Equal("public", readWithVerify.DeclaredAccessibility);
 
         ApiSurface coreLib = Extract(
             Path.Combine(AppContext.BaseDirectory, "PinnedArtifacts", "System.Private.CoreLib.dll"),
             includeAll: true);
         Assert.All(
             AttachedAll(coreLib, "System.Type", "System.Reflection.SignatureTypeExtensions", "TryMakeArrayType"),
-            member => Assert.Equal("private", member.Accessibility));
+            member =>
+            {
+                Assert.Equal("private", member.Accessibility);
+                Assert.Null(member.DeclaredAccessibility);
+            });
         Assert.All(
             AttachedAll(coreLib, "System.String", "System.MemoryExtensions", "AsSpan"),
-            member => Assert.Null(member.Accessibility));
+            member =>
+            {
+                Assert.Null(member.Accessibility);
+                Assert.Null(member.DeclaredAccessibility);
+            });
     }
 
     static ApiMember Attached(

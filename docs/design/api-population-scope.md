@@ -119,7 +119,9 @@ extension declaration, an extension method listed under its receiver Type,
 belongs to the narrower of its own accessibility and its declaring Type's,
 because only consumers who can see the declaring Type can call it. For
 example, the public method `JsonHelpers.ReadWithVerify` of System.Text.Json's
-internal `JsonHelpers` is `internal` under `Utf8JsonReader`. A view shows
+internal `JsonHelpers` is `internal` under `Utf8JsonReader`. The bucket
+classifies the declaration; its spelling keeps the declared modifier, as
+`public static void ReadWithVerify(this ref Utf8JsonReader reader)`. A view shows
 each declaration with the parts visible at its selected accessibility:
 `public` shows `BytesPending { get; }`, and every bucket shows
 `BytesPending { get; private set; }`.

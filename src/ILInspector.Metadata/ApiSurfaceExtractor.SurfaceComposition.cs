@@ -74,15 +74,22 @@ public static partial class ApiSurfaceExtractor
                 }
 
                 // Only consumers who can see the declaring Type can call an
-                // attached extension (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+                // attached extension, so that bounds its bucket; its spelling
+                // keeps the declared modifier
+                // (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+                string? attachedAccessibility = GetAccessibility(
+                    NarrowerAccess(
+                        AccessOf(extension.Accessibility),
+                        AccessOf(declaringType.Accessibility)));
                 var attached = new ApiMember
                 {
                     Name = extension.Name,
                     Kind = "extension-method",
-                    Accessibility = GetAccessibility(
-                        NarrowerAccess(
-                            AccessOf(extension.Accessibility),
-                            AccessOf(declaringType.Accessibility))),
+                    Accessibility = attachedAccessibility,
+                    DeclaredAccessibility =
+                        attachedAccessibility == extension.Accessibility
+                            ? null
+                            : extension.Accessibility ?? "public",
                     ReturnType = extension.ReturnType,
                     Signature = extension.Signature,
                     SignatureModel = extension.SignatureModel,
