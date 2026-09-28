@@ -1156,6 +1156,12 @@ test("framework Library metadata refresh preserves native pointer activation", a
 
   await page.keyboard.press("Control+p");
   await page.locator("#spotlight-input").fill("System.Text.Json");
+  const packageSearchHint = page.getByText(
+    "Searching nuget.org…",
+    { exact: true },
+  );
+  await expect(packageSearchHint).toBeVisible();
+  await expect(packageSearchHint).toHaveCount(0);
   const result = page.locator(
     '[data-sl-framework-lib="System.Text.Json"]',
   );
