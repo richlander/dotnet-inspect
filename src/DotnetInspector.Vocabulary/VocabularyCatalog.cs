@@ -185,8 +185,9 @@ public static class VocabularyCatalog
     public static VocabularyDocument ProjectDocument(VocabularySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        if (snapshot.Catalog != Snapshot.Catalog
-            || snapshot.Identity != Snapshot.Identity)
+        if (!ReferenceEquals(snapshot, Snapshot)
+            && (snapshot.Catalog != Snapshot.Catalog
+                || snapshot.Identity != Snapshot.Identity))
         {
             throw new ArgumentException(
                 $"Snapshot '{snapshot.Identity}' is not the current Product "

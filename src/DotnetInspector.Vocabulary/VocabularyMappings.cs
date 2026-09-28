@@ -358,6 +358,7 @@ public sealed record VocabularyDefinition
 /// <summary>One complete immutable vocabulary catalog snapshot.</summary>
 public sealed class VocabularySnapshot
 {
+    private readonly Lazy<VocabularySnapshotIdentity> _identity;
     private readonly IReadOnlyDictionary<
         VocabularyIdentity,
         VocabularyDefinition> _vocabularies;
@@ -371,12 +372,12 @@ public sealed class VocabularySnapshot
     private VocabularySnapshot(
         int formatVersion,
         VocabularyCatalogIdentity catalog,
-        VocabularySnapshotIdentity identity,
+        Func<VocabularySnapshotIdentity> identity,
         ImmutableArray<VocabularyDefinition> vocabularies)
     {
         FormatVersion = formatVersion;
         Catalog = catalog;
-        Identity = identity;
+        _identity = new(identity);
         Vocabularies = vocabularies;
         _vocabularies = vocabularies.ToDictionary(
             vocabulary => vocabulary.Identity);
@@ -392,7 +393,7 @@ public sealed class VocabularySnapshot
 
     public VocabularyCatalogIdentity Catalog { get; }
 
-    public VocabularySnapshotIdentity Identity { get; }
+    public VocabularySnapshotIdentity Identity => _identity.Value;
 
     public ImmutableArray<VocabularyDefinition> Vocabularies { get; }
 
@@ -417,18 +418,24 @@ public sealed class VocabularySnapshot
             catalog,
             declarations,
             dependencies);
-        VocabularySnapshotIdentity identity = ComputeIdentity(
-            formatVersion,
-            catalog,
-            normalized);
-        if (expectedIdentity is { } expected && expected != identity)
+        VocabularySnapshotIdentity? computedIdentity = expectedIdentity is null
+            ? null
+            : ComputeIdentity(formatVersion, catalog, normalized);
+        if (expectedIdentity is { } expected
+            && expected != computedIdentity)
         {
             throw new InvalidOperationException(
                 $"Vocabulary snapshot identity '{expected}' does not match "
-                + $"constructed content identity '{identity}'.");
+                + $"constructed content identity '{computedIdentity}'.");
         }
 
-        return new(formatVersion, catalog, identity, normalized);
+        return new(
+            formatVersion,
+            catalog,
+            expectedIdentity is { } supplied
+                ? () => supplied
+                : () => ComputeIdentity(formatVersion, catalog, normalized),
+            normalized);
     }
 
     public VocabularyDefinition GetVocabulary(VocabularyIdentity identity) =>
