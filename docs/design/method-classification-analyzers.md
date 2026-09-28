@@ -139,28 +139,42 @@ Each Tier 1 test must equal the legacy test on every input:
 
 ## Budget
 
-The gate owns one budget per execution, sized as legacy's
+The gate owns one identity budget per execution, sized as legacy's
 `MaxClassificationScanWorkChars` and `MaxClassificationIdentityDecodeFailures`.
 It is armed only when a requested analyzer declares `IdentityText`, and it is
-charged where identity text is decoded. Exhausting it aborts the execution
+charged where identity text is decoded, including identity-decode failures. Exhausting it aborts the execution
 under
 [Budget exhaustion aborts the execution](producer-planning.md#budget-exhaustion-aborts-the-execution).
 Every requested closing is `Aborted` with the typed `CriticalFailure`. Nothing
 is published, and a partial count is never reported. On hostile inputs, rows
 fail together, as legacy's do.
 
-Below the budgets, legacy handles two recoverable failures differently, and
-the analyzers do the same:
+Count and Exists decode no identity text, and that is what makes them fast.
+The consequence: they cannot notice hostility that lives in identity text.
+On such an image, a Count or Exists may answer, possibly with a misleading
+result, where a Rows request over the same image decodes the identities,
+exhausts the budget, and aborts. Count equals the number of rows whenever
+Rows succeeds. This is a consequence of the performance design, not a goal,
+and hostile images are not promised an answer.
 
-- **Identity projection fails** for a row that is classified. The row is
+Below the budget, the analyzers handle recoverable failures as follows:
+
+- **Identity projection fails** for a row that is classified. This happens
+  only in Rows, where `IdentityText` is declared. As in legacy, the row is
   still emitted, with signature text `methodName(...)` and a null anchor and
-  return type. The failure counts against the decode-failure budget. This
-  applies to P/Invoke, async, and pointer rows alike.
-- **The pointer probe fails** with a malformed signature. The method gets no
-  pointer row, and a `BadImageFormatException` counts against the
-  decode-failure budget. Legacy also swallows any other exception from the
-  probe silently. The analyzer keeps the same rows, but records the failure
-  in the receipt as a diagnostic, so it is visible without changing output.
+  return type, and the failure counts against the identity budget's
+  decode-failure limit. This applies to P/Invoke, async, and pointer rows
+  alike.
+- **The pointer probe fails** with a malformed signature. This happens in
+  any closing, Count and Exists included. The probe is a Tier 1 read, so per
+  [The source gate owns safety](producer-planning.md#the-source-gate-owns-safety)
+  the unreadable row fails the pointer analyzer, with a typed `Failed`
+  outcome that names the method. The method is not silently omitted, and no
+  decode-failure counter is needed, because the analyzer stops at its first
+  failure. This departs from legacy only on images with malformed
+  signatures. Legacy skipped such methods silently, and counted a
+  `BadImageFormatException` toward its failure limit, so its pointer count
+  could quietly miss them.
 
 ## Queries and demand
 
@@ -170,6 +184,17 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
 - **One query per analyzer:** P/Invoke, async, and pointer signature. Each is
   parameterized by its closing (Rows, Count, or Exists) and returns a typed
   result for that closing, or the typed critical failure.
+- **Request identity.** Each analyzer has exactly one producer declaration.
+  Closing and row order are request parameters, not declaration parameters.
+  So several consumers asking the same analyzer never create conflicting
+  declarations. In one execution, requests for the same analyzer compose as
+  follows:
+  - If any consumer asks for Rows, Rows runs once, and every Count and
+    Exists for that analyzer is derived from it. They take its outcome,
+    including an abort.
+  - Otherwise, Count and Exists run alone, with no `IdentityText` declared.
+  - Each requested row order is applied by the query to the one set of folded
+    rows.
 - **Rows order is a typed request parameter,** not a host sort. Today's
   outputs use two orders, and a query offers both:
   - **Model order:** declaring type, then method name, using today's
@@ -182,8 +207,9 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   A host names the order it shows, and the query returns rows in that order.
   No host sorts or projects rows itself.
 - **One combined request** runs every requested analyzer and closing in one
-  execution, with each consumer's own closing. Only the Finding asks for
-  Rows. The merged rows, in legacy order, and the Finding inspection built
+  execution, with each consumer's own closing, composed by the request
+  identity rule above. Rows are requested only by the Finding and the row
+  sections. The merged rows, in legacy order, and the Finding inspection built
   from them come only when the Finding is requested. Signals and LibraryInfo
   counts get Count and Exists closings, matching what each shows today
   (`AuditSignalBuilder` shows counts for pointer and P/Invoke, and the async
@@ -253,6 +279,12 @@ work, tracked in #8733, and not part of this change.
 
 ## Verification
 
+- **Combined consumers.** One execution with async section Rows, LibraryInfo
+  Count, and Signals Exists runs Rows once and derives the others. A request
+  with no Rows declares no `IdentityText`.
+- **Malformed pointer signature under Count.** It fails the pointer analyzer
+  with a typed `Failed` outcome naming the method, and never publishes a
+  silently reduced count.
 - **Consumer output equivalence.** A request for Signals alone gives the same
   numeric pointer and P/Invoke counts, and the same async kind, as legacy.
   The scanner test fixture with several pointer-signature methods covers it,
