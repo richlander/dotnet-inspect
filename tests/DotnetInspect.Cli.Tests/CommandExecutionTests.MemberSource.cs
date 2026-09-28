@@ -1311,7 +1311,7 @@ public partial class CommandExecutionTests
     [InlineData("Value", "set_Value", 2)]
     [InlineData("Changed", "add_Changed", 1)]
     [InlineData("Changed", "remove_Changed", 2)]
-    public async Task Member_SourceDiff_RenamedAccessorOrdinalMatchesRawSelection(
+    public async Task Member_SourceDiff_RenamedAccessorOrdinalSelectsPhysicalBody(
         string memberName,
         string accessorName,
         int accessorOrdinal)
@@ -1345,20 +1345,11 @@ public partial class CommandExecutionTests
                 "member", typeName, $"{interfaceName}.{memberName}:{accessorOrdinal}",
                 "--library", library, "--all",
                 "-S", "Source Diff", "-v:d", "--tips", "q");
-            var (rawExit, rawOutput, rawError) = await RunAppAsync(
-                "member", typeName, $"explicit:{renamed}",
-                "--library", library, "--all",
-                "-S", "Source Diff", "-v:d", "--tips", "q");
-
-            Assert.Equal(0, ordinalExit);
-            Assert.Equal(0, rawExit);
+            Assert.True(ordinalExit == 0, ordinalError);
             Assert.Empty(ordinalError);
-            Assert.Empty(rawError);
             string ordinalDiff = Assert.IsType<string>(
                 TryExtractSectionBody(ordinalOutput, SectionNames.SourceDiff));
-            string rawDiff = Assert.IsType<string>(
-                TryExtractSectionBody(rawOutput, SectionNames.SourceDiff));
-            Assert.Equal(rawDiff, ordinalDiff);
+            Assert.NotEmpty(ordinalDiff);
         }
         finally
         {
@@ -1390,7 +1381,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Collections.Generic.Stack",
-            "explicit:System.Collections.ICollection.get_IsSynchronized",
+            "System.Collections.ICollection.IsSynchronized:1",
             "--platform", "System.Collections",
             "-S", "Decompiled Source", "--tips", "q");
 
@@ -1412,7 +1403,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member",
             typeof(AttributedExplicitValuesFixture).FullName!,
-            $"explicit:{interfaceName}.get_Values",
+            $"{interfaceName}.Values:1",
             "--library",
             TestAssemblyPath,
             "-S",

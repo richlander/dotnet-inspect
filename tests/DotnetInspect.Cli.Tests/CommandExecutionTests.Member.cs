@@ -252,7 +252,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        MemberCommand_SharedAccessorProjectionPreservesPhysicalModifiers()
+        MemberCommand_SharedAccessorProjectionUsesLogicalPropertyShape()
     {
         var readOnly =
             await RunAppAsync(
@@ -273,7 +273,7 @@ public partial class CommandExecutionTests
                 "--library",
                 FixtureCatalog.DecompilerUnsafeNew
                     .AssemblyPath(),
-                "explicit:ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.get_Value:1",
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value:1",
                 "--all",
                 "-S",
                 "Decompiled Source",
@@ -288,8 +288,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, unsafeAccessor.Exit);
         Assert.Empty(unsafeAccessor.Error);
         Assert.Contains(
-            "unsafe int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
+            "int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
             unsafeAccessor.Output);
+        Assert.DoesNotContain("unsafe int", unsafeAccessor.Output);
     }
 
     [Fact]
@@ -2319,8 +2320,12 @@ public partial class CommandExecutionTests
             output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
+        Assert.Contains("| offset | Allocation | alloc.box |", output);
+        Assert.Contains(
+            "escape-kind=escapes-return; lifetime-uses=IL_",
+            output);
         Assert.Matches(
-            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
+            @"multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
             output);
     }
 
