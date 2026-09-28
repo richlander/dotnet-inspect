@@ -19,6 +19,11 @@ selected-target complete reference-population realization tracked by
 [#7892](https://github.com/richlander/dotnet-inspect/issues/7892).
 Exact-target Type resolution from an implementation-view candidate is tracked
 by [#8298](https://github.com/richlander/dotnet-inspect/issues/8298).
+Platform Library certification is tracked by
+[#8801](https://github.com/richlander/dotnet-inspect/issues/8801). It
+strengthens every completed one-Library and complete-population realization
+without moving generic Library ownership, source-specific population
+construction, Metadata capabilities, or consumer policy into this owner.
 The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.
@@ -252,6 +257,11 @@ the root request family. Paired views may join equal managed identities only
 when their member attribution also agrees; unclassified or mismatched
 attribution is a typed rejection before ownership escapes.
 
+Platform Library certification under #8801 is design-only. The current
+implementation still exposes a raw `LibraryReference` from one-Library results
+and inside `PlatformPopulationMember`; the six-stage certification extension
+below owns migration and retirement of those surfaces.
+
 The `Failed` House terminal arm and resource-free typed failure-stage evidence
 are implemented, including installed and package-backed Artifact publication
 and retirement stages. Internal Library operation leases, cleanup-failure
@@ -286,9 +296,11 @@ result must preserve at the shared Library inspection handoff.
 > demand to one exact `PlatformFamilyTarget`, then compose
 > source candidates and owner-issued platform facts into one typed settlement.
 > When that operation returns realized Libraries, transfer each shared
-> `LibraryContentOwner` beside its resource-free `LibraryReference` and exact
-> content references. Preserve the request, any selected exact target, selected
-> discovery contributions, source, reference-contract,
+> `LibraryContentOwner` beside one resource-free `PlatformLibraryReference`
+> that certifies its exact shared `LibraryReference`, settled target, selected
+> contributions, Platform provenance, and view correspondence. Preserve the
+> request, any selected exact target, selected discovery contributions, source,
+> reference-contract,
 > implementation-supplier, forwarding, completion, and failure evidence
 > without retaining live authority in House evidence.
 
@@ -307,8 +319,10 @@ It owns:
 - platform-specific invocation of Metadata forwarding;
 - validation and transfer of selected live source content into one shared
   Library owner per realized Library;
-- provenance-retaining `LibraryReference` and `LibraryContentReference` results
-  for one-library and population demand;
+- construction of one `PlatformLibraryReference` certification over every
+  successfully realized `LibraryReference`;
+- provenance-retaining `PlatformLibraryReference`,
+  `LibraryContentReference`, and complete-population member results;
 - separation of caller-owned Library owners from resource-free House values
   and receipts;
 - acceptance of ordinary platform requests issued from orchestration-owned
@@ -396,8 +410,10 @@ algorithm. It is a clearing house over focused owners, not a renamed
 | **Source capability** | A bounded adapter entry point for one source-specific operation. It is not source authority by display name. |
 | **Source contribution** | One source's typed candidate, non-match, failure, or incomplete evidence, retaining exact target correspondence. |
 | **Platform delegation** | An orchestration handoff produced from an upstream package-processing result. It authorizes one ordinary platform request for an exact family target while retaining the original package and pruning evidence outside this House. It does not identify a platform assembly. |
-| **Platform Library realization** | One selected platform Library whose exact `LibraryReference` and assembly `LibraryContentReference` values retain physical identity, Platform provenance, exact target, source, and API/implementation role correspondence. Its separately returned `LibraryContentOwner` is the sole live content authority. |
-| **Library ownership handoff** | The owning realization result that transfers one `LibraryContentOwner` to the caller beside its resource-free `LibraryReference`. The House value and receipt retain the reference and correspondence, never the owner or an operation lease. |
+| **Platform Library realization** | One selected platform Library whose `PlatformLibraryReference` certifies the exact shared `LibraryReference`, settled target, selected source contributions, Platform provenance, and API/implementation view correspondence. Its separately returned `LibraryContentOwner` is the sole live content authority. |
+| **Platform Library certification** | The closed, resource-free `PlatformLibraryReference` issued only after PlatformHouse validates one shared Library against the exact settled operation. It proves Platform realization, not complete-population membership or CoreLib entitlement. |
+| **Platform population member** | One certified Platform Library plus source-issued `Focus` or `BindingSupport` attribution in one exact authoritative complete population. |
+| **Library ownership handoff** | The owning realization result that transfers one `LibraryContentOwner` to the caller beside its resource-free Platform Library certification. The House value and receipt retain references and correspondence, never the owner or an operation lease. |
 | **View demand** | Whether the consumer requires reference contracts, implementation bodies, or both. |
 | **Population demand** | Whether the consumer requires one exact library or one complete family population. |
 | **Reference contract** | A reference assembly or facade used to describe an API contract. It does not prove an implementation supplier. |
@@ -1009,7 +1025,7 @@ Platform request or orchestration-issued delegation
   -> target and version resolution
   -> acquire authorized realization
   -> select reference and/or implementation view
-  -> construct shared Library owner and reference
+  -> construct shared Library owner and Platform Library certification
 
 Direct library
   -> separately owned realization under #6621 slice 6
@@ -1029,7 +1045,7 @@ consumer-specific ready wrapper. Each realized Library separates:
 
 - one caller-owned `LibraryContentOwner`, which is the only live content
   authority;
-- one resource-free `LibraryReference`;
+- one resource-free `LibraryReference` owned by the shared Library contract;
 - exact assembly `LibraryContentReference` values carrying `ApiAssembly`,
   `ImplementationAssembly`, or both roles;
 - physical Artifact and assembly identity for every retained view;
@@ -1062,6 +1078,123 @@ derives the managed assembly identity from that projection. The resulting
 caller-supplied assembly display name, or projection for another Artifact
 cannot replace it.
 
+### Platform Library certification
+
+The shared `LibraryReference` intentionally remains neutral: it represents one
+realized Library from any supported source domain and owns no Platform policy.
+PlatformHouse therefore returns each successfully realized Library through one
+closed `PlatformLibraryReference` rather than asking later consumers to
+reconstruct Platform authority from that neutral value.
+
+The certification retains:
+
+- the exact shared `LibraryReference`;
+- the exact settled `PlatformFamilyTarget`;
+- every selected Platform source realization contribution used by the
+  Library's retained contents; and
+- the Platform-owned view correspondence when the Library has distinct API and
+  implementation views.
+
+It does not copy every lower fact into new fields. The underlying
+`LibraryReference`, content references, source contributions, and view
+correspondence continue to retain their owner-issued source coordinate,
+Artifact provenance, identities, roles, request, and completion associations.
+The certificate validates and joins those values without replacing their
+owners.
+
+These values form one certificate. A caller cannot independently pair a
+Library, target, source contribution, or view correspondence. PlatformHouse
+issues the certificate only after the existing source-to-Artifact,
+Artifact-to-Metadata, target, identity, role, and view checks succeed. Failure,
+unavailability, ambiguity, incompleteness, cancellation, and partial
+construction issue no certificate.
+
+`PlatformLibraryReference` is resource-free. It carries no
+`LibraryContentOwner`, operation lease, Artifact session, source handle,
+callback, opener, stream, or retirement obligation. The separately returned
+`LibraryContentOwner` remains the only authority that can issue Library
+operation access.
+
+A generic consumer may deliberately project the certificate to its underlying
+`LibraryReference` and use shared Library inspection. That erasure is one-way:
+the raw Library does not retain Platform authority. No assembly name, path,
+Platform-looking source coordinate, Artifact provenance fragment, public key,
+byte equality, or display text can reconstruct a
+`PlatformLibraryReference`. A Platform-specific operation accepts the
+certificate or a stronger Platform-owned value, not a raw Library plus parallel
+target or provenance parameters.
+
+The closest existing value is `PlatformPopulationMember`, but that value
+exists only for complete-population operations and currently pairs raw Library
+and attribution facts. It becomes the stronger membership form: one
+`PlatformLibraryReference` plus exact source-issued `Focus` or
+`BindingSupport` attribution in one authoritative complete population.
+One-Library results receive the common Platform certification without claiming
+population completeness. Population values, receipts, owners, and members
+remain aligned by exact index.
+
+This strengthens the existing model rather than adding a parallel platform
+Library hierarchy:
+
+- `LibraryReference` remains the neutral shared base;
+- `PlatformLibraryReference` certifies PlatformHouse realization for every
+  completed Platform Library; and
+- `PlatformPopulationMember` certifies complete-population membership and role
+  over one `PlatformLibraryReference`.
+
+PackageHouse remains analogous at the source-to-Library handoff but does not
+define this Platform refinement. Its exact package source coordinate and House
+receipt continue to retain Package provenance. This design neither creates a
+`PackageLibraryReference` by symmetry nor prevents a later focused PackageHouse
+design if a package-specific consumer needs an equivalent closed certificate.
+
+### Certification and binding capabilities
+
+Platform certification proves that PlatformHouse realized a Library for one
+exact target. It does not prove that the Library defines CoreLib, supplies any
+particular intrinsic target, or is the unique member with a binding
+capability. Platform membership alone cannot mint those claims.
+
+Metadata and acquisition-trust owners remain responsible for issuing any
+CoreLib or other binding capability from inspected content and authorized
+provenance. A later binding adoption may associate that owner-issued capability
+with one `PlatformLibraryReference` or `PlatformPopulationMember`; it must not
+derive the capability from `System.Private.CoreLib`, `mscorlib`, package names,
+paths, or Platform membership. Selecting a unique capable member still requires
+the complete authoritative population.
+
+A directly designated Library may remain CoreLib-entitled under the Metadata
+trust contract without becoming a Platform Library. Conversely, most certified
+Platform Libraries carry no CoreLib entitlement. Certification and capability
+are separate typed facts.
+
+### Existing analogues and rejected substitutions
+
+The repository already carries each ingredient, but no current value owns their
+joint invariant:
+
+- `ExactLibrarySourceCoordinate.Platform` identifies inert Platform source
+  intent before target or view realization. It cannot certify completed source
+  work.
+- `PlatformLibraryArtifactProvenance` binds one content item to one exact
+  source contribution. It does not certify the whole Library or its paired
+  views.
+- `LibraryReference` owns the neutral realized Library and content
+  correspondence. Adding Platform target or population policy there would
+  weaken the shared Package, Project, Local, and direct-Library boundary.
+- `PlatformPopulationMember` is the closest existing refinement, but it exists
+  only after complete-population realization and currently accepts the raw
+  Library and attribution as separate constructor inputs.
+- a House receipt explains one operation after completion, but requiring every
+  Platform-specific consumer to reopen and rejoin receipt fields recreates the
+  untyped boundary this certificate removes.
+
+A reserved or otherwise unspeakable assembly name is also insufficient.
+Analysis may keep `corelib` as display or structural vocabulary, but no spelling
+can certify Platform realization, source provenance, target, population
+completeness, or CoreLib entitlement. Construction of a closed typed value,
+not string reservation, supplies the invariant.
+
 View demand closes the required Library roles before construction:
 
 - **Reference** maps the selected reference content to `ApiAssembly`.
@@ -1089,10 +1222,10 @@ source and target correspondence.
 
 The owning realization result returns each `LibraryContentOwner` separately
 from the resource-free House value and receipt. That value and receipt retain
-the exact `LibraryReference`, content references, roles, Platform provenance,
-source evidence, target, and view correspondence. Shared Library inspection
-owns assembly-level metadata, API, dependency, source, analysis, and
-decompilation behavior after that handoff.
+the exact `PlatformLibraryReference`, underlying Library and content references,
+roles, Platform provenance, source evidence, target, and view correspondence.
+Shared Library inspection owns assembly-level metadata, API, dependency,
+source, analysis, and decompilation behavior after that handoff.
 
 Any PlatformHouse Metadata work that reads a newly constructed Library first
 obtains a fresh `LibraryOperationLease` from its owner. The House reads exact
@@ -1747,8 +1880,7 @@ required by the exact operation settled. For example:
 - a reference-only `Realize` operation may complete without implementation
   evidence;
 - a one-library `Realize` operation may complete with one caller-owned
-  `LibraryContentOwner` beside a resource-free `LibraryReference` retaining its
-  Platform provenance;
+  `LibraryContentOwner` beside one resource-free `PlatformLibraryReference`;
 - an assembly-reference operation may complete with Metadata
   `NoNameOwner`; and
 - a type-resolution operation may complete with Metadata `NotFound` only when
@@ -1766,9 +1898,9 @@ The settlement receipt binds:
   the request;
 - every selected or outcome-relevant source contribution;
 - reference and implementation view correspondence;
-- the exact `LibraryReference`, content references, physical identities, roles,
-  origins, Platform targets, source evidence, and correspondence of every
-  returned Library;
+- the exact `PlatformLibraryReference`, underlying Library and content
+  references, physical identities, roles, origins, Platform targets, source
+  evidence, and correspondence of every returned Library;
 - Metadata binding or forwarding outcomes when invoked;
 - source, Workspace, and catalog generations;
 - completeness; and
@@ -1883,7 +2015,7 @@ PlatformHouse contract and composition
              |
              | one-library Realize
              v
-LibraryContentOwner + resource-free LibraryReference
+LibraryContentOwner + resource-free PlatformLibraryReference
              |
              v
 shared Library inspection
@@ -2077,6 +2209,32 @@ after its House replacement is live in every supported host that uses it.
 Platform documentation adapters and retirement are counted separately by
 DocumentationHouse tracker #6579.
 
+The Platform Library certification extension under #8801 has six counted
+stages:
+
+1. Lock this focused certification contract without changing product types.
+2. Implement `PlatformLibraryReference` and migrate every one-Library and
+   complete-population completion. Retire raw Platform-specific
+   `LibraryReference` result surfaces rather than keeping a parallel path.
+3. Adopt the certificate in PlatformQueries and Workspace Platform population
+   admission, removing their reconstruction of Platform authority from
+   coordinate and provenance fragments.
+4. Have Metadata and Platform binding issue and consume explicit Library
+   binding capabilities, including intrinsic CoreLib entitlement, without
+   physical-name inference.
+5. Adopt certified Platform results in the shared assembly-reference ladder,
+   type resolution, call-graph population, and dependency traversal. Package
+   pruning remains an upstream typed delegation and does not acquire a
+   Platform Library identity.
+6. Adopt the same certified route in CLI and Inspect Web, preserve the
+   motivating `System.Text.Json.JsonDocument.Dispose` call graph, and retire
+   the browser's platform-specific expansion loop.
+
+Stages 2-5 are host-neutral prerequisites. Stage 6 is the production-consumer
+slice for both hosts. Each adopter owns its internal request, admission,
+binding, or presentation changes; this document owns only the certificate they
+consume.
+
 Step 4 was staged without changing the ten-step count. Step 4a is owned by
 [Installed Reference-Pack Realization](installed-reference-pack-realization.md)
 and adds explicit-hive reference target discovery, immutable reference-pack
@@ -2269,13 +2427,16 @@ House composition
 completed
   owning realization:
     caller-owned LibraryContentOwner
-    resource-free LibraryReference
+    resource-free PlatformLibraryReference
+      exact shared LibraryReference
+      exact DotNetRuntime / net11.0 / 11.0.0-rc.1 target
+      selected reference and implementation contributions
+      Platform source and Artifact provenance correspondence
+      reference/implementation view correspondence
     ApiAssembly content: reference-pack System.Text.Json.dll
     ImplementationAssembly content: runtime-pack System.Text.Json.dll
-    Platform origin, exact target, and source evidence
-    reference/implementation correspondence
   resource-free receipt:
-    exact Library and content references
+    exact Platform Library certification and content references
     no owner, lease, callback, stream, opener, or disposal delegate
 ```
 
@@ -2288,11 +2449,43 @@ the package-backed stage discover the current stable `10.0.x` inventory and
 select its highest servicing target.
 
 The caller-owned `LibraryContentOwner` keeps the selected Platform contents
-alive and can issue later operation authority. The `LibraryReference`, content
-references, and House receipt explain exactly which Platform target, source,
-and views were selected without keeping those contents alive. A NuGet
-`System.Text.Json` assembly with equal Metadata identity has a different exact
-Library source coordinate and cannot replace either Platform content.
+alive and can issue later operation authority. The
+`PlatformLibraryReference`, underlying Library and content references, and
+House receipt explain exactly which Platform target, source, and views were
+selected without keeping those contents alive. A NuGet `System.Text.Json`
+assembly with equal Metadata identity has a different exact Library source
+coordinate and cannot construct or replace the Platform certification.
+
+### Intrinsic CoreLib continues through a certified population
+
+This is the production-adoption target motivated by
+`System.Text.Json@11.0.0-preview.7.26381.103`, `netstandard2.0`,
+`System.Text.Json.JsonDocument.Dispose`:
+
+```text
+package Library call graph
+  Metadata decodes a typed intrinsic CoreLib target
+  Package evidence proves non-participation
+  exact Platform applicability selects the Workspace Platform participant
+
+complete DotNetRuntime population
+  each member:
+    PlatformPopulationMember
+      PlatformLibraryReference
+      exact target and role
+  separate owner-issued capability evidence:
+    exactly one member may satisfy intrinsic CoreLib
+
+binding continuation
+  selects by certification + capability + complete population
+  never by "corelib", System.Private.CoreLib, mscorlib, or System.Runtime text
+  produces complete call-graph nodes and edges
+```
+
+The certificate solves only the typed Platform identity part of that
+composition. Metadata/acquisition trust owns the capability, Workspace owns
+the selected complete population, and the binding adopter owns zero/one/many
+selection and visible terminal outcomes.
 
 ### Direct library bypasses container resolution
 
@@ -2358,6 +2551,10 @@ The implementation and adoption slices own these Release gates:
 | Typed ingress separation | A raw `PackageRef` cannot enter PlatformHouse, and a bare CLI selector cannot become an `AssemblyRef` or `PackageRef` without command-owned classification. |
 | Delegation preserves identity boundaries | An upstream platform delegation retains its package decision receipt outside PlatformHouse and cannot establish a platform-library or assembly identity from package spelling. |
 | Shared Library construction | The .NET 11 Platform `System.Text.Json` realization constructs one source-distinct `LibraryReference` with reference-pack `ApiAssembly` and runtime-pack `ImplementationAssembly` content, exact Platform target/source/provenance, and view correspondence; an equal-identity NuGet Library cannot substitute. |
+| Platform Library certification | Every completed one-Library, reference-only population, implementation-only population, and paired-population realization returns one `PlatformLibraryReference` per realized Library, aligned with its exact owner, House receipt, target, source contributions, Platform provenance, and view correspondence. Every non-completed and partial-construction path issues no certificate. |
+| Certification construction boundary | A Package, Project, Local, directly designated, foreign-target, foreign-contribution, mismatched-provenance, or independently paired raw `LibraryReference` cannot construct a `PlatformLibraryReference`, including when its Metadata assembly identity or bytes equal a certified Platform Library. |
+| Population specialization | Every `PlatformPopulationMember` contains the exact `PlatformLibraryReference` for that index plus its source-issued target and `Focus` or `BindingSupport` role. A certificate from another population, index, target, or role is rejected before ownership escapes. |
+| Capability separation | Platform certification alone cannot satisfy intrinsic CoreLib binding. A complete authoritative population selects a CoreLib supplier only from separate owner-issued capability evidence, and direct-designated entitlement remains possible without Platform certification. |
 | Installed Artifact materialization | Successful installed reference-pack and implementation-layout `System.Text.Json` snapshots publish into one bounded Artifact generation without reopening installed files; source provenance, exact House contributions, Metadata projections, and Library roles remain correspondent. |
 | Package Artifact materialization | Successful package-backed reference-pack and runtime-pack `System.Text.Json` snapshots publish into one bounded Artifact generation without package rediscovery or reacquisition; candidate, authority, producer, content generation, payload origin, member coordinate, digest, exact House contributions, Metadata projections, and Library roles remain correspondent. |
 | Owning realization handoff | Every completed one-Library and population realization transfers each `LibraryContentOwner` exactly once beside its matching resource-free reference; the House value, receipt, contribution, request, and cache retain no owner or Library lease. |
@@ -2382,7 +2579,7 @@ The implementation and adoption slices own these Release gates:
 | Physical supplier retention | A resolved implementation type or assembly retains its physical supplier rather than being relabeled as the reference facade. |
 | Visible incomplete evidence | Source, catalog, forwarding, acquisition, work, and generation incompleteness never become absence or a success-shaped empty result. |
 | Ladder composition | The assembly-reference ladder receives one House platform contribution and preserves its own rung order and result algebra. |
-| Host parity | Representative CLI and Browser operations issue equivalent House requests and interpret the same typed outcomes. |
+| Host parity | Representative CLI and Browser operations issue equivalent House requests, retain the same Platform Library certification, and interpret the same typed outcomes. |
 | Installed boundary | Browser composition does not reference desktop installed adapters, and installed realization remains package-free. |
 | Encapsulation | Representative ladder, Query, CLI, and Browser paths use the House. Per user choice, no automated repository-wide bypass-absence gate is required. |
 
@@ -2625,6 +2822,12 @@ This design does not:
 - define Workspace admission, replacement, or lease lifetime;
 - define Workspace curation, registration editing, call-graph focal
   length, or cross-population composition;
+- make Platform certification imply CoreLib entitlement or any other binding
+  capability;
+- prevent a directly designated Library from carrying owner-issued CoreLib
+  entitlement without Platform certification;
+- add a `PackageLibraryReference` or move Package-specific policy into
+  PlatformHouse;
 - require network access or desktop filesystem capabilities;
 - permit inspected-assembly loading or Roslyn;
 - add WinMD support; or
