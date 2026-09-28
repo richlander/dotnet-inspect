@@ -10,6 +10,7 @@ import {
   core,
   other,
   empty,
+  run,
   surface,
   platformVersion,
   installFacades,
@@ -272,6 +273,98 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
     .toContainText("1 overload");
   await expect(page.locator("html"))
     .toHaveAttribute("data-member-group-document-request", /Run/);
+});
+
+test("different family navigation leaves exact Facts for the shared document", async ({
+  page,
+}) => {
+  const widget = surface.types.find(
+    candidate => candidate.definitionId === "Example.Widget",
+  );
+  if (!widget) throw new Error("The Analysis fixture has no Widget Type.");
+  const secondRun = {
+    ...run,
+    signature: "public void Run(int value)",
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:2",
+    anchorDigest: "widget-run-two",
+    canonicalSignature: "M:Example.Widget.Run(System.Int32)",
+    graphSelectorKey: "Run:2",
+    bodySelectors: [{
+      token: 0x06000002,
+      memberName: "Run",
+      selectorKey: "Run:2",
+    }],
+  };
+  const stop = {
+    ...run,
+    name: "Stop",
+    signature: "public void Stop()",
+    metadataToken: 0x06000003,
+    declarationMetadataToken: 0x06000003,
+    documentationId: "M:Example.Widget.Stop",
+    stableSelector: "Stop:1",
+    anchorDigest: "widget-stop-one",
+    canonicalSignature: "M:Example.Widget.Stop",
+    graphSelectorKey: "Stop:1",
+    bodySelectors: [{
+      token: 0x06000003,
+      memberName: "Stop",
+      selectorKey: "Stop:1",
+    }],
+  };
+  const secondStop = {
+    ...stop,
+    signature: "public void Stop(int code)",
+    metadataToken: 0x06000004,
+    declarationMetadataToken: 0x06000004,
+    stableSelector: "Stop:2",
+    anchorDigest: "widget-stop-two",
+    canonicalSignature: "M:Example.Widget.Stop(System.Int32)",
+    graphSelectorKey: "Stop:2",
+    bodySelectors: [{
+      token: 0x06000004,
+      memberName: "Stop",
+      selectorKey: "Stop:2",
+    }],
+  };
+  await installFacades(page, {
+    ...surface,
+    assemblies: surface.assemblies.map(assembly =>
+      assembly.id === core.id
+        ? { ...assembly, publicMembers: 4 }
+        : assembly),
+    types: surface.types.map(candidate =>
+      candidate.id === widget.id
+        ? {
+            ...candidate,
+            members: 4,
+            api: [run, secondRun, stop, secondStop],
+          }
+        : candidate),
+    accessibility: surface.accessibility.map(bucket =>
+      bucket.id === "public" ? { ...bucket, count: 5 } : bucket),
+    totalMembers: 5,
+  });
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await chooseInspector(
+    page,
+    "data-member-section",
+    "facts",
+    "Facts",
+  );
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Stop" }).click();
+
+  await expect(page.locator("#member-surface-title")).toHaveText("Stop");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("2 overloads");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-member-group-document-request", /Stop/);
 });
 
 test("production Analysis keeps deferred Library results out of the incoming analysis", async ({ page }) => {

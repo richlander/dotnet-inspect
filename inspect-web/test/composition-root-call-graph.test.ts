@@ -932,6 +932,16 @@ test("member family re-entry leaves exact ordinary methods for the shared docume
   assert.match(
     selection,
     /ordinaryMethodGroup[\s\S]*state\.memberSection = "overview";[\s\S]*openMemberGroup\(entry\.group\.key\)/);
+
+  const openMemberGroup =
+    appSource.match(/function openMemberGroup\([\s\S]*?\n}\n\nfunction enterMemberScope/)?.[0]
+    ?? "";
+  assert.match(
+    openMemberGroup,
+    /const ordinaryMethodGroup =\s*group\?\.kind === "method"\s*&& group\.overloads\.every\(overload => !overload\.graphOnly\)/);
+  assert.match(
+    openMemberGroup,
+    /state\.selectedOverloadIndex = graphOnlyTarget \? 0 : null;[\s\S]*if \(ordinaryMethodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
 });
 
 test("member navigation excludes graph-only projections from ordinary filters", () => {

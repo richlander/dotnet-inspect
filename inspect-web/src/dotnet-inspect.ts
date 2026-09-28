@@ -6668,6 +6668,9 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
+  const ordinaryMethodGroup =
+    group?.kind === "method"
+    && group.overloads.every(overload => !overload.graphOnly);
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
@@ -6677,7 +6680,7 @@ function openMemberGroup(key: string) {
     clearMemberGroupDocumentCache();
   }
   state.selectedBodyTarget = graphOnlyTarget;
-  if (!preserveSection) {
+  if (ordinaryMethodGroup || !preserveSection) {
     state.memberSection = "overview";
   } else {
     const retainedSection = state.memberSection;
