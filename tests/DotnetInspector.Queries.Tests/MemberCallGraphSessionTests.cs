@@ -152,7 +152,7 @@ public sealed class MemberCallGraphSessionTests
                     maxNodes: 10));
 
         Assert.Equal(
-            InspectionGraphTraversalDirection.Outgoing,
+            GraphTraversalDirection.Outgoing,
             document.NeighborhoodRequest!.Direction);
         Assert.Equal(2, document.NeighborhoodRequest.MaxDepth);
         Assert.Same(
