@@ -723,6 +723,7 @@ import type {
 } from "./facades/inspect-web-library.d.ts";
 import type {
   BrowserMemberDeclaration,
+  BrowserMemberGroupDocumentInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
 import type {
@@ -799,8 +800,12 @@ let inspectGraphMemberSurface:
   EngineClient["metadata"]["queryGraphMemberSurface"];
 let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
+let inspectMemberGroupDocument:
+  EngineClient["metadata"]["queryMemberGroupDocument"];
 let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
+let inspectPlatformMemberGroupDocument:
+  EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -982,7 +987,10 @@ async function loadEngineModule() {
       queryLibraryApiDiff: inspectLibraryApiDiff,
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
+      queryMemberGroupDocument: inspectMemberGroupDocument,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
+      queryPlatformMemberGroupDocument:
+        inspectPlatformMemberGroupDocument,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -1336,6 +1344,10 @@ const initialState = {
   memberDeclarationLoading: false,
   memberDeclarationError: "",
   memberDeclarationKey: "",
+  memberGroupDocument: null as BrowserMemberGroupDocumentInspection | null,
+  memberGroupDocumentLoading: false,
+  memberGroupDocumentError: "",
+  memberGroupDocumentKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
@@ -6609,6 +6621,14 @@ function clearMemberContentCache() {
 function resetMemberSectionState() {
   state.memberSection = "overview";
   clearMemberContentCache();
+  clearMemberGroupDocumentCache();
+}
+
+function clearMemberGroupDocumentCache() {
+  state.memberGroupDocument = null;
+  state.memberGroupDocumentLoading = false;
+  state.memberGroupDocumentError = "";
+  state.memberGroupDocumentKey = "";
 }
 
 function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
@@ -6648,6 +6668,10 @@ function openMemberGroup(key: string) {
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
   clearMemberContentCache();
+  if (state.memberGroupDocumentKey
+      !== memberGroupDocumentRequestKey(type, group)) {
+    clearMemberGroupDocumentCache();
+  }
   state.selectedBodyTarget = graphOnlyTarget;
   if (!preserveSection) {
     state.memberSection = "overview";
@@ -6668,7 +6692,17 @@ function openMemberGroup(key: string) {
       state.selectedBodyTarget = null;
     }
   }
-  loadMemberSectionContent(state.memberSection);
+  const memberGroupSelected =
+    group?.kind === "method"
+    && state.selectedOverloadIndex === null;
+  if (memberGroupSelected) {
+    render();
+    observeAsync(
+      loadSelectedMemberGroupDocument(),
+      "Loading the member group");
+  } else {
+    loadMemberSectionContent(state.memberSection);
+  }
 }
 
 function enterMemberScope(
@@ -10014,22 +10048,82 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && Number.isInteger(selectedOverloadIndex)
     && selectedOverloadIndex >= 0
     && selectedOverloadIndex < member.overloads.length;
-  if (member.overloads.length > 1
+  if (member.kind === "method"
     && !hasSelectedOverload) {
+    const documentKey =
+      memberGroupDocumentRequestKey(type, member);
+    const currentDocument =
+      state.memberGroupDocumentKey === documentKey
+        ? state.memberGroupDocument
+        : null;
+    if (state.memberGroupDocumentLoading
+      && state.memberGroupDocumentKey === documentKey) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>Loading exact overloads… <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-loading">Building the shared MemberGroup document…</p>
+          </div>
+        </section>`;
+    }
+    if (state.memberGroupDocumentError
+      && state.memberGroupDocumentKey === documentKey) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>MemberGroup unavailable <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-unavailable">Overload query failed: ${escapeHtml(state.memberGroupDocumentError)}</p>
+          </div>
+        </section>`;
+    }
+    const document = currentDocument?.outcome === "Available"
+      ? currentDocument.document
+      : null;
+    if (!document) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>MemberGroup unavailable <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-unavailable">The exact overload document is unavailable.</p>
+          </div>
+        </section>`;
+    }
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-          <p>${member.overloads.length} overloads <span>· ${escapeHtml(member.kind)}</span></p>
+          <p>${document.count} ${document.count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
-            ${member.overloads.map((overload, index) => `
-              <button class="api-row overload-row" data-overload="${index}">
-                <span class="member-icon">${index + 1}</span>
-                <code>${highlight(overload.signature)}</code>
-                <small>open →</small>
-              </button>`).join("")}
+            ${document.rows.map(row => {
+              const index = member.overloads.findIndex(overload =>
+                (overload.declarationMetadataToken
+                  ?? overload.metadataToken
+                  ?? 0) === row.metadataToken);
+              const signature =
+                `${row.accessibility} ${row.receiver === "This" ? "" : "static "}${row.displaySignature}`;
+              return index >= 0
+                ? `<button class="api-row overload-row" data-overload="${index}">
+                    <span class="member-icon">${row.baselineOrdinal}</span>
+                    <code>${highlight(signature)}</code>
+                    <small>open →</small>
+                  </button>`
+                : `<div class="api-row overload-row" aria-disabled="true">
+                    <span class="member-icon">${row.baselineOrdinal}</span>
+                    <code>${highlight(signature)}</code>
+                    <small>detail unavailable</small>
+                  </div>`;
+            }).join("")}
           </div>
         </div>
         <footer class="api-surface-footer member-surface-footer">
@@ -17340,6 +17434,93 @@ async function loadSelectedMemberDocumentation() {
       isCurrent: () => memberRequestIsCurrent(signature),
     }),
   ]);
+}
+
+function memberGroupDocumentRequestKey(
+  type: AppTypeSurface | null | undefined,
+  member: AppMemberGroup | null | undefined,
+) {
+  if (!type || !member) return "";
+  const pkg = state.package;
+  return memberRequestKey([
+    pkg?.id ?? "",
+    pkg?.version ?? "",
+    pkg?.activeFramework ?? "",
+    pkg?.isRuntimePack ? state.platformDemoContextId ?? "" : "",
+    type.assembly,
+    type.definitionId ?? type.id,
+    member.key,
+  ]);
+}
+
+async function loadSelectedMemberGroupDocument() {
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!type || !member || member.kind !== "method") {
+    renderPreservingMemberFocus();
+    return;
+  }
+  const key = memberGroupDocumentRequestKey(type, member);
+  if (state.rootKind === "library") {
+    state.memberGroupDocument = null;
+    state.memberGroupDocumentLoading = false;
+    state.memberGroupDocumentError =
+      "Member-group documents are unavailable for uploaded Libraries.";
+    state.memberGroupDocumentKey = key;
+    renderPreservingMemberFocus();
+    return;
+  }
+  if (!key
+    || state.memberGroupDocumentLoading
+      && state.memberGroupDocumentKey === key
+    || state.memberGroupDocument
+      && state.memberGroupDocumentKey === key) {
+    renderPreservingMemberFocus();
+    return;
+  }
+
+  state.memberGroupDocument = null;
+  state.memberGroupDocumentLoading = true;
+  state.memberGroupDocumentError = "";
+  state.memberGroupDocumentKey = key;
+  renderPreservingMemberFocus();
+  const pkg = currentPackage();
+  try {
+    const result = pkg.isRuntimePack
+      ? (() => {
+          const row = platformLibraryForRequest(pkg, type.assemblyId);
+          return inspectPlatformMemberGroupDocument(
+            pkg.activeFramework,
+            pkg.version,
+            platformAssemblyRequest(row),
+            row.pack,
+            type.definitionId ?? type.id,
+            member.name);
+        })()
+      : inspectMemberGroupDocument(
+          pkg.id,
+          pkg.version,
+          pkg.activeFramework,
+          type.assembly,
+          type.definitionId ?? type.id,
+          member.name);
+    const inspection = await result;
+    if (state.memberGroupDocumentKey !== key) return;
+    state.memberGroupDocument = inspection;
+    state.memberGroupDocumentError =
+      inspection.outcome === "Available"
+        ? ""
+        : inspection.detail
+          ?? `Member-group inspection returned ${inspection.outcome}.`;
+  } catch (error) {
+    if (state.memberGroupDocumentKey !== key) return;
+    state.memberGroupDocumentError = errorMessage(error);
+  } finally {
+    if (state.memberGroupDocumentKey === key) {
+      state.memberGroupDocumentLoading = false;
+      renderPreservingMemberFocus();
+    }
+  }
 }
 
 async function loadSelectedMemberSource() {

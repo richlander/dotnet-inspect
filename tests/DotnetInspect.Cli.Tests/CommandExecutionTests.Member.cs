@@ -645,6 +645,96 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
+    [Fact]
+    public async Task
+        Member_ExactMethodGroup_DefaultAndTreeUseTheSameNativeDocument()
+    {
+        var natural = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize",
+            "--platform",
+            "System.Text.Json",
+            "--tips",
+            "q");
+        var explicitTree = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize",
+            "--platform",
+            "System.Text.Json",
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, natural.Exit);
+        Assert.Equal(natural, explicitTree);
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Serialize (15 overloads)",
+            natural.Output);
+        Assert.Contains(
+            "├─ public static string Serialize<TValue>(",
+            natural.Output);
+        Assert.Contains(
+            "└─ public static void Serialize(",
+            natural.Output);
+        Assert.DoesNotContain("## Methods", natural.Output);
+    }
+
+    [Fact]
+    public async Task
+        Member_SingleMethod_DefaultAndTreeUseTheSameNativeDocument()
+    {
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        var natural = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "--tips",
+            "q");
+        var explicitTree = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, natural.Exit);
+        Assert.Equal(natural, explicitTree);
+        Assert.StartsWith(
+            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
+                + "(1 overload)",
+            natural.Output);
+        Assert.Contains(
+            "└─ public static void RootCall()",
+            natural.Output);
+        Assert.DoesNotContain("## Method", natural.Output);
+        Assert.Empty(natural.Error);
+    }
+
+    [Fact]
+    public async Task Member_NonMethodGroup_RejectsTreePresentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.Descriptor),
+            "--library",
+            TestAssemblyPath,
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--tree requires exactly one selected tree shape.",
+            error);
+    }
+
     [Theory]
     [InlineData("explicit:Abort:1")]
     [InlineData("extension:Abort:1")]

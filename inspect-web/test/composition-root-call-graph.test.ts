@@ -973,7 +973,19 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{member\.overloads\.length} overloads/);
+    /member\.kind === "method"[\s\S]*class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{document\.count} \$\{document\.count === 1 \? "overload" : "overloads"}/);
+  assert.match(
+    renderMember,
+    /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
+  assert.match(
+    renderMember,
+    /memberGroupDocumentError[\s\S]*Overload query failed/);
+  assert.match(
+    renderMember,
+    /document\.rows\.map\(row =>[\s\S]*row\.metadataToken[\s\S]*detail unavailable/);
+  assert.doesNotMatch(
+    renderMember,
+    /member\.overloads\.map\(\(overload, index\) =>/);
   assert.match(
     renderMember,
     /const callGraphExplore = state\.memberSection === "call-graph"[\s\S]*class="member-surface-actions"[\s\S]*id="call-graph-explore" data-graph-explore/);

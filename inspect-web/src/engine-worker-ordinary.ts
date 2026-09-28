@@ -70,7 +70,9 @@ type MetadataOperationName =
   | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
+  | "queryMemberGroupDocument"
   | "queryPlatformMemberDeclaration"
+  | "queryPlatformMemberGroupDocument"
   | "queryPackageMetadataTable"
   | "queryPlatformMetadataTable"
   | "queryPackageHeapEntries"
@@ -1129,6 +1131,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryMemberDeclaration"]>
       ) => facades.metadata.queryMemberDeclaration(...args),
     ),
+    queryMemberGroupDocument: valueOperation(
+      "ordinary-metadata-query-member-group-document",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryMemberGroupDocument"]
+        >
+      ) => facades.metadata.queryMemberGroupDocument(...args),
+    ),
     queryPlatformMemberDeclaration: valueOperation(
       "ordinary-metadata-query-platform-member-declaration",
       8,
@@ -1138,6 +1150,16 @@ export const engineWorkerOrdinaryOperations = {
           MetadataFacade["queryPlatformMemberDeclaration"]
         >
       ) => facades.metadata.queryPlatformMemberDeclaration(...args),
+    ),
+    queryPlatformMemberGroupDocument: valueOperation(
+      "ordinary-metadata-query-platform-member-group-document",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPlatformMemberGroupDocument"]
+        >
+      ) => facades.metadata.queryPlatformMemberGroupDocument(...args),
     ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
@@ -1853,9 +1875,16 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
       ),
+      queryMemberGroupDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryMemberGroupDocument,
+      ),
       queryPlatformMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformMemberDeclaration,
+      ),
+      queryPlatformMemberGroupDocument: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPlatformMemberGroupDocument,
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
