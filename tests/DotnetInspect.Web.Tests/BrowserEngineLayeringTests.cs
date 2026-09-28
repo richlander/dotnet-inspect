@@ -19,14 +19,14 @@ namespace DotnetInspect.Web.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The first is that the ban list is not vacuous: a banned identifier that no longer resolves
-/// bans nothing, and the analyzer reports no such entry. <see cref="EveryBannedSymbolStillExists"/>
-/// resolves each entry against the product assemblies so a rename fails here rather than silently
-/// reopening the door.
+/// The executable boundary is a positive project and compiled-assembly rule plus a narrow platform
+/// hazard list. Core and the capability facades retain the broader list while their positive
+/// boundaries migrate under #8779.
 /// </para>
 /// <para>
-/// The second is that package selection and participant realization stay in product code, so the
-/// engine cannot decode raw images or mint descriptors.
+/// A banned identifier that no longer resolves bans nothing, and the analyzer reports no such
+/// entry. <see cref="EveryBannedSymbolStillExists"/> resolves each entry so a rename fails here
+/// rather than silently reopening the door.
 /// </para>
 /// </remarks>
 public sealed class BrowserEngineLayeringTests
@@ -34,7 +34,7 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void BanListForbidsEverySessionAndImageDoor()
     {
-        IReadOnlyList<string> banned = BannedSymbols();
+        IReadOnlyList<string> banned = BroadBannedSymbols();
 
         Assert.Contains("T:ILInspector.Metadata.AssemblyInspectionSession", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyImage", banned);
@@ -241,7 +241,7 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void RuntimeLoadingInspectedAssembliesIsCompilerBanned()
     {
-        IReadOnlyList<string> banned = BannedSymbols();
+        IReadOnlyList<string> banned = PlatformHazards();
         INamedTypeSymbol[] capabilityOwners =
         [
             RequiredType("System.Reflection.Assembly"),
@@ -273,7 +273,7 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void EveryFrameworkRawDecoderProducerIsCompilerBanned()
     {
-        IReadOnlyList<string> banned = BannedSymbols();
+        IReadOnlyList<string> banned = PlatformHazards();
         string[] expected =
         [
             "T:System.Reflection.Metadata.MetadataReader",
@@ -325,7 +325,7 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void EveryProductMetadataIdentityDecoderIsCompilerBanned()
     {
-        IReadOnlyList<string> banned = BannedSymbols();
+        IReadOnlyList<string> banned = BroadBannedSymbols();
         string metadataReaderId =
             RequiredType("System.Reflection.Metadata.MetadataReader")
                 .GetDocumentationCommentId()!;
@@ -394,7 +394,9 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void EveryBannedSymbolStillExists()
     {
-        foreach (string symbol in BannedSymbols())
+        foreach (string symbol in BroadBannedSymbols()
+            .Concat(PlatformHazards())
+            .Distinct(StringComparer.Ordinal))
         {
             ISymbol? resolved = DocumentationCommentId.GetFirstSymbolForDeclarationId(
                 symbol,
@@ -408,7 +410,7 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void QueryCurrencyRemainsAvailableWithoutAcquisitionFactories()
     {
-        IReadOnlyList<string> banned = BannedSymbols();
+        IReadOnlyList<string> banned = BroadBannedSymbols();
 
         // Query results still expose typed identities and descriptors. The host may consume that
         // currency, but product realization owns how package descriptors are minted.
@@ -517,25 +519,54 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void EveryBrowserProjectPinsTheLayeringGate()
+    public void CoreAndRemainingCapabilityProjectsPinBroadLayeringGate()
     {
-        // The ban list is what makes the compiler enforce "inspect only through a public product
-        // query". Every browser-owned project that can reach product APIs must pin it, or a
-        // capability could quietly open a session in its own assembly.
         string[] projects =
         [
             CoreProjectPath,
-            .. CapabilityProjectPaths,
+            .. CapabilityProjectPaths.Where(project =>
+                !project.Equals(
+                    CallGraphProjectPath,
+                    StringComparison.OrdinalIgnoreCase)),
         ];
 
         Assert.NotEmpty(projects);
         Assert.All(
             projects,
             project => Assert.Contains(
-                ProjectItems(project, "AdditionalFiles"),
+                EvaluatedProjectItemPaths(project, "AdditionalFiles"),
                 path => path.Equals(
-                    BanListPath,
+                    BroadBanListPath,
                     StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void ExecutablePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(EngineProjectPath);
+    }
+
+    [Fact]
+    public void CallGraphFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(CallGraphProjectPath);
+    }
+
+    static void AssertPinsPlatformHazardsNotBroadInventory(string project)
+    {
+        IReadOnlyList<string> additionalFiles =
+            EvaluatedProjectItemPaths(project, "AdditionalFiles");
+
+        Assert.Contains(
+            additionalFiles,
+            path => path.Equals(
+                PlatformHazardsPath,
+                StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            additionalFiles,
+            path => path.Equals(
+                BroadBanListPath,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     static IReadOnlyList<string> CapabilityProjectPaths =>
@@ -676,13 +707,19 @@ public sealed class BrowserEngineLayeringTests
                 .Select(path => MetadataReference.CreateFromFile(path)),
         ]);
 
-    static IReadOnlyList<string> BannedSymbols() =>
-    [
-        .. File.ReadAllLines(BanListPath)
+    static IReadOnlyList<string> BroadBannedSymbols() =>
+        ReadBannedSymbols(BroadBanListPath);
+
+    static IReadOnlyList<string> PlatformHazards() =>
+        ReadBannedSymbols(PlatformHazardsPath);
+
+    static IReadOnlyList<string> ReadBannedSymbols(string path) =>
+        [
+        .. File.ReadAllLines(path)
             .Select(line => line.Trim())
             .Where(line => line.Length > 0 && !line.StartsWith(';'))
             .Select(line => line.Split(';')[0].Trim()),
-    ];
+        ];
 
     static string EngineProjectPath => Path.Combine(
         RepositoryRoot(),
@@ -708,8 +745,19 @@ public sealed class BrowserEngineLayeringTests
         "DotnetInspect.Web.Interop.Package",
         "DotnetInspect.Web.Interop.Package.csproj");
 
-    static string BanListPath => Path.Combine(
+    static string CallGraphProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.CallGraph",
+        "DotnetInspect.Web.Interop.CallGraph.csproj");
+
+    static string BroadBanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
+        "BannedSymbols.txt");
+
+    static string PlatformHazardsPath => Path.Combine(
+        Path.GetDirectoryName(EngineProjectPath)!,
+        "PlatformHazards",
         "BannedSymbols.txt");
 
     static IReadOnlyList<Assembly> ProductReferenceClosure()
@@ -831,6 +879,15 @@ public sealed class BrowserEngineLayeringTests
 
         return [.. items.EnumerateArray().Select(item => item.Clone())];
     }
+
+    static IReadOnlyList<string> EvaluatedProjectItemPaths(
+        string project,
+        string itemName) =>
+        [
+            .. EvaluatedProjectItems(project, itemName)
+                .Select(item => item.GetProperty("FullPath").GetString())
+                .OfType<string>(),
+        ];
 
     static IReadOnlyList<string> ProjectItems(
         string project,

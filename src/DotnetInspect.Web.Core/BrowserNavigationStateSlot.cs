@@ -85,6 +85,23 @@ internal sealed class BrowserNavigationStateSlot
             ValueTask<NavigationPreparation>> prepare,
         CancellationToken cancellationToken = default)
     {
+        NavigationOperationResult? result =
+            await ExecuteOperationAsync(
+                    action,
+                    prepare,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return result is null ? null : Publish(result);
+    }
+
+    internal async ValueTask<NavigationOperationResult?> ExecuteOperationAsync(
+        NavigationAction action,
+        Func<
+            NavigationEvaluationRequest,
+            CancellationToken,
+            ValueTask<NavigationPreparation>> prepare,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(prepare);
 
@@ -98,7 +115,7 @@ internal sealed class BrowserNavigationStateSlot
             TrackAuthority(beginning.Result);
         }
         if (beginning.Result is { } immediate)
-            return Publish(immediate);
+            return immediate;
 
         NavigationEvaluationRequest work = beginning.Work!;
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -155,9 +172,7 @@ internal sealed class BrowserNavigationStateSlot
                 throw new InvalidOperationException(
                     $"Browser Navigation completion was rejected: {rejection}.");
             }
-            return completion.Result is { } result
-                ? Publish(result)
-                : null;
+            return completion.Result;
         }
         catch
         {

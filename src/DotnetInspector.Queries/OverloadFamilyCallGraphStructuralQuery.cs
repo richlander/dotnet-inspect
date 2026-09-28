@@ -351,7 +351,7 @@ internal static class OverloadFamilyCallGraphStructuralAdapter
             || graph.NeighborhoodRequest is not
             {
                 Direction:
-                    InspectionGraphTraversalDirection.Outgoing,
+                    GraphTraversalDirection.Outgoing,
             } request
             || request.Relationships.Length != 1
             || !ReferenceEquals(

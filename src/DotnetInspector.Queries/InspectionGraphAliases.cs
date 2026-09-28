@@ -11,5 +11,7 @@ global using InspectionGraphNodeRole = Inspector.Graph.GraphNodeRole;
 global using InspectionGraphOccurrence = Inspector.Graph.GraphOccurrence<DotnetInspector.Queries.InspectionGraphSubject, DotnetInspector.Queries.InspectionGraphRelationshipDescriptor, DotnetInspector.Queries.IInspectionGraphOccurrenceEvidence>;
 global using InspectionGraphSeed = Inspector.Graph.GraphSeed<DotnetInspector.Queries.InspectionGraphSubject>;
 global using InspectionGraphSeedRole = Inspector.Graph.GraphSeedRole;
+global using GraphScopeMembership = Inspector.Graph.GraphScopeMembership;
 global using InspectionGraphTarget = Inspector.Graph.GraphTarget;
 global using InspectionGraphTargetKind = Inspector.Graph.GraphTargetKind;
+global using GraphTraversalDirection = Inspector.Graph.GraphTraversalDirection;

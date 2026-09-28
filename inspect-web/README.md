@@ -46,22 +46,35 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
-The rule is enforced by the compiler, not by a convention.
-`src/DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
-`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
-factories, and the group's image and retained-descriptor accessors in this
-project, and `Directory.Build.targets` already escalates `RS0030` to an error
-for every project.
-`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` pins that wiring and
-resolves every complete banned documentation id, including generic arity and
-parameter types — a renamed or malformed entry bans nothing and fails the gate.
-It also bans opening a retained descriptor, minting one, or invoking
-`AssemblyReader` in the host; descriptors may carry typed identity into a
-product query, but package selection, identity decoding, descriptor creation,
-and image content remain product-owned. A selected malformed entry receives an
-artifact-neutral, role-unique identity only as a rejection carrier, so the
-workspace returns its typed failure instead of silently shortening the
-selected assembly set.
+This boundary is enforced by the compiler, not by a convention.
+The `inspect-web-executable-stays-at-host-boundary` dependency-policy rule
+allows `DotnetInspect.Web` to reference only the .NET platform,
+`TsJsExport.Contracts`, Web Core, and the seven capability facades in both the
+evaluated project and compiled assembly graphs. This catches low-level product
+use even when SDK transitivity makes its assembly available to compile.
+`src/DotnetInspect.Web/PlatformHazards/BannedSymbols.txt` closes the part that
+project layering cannot express: raw platform PE/metadata decoding and runtime
+assembly loading or activation. `Directory.Build.targets` escalates `RS0030`
+to an error.
+
+The `inspect-web-call-graph-facade-stays-at-capability-boundary` rule similarly
+limits `DotnetInspect.Web.Interop.CallGraph` to the .NET platform, Web Core,
+Queries, and Sections in both graphs. Its project references declare that same
+set rather than relying on transitive access or retaining unused low-level
+projects, and it shares the narrow platform-hazard analyzer input.
+
+Web Core and the remaining capability facades still use the broader
+`src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
+boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both evaluated
+analyzer inputs and resolves every complete banned documentation ID, including
+generic arity and parameter types, so a renamed or malformed entry cannot
+silently become vacuous. The broad list continues to ban opening or minting a
+retained descriptor and invoking low-level inspection APIs in those projects.
+Descriptors may carry typed identity into a product operation, but package
+selection, identity decoding, descriptor creation, and image content remain
+product-owned. A selected malformed entry receives an artifact-neutral,
+role-unique identity only as a rejection carrier, so the workspace returns its
+typed failure instead of silently shortening the selected assembly set.
 
 The boundary is based on what the Browser host can bind and invoke, not on
 parameter names across referenced product assemblies. Desktop-only APIs and

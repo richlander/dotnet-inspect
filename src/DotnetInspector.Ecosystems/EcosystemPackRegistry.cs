@@ -34,6 +34,12 @@ internal sealed record EcosystemPackRegistration(
 
 internal sealed class EcosystemPackRegistry
 {
+    /// <summary>
+    /// The most core packages one Ecosystem may declare. Core packages are roots
+    /// a bounded operation may realize, so the bound keeps that work small.
+    /// </summary>
+    internal const int MaximumCorePackages = 12;
+
     private sealed record PackEntry(
         EcosystemPackDescriptor Descriptor,
         EcosystemIntegrationScannerBinding? Scanner,
@@ -107,6 +113,14 @@ internal sealed class EcosystemPackRegistry
             ImmutableArray<PackageCoordinate> corePackages =
                 SnapshotPackageReferences(
                     registration.Id, registration.CorePackages, "core", nameof(registrations));
+            if (corePackages.Length > MaximumCorePackages)
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' declares {corePackages.Length} core packages;"
+                    + $" at most {MaximumCorePackages} are allowed.",
+                    nameof(registrations));
+            }
+
             ImmutableArray<PackageCoordinate> toolPackages =
                 SnapshotPackageReferences(
                     registration.Id, registration.ToolPackages, "tool", nameof(registrations));
