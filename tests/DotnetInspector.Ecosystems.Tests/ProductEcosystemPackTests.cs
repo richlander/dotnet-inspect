@@ -69,7 +69,7 @@ public sealed class ProductEcosystemPackTests
     public void RuntimeAndAspNetCoreExposeIndependentPopulationLoaders()
     {
         Assert.Equal(
-            [true, false, true, false, false, false, false, false],
+            [true, false, true, false, false, false, false],
             EcosystemPackCatalog.Discover()
                 .Select(pack => pack.HasPopulationLoader));
 
@@ -91,7 +91,6 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.MicrosoftExtensions,
                 EcosystemPackIds.Aspire,
                 EcosystemPackIds.AI,
-                EcosystemPackIds.Azure,
                 EcosystemPackIds.Blazor,
                 EcosystemPackIds.Maui,
             },
@@ -119,7 +118,7 @@ public sealed class ProductEcosystemPackTests
     public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
     {
         Assert.Equal(
-            [false, false, false, true, false, false, false, false],
+            [false, false, false, true, false, false, false],
             EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
@@ -131,7 +130,6 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.MicrosoftExtensions,
                 EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.AI,
-                EcosystemPackIds.Azure,
                 EcosystemPackIds.Blazor,
                 EcosystemPackIds.Maui,
             },
@@ -185,12 +183,6 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.AI,
                 "AI",
                 500,
-                packageSet: null),
-            azure => AssertPack(
-                azure,
-                EcosystemPackIds.Azure,
-                "Azure",
-                600,
                 packageSet: null),
             blazor => AssertPack(
                 blazor,
@@ -260,50 +252,30 @@ public sealed class ProductEcosystemPackTests
             extensions => AssertKnowledge(
                 extensions,
                 ["Microsoft.Extensions"],
-                [
-                    "Microsoft.Extensions.DependencyInjection.Abstractions",
-                    "Microsoft.Extensions.Configuration.Abstractions",
-                    "Microsoft.Extensions.Logging.Abstractions",
-                ]),
+                []),
             aspNetCore => AssertKnowledge(
                 aspNetCore,
                 ["Microsoft.AspNetCore"],
-                [
-                    "Microsoft.AspNetCore.OpenApi",
-                    "Microsoft.AspNetCore.Authentication.JwtBearer",
-                ]),
-            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]),
+                []),
+            aspire => AssertKnowledge(
+                aspire,
+                ["Aspire"],
+                ["Aspire.Hosting", "Aspire.Hosting.Testing"]),
             ai => AssertKnowledge(
                 ai,
                 [
                     "Microsoft.Extensions.AI",
-                    "Microsoft.Extensions.VectorData",
                     "Microsoft.Agents.AI",
                     "ModelContextProtocol",
                 ],
                 [
                     "Microsoft.Extensions.AI",
                     "Microsoft.Extensions.AI.Abstractions",
-                    "Microsoft.Extensions.VectorData.Abstractions",
-                    "Microsoft.Agents.AI",
+                    "OpenAI",
+                    "Anthropic",
+                    "Google.GenAI",
                     "ModelContextProtocol",
-                ]),
-            azure => AssertKnowledge(
-                azure,
-                [
-                    "Azure",
-                    "Microsoft.Extensions.Azure",
-                ],
-                [
-                    "Microsoft.Extensions.Azure",
-                    "Azure.AI.OpenAI",
-                    "Microsoft.Azure.SignalR",
-                    "Aspire.Azure.AI.OpenAI",
-                    "Aspire.Hosting.Azure.SignalR",
-                    "Azure.Identity",
-                    "Azure.Security.KeyVault.Secrets",
-                    "Azure.Storage.Blobs",
-                    "Azure.Messaging.ServiceBus",
+                    "Microsoft.Agents.AI",
                 ]),
             blazor => AssertKnowledge(
                 blazor,
@@ -360,7 +332,6 @@ public sealed class ProductEcosystemPackTests
                 new PackageCoordinate("Aspire.Cli"),
                 Assert.Single(aspire.ToolPackages)),
             ai => Assert.Empty(ai.ToolPackages),
-            azure => Assert.Empty(azure.ToolPackages),
             blazor => Assert.Empty(blazor.ToolPackages),
             maui => Assert.Empty(maui.ToolPackages));
     }
