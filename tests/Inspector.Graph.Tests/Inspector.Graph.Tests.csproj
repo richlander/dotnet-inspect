@@ -3,12 +3,10 @@
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <LangVersion>preview</LangVersion>
-    <RootNamespace>QueryOverflow.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <IsAotCompatible>false</IsAotCompatible>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
@@ -22,8 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/QueryOverflow/QueryOverflow.csproj" />
-    <ProjectReference Include="../QueryOverflow.Consumer/QueryOverflow.Consumer.csproj" />
+    <ProjectReference Include="../../src/Inspector.Graph/Inspector.Graph.csproj" />
+    <ProjectReference Include="../Inspector.Graph.Consumer/Inspector.Graph.Consumer.csproj" />
   </ItemGroup>
 
 </Project>

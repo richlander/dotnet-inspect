@@ -132,6 +132,32 @@ public sealed class LibraryEnablementsTests
         Assert.Equal(LibraryEnablementUnavailableReason.UndecodableMetadata, ReasonOf(aot));
     }
 
+    [Fact]
+    public void UnnameableAssemblyAttribute_MakesEveryEnablementUndecodable()
+    {
+        // The unnameable attribute might be ReferenceAssemblyAttribute, so the
+        // reference rule cannot be decided.
+        LibraryEnablementFacts enablements = Read(
+            BuildImageWithAssemblyMetadataBlob(StringPairBlob("IsAotCompatible", "True"), unnameableConstructor: true));
+
+        Assert.Equal(3, enablements.Items.Length);
+        Assert.All(
+            enablements.Items,
+            item => Assert.Equal(
+                LibraryEnablementUnavailableReason.UndecodableMetadata,
+                Assert.IsType<LibraryEnablement.Unavailable>(item).Reason));
+    }
+
+    private static byte[] StringPairBlob(string key, string value)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(0x0001);
+        blob.WriteSerializedString(key);
+        blob.WriteSerializedString(value);
+        blob.WriteUInt16(0);
+        return blob.ToArray();
+    }
+
     private static string Pinned(string pack, string fileName) =>
         Path.Combine(AppContext.BaseDirectory, "PinnedArtifacts", pack, fileName);
 
@@ -191,7 +217,7 @@ public sealed class LibraryEnablementsTests
     /// the given (possibly malformed) value blob. C# cannot emit a malformed
     /// blob, so this input is constructed directly.
     /// </summary>
-    private static byte[] BuildImageWithAssemblyMetadataBlob(byte[] valueBlob)
+    private static byte[] BuildImageWithAssemblyMetadataBlob(byte[] valueBlob, bool unnameableConstructor = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -235,6 +261,17 @@ public sealed class LibraryEnablementsTests
             metadata.GetOrAddString(".ctor"),
             metadata.GetOrAddBlob(signature));
         metadata.AddCustomAttribute(assembly, constructor, metadata.GetOrAddBlob(valueBlob));
+        if (unnameableConstructor)
+        {
+            // A MemberRef constructor whose TypeRef parent is out of range.
+            metadata.AddCustomAttribute(
+                assembly,
+                metadata.AddMemberReference(
+                    MetadataTokens.TypeReferenceHandle(5000),
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(signature)),
+                metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        }
         metadata.AddTypeDefinition(
             default,
             default,

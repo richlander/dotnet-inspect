@@ -3338,7 +3338,7 @@ public sealed class DtsEmitterTests
 
     [Fact]
     public void
-        Emit_BlocksContextDefaultWhenNullCapabilityIsUnresolved()
+        Emit_UsesRetainedSignatureKindForContextDefault()
     {
         using FileStream stream = File.OpenRead(
             typeof(UnresolvedCollectionJsonOptionsContext)
@@ -3362,21 +3362,32 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface, diagnostics);
 
+        Assert.Empty(diagnostics.UnmappedTypes);
         Assert.Contains(
-            "export type UnresolvedCollectionPayload = unknown;",
+            """
+            export interface UnresolvedCollectionPayloadOutput {
+              readonly Items?: ReadonlyArray<string>;
+              readonly RequestId: string;
+              readonly Rejections: ReadonlyArray<string>;
+              readonly PreviousRejections?: ReadonlyArray<string>;
+            }
+            """,
             dts,
             StringComparison.Ordinal);
-        Assert.Contains(
-            diagnostics.UnmappedTypes,
-            diagnostic =>
-                diagnostic.Location
-                    == "UnresolvedCollectionPayload JSON wire shape"
-                && diagnostic.CSharpType
-                    == "unsupported wire-shaping attributes or inheritance");
         Assert.Equal(
-            "{}",
+            """{"RequestId":"00000000-0000-0000-0000-000000000000","Rejections":[]}""",
             JsonSerializer.Serialize(
                 new UnresolvedCollectionPayload(Items: null),
+                UnresolvedCollectionJsonOptionsContext.Default
+                    .UnresolvedCollectionPayload));
+        Assert.Equal(
+            """{"Items":["package.xml"],"RequestId":"00000000-0000-0000-0000-000000000000","Rejections":["missing XML entry"],"PreviousRejections":[]}""",
+            JsonSerializer.Serialize(
+                new UnresolvedCollectionPayload(Items: ["package.xml"])
+                {
+                    Rejections = ["missing XML entry"],
+                    PreviousRejections = [],
+                },
                 UnresolvedCollectionJsonOptionsContext.Default
                     .UnresolvedCollectionPayload));
     }
