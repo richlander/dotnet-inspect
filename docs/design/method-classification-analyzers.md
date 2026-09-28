@@ -95,7 +95,9 @@ Each Tier 1 test must equal the legacy test on every input:
 - **Async** in legacy is not in place. `ClassifyAsyncMethod` calls
   `AttributeReader.HasAttribute`, which materializes each custom attribute's
   full type name through `TypeResolver.GetTypeName` and compares strings. It
-  charges no budget. The gate's attribute type match compares namespace and
+  charges no budget. Hardening that path for its existing consumers is
+  [#8780](https://github.com/richlander/dotnet-inspect/issues/8780). The gate
+  here adopts the in-place match instead. The gate's attribute type match compares namespace and
   name handles in place. It must equal the materialized comparison for
   attribute types that are:
   - defined in the image or referenced;
@@ -105,8 +107,19 @@ Each Tier 1 test must equal the legacy test on every input:
 - **Pointer signature** in legacy walks the signature with a detector that
   charges the shared scan work budget. Every composite and `TypeSpec` visit is
   charged, because a wide `GENERICINST` repeated across methods is the known
-  hostile case. A yes/no walk is Tier 1 only if its cost is bounded per row.
-  See the open questions.
+  hostile case. Here the walk is a Tier 1 signature-shape accessor with a
+  fixed **per-row cap of 65,536 type nodes** visited, where every expanded
+  `TypeSpec` node counts. The basis is `MetadataSafetyPolicy.MaxSignatureTypeNodes`
+  (64 × 1024), the repository's existing bound on the type nodes one
+  signature may present before decoding. `TypeSpecGuard` keeps its existing
+  re-entry limits within the cap. Exceeding the cap aborts the execution with
+  the typed `CriticalFailure` under the gate's abort rule. The walk charges no
+  identity budget, so pointer Count and Exists stay free of it. Total pointer
+  work is at most rows times the cap. Legacy's cumulative work budget could
+  fail a hostile image on which every row stays under the cap, but whose
+  combined work exceeds legacy's scan budget. There the pointer analyzer
+  answers where legacy failed. That is the one intended difference on hostile
+  inputs. The operator chose the per-row bound over a cumulative one.
 
 ## Budget
 
@@ -179,7 +192,10 @@ the queries only.
    LibraryInfo counts. Each migrated consumer drops its read of the combined
    `ClassifiedMethodsQuery` result, and `ApplyClassifiedMethodsResult` loses
    its filtering, sorting, and projection.
-2. **Browser/Wasm.** The browser has no consumer of these sections today.
+2. **Browser/Wasm.** Approval record: on 2026-09-28 the operator approved
+   CLI-first scope for #8773. Browser/Wasm binds the same
+   `DotnetInspector.Queries` analyzers when a browser consumer exists. The
+   browser has no consumer of these sections today.
    Under the layering, the browser reaches inspection only through
    host-neutral product queries that return `InspectionEnvelope<T>`. A future
    browser consumer binds the analyzer queries above, the same way the CLI
@@ -217,6 +233,11 @@ work, tracked in #8733, and not part of this change.
 - **Count reads no identity text.** On the existing hostile classification
   fixtures, Count, Exists, and classification charge zero identity budget and
   complete. Rows on the same fixtures abort with `CriticalFailure`.
+- **Pointer cap.** A hostile fixture with a deep, wide generic signature,
+  such as nested `GENERICINST` `TypeSpec`s whose expanded node count exceeds
+  65,536 in one row, aborts pointer Count and Rows with a `CriticalFailure`
+  that names the gate's per-row signature cap. Every row of the pinned test
+  packages stays under the cap, and the largest observed count is recorded.
 - **Abort.** When two analyzers run together and the gate's budget is
   exhausted, neither publishes a result, both are `Aborted` with the same
   `CriticalFailure`, and no row after the exhausting one is read.
@@ -233,23 +254,3 @@ work, tracked in #8733, and not part of this change.
   [#8745](https://github.com/richlander/dotnet-inspect/issues/8745). The
   recorded 1.19–1.69× came from an experiment that treated async and pointer
   as exclusive and skipped projection and budgets, so it is re-measured.
-
-## Open questions for the operator
-
-- **Pointer-signature cost per row.** A yes/no walk through `GENERICINST`
-  `TypeSpec`s is not constant per row. Its cost grows with the signature's
-  width and depth, which is why legacy charges the shared work budget there.
-  Tier 1 needs a per-row bound. Two ways to get one:
-  - **A fixed structural cap per row, where exceeding it aborts as a critical
-    failure.** Count stays budget-free, and total cost is at most rows times
-    the cap.
-  - **Charge the walk to the gate's budget.** Pointer Count then arms the
-    budget, as legacy's scan did.
-
-  The first keeps the operator's "Count is budget-free" property.
-- **Browser scope.** The design adopts on the CLI only, because the browser
-  has no consumer of these sections. The browser reaches inspection only
-  through host-neutral product queries returning `InspectionEnvelope<T>`, so
-  later browser adoption binds the same analyzer queries, and deferring it
-  carries no porting cost. Narrowing shared substrate
-  to the CLI still needs explicit approval.
