@@ -78,7 +78,7 @@ root README remains current without cataloging every focused capability.
 
 | Concern | Entry point |
 | --- | --- |
-| Layering and project families | [Inspection Layers](design/inspection-layers.md), [Library Family Boundaries](design/library-family-boundaries.md), and [Inspection Operation Kernels](design/inspection-operation-kernels.md) |
+| Layering and project families | [Inspection Layers](design/inspection-layers.md), [Library Family Boundaries](design/library-family-boundaries.md), [Inspection Operation Kernels](design/inspection-operation-kernels.md), and [Inspector.Graph Library Boundary](design/inspector-graph-library-boundary.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
 | Query library, resumable execution, composition, operation registration, portable intent, and payload | [QuerySpace Library Boundary](design/query-space-library.md), [QueryOverflow](design/query-overflow.md), [Query Space Composition](design/query-space-composition.md), [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
 | Installed capability composition, search, discovery, and exact explanation | [Inspection Capability Composition](design/inspection-capability-composition.md), [Capability Catalog Search](design/capability-catalog-search.md), [Schema Query](design/schema-query.md), [Resource Explanation](design/resource-explanation.md), and [Product Vocabulary](design/vocabulary.md) |
