@@ -28,7 +28,25 @@ public enum ProducerDependencyKind
 /// <summary>One declared dependency of a producer.</summary>
 public sealed record ProducerDependency(
     ProducerDeclaration Producer,
-    ProducerDependencyKind Kind);
+    ProducerDependencyKind Kind,
+    ulong? AcceptedUnitClasses = null)
+{
+    /// <summary>
+    /// A scope guard that accepts every unit class; it still applies the
+    /// guard's type scope.
+    /// </summary>
+    public const ulong AllUnitClasses = ulong.MaxValue;
+
+    /// <summary>
+    /// Whether this same-unit dependency is a scope guard: the dependent is
+    /// visited only for units whose class, as the dependency classifies them,
+    /// is in <see cref="AcceptedUnitClasses"/>, and only in types the
+    /// dependency's type scope admits. A skipped unit is out of the
+    /// dependent's scope, not a failure. A dependency declares a guard by
+    /// giving accepted classes, even all of them.
+    /// </summary>
+    public bool IsScopeGuard => AcceptedUnitClasses is not null;
+}
 
 /// <summary>
 /// A producer's static declaration: identity, version, tier, dependencies, and
@@ -83,7 +101,7 @@ public abstract class ProducerDeclaration
             if (_declaredDependencies.IsDefault)
             {
                 _declaredDependencies = _dependencies?.Invoke() is { } declared
-                    ? [.. declared]
+                    ? Freeze(declared)
                     : [];
             }
 
@@ -96,6 +114,16 @@ public abstract class ProducerDeclaration
     /// identity must carry equal parameters.
     /// </summary>
     public string? Parameters { get; }
+
+    static ImmutableArray<ProducerDependency> Freeze(
+        IReadOnlyList<ProducerDependency> declared)
+    {
+        var dependencies = ImmutableArray.CreateBuilder<ProducerDependency>(
+            declared.Count);
+        for (int i = 0; i < declared.Count; i++)
+            dependencies.Add(declared[i]);
+        return dependencies.MoveToImmutable();
+    }
 
     public override string ToString() => Identity;
 }
