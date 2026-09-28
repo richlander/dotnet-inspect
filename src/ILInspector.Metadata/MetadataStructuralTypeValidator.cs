@@ -21,6 +21,7 @@ internal static class MetadataStructuralTypeValidator
             signature.ReturnType,
             allowByReference: true,
             allowVoid: false,
+            allowTypedReference: true,
             $"{subject} value type");
         if (failure is not null)
             return failure;
@@ -39,6 +40,7 @@ internal static class MetadataStructuralTypeValidator
                 parameter,
                 allowByReference: true,
                 allowVoid: false,
+                allowTypedReference: true,
                 $"{subject} index parameter");
             if (failure is not null)
                 return failure;
@@ -53,6 +55,23 @@ internal static class MetadataStructuralTypeValidator
         }
         return null;
     }
+
+    internal static string? ValidateTypeSignature(
+        TypeNode node,
+        int typeParameterCount,
+        int methodParameterCount,
+        string subject) =>
+        ValidateSignatureType(
+            node,
+            allowByReference: false,
+            allowVoid: false,
+            allowTypedReference: false,
+            subject)
+        ?? Validate(
+            node,
+            typeParameterCount,
+            methodParameterCount,
+            subject);
 
     internal static string? Validate(
         TypeNode node,
@@ -100,6 +119,7 @@ internal static class MetadataStructuralTypeValidator
         TypeNode node,
         bool allowByReference,
         bool allowVoid,
+        bool allowTypedReference,
         string subject)
     {
         switch (node)
@@ -109,16 +129,23 @@ internal static class MetadataStructuralTypeValidator
                     ? null
                     : $"{subject} cannot be void.";
 
+            case PrimitiveTypeNode { Name: "TypedReference" }:
+                return allowTypedReference
+                    ? null
+                    : $"{subject} cannot contain a nested typed reference.";
+
             case ModifiedTypeNode modified:
                 return ValidateSignatureType(
                         modified.Modifier,
                         allowByReference: false,
                         allowVoid: false,
+                        allowTypedReference: false,
                         $"{subject} custom modifier")
                     ?? ValidateSignatureType(
                         modified.Inner,
                         allowByReference,
                         allowVoid,
+                        allowTypedReference,
                         subject);
 
             case PinnedTypeNode:
@@ -131,6 +158,7 @@ internal static class MetadataStructuralTypeValidator
                         byReference.ElementType,
                         allowByReference: false,
                         allowVoid: false,
+                        allowTypedReference: false,
                         subject);
 
             case PointerTypeNode pointer:
@@ -138,6 +166,7 @@ internal static class MetadataStructuralTypeValidator
                     pointer.ElementType,
                     allowByReference: false,
                     allowVoid: true,
+                    allowTypedReference: false,
                     $"{subject} pointer target");
 
             case SZArrayTypeNode array:
@@ -145,6 +174,7 @@ internal static class MetadataStructuralTypeValidator
                     array.ElementType,
                     allowByReference: false,
                     allowVoid: false,
+                    allowTypedReference: false,
                     $"{subject} array element");
 
             case MDArrayTypeNode array:
@@ -158,6 +188,7 @@ internal static class MetadataStructuralTypeValidator
                     array.ElementType,
                     allowByReference: false,
                     allowVoid: false,
+                    allowTypedReference: false,
                     $"{subject} array element");
 
             case GenericTypeNode generic:
@@ -167,6 +198,7 @@ internal static class MetadataStructuralTypeValidator
                         argument,
                         allowByReference: false,
                         allowVoid: false,
+                        allowTypedReference: false,
                         $"{subject} generic argument");
                     if (failure is not null)
                         return failure;
@@ -214,6 +246,7 @@ internal static class MetadataStructuralTypeValidator
             signature.ReturnType,
             allowByReference: true,
             allowVoid: true,
+            allowTypedReference: true,
             $"{subject} function-pointer return type");
         if (failure is not null)
             return failure;
@@ -224,6 +257,7 @@ internal static class MetadataStructuralTypeValidator
                 parameter,
                 allowByReference: true,
                 allowVoid: false,
+                allowTypedReference: true,
                 $"{subject} function-pointer parameter");
             if (failure is not null)
                 return failure;

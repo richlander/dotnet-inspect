@@ -561,6 +561,8 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
     [InlineData(new byte[] { 0x28, 0x00, 0x0F, 0x10, 0x08 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x14, 0x08, 0x00, 0x00, 0x00 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x1B, 0x00, 0x01, 0x01, 0x01 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x1D, 0x16 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x10, 0x16 })]
     public void Mdp007_MalformedPropertySignatureGrammarRejectsRoot(
         byte[] signature)
     {
@@ -586,6 +588,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
 
     [Theory]
     [InlineData(new byte[] { 0x08, 0x00, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x16 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x10, 0x08 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x0F, 0x01 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x1D, 0x08 })]
@@ -625,6 +628,55 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                 rejected.Failure.Mechanism);
     }
 
+    [Theory]
+    [InlineData(new byte[] { 0x01 })]
+    [InlineData(new byte[] { 0x10, 0x01 })]
+    [InlineData(new byte[] { 0x16 })]
+    public void Mdp007_MalformedEventTypeSpecGrammarRejectsRoot(
+        byte[] signature)
+    {
+        using var fixture = new Fixture(
+            BuildEventTypeSpecRootImage(
+                blob =>
+                {
+                    foreach (byte value in signature)
+                        blob.WriteByte(value);
+                }));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Event));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.RootDeclaration,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.SignatureDecode,
+            rejected.Failure.Mechanism);
+    }
+
+    [Fact]
+    public void Mdp007_LegalEventPointerToVoidTypeSpecPostsRoot()
+    {
+        using var fixture = new Fixture(
+            BuildEventTypeSpecRootImage(
+                signature =>
+                {
+                    signature.WriteByte(0x0F);
+                    signature.WriteByte(0x01);
+                }));
+
+        Assert.IsType<MetadataAccessorDeclarationResult.Posted>(
+            Run(
+                fixture,
+                MetadataAccessorDeclarationKind.Event));
+    }
+
     [Fact]
     public void Mdp007_EventAddParameterMismatchRejectsAggregate()
     {
@@ -647,6 +699,30 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             Assert.Equal(
                 MetadataAccessorDeclarationMechanism.SignatureCorrespondence,
                 rejected.Failure.Mechanism);
+    }
+
+    [Fact]
+    public void Mdp007_AccessorReservedHeaderRejectsAggregate()
+    {
+        using var fixture = new Fixture(
+            BuildPropertyRawGetterImage(
+                [0xA0, 0x00, 0x08]));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Property));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.ConsistencyValidation,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.SignatureCorrespondence,
+            rejected.Failure.Mechanism);
     }
 
     [Fact]
@@ -1500,6 +1576,39 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildPropertyRawGetterImage(byte[] getterSignatureBytes)
+    {
+        var metadata = CreateMetadata();
+        MethodDefinitionHandle getter = AddRawMethod(
+            metadata,
+            "get_Value",
+            AccessorAttributes,
+            getterSignatureBytes);
+        AddModuleType(metadata, getter);
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x28);
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x08);
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.SpecialName,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(signature));
+        metadata.AddPropertyMap(owner, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildEventRootShapeImage(
         bool mismatchedAddParameter = false,
         bool includeFireWithInvocationParameter = false,
@@ -1801,6 +1910,24 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                 parameterCount,
                 returnType,
                 parameters);
+        return metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+    }
+
+    static MethodDefinitionHandle AddRawMethod(
+        MetadataBuilder metadata,
+        string name,
+        MethodAttributes attributes,
+        byte[] signatureBytes)
+    {
+        var signature = new BlobBuilder();
+        foreach (byte value in signatureBytes)
+            signature.WriteByte(value);
         return metadata.AddMethodDefinition(
             attributes,
             MethodImplAttributes.IL,

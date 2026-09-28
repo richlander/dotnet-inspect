@@ -862,7 +862,15 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 MetadataAccessorDeclarationMechanism.SignatureDecode,
         };
         TypeNode eventType = DecodeType(eventTypeHandle, generic, site);
-        ValidateType(eventType, generic);
+        string? eventTypeFailure =
+            MetadataStructuralTypeValidator.ValidateTypeSignature(
+                eventType,
+                generic.TypeParameters.Count,
+                generic.MethodParameters.Count,
+                "The EventDef type");
+        if (eventTypeFailure is not null)
+            throw new BadImageFormatException(eventTypeFailure);
+
         MetadataTypeIdentity identity = Project(eventType, site);
         site = site with
         {
@@ -903,6 +911,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 (accessor.Method.Attributes
                     & MethodAttributes.Static) != 0;
             if (header.Kind != SignatureKind.Method
+                || (header.RawValue & ReservedSignatureFlag) != 0
                 || header.HasExplicitThis
                 || header.IsGeneric
                 || header.CallingConvention
@@ -1408,6 +1417,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         | MethodAttributes.Abstract
         | MethodAttributes.NewSlot
         | MethodAttributes.Final;
+    const byte ReservedSignatureFlag = 0x80;
 
     sealed class AccessorDeclarationRejectedException(
         MetadataAccessorDeclarationFailureReason reason,
