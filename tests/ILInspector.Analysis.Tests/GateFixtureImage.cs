@@ -84,7 +84,7 @@ internal sealed class GateFixtureImage
         return type;
     }
 
-    public ImmutableArray<byte> Build()
+    public ImmutableArray<byte> Build(Machine machine = Machine.Unknown)
     {
         int nextMethod = 1;
         int nextParameter = 1;
@@ -142,7 +142,11 @@ internal sealed class GateFixtureImage
 
         var root = new MetadataRootBuilder(_metadata);
         var pe = new ManagedPEBuilder(
-            PEHeaderBuilder.CreateLibraryHeader(),
+            machine == Machine.Unknown
+                ? PEHeaderBuilder.CreateLibraryHeader()
+                : new PEHeaderBuilder(
+                    machine: machine,
+                    imageCharacteristics: Characteristics.Dll | Characteristics.ExecutableImage),
             root,
             new BlobBuilder());
         var output = new BlobBuilder();
@@ -151,6 +155,76 @@ internal sealed class GateFixtureImage
         if (_namespacePatches.Count > 0)
             PatchNamespaces(bytes);
         return [.. bytes];
+    }
+
+    /// <summary>
+    /// Rewrites the metadata root's version string to <paramref name="length"/>
+    /// characters. MetadataRootBuilder caps the version at 254 bytes, so the
+    /// root is patched: the version grows in place, every stream offset and the
+    /// CLI metadata directory grow with it, and the .text section is extended.
+    /// Only valid for an image whose metadata ends its only section's data.
+    /// </summary>
+    public static ImmutableArray<byte> WithMetadataVersion(ImmutableArray<byte> image, int length)
+    {
+        byte[] bytes = image.ToArray();
+        int metadataStart;
+        int metadataDirectoryOffset;
+        int textHeaderOffset;
+        using (var peReader = new PEReader(ImmutableArray.Create(bytes)))
+        {
+            PEHeaders headers = peReader.PEHeaders;
+            metadataStart = headers.MetadataStartOffset;
+            Require(headers.SectionHeaders.Length == 1, "The fixture must have one section.");
+            // CorHeader: cb (4), runtime versions (4), MetaData directory (8).
+            metadataDirectoryOffset = headers.CorHeaderStartOffset + 8;
+            textHeaderOffset = headers.PEHeaderStartOffset + headers.PEHeader!.SizeOfHeaders is var _ ? SectionTableOffset(headers) : 0;
+        }
+
+        int oldLength = BitConverter.ToInt32(bytes, metadataStart + 12);
+        int newLength = (length + 1 + 3) & ~3;
+        int delta = newLength - oldLength;
+        int versionStart = metadataStart + 16;
+        var patched = new byte[bytes.Length + delta];
+        Array.Copy(bytes, 0, patched, 0, versionStart);
+        for (int i = 0; i < length; i++)
+            patched[versionStart + i] = (byte)'v';
+        Array.Copy(bytes, versionStart + oldLength, patched, versionStart + newLength, bytes.Length - versionStart - oldLength);
+        BitConverter.GetBytes(newLength).CopyTo(patched, metadataStart + 12);
+
+        // Stream headers follow flags (2) and the stream count (2); offsets
+        // are relative to the metadata root, so each shifts by delta.
+        int cursor = versionStart + newLength + 2;
+        int streams = BitConverter.ToUInt16(patched, cursor);
+        cursor += 2;
+        for (int i = 0; i < streams; i++)
+        {
+            int offset = BitConverter.ToInt32(patched, cursor);
+            BitConverter.GetBytes(offset + delta).CopyTo(patched, cursor);
+            cursor += 8;
+            while (patched[cursor] != 0)
+                cursor++;
+            cursor = (cursor + 4) & ~3;
+        }
+
+        int metadataSize = BitConverter.ToInt32(patched, metadataDirectoryOffset + 4);
+        BitConverter.GetBytes(metadataSize + delta).CopyTo(patched, metadataDirectoryOffset + 4);
+
+        // The section header: VirtualSize (+8) and SizeOfRawData (+16).
+        int virtualSize = BitConverter.ToInt32(patched, textHeaderOffset + 8);
+        BitConverter.GetBytes(virtualSize + delta).CopyTo(patched, textHeaderOffset + 8);
+        int rawSize = BitConverter.ToInt32(patched, textHeaderOffset + 16);
+        BitConverter.GetBytes(rawSize + delta).CopyTo(patched, textHeaderOffset + 16);
+        return [.. patched];
+    }
+
+    static int SectionTableOffset(PEHeaders headers) =>
+        headers.PEHeaderStartOffset
+        + (headers.PEHeader!.Magic == PEMagic.PE32Plus ? 240 : 224);
+
+    static void Require(bool condition, string message)
+    {
+        if (!condition)
+            throw new InvalidOperationException(message);
     }
 
     /// <summary>

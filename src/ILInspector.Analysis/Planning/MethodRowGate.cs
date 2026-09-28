@@ -333,10 +333,27 @@ internal sealed class MethodRowGate
         {
             if (_identityReader is null)
             {
-                _identityDecoder = new BudgetedStringDecoder(this);
-                _identityReader = _peReader.GetMetadataReader(
-                    MetadataReaderOptions.Default,
-                    _identityDecoder);
+                // Building the reader decodes only the metadata root's
+                // version string, which identity text never reads. The
+                // decoder is armed after construction and skips that string,
+                // so the header costs no identity budget and is not decoded
+                // a second time. Any exhaustion is still translated here, so
+                // every caller aborts.
+                var decoder = new BudgetedStringDecoder(this);
+                try
+                {
+                    _identityReader = _peReader.GetMetadataReader(
+                        MetadataReaderOptions.Default,
+                        decoder);
+                }
+                catch (Exception) when (_identityExhausted)
+                {
+                    AbortIfIdentityExhausted();
+                    throw;
+                }
+
+                decoder.Armed = true;
+                _identityDecoder = decoder;
             }
 
             return _identityReader;
@@ -524,8 +541,13 @@ internal sealed class MethodRowGate
     sealed class BudgetedStringDecoder(MethodRowGate gate)
         : MetadataStringDecoder(System.Text.Encoding.UTF8)
     {
+        /// <summary>False while the reader is built: the header's version string is skipped.</summary>
+        public bool Armed { get; set; }
+
         public override unsafe string GetString(byte* bytes, int byteCount)
         {
+            if (!Armed)
+                return string.Empty;
             gate.ChargeIdentityText(byteCount);
             return base.GetString(bytes, byteCount);
         }

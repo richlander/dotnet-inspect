@@ -595,6 +595,27 @@ public sealed class MethodRowGateTests
         Assert.True(allocated < 64 * 1024, $"Allocated {allocated:N0} bytes.");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void IdentityBudget_MetadataVersionStringCostsNoIdentityBudget(bool kernel)
+    {
+        // An 8,388,618-character metadata version string: building the
+        // identity reader must not decode or charge it. Rows complete, and
+        // the identity work charged stays far below the version's size.
+        GateFixtureImage builder = Ordinary();
+        ImmutableArray<byte> image = GateFixtureImage.WithMetadataVersion(builder.Build(Machine.Amd64), 8_388_618);
+        using (var check = new PEReader(image))
+            Assert.Equal(8_388_618, check.GetMetadataReader().MetadataVersion.Length);
+        var rows = new GateProducer<IdentityPredicate>("Rows", MethodDefinitionLayers.IdentityText, kernel: kernel);
+
+        MethodDefinitionExecution execution = Run(image, Plan(new ProducerRequest(rows)));
+
+        Assert.Null(execution.Receipt.Critical);
+        Assert.Equal(ProducerOutcome.Complete, execution.ResultOf(rows).Outcome);
+        Assert.True(execution.Receipt.IdentityWorkCharged < 1_000_000, $"{execution.Receipt.IdentityWorkCharged:N0} charged.");
+    }
+
     [Fact]
     public void IdentityText_MalformedMetadataFailsTheReaderOnly()
     {
