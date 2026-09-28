@@ -28,7 +28,7 @@ order; each slice amends its owning design together with its code.
   [Find Workspace scope evidence](https://github.com/richlander/dotnet-inspect/pull/8750)
   measured 22.3 s and 157 MB cold for the Extensions and ASP.NET Core sets
   together, against about 1.1 s and 7 MB cold for the five core packages
-  those two Ecosystems register.
+  those two Ecosystems registered before this change.
 
 ## The Ecosystem model after retirement
 
@@ -47,6 +47,22 @@ members traversal from the roots would not, such as sibling provider and
 evaluation packages.
 
 The Ecosystem set changes:
+
+- **Microsoft.Extensions becomes prefix-only.** Its three roots
+  (`Microsoft.Extensions.DependencyInjection.Abstractions`,
+  `Microsoft.Extensions.Configuration.Abstractions`, and
+  `Microsoft.Extensions.Logging.Abstractions`) are removed. The family fans
+  out too quickly for a small core to represent it: about 117 packages, of
+  which about 60 are outside the shared frameworks. The classic stack
+  (dependency injection, configuration, logging, options, hosting, and the
+  HTTP client factory) ships in the ASP.NET Core shared framework, which the
+  platform Workspace already contains, so the removed roots duplicated it.
+  The remainder, such as `Microsoft.Extensions.Http.Resilience` and
+  `Microsoft.Extensions.Caching.Hybrid`, is reached through the
+  `Microsoft.Extensions.` prefix. An empty core remains a valid Workspace
+  declaration because the prefix population and namespace root contribute,
+  and supply-chain baseline classification is unchanged because the prefix
+  matches every removed root.
 
 - **Azure is removed.** `ecosystem.azure` leaves the pack registry and the
   all-known Workspace plan, with its `Azure.`, `Microsoft.Azure.`,
@@ -80,8 +96,10 @@ The Ecosystem set changes:
   `Anthropic.SDK` and `Mistral.SDK` are not lab-published SDKs and are not
   included.
 
-Every other pack's core is already within the bound: Runtime 0, Microsoft
-Extensions 3, ASP.NET Core 2, Aspire 1, Blazor 4, .NET MAUI 5.
+Every other pack's core is already within the bound: Runtime 0, ASP.NET
+Core 2, Aspire 1, Blazor 4, .NET MAUI 5. ASP.NET Core keeps its two roots
+(`Microsoft.AspNetCore.OpenApi` and `Microsoft.AspNetCore.Authentication.JwtBearer`),
+which are add-on packages outside the shared framework.
 
 ## Curation is not rebuilt
 
@@ -100,7 +118,7 @@ and remain bounded by their own candidate limits and source page limits
 
 | Owner | Change |
 | --- | --- |
-| [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; core entries as traversal roots; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes reduced to `Microsoft.Extensions.AI` |
+| [Static Ecosystem Packs](ecosystem-packs.md) | Core bound and its validation; core entries as traversal roots; Microsoft.Extensions prefix-only; `PackageSet` removed from pack descriptors and from the capability requirement; "Package-set composition" retired; Azure removed; AI core replaced and its prefixes reduced to `Microsoft.Extensions.AI` |
 | [Package Set Registry](package-set-registry.md) | Retired: shipped inventory, registry, descriptor, identity, and catalog types deleted |
 | [Search scope resolution](search-scope-resolution.md) | `--extensions` and `--aspnetcore` removed from `find`, `implements`, `extensions`, and `depends`; `--ecosystem` is the replacement selector |
 | [Package query CLI](package-query-cli.md) | `depends-ecosystem=` matches the Ecosystem's core packages exactly and its recorded prefixes; set membership is no longer consulted |
@@ -113,7 +131,8 @@ Each slice lands independently from `main`, keeps every gate green, and
 amends its owner's document with its code.
 
 1. **This composition map.**
-2. **Ecosystem data.** Remove Azure; replace the AI core and reduce its
+2. **Ecosystem data.** Remove Azure; empty the Microsoft.Extensions core;
+   replace the AI core and reduce its
    prefixes to `Microsoft.Extensions.AI`; add the core bound to pack validation with a boundary test at
    twelve and thirteen entries.
 3. **`depends-ecosystem=`.** Match the Ecosystem's core packages exactly and
