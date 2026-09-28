@@ -97,29 +97,45 @@ Each Tier 1 test must equal the legacy test on every input:
   full type name through `TypeResolver.GetTypeName` and compares strings. It
   charges no budget. Hardening that path for its existing consumers is
   [#8780](https://github.com/richlander/dotnet-inspect/issues/8780). The gate
-  here adopts the in-place match instead. The gate's attribute type match compares namespace and
-  name handles in place. It must equal the materialized comparison for
-  attribute types that are:
+  here adopts the in-place match instead. The gate's attribute type match
+  compares namespace and name handles in place, walking a nested type's
+  declaring or resolution-scope chain segment by segment. Its answer is
+  memoized per attribute constructor handle, and the chain walk per type
+  handle, for the execution. Total work is therefore linear in the
+  CustomAttribute, MemberRef, TypeRef, and TypeDef rows. The existing
+  `MaxRelationshipNodes` chain bound backstops each walk, and exceeding it
+  aborts. The match must equal the materialized comparison for attribute
+  types that are:
   - defined in the image or referenced;
-  - nested;
-  - reached through a generic `TypeSpecification` parent, which can never
-    equal the two non-generic target names.
+  - nested, including a nested chain whose segments spell the target name
+    in legacy's formatting;
+  - reached through a generic `TypeSpecification` parent. Such a type is
+    answered without decoding, because a generic instantiation's formatted
+    name can never equal the two non-generic target names.
 - **Pointer signature** in legacy walks the signature with a detector that
   charges the shared scan work budget. Every composite and `TypeSpec` visit is
   charged, because a wide `GENERICINST` repeated across methods is the known
-  hostile case. Here the walk is a Tier 1 signature-shape accessor with a
-  fixed **per-row cap of 65,536 type nodes** visited, where every expanded
-  `TypeSpec` node counts. The basis is `MetadataSafetyPolicy.MaxSignatureTypeNodes`
-  (64 × 1024), the repository's existing bound on the type nodes one
-  signature may present before decoding. `TypeSpecGuard` keeps its existing
-  re-entry limits within the cap. Exceeding the cap aborts the execution with
-  the typed `CriticalFailure` under the gate's abort rule. The walk charges no
-  identity budget, so pointer Count and Exists stay free of it. Total pointer
-  work is at most rows times the cap. Legacy's cumulative work budget could
-  fail a hostile image on which every row stays under the cap, but whose
-  combined work exceeds legacy's scan budget. There the pointer analyzer
-  answers where legacy failed. That is the one intended difference on hostile
-  inputs. The operator chose the per-row bound over a cumulative one.
+  hostile case. Here the walk is a Tier 1 signature-shape accessor, bounded
+  in two ways:
+  - **Memoized.** For the execution, the gate caches the pointer-shape answer
+    for each `TypeSpec` handle and for each signature blob it walks. Each
+    `TypeSpec` and each blob is therefore walked at most once, however many
+    rows or nested generic arguments share it. Every visited node consumes at
+    least one blob byte, so the total nodes walked are at most the size of
+    the `#Blob` heap. That is linear in the image, with no multiplier and no
+    budget. Pointer Count and Exists stay free of the identity budget.
+  - **Backstop.** A fixed per-row cap of 65,536 type nodes, the existing
+    `MetadataSafetyPolicy.MaxSignatureTypeNodes` bound on one signature.
+    Exceeding it aborts the execution with the typed `CriticalFailure`.
+
+  Faithfulness through the cache: a `TypeSpec`'s cached entry also records
+  the deepest re-entry depth and the largest byte closure its expansion
+  reaches. A reuse checks those against `TypeSpecGuard`'s limits (depth 256,
+  4,096 bytes) in the current context. So the gate refuses exactly where
+  legacy's guard would. Where legacy's guard refused, legacy answered "no
+  pointer" for that part, a success-shaped answer. The gate aborts with the
+  typed `CriticalFailure` instead, as the abort rule requires. On inputs where
+  no guard refuses, the answer equals legacy.
 
 ## Budget
 
@@ -233,11 +249,18 @@ work, tracked in #8733, and not part of this change.
 - **Count reads no identity text.** On the existing hostile classification
   fixtures, Count, Exists, and classification charge zero identity budget and
   complete. Rows on the same fixtures abort with `CriticalFailure`.
-- **Pointer cap.** A hostile fixture with a deep, wide generic signature,
-  such as nested `GENERICINST` `TypeSpec`s whose expanded node count exceeds
-  65,536 in one row, aborts pointer Count and Rows with a `CriticalFailure`
-  that names the gate's per-row signature cap. Every row of the pinned test
-  packages stays under the cap, and the largest observed count is recorded.
+- **Linear structural work.** A hostile fixture in which many methods share
+  deeply nested generic `TypeSpec`s completes pointer Count, and the number
+  of walked nodes is at most the image's `#Blob` heap size. A matching
+  fixture that shares nested attribute parent chains keeps attribute-match
+  work within its row counts, with no dependence on the number of methods.
+- **Per-row cap aborts.** A single signature whose nodes exceed 65,536 aborts
+  pointer Count and Rows with a `CriticalFailure` that names the gate's
+  per-row signature cap. Every row of the pinned test packages stays under
+  the cap, and the largest count seen is recorded.
+- **Guard parity.** On fixtures where legacy's `TypeSpecGuard` refuses, in
+  both a fresh context and a nested one, the gate aborts. On every fixture
+  where it does not refuse, the pointer answers equal legacy.
 - **Abort.** When two analyzers run together and the gate's budget is
   exhausted, neither publishes a result, both are `Aborted` with the same
   `CriticalFailure`, and no row after the exhausting one is read.

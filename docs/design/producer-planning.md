@@ -374,7 +374,14 @@ The gate offers two tiers of access:
   - an attribute type match;
   - a yes/no signature-shape walk.
 
-  Each costs at most a fixed amount per row and charges no execution budget.
+  They charge no execution budget. Their total work across an execution is
+  linear in the image's metadata size. An accessor that walks a structure,
+  such as a signature or a type's parent chain, memoizes its answer per
+  metadata handle and per blob for the execution. That way each structure is
+  walked at most once, however many rows or nested arguments share it. A
+  fixed per-row cap backstops the walk, and exceeding the cap aborts the
+  execution with the typed critical failure. An accessor that walks nothing
+  costs a constant per row.
 - **Tier 2, identity text:** anchors and signature text. These go through the
   gate's budgeted identity decoder and are returned as `InertString`, so they
   are bounded in cost and inert in content.
