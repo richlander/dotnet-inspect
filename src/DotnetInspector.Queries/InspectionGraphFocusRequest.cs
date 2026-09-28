@@ -130,7 +130,8 @@ public sealed class InspectionGraphFocusRequest
     public InspectionGraphModeRequest ModeRequest { get; }
     public InspectionGraphFocusExtent Extent { get; }
     public ImmutableArray<InspectionGraphRelationshipDescriptor>
-        Relationships { get; }
+        Relationships
+    { get; }
     public InspectionGraphTraversalDirection Direction { get; }
     public ImmutableArray<InspectionGraphScopeDecision> ScopeDecisions { get; }
 
@@ -183,7 +184,8 @@ public static class InspectionGraphFocusCatalog
             InspectionGraphAggregationPolicy.OrderedDistinctSet);
 
     public static InspectionGraphLimitDescriptor
-        ScopeClassificationIncomplete { get; } =
+        ScopeClassificationIncomplete
+    { get; } =
         new(
             "queries.focus-scope-classification-incomplete",
             InspectionGraphOwner.Queries);
@@ -463,8 +465,9 @@ public static class InspectionGraphFocusProjection
         limits.AddRange(
             unclassifiedEdgeIds.Order().Select(id =>
                 new InspectionGraphLimit(
-                    InspectionGraphFocusCatalog
-                        .ScopeClassificationIncomplete,
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphFocusCatalog
+                            .ScopeClassificationIncomplete),
                     InspectionGraphTarget.Edge(edgeIds[id]))));
 
         InspectionGraphFailure[] failures =
@@ -816,9 +819,10 @@ public static class InspectionGraphFocusProjection
         InspectionGraphTarget target,
         string role) =>
         new(
-            InspectionGraphFocusCatalog.Role,
             target,
-            new InspectionGraphValue.TokenSet([role]),
+            new InspectionGraphCharacteristicPayload(
+                InspectionGraphFocusCatalog.Role,
+                new InspectionGraphValue.TokenSet([role])),
             new InspectionGraphCharacteristicDerivation(
                 InspectionGraphCharacteristicDerivationKind.Derived,
                 [target]));
