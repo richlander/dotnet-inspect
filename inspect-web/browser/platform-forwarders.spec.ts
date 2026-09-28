@@ -64,12 +64,28 @@ test("unavailable forwarding preserves subject, location and actionable focus", 
   await expect(page).toHaveURL(source);
 });
 
+test("Library scope controls and keyboard selection retain a forwarded Type", async ({ page }) => {
+  await openXml(page);
+  await chooseSubject(page, "library", "Library");
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+  await chooseSubject(page, "library", "Library");
+  await page.reload();
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+  await chooseSubject(page, "library", "Library");
+  await page.locator("#type-list").press("ArrowDown");
+  await page.locator("#type-list").press("Enter");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("XmlReader");
+});
+
 test("leaving a pending forwarder cannot replace the newer Library subject", async ({ page }) => {
   await openXml(page, { forwarderPending: true });
+  const retired = await page.locator("html").getAttribute("data-forwarder-view");
   await page.locator("[data-platform-forwarder]").click();
   await expect(page.locator(".forwarded-type-overview [role=status]")).toBeVisible();
   await chooseSubject(page, "library", "Library");
-  const retired = await page.locator("html").getAttribute("data-forwarder-view");
   await releaseFacade(page, "finish-forwarder");
   await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
   await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
@@ -80,4 +96,18 @@ test("leaving a pending forwarder cannot replace the newer Library subject", asy
   await page.locator("[data-platform-forwarder]").click();
   await releaseFacade(page, "finish-forwarder");
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
+});
+
+test("leaving and returning does not revive a superseded forwarding action", async ({ page }) => {
+  await openXml(page, { forwarderPending: true });
+  const retired = await page.locator("html").getAttribute("data-forwarder-view");
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator(".forwarded-type-overview [role=status]")).toBeVisible();
+  await chooseSubject(page, "library", "Library");
+  await chooseSubject(page, "type", "Type");
+  await expect.poll(() => page.locator("html").getAttribute("data-forwarder-view"))
+    .not.toBe(retired);
+  await releaseFacade(page, "finish-forwarder");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
+  await expect(page.locator("[data-platform-forwarder]")).toBeEnabled();
 });

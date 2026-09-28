@@ -1393,10 +1393,15 @@ test("typed scope bar owns its rendered control bindings", () => {
                     if: 'target === "type"',
                     whenTrue: [
                       "assign:state.workspaceSubjectOpen = false",
+                      "declare:const forwarder = selectedForwarder()",
                       {
-                        if: "!enterTypeSubject(selectedType())",
-                        whenTrue: ["statement:ReturnStatement:return;"],
-                        whenFalse: [],
+                        if: "forwarder",
+                        whenTrue: ["call:enterForwardedType(forwarder)"],
+                        whenFalse: [{
+                          if: "!enterTypeSubject(selectedType())",
+                          whenTrue: ["statement:ReturnStatement:return;"],
+                          whenFalse: [],
+                        }],
                       },
                       'assign:state.selectedMemberKey = ""',
                       'assign:state.memberBrowseTypeId = ""',

@@ -1537,6 +1537,7 @@ interface PlatformForwarderPresentation {
   loading: Promise<void> | null;
   error: string;
   activating: boolean;
+  activationView: string | null;
 }
 
 let platformForwarderPresentation: PlatformForwarderPresentation | null = null;
@@ -4932,6 +4933,7 @@ function installPlatformForwarderView(view: BrowserPlatformForwarderView) {
   retirePlatformForwarderView();
   platformForwarderPresentation = {
     key, view, ready: true, loading: null, error: "", activating: false,
+    activationView: null,
   };
 }
 
@@ -4942,7 +4944,9 @@ function reconcilePlatformForwarderView(refresh = false) {
     && !state.atPackageRoot && !state.typeExplorerOpen
     ? selectedPlatformForwarderKey()
     : null;
-  if (!refresh && platformForwarderPresentation?.key === key) return;
+  const abandonedActivation = platformForwarderPresentation?.activating
+    && platformForwarderPresentation.activationView !== viewSignature();
+  if (!refresh && !abandonedActivation && platformForwarderPresentation?.key === key) return;
   const retainedView = platformForwarderPresentation?.key === key
     ? platformForwarderPresentation.view : null;
   retirePlatformForwarderView();
@@ -4953,6 +4957,7 @@ function reconcilePlatformForwarderView(refresh = false) {
   const row = platformLibraryForRequest(pkg, library.id);
   const request: PlatformForwarderPresentation = {
     key, view: retainedView, ready: false, loading: null, error: "", activating: false,
+    activationView: null,
   };
   platformForwarderPresentation = request;
   request.loading = (async () => {
@@ -4995,6 +5000,7 @@ async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
     && platformForwarderPresentation === source
     && viewSignature() === sourceView;
   source.activating = true;
+  source.activationView = sourceView;
   source.error = "";
   render({ synchronizeUrl: false });
   try {
@@ -5045,6 +5051,7 @@ async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
     }
   } finally {
     source.activating = false;
+    source.activationView = null;
   }
 }
 
@@ -11289,7 +11296,9 @@ function bindScopeBarEvents() {
         state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
         // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
-        if (!enterTypeSubject(selectedType())) return;
+        const forwarder = selectedForwarder();
+        if (forwarder) enterForwardedType(forwarder);
+        else if (!enterTypeSubject(selectedType())) return;
         state.selectedMemberKey = "";
         state.memberBrowseTypeId = "";
         state.selectedOverloadIndex = null;
@@ -14669,7 +14678,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   resetMemberFilters();
   state.selectedTypeId = restoreType
     ? deep?.type ?? ""
-    : defaultVisibleTypeId(pkg);
+    : defaultVisibleTypeId(pkg) || currentPlatformForwarderView()?.forwarders[0]?.id || "";
   // The restored/defaulted type may sit outside the current accessibility bucket or the
   // platform's library scope (e.g. an internal type reached via a shared link, or a history
   // entry for a type in a library the session had since scoped away from). Reconcile both
