@@ -221,6 +221,7 @@ public abstract record PackageDependencyMemberCallGraphOutcome
         TraversalTargetFrameworkPolicy TraversalTargetPolicy,
         PackageDependencyTraversalSummary TraversalSummary,
         WorkspaceScopeRevisionIdentity ScopeRevision,
+        MemberCallGraphFocalScopeReceipt FocalScope,
         ImmutableArray<
             PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
             IntrinsicCoreLibraryContextNonParticipation,
@@ -409,6 +410,9 @@ public static class PackageDependencyMemberCallGraphOperation
             request.Traversal.TraversalTargetPolicy,
             request.Traversal.Summary,
             completedRoutes.Scope.Revision.Identity,
+            MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                completedRoutes.Scope,
+                request.Registrations),
             BindIntrinsicCoreLibraryContextNonParticipation(
                 completedRoutes.Scope.Revision.Identity,
                 availableGraph.IntrinsicCoreLibraryOccurrences),

@@ -308,6 +308,10 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
+      - name: Run Graph contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/Inspector.Graph.Tests -c Release
+
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --filter-not-trait "Speed=Slow"
