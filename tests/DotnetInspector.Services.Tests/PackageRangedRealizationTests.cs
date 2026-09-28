@@ -712,7 +712,9 @@ public sealed partial class PackageRangedRealizationTests
             PackageHouseAssetSelectionKind selection =
                 PackageHouseAssetSelectionKind.Compile,
             PackageHouseEvidenceDemand evidenceDemand =
-                PackageHouseEvidenceDemand.None)
+                PackageHouseEvidenceDemand.None,
+            PackageHouseLibraryHandoffMode libraryHandoff =
+                PackageHouseLibraryHandoffMode.PackageOnly)
         {
             // The real assets here are small, so the ranged gates set a zero
             // size cut; size first itself is gated separately.
@@ -729,6 +731,7 @@ public sealed partial class PackageRangedRealizationTests
                 PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
                 PackageHouseTargetContext.Exact(framework),
                 selection,
+                libraryHandoff,
                 implementationNames: implementationNames,
                 evidenceDemand: evidenceDemand);
             return house.ExecuteAsync(
