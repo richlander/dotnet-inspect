@@ -864,6 +864,19 @@ already carries the kind.
   background tint and from the parent row's heat-status tokens. Its nested rows
   follow
   [Overload rows](inspect-web-implementation-profiles.md#overload-rows).
+- An overload family's count covers the overloads in view. When the request's
+  accessibility, receiver, or hidden admission leaves N of the family's
+  declarations out of view, the count gains a secondary `+N` in a dim token,
+  such as `Parse 5× +2` in the `public` view. Name search does not add to N,
+  because search narrows the rows the reader asked to see. N counts
+  declarations, the same unit as the Member heading and the accessibility
+  counts, and comes from product-issued Counts of the family's
+  [exact-overload population](type-member-inspection-documents.md#member-overloads-row-space),
+  not from host arithmetic over rows. The row shows only `5×`
+  until those Counts arrive, and a row with nothing out of view never shows
+  `+0`. Its accessible description states how many declarations are out of
+  view and which of the request's terms exclude them, for example "2 more
+  overloads are private".
 - A row without structured detail, such as a graph-only target, keeps its
   kind word. Package and Library navigation may also expose Types where their
 owning lens requires it, but no second Library filter is introduced. Placement
