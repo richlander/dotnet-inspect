@@ -682,8 +682,34 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
     public void Mdp007_AccessorReservedHeaderRejectsAggregate()
     {
         using var fixture = new Fixture(
-            BuildPropertyRawGetterImage(
-                [0xA0, 0x00, 0x08]));
+            BuildPropertyRawAccessorImage(
+                [0xA0, 0x00, 0x08],
+                MethodSemanticsAttributes.Getter));
+
+        var rejected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Rejected>(
+                Run(
+                    fixture,
+                    MetadataAccessorDeclarationKind.Property));
+
+        Assert.Equal(
+            MetadataAccessorDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataAccessorDeclarationStage.ConsistencyValidation,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataAccessorDeclarationMechanism.SignatureCorrespondence,
+            rejected.Failure.Mechanism);
+    }
+
+    [Fact]
+    public void Mdp007_OtherNonMethodDefinitionSignatureRejectsAggregate()
+    {
+        using var fixture = new Fixture(
+            BuildPropertyRawAccessorImage(
+                [0x01, 0x00, 0x01],
+                MethodSemanticsAttributes.Other));
 
         var rejected = Assert.IsType<
             MetadataAccessorDeclarationResult.Rejected>(
@@ -1610,22 +1636,26 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildPropertyRawGetterImage(byte[] getterSignatureBytes)
+    static byte[] BuildPropertyRawAccessorImage(
+        byte[] accessorSignatureBytes,
+        MethodSemanticsAttributes semantics)
     {
         var metadata = CreateMetadata();
-        MethodDefinitionHandle getter = AddRawMethod(
+        MethodDefinitionHandle accessor = AddRawMethod(
             metadata,
-            "get_Value",
+            semantics == MethodSemanticsAttributes.Getter
+                ? "get_Value"
+                : "Other",
             AccessorAttributes,
-            getterSignatureBytes);
-        AddModuleType(metadata, getter);
+            accessorSignatureBytes);
+        AddModuleType(metadata, accessor);
         TypeDefinitionHandle owner = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Abstract,
             metadata.GetOrAddString("Samples"),
             metadata.GetOrAddString("Target"),
             default,
             MetadataTokens.FieldDefinitionHandle(1),
-            getter);
+            accessor);
         var signature = new BlobBuilder();
         signature.WriteByte(0x28);
         signature.WriteByte(0x00);
@@ -1638,8 +1668,8 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         metadata.AddPropertyMap(owner, property);
         metadata.AddMethodSemantics(
             property,
-            MethodSemanticsAttributes.Getter,
-            getter);
+            semantics,
+            accessor);
         return Serialize(metadata);
     }
 
