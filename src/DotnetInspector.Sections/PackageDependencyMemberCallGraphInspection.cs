@@ -181,6 +181,9 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     PackageDependencyTraversalSummary TraversalSummary,
     ImmutableArray<PackageDependencyMemberCallGraphInspectionRoute> Routes,
     PackageSupplyChainBaselineEvidence Baseline,
+    ImmutableArray<
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
+        IntrinsicCoreLibraryContextNonParticipation,
     ImmutableArray<PackageDependencyMemberCallGraphPackageSubject>
         PackageSubjects,
     InspectionGraphDocument Graph);
@@ -487,6 +490,8 @@ public static class PackageDependencyMemberCallGraphInspection
                                 .. completed.Routes.Select(Project),
                             ],
                             completed.Baseline,
+                            completed
+                                .IntrinsicCoreLibraryContextNonParticipation,
                             [
                                 .. completed.NodePackages.Select(
                                     static nodePackage =>

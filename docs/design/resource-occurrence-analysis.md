@@ -18,9 +18,9 @@ PR #7286. That attempt generalized method-local evidence while simultaneously
 requiring an ArrayPool compatibility projection. Twelve reviewed candidates
 showed that the projection repeatedly needed associations that had already
 been flattened: resource domain, affected root, physical invocation, and the
-complete effect set at one call. The replacement locks those associations as
-the occurrence contract and leaves existing ArrayPool analyzers unchanged
-until final migration.
+complete effect set at one call. The replacement locked those associations as
+the occurrence contract; later focused cutovers certified and retired the
+ArrayPool-specific analyzers.
 
 ## Authority and exact claim
 
@@ -258,7 +258,7 @@ re-resolving names or declarations.
 
 ### Deliberate divergence
 
-The existing ArrayPool flow combines operation recognition, value-flow
+The former ArrayPool flow combined operation recognition, value-flow
 classification, lifecycle-oriented terminology, and compatibility assumptions.
 This owner begins with declared terminal-resource occurrences and calls an
 ordinary cross-method use a boundary rather than claiming undeclared ownership
@@ -277,12 +277,11 @@ The motivating real assets are the pinned Resource Triage corpus from
 - Npgsql 8.0.4; and
 - Pipelines.Sockets.Unofficial 2.2.8.
 
-Their existing ArrayPool lifecycle results demonstrate the production value of
+Their ArrayPool lifecycle results demonstrated the production value of
 root-bound acquisition, release, call-boundary, and incomplete evidence. They
-are the final migration oracle, not an intermediate adapter contract.
-
-No ArrayPool result changes in this slice. The claim that the new occurrence
-evidence already has complete ArrayPool fidelity is explicitly unverified.
+served as the final migration oracle, not an intermediate adapter contract.
+The later retirement comparison established the generic path's measured
+fidelity before removing the predecessor.
 
 ## Production adoption and retirement
 
@@ -323,11 +322,11 @@ The implementation gate belongs in the Release
 - a limitation on one root does not contaminate another root;
 - resolution or body-analysis incompleteness cannot produce complete empty
   evidence; and
-- existing ArrayPool ownership and lifecycle suites remain unchanged.
+- generic ArrayPool ownership and lifecycle suites retain their expected
+  scenario outcomes.
 
-The last gate establishes non-interaction with the legacy oracle, not parity.
-No source-code absence gate is added; the final migration owns positive
-behavioral parity and retirement evidence.
+The final migration owns positive behavioral parity and retirement evidence;
+no source-code absence gate is required.
 
 ## Modeling and rendering applicability
 
@@ -345,7 +344,7 @@ for typed downstream producers, not a new output section or wire shape.
 - No lifecycle Finding or Resource Triage migration.
 - No Research or call-graph migration.
 - No ArrayPool compatibility projection.
-- No removal or modification of existing ArrayPool semantic paths.
+- No ArrayPool compatibility projection within this producer.
 - No public path/image entry point.
 - No producer registry, service locator, or dependency-injection framework.
 - No complete CLR alias, indirect-dispatch, unsafe, reflection, interop, or
