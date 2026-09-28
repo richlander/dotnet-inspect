@@ -251,6 +251,8 @@ public static class SemanticFactProjection
             "unsupported-instruction",
         AllocationLifetimeLimitationKind.UnsupportedStackShape =>
             "unsupported-stack-shape",
+        AllocationLifetimeLimitationKind.UnsupportedByReferenceFlow =>
+            "unsupported-by-reference-flow",
         AllocationLifetimeLimitationKind.UnsupportedCall =>
             "unsupported-call",
         AllocationLifetimeLimitationKind.MetadataResolution =>

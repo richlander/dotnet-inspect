@@ -853,10 +853,13 @@ internal sealed class MethodAllocationFacts
             EscapeClassification useEscape;
             if (use.Address)
             {
-                useEscape = EscapeClassification.Escapes(
-                    AllocationEscapeKind.None,
+                useEscape = ClassifyAddressUse(
+                    reachingDefinitionsProvider,
+                    resolver,
                     use.Offset,
-                    AllocationLifetimeUseKind.ByReferenceTransfer);
+                    kind,
+                    allocatedType,
+                    visitingDefinitions);
             }
             else if (TryPositionAfterLoadSlot(use.Offset, use.Slot, use.IsArgument, out int positionAfterLoad))
             {
@@ -880,6 +883,89 @@ internal sealed class MethodAllocationFacts
 
         visitingDefinitions.Remove(definition.Id);
         return verdict;
+    }
+
+    EscapeClassification ClassifyAddressUse(
+        Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
+        IMethodAllocationResolver resolver,
+        int addressOffset,
+        AllocationKind kind,
+        TypeRef? allocatedType,
+        HashSet<int> visitingDefinitions)
+    {
+        if (_context.InstructionAt(addressOffset) is not { } addressLoad)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.DefinitionUnavailable,
+                addressOffset);
+        }
+
+        var instructions = _context.Instructions.Instructions;
+        int index = _context.NextNonNopIndexAtOrAfter(
+            addressLoad.NextOffset);
+        if (index >= instructions.Length)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                addressOffset,
+                addressLoad.OpCode);
+        }
+
+        DecodedInstruction consumer = instructions[index];
+        return consumer.OpCode switch
+        {
+            ILOpCode.Ldind_ref or ILOpCode.Ldobj =>
+                ClassifyStackValueUse(
+                    reachingDefinitionsProvider,
+                    resolver,
+                    consumer.NextOffset,
+                    kind,
+                    allocatedType,
+                    visitingDefinitions),
+            ILOpCode.Call or ILOpCode.Callvirt =>
+                ClassifyByReferenceCall(resolver, consumer),
+            _ => EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                consumer.Offset,
+                consumer.OpCode),
+        };
+    }
+
+    static EscapeClassification ClassifyByReferenceCall(
+        IMethodAllocationResolver resolver,
+        DecodedInstruction instruction)
+    {
+        MemberRef callee;
+        try
+        {
+            callee = resolver.ResolveMember(
+                MethodInstructionFacts.OperandInt32(instruction));
+        }
+        catch (Exception ex) when (ex is
+            BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or IndexOutOfRangeException)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+
+        return callee.ParameterTypes is [.., { Kind: TypeRefKind.ByRef }]
+            ? EscapeClassification.Escapes(
+                AllocationEscapeKind.None,
+                instruction.Offset,
+                AllocationLifetimeUseKind.ByReferenceTransfer)
+            : EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                instruction.Offset,
+                instruction.OpCode);
     }
 
     EscapeClassification ClassifyStackValueUse(

@@ -76,6 +76,7 @@ public enum AllocationLifetimeLimitationKind
     AliasCycle,
     UnsupportedInstruction,
     UnsupportedStackShape,
+    UnsupportedByReferenceFlow,
     UnsupportedCall,
     MetadataResolution,
     AnalysisFailure,

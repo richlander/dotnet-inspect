@@ -80,6 +80,13 @@ drop, trusted copy, return, throw, field, static, collection, capture, or
 by-reference boundary that actually consumed the value. Evidence is ordered by
 IL offset, then kind, and duplicate entries are removed.
 
+Loading a local or argument address is also transport, not a by-reference
+boundary. Analysis follows an immediate managed-reference read back to the
+produced value and resumes ordinary use classification. A direct call consuming
+the managed reference is the by-reference boundary and uses the call offset.
+Other managed-reference shapes remain `Unknown` with a typed limitation at the
+first unsupported instruction.
+
 The verdict and evidence obey these invariants:
 
 - `LocalOnly` and `ThrowPath` have no limitations.
@@ -142,6 +149,8 @@ Contract gates cover:
 - a neighboring returned array;
 - exact element-use, trusted-copy, return, field-store, drop, and multi-alias
   coordinates;
+- managed-reference reads that resume value classification, by-reference calls
+  located at the call, and typed unsupported managed-reference flow;
 - a genuine primitive element beside a same-named user-defined reference type;
 - typed incomplete-reaching-definition, unsupported-call, unsupported-stack,
   and metadata-resolution limitations;

@@ -114,6 +114,37 @@ public sealed class AllocationLifetimeAnalysisTests
     }
 
     [Fact]
+    public void CompiledFixture_TracksByReferenceConsumer()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisAllocationLifetime
+                .AssemblyPath());
+
+        AllocationOccurrence local = Allocation(
+            index,
+            "ReadThroughRefLocal");
+        AllocationOccurrence transferred = Allocation(
+            index,
+            "PassArrayByReference");
+
+        Assert.Equal(AllocationEscape.LocalOnly, local.Escape);
+        Assert.Equal(
+            AllocationLifetimeUseKind.LengthRead,
+            Assert.Single(local.LifetimeEvidence.Uses).Kind);
+        Assert.Empty(local.LifetimeEvidence.Limitations);
+
+        Assert.Equal(
+            AllocationEscape.Escapes,
+            transferred.Escape);
+        Assert.Equal(
+            AllocationLifetimeUseKind.ByReferenceTransfer,
+            Assert.Single(transferred.LifetimeEvidence.Uses)
+                .Kind);
+        Assert.Empty(
+            transferred.LifetimeEvidence.Limitations);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void Jurassic_LocalSurrogateArrayBecomesStackallocCandidate()
     {
