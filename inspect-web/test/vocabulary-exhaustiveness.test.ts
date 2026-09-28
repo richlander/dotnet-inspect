@@ -70,7 +70,6 @@ const widenings = [
     token: "probe-member-section",
     dispatches: [
       "loadMemberSectionContent",
-      "applyView",
       "renderMember",
       "loadSelectionData",
     ],
