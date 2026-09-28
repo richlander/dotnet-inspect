@@ -2590,26 +2590,14 @@ public partial class CommandExecutionTests
                 "-v:q",
                 "--tips",
                 "q");
-            var fixedOverview = await RunAppAsync(
-                "package",
-                packagePath,
-                "-S",
-                "-v:q",
-                "--tips",
-                "q");
-
             Assert.Equal(0, implicitInfo.Exit);
             Assert.Equal(0, explicitInfo.Exit);
-            Assert.Equal(0, fixedOverview.Exit);
             Assert.Empty(implicitInfo.Error);
             Assert.Empty(explicitInfo.Error);
-            Assert.Empty(fixedOverview.Error);
             Assert.DoesNotContain("| Signed |", implicitInfo.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("| Signed |", explicitInfo.Output, StringComparison.Ordinal);
-            Assert.DoesNotContain("| Signed |", fixedOverview.Output, StringComparison.Ordinal);
             Assert.Contains("Version: 1.0.0", implicitInfo.Output, StringComparison.Ordinal);
             Assert.Contains("| Version | 1.0.0 |", explicitInfo.Output, StringComparison.Ordinal);
-            Assert.Contains("Version: 1.0.0", fixedOverview.Output, StringComparison.Ordinal);
         }
         finally
         {
@@ -3061,6 +3049,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
+                PackageFixedOverviewSelection,
                 "--count",
                 "--fields",
                 "Bogus");
@@ -3068,6 +3057,7 @@ public partial class CommandExecutionTests
                 "package",
                 firstPackage,
                 "-S",
+                PackageFixedOverviewSelection,
                 "--count",
                 "--columns",
                 "Field");
@@ -3075,6 +3065,7 @@ public partial class CommandExecutionTests
                 "package",
                 firstPackage,
                 "-S",
+                PackageFixedOverviewSelection,
                 "--columns",
                 "Field");
             var selectedCount = await RunAppAsync(
@@ -3177,6 +3168,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
+                PackageFixedOverviewSelection,
                 "--count",
                 "--columns",
                 "Package");
@@ -3185,6 +3177,7 @@ public partial class CommandExecutionTests
                 firstPackage,
                 secondPackage,
                 "-S",
+                PackageFixedOverviewSelection,
                 "--count",
                 "--columns",
                 "Value");
@@ -3468,6 +3461,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 packagePath,
                 "-S",
+                PackageFixedOverviewSelection,
                 "--tsv",
                 "--count");
 
@@ -3889,7 +3883,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_FixedOverviewCountPopulatesSections()
+    public async Task Package_MultiplePackages_SelectedCountPopulatesSections()
     {
         var (firstPackagePath, firstTempDir) =
             CreateLocalReadmePackage(
@@ -3908,6 +3902,7 @@ public partial class CommandExecutionTests
                 firstPackagePath,
                 secondPackagePath,
                 "-S",
+                "Package nuspec file;Signature",
                 "--count",
                 "--json");
 
