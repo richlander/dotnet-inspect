@@ -277,8 +277,8 @@ affiliation, and producer descriptors do not enter it.
 
 ## Semantic binding
 
-The current `InspectionGraphDocument` combines graph structure with product
-vocabulary in one file. Extraction separates two construction stages:
+`InspectionGraphDocument` composes product vocabulary and request semantics
+around the neutral carrier. Construction has two stages:
 
 ```text
 producer evidence
@@ -323,6 +323,14 @@ The exact CLR name is not frozen. The binding contains one carrier; it does not
 copy its collections or maintain a second set of local ids. Product requests
 continue to be available to CLI and Browser consumers without becoming
 `Inspector.Graph` dependencies.
+
+The current implementation exposes that carrier as
+`InspectionGraphDocument.Structure`. Its collection properties forward the
+carrier's exact immutable snapshots; Queries no longer declares parallel node,
+group, edge, occurrence, target, seed, derivation, scope, limit, failure, or
+characteristic container types. The
+`CallAdapter_BindsOneGraphCarrierAndPreservesTypedTopology` Release test is the
+non-vacuity gate for this composition.
 
 This product result is durable composition, not a compatibility wrapper. A
 temporary old-to-new conversion may exist only inside an independently
@@ -543,7 +551,8 @@ This boundary does not:
 - change CLI grammar, defaults, output, rendering, or Browser interaction;
 - introduce a permanent compatibility wrapper or parallel carrier;
 - create a Graph-to-QuerySpace project reference; or
-- include Diff, Source Delegation, QueryOverflow, or naming-audit work.
+- include Diff, Source Delegation, resumable QuerySpace execution, or
+  naming-audit work.
 
 ## Immediate successors
 

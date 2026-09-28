@@ -74,13 +74,13 @@ public sealed class BrowserPackageQueryOperationsTests
     public void CapabilitySearchExport_ReturnsTheSharedInspectionEnvelope()
     {
         string json = PackageExports.SearchCapabilities(
-            "litteral",
+            "https://",
             maximumResults: 1);
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement content =
             document.RootElement.GetProperty("content");
-        Assert.Equal("litteral", content.GetProperty("query").GetString());
+        Assert.Equal("https://", content.GetProperty("query").GetString());
         Assert.Equal(
             1,
             content.GetProperty("returnedCount").GetInt32());
@@ -90,7 +90,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 .GetProperty("resourcePath")
                 .GetString());
         Assert.Equal(
-            "CanonicalKey",
+            "ExampleValue",
             content.GetProperty("results")[0]
                 .GetProperty("matchSource")
                 .GetString());

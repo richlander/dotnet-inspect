@@ -20,4 +20,8 @@
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -6,57 +6,6 @@ namespace ILInspector.Analysis;
 
 internal static class ArrayEscapeAnalysis
 {
-    // Promote an array only when reaching definitions show local element/length use.
-    internal static bool ArrayProvablyStaysLocal(
-        MethodBodyAnalysisContext context,
-        ReachingDefinitionsResult reachingDefinitions,
-        int positionAfterNewarr)
-    {
-        try
-        {
-            if (!TryReadStoreLocalDefinition(
-                    context,
-                    positionAfterNewarr,
-                    out int slot,
-                    out int storeOffset)
-                || !reachingDefinitions.IsComplete)
-            {
-                return false;
-            }
-
-            var definition = reachingDefinitions.Definitions.FirstOrDefault(candidate =>
-                !candidate.IsArgument
-                && candidate.Slot == slot
-                && candidate.Offset == storeOffset);
-            if (definition is null)
-                return false;
-
-            foreach (var use in reachingDefinitions.UsesOf(definition))
-            {
-                if (use.Address
-                    || !TryPositionAfterLoadLocal(
-                        context,
-                        use.Offset,
-                        slot,
-                        out int positionAfterLoad)
-                    || ArrayLoadEscapes(context, positionAfterLoad))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-        catch (Exception ex) when (
-            ex is BadImageFormatException
-                or InvalidOperationException
-                or ArgumentException
-                or OverflowException)
-        {
-            return false;
-        }
-    }
-
     // Keep the copy row only when the materialized array is consumed locally.
     internal static bool SpanToArrayResultEscapes(
         MethodBodyAnalysisContext context,

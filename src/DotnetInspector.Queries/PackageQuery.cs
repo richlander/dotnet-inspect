@@ -1073,7 +1073,7 @@ public static partial class PackageQuery
             PackageQueryExecutionClass.MetadataExpensive,
             EqualityOperator,
             "decoded UTF-16 text",
-            "Microsoft.Extensions.",
+            "https://",
             PackageQueryTermRole.Inspection,
             PackageQueryTermControlKind.MultilineInput),
         new(

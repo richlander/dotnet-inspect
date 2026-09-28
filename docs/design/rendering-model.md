@@ -244,4 +244,4 @@ adopts the same native-payload default for its separate bodyless metadata view.
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
-| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `-S "Finding Transitions"`, `--table`, `--tsv`, `--name-only` |
+| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `--analysis`, `-S Transitions`, `--table`, `--tsv`, `--name-only` |

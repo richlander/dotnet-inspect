@@ -14,7 +14,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformHouse\DotnetInspector.PlatformHouse.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformHouse.Execution\DotnetInspector.PlatformHouse.Execution.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />

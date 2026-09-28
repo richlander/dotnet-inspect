@@ -1015,8 +1015,11 @@ public sealed class SectionPipeline<TModel>
             _ => entry.Cost != SectionCost.Unbounded, // Detailed: all sizes, bounded cost
         };
 
+    // A "Summary" entry is the headless context preamble unless its
+    // descriptor declares an explicit-only view (Diff's analysis-set Summary).
     private static bool IsHeadlessSummary(SectionEntry<TModel> entry)
-        => string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);
+        => string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase)
+            && !entry.ExplicitOnly;
 
     private bool HasBaseCategoryScope
         => _categories.Any(category => category.Role == SectionCategoryRole.Base);
@@ -1038,7 +1041,7 @@ public sealed class SectionPipeline<TModel>
     }
 
     private static bool IsSelectable(SectionEntry<TModel> entry)
-        => !string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);
+        => !IsHeadlessSummary(entry);
 
     /// <summary>
     /// Returns the names of requested sections (selection only — independent of <c>CanRender</c>)

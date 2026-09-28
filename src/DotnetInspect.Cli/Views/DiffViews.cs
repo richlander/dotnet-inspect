@@ -100,7 +100,8 @@ public class DiffDocumentView(
     InertString? complexityContextNoteText,
     InertString? structuralContextSummaryText,
     InertString? structuralContextNoteText,
-    InertString? findingTransitionsSummaryText,
+    InertString? analysisSummaryText,
+    InertString? transitionsSummaryText,
     InertString? inspectionFailuresSummaryText)
 {
     [MarkoutIgnore, JsonIgnore] public InertString TitleText { get; } = titleText;
@@ -114,7 +115,8 @@ public class DiffDocumentView(
     [MarkoutIgnore, JsonIgnore] public InertString? ComplexityContextNoteText { get; } = complexityContextNoteText;
     [MarkoutIgnore, JsonIgnore] public InertString? StructuralContextSummaryText { get; } = structuralContextSummaryText;
     [MarkoutIgnore, JsonIgnore] public InertString? StructuralContextNoteText { get; } = structuralContextNoteText;
-    [MarkoutIgnore, JsonIgnore] public InertString? FindingTransitionsSummaryText { get; } = findingTransitionsSummaryText;
+    [MarkoutIgnore, JsonIgnore] public InertString? AnalysisSummaryText { get; } = analysisSummaryText;
+    [MarkoutIgnore, JsonIgnore] public InertString? TransitionsSummaryText { get; } = transitionsSummaryText;
     [MarkoutIgnore, JsonIgnore] public InertString? InspectionFailuresSummaryText { get; } = inspectionFailuresSummaryText;
 
     [MarkoutIgnore] public string Title => TitleText.ToString();
@@ -128,7 +130,8 @@ public class DiffDocumentView(
     [MarkoutSkipNull] public string? ComplexityContextNote => ComplexityContextNoteText?.ToString();
     [MarkoutSkipNull] public string? StructuralContextSummary => StructuralContextSummaryText?.ToString();
     [MarkoutSkipNull] public string? StructuralContextNote => StructuralContextNoteText?.ToString();
-    [MarkoutSkipNull] public string? FindingTransitionsSummary => FindingTransitionsSummaryText?.ToString();
+    [MarkoutSkipNull] public string? AnalysisSummary => AnalysisSummaryText?.ToString();
+    [MarkoutSkipNull] public string? TransitionsSummary => TransitionsSummaryText?.ToString();
     [MarkoutSkipNull] public string? InspectionFailuresSummary => InspectionFailuresSummaryText?.ToString();
 
     [MarkoutSection(Name = "Changes")]
@@ -146,8 +149,11 @@ public class DiffDocumentView(
     [MarkoutSection(Name = "Structural Context")]
     public List<StructuralContextRow>? StructuralContext { get; set; }
 
-    [MarkoutSection(Name = "Finding Transitions")]
-    public List<FindingTransitionRow>? FindingTransitions { get; set; }
+    [MarkoutSection(Name = "Summary")]
+    public List<DiffAnalysisSummaryRow>? Summary { get; set; }
+
+    [MarkoutSection(Name = "Transitions")]
+    public List<FindingTransitionRow>? Transitions { get; set; }
 
     [MarkoutSection(Name = "Inspection Failures")]
     public List<DiffInspectionFailureRow>? InspectionFailures { get; set; }
@@ -156,7 +162,7 @@ public class DiffDocumentView(
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     FieldLayout = FieldLayout.Table)]
-public class FindingTransitionsView(
+public class TransitionsView(
     InertString titleText,
     InertString versionsText)
 {
@@ -166,8 +172,101 @@ public class FindingTransitionsView(
     public string Versions => VersionsText.ToString();
     public Callout Status { get; set; }
 
-    [MarkoutSection(Name = "Finding Transitions")]
+    [MarkoutSection(Name = "Transitions")]
     public List<FindingTransitionRow>? Rows { get; set; }
+}
+
+/// <summary>The Diff analysis-set Summary view: one row per selected analysis.</summary>
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class DiffAnalysisSummaryView(
+    InertString titleText,
+    InertString versionsText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString TitleText { get; } = titleText;
+    [MarkoutIgnore, JsonIgnore] public InertString VersionsText { get; } = versionsText;
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    public string Versions => VersionsText.ToString();
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Summary")]
+    public List<DiffAnalysisSummaryRow>? Rows { get; set; }
+}
+
+/// <summary>
+/// Diff's Compare-participating analyses, read from the same registration
+/// that dispatch uses.
+/// </summary>
+[MarkoutSerializable(FieldLayout = FieldLayout.Table)]
+public class DiffAnalysisDiscoveryView
+{
+    [MarkoutSection(Name = "Analyses")]
+    public List<DiffAnalysisDiscoveryRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record DiffAnalysisDiscoveryRow(
+    [property: MarkoutIgnore, JsonIgnore] InertString AnalysisText,
+    [property: MarkoutIgnore, JsonIgnore] InertString DefaultText,
+    [property: MarkoutIgnore, JsonIgnore] InertString SurfacesText,
+    [property: MarkoutIgnore, JsonIgnore] InertString FindingsText)
+{
+    public DiffAnalysisDiscoveryRow(
+        string analysis,
+        string @default,
+        string surfaces,
+        string findings)
+        : this(
+            DiffViewText.Field(analysis),
+            DiffViewText.Field(@default),
+            DiffViewText.Field(surfaces),
+            DiffViewText.Field(findings))
+    {
+    }
+
+    public string Analysis => AnalysisText.ToString();
+    public string Default => DefaultText.ToString();
+    public string Surfaces => SurfacesText.ToString();
+    public string Findings => FindingsText.ToString();
+}
+
+[MarkoutSerializable]
+public record DiffAnalysisSummaryRow(
+    [property: MarkoutIgnore, JsonIgnore] InertString AnalysisText,
+    [property: MarkoutIgnore, JsonIgnore] InertString OutcomeText,
+    [property: MarkoutIgnore, JsonIgnore] int AddedCount,
+    [property: MarkoutIgnore, JsonIgnore] int RemovedCount,
+    [property: MarkoutIgnore, JsonIgnore] int ChangedCount,
+    [property: MarkoutIgnore, JsonIgnore] int PresentCount,
+    [property: MarkoutIgnore, JsonIgnore] InertString? DetailText)
+{
+    public DiffAnalysisSummaryRow(
+        string analysis,
+        string outcome,
+        int added,
+        int removed,
+        int changed,
+        int present,
+        string? detail)
+        : this(
+            DiffViewText.Field(analysis),
+            DiffViewText.Field(outcome),
+            added,
+            removed,
+            changed,
+            present,
+            detail is null ? null : DiffViewText.Field(detail))
+    {
+    }
+
+    public string Analysis => AnalysisText.ToString();
+    public string Outcome => OutcomeText.ToString();
+    public int Added => AddedCount;
+    public int Removed => RemovedCount;
+    public int Changed => ChangedCount;
+    public int Present => PresentCount;
+    [MarkoutSkipNull] public string? Detail => DetailText?.ToString();
 }
 
 [MarkoutSerializable]
@@ -589,7 +688,11 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffDetailedChangesView))]
 [MarkoutContext(typeof(DiffDetailedChangeRow))]
 [MarkoutContext(typeof(DiffDocumentView))]
-[MarkoutContext(typeof(FindingTransitionsView))]
+[MarkoutContext(typeof(TransitionsView))]
+[MarkoutContext(typeof(DiffAnalysisDiscoveryView))]
+[MarkoutContext(typeof(DiffAnalysisDiscoveryRow))]
+[MarkoutContext(typeof(DiffAnalysisSummaryView))]
+[MarkoutContext(typeof(DiffAnalysisSummaryRow))]
 [MarkoutContext(typeof(FindingTransitionRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]

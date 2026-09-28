@@ -775,30 +775,35 @@ public sealed partial class BrowserEngineBoundaryTests
             [
                 .. graph.Limits,
                 new InspectionGraphLimit(
-                    CallGraphInspectionGraphCatalog
-                        .TraversalNodeBound,
-                    InspectionGraphTarget.Node(0),
-                    new CallGraphTraversalNodeBoundEvidence(50)),
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .TraversalNodeBound,
+                        new CallGraphTraversalNodeBoundEvidence(50)),
+                    InspectionGraphTarget.Node(0)),
                 new InspectionGraphLimit(
-                    InspectionGraphNeighborhoodCatalog.DepthBound,
-                    InspectionGraphTarget.Node(0),
-                    new InspectionGraphNeighborhoodDepthBoundEvidence(3)),
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphNeighborhoodCatalog.DepthBound,
+                        new InspectionGraphNeighborhoodDepthBoundEvidence(3)),
+                    InspectionGraphTarget.Node(0)),
                 new InspectionGraphLimit(
-                    CallGraphInspectionGraphCatalog
-                        .CorrespondenceIncomplete,
-                    InspectionGraphTarget.Node(0),
-                    new CallGraphCorrespondenceIncompleteEvidence(
-                        incompleteNodeCount: 2,
-                        incompleteEdgeCount: 3,
-                        bindingIdentityConflictCount: 4)),
+                    new InspectionGraphLimitPayload(
+                        CallGraphInspectionGraphCatalog
+                            .CorrespondenceIncomplete,
+                        new CallGraphCorrespondenceIncompleteEvidence(
+                            incompleteNodeCount: 2,
+                            incompleteEdgeCount: 3,
+                            bindingIdentityConflictCount: 4)),
+                    InspectionGraphTarget.Node(0)),
                 new InspectionGraphLimit(
-                    InspectionGraphFocusCatalog
-                        .ScopeClassificationIncomplete,
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphFocusCatalog
+                            .ScopeClassificationIncomplete),
                     InspectionGraphTarget.Edge(
                         unclassifiedBoundaryEdgeId)),
                 new InspectionGraphLimit(
-                    InspectionGraphFocusCatalog
-                        .ScopeClassificationIncomplete,
+                    new InspectionGraphLimitPayload(
+                        InspectionGraphFocusCatalog
+                            .ScopeClassificationIncomplete),
                     InspectionGraphTarget.Edge(
                         unclassifiedUnknownEdgeId)),
             ],
@@ -832,9 +837,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 InspectionGraphTarget edgeTarget =
                     InspectionGraphTarget.Edge(edge.Id);
                 return new InspectionGraphCharacteristic(
-                    InspectionGraphFocusCatalog.Role,
                     edgeTarget,
-                    new InspectionGraphValue.TokenSet([role]),
+                    new InspectionGraphCharacteristicPayload(
+                        InspectionGraphFocusCatalog.Role,
+                        new InspectionGraphValue.TokenSet([role])),
                     new InspectionGraphCharacteristicDerivation(
                         InspectionGraphCharacteristicDerivationKind
                             .Derived,
@@ -860,20 +866,20 @@ public sealed partial class BrowserEngineBoundaryTests
             node =>
                 node.Subject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.CallGraph
-                            {
-                                Member.Name: "AddOptions",
-                            },
-                    }).Id;
+                    {
+                        Member.Name: "AddOptions",
+                    },
+                }).Id;
         int boundaryNodeId = Assert.Single(
             graph.Nodes,
             node =>
                 node.Subject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.CallGraph
                             {
                                 Member.Name: "Get",
