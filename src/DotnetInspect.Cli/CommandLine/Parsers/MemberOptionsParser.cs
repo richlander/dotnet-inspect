@@ -730,8 +730,7 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+            TipLevel = opts.ParseTipLevel(parseResult)
         };
 
         ResolvedMemberInspectionPlan plan =
