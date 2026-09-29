@@ -131,14 +131,14 @@ public static class PlatformCompiledDocumentationQuery
         IReadOnlyDictionary<string, DocumentationSubjectReference> subjects =
             requireAllSubjects
                 ? CompiledDocumentationSubjectResolver.Resolve(
-                    materialized.Value.Reference,
+                    materialized.Value.Library,
                     materialized.Owner,
                     requestedIds,
                     limits.ApiSurfaceScope,
                     limits.ApiSurface,
                     cancellationToken)
                 : CompiledDocumentationSubjectResolver.ResolveAvailable(
-                    materialized.Value.Reference,
+                    materialized.Value.Library,
                     materialized.Owner,
                     requestedIds,
                     limits.ApiSurfaceScope,
@@ -203,7 +203,7 @@ public static class PlatformCompiledDocumentationQuery
     private static LibraryOperationLease IssueOperation(
         PlatformLibraryRealizationResult.Completed materialized) =>
         materialized.Owner.IssueOperationLease(
-            materialized.Value.Reference) switch
+            materialized.Value.Library) switch
         {
             LibraryOperationLeaseIssueOutcome.Issued issued =>
                 issued.Lease,

@@ -65,13 +65,13 @@ This owner composes existing contracts by their issued currencies:
   body-traversal breadth pushdown and cooperative Browser execution.
 
 This design transfers one claim to Queries: a **Type heat query** that, for one
-participant and one Type definition ID, analyzes every eligible overload
-family on that Type in a single Analysis execution and issues the compact
-**Type heat record** defined below. The family query and its result are
-unchanged. The Analysis facade lowers the completed host-neutral envelope to an
-assembly-local generated wire contract. The Browser joins only owner-issued
-method tokens, module identities, Type definition IDs, stable Member
-selectors, and exact Library coordinates.
+participant and one visible Type definition ID, analyzes every eligible
+ordinary or attached-extension overload family in a single Analysis execution
+and issues the compact **Type heat record** defined below. The family query and
+its result are unchanged. The Analysis facade lowers the completed host-neutral
+envelope to an assembly-local generated wire contract. The Browser joins only
+owner-issued method tokens, module identities, Type definition IDs, stable
+Member selectors, and exact Library coordinates.
 
 ## Supported scope
 
@@ -80,19 +80,27 @@ implementation asset or platform implementation assembly. Uploaded standalone
 Libraries are outside this slice because they do not yet participate in the
 same retained Browser workspace and Analysis facade path.
 
-An **eligible family** is a public API group on the Type with at least two
-public overloads, every one of member kind `method`. A group that contains any
-extension method the API surface attaches to the Type, alone or mixed with
-ordinary methods, is not eligible: the attached members' declaring static class
-can also declare same-name extensions for other receivers, and whether those
-belong in the family is undecided. That decision precedes their eligibility.
-The Type heat query and the Browser apply this same predicate.
+An **eligible family** is a public API group on the visible Type with at least
+two public overloads and one of these shapes:
+
+- every overload is an ordinary `method` declared on the visible Type; or
+- every overload is an `extension-method` attached to the visible Type, and
+  every overload carries the same exact declaring-Type identity.
+
+A group that mixes ordinary and extension methods, or extension methods from
+multiple declaring Types, is not eligible. The Type heat query and the Browser
+apply this same predicate: the visible Type and every roster member belong to
+the `public` accessibility bucket. For an attached extension family, the
+visible Type defines the public roster and the exact declaring Type defines the
+analyzed same-name family. Same-name methods for other receivers may therefore
+contribute the family maximum and relationships without becoming visible rows,
+just as non-public same-name methods do for an ordinary family.
 
 For each eligible family, two sets are distinct:
 
 - the **public roster** is the listed overloads; only these are rows; and
-- the **analyzed family** is every same-name method declared on the Type,
-  regardless of accessibility.
+- the **analyzed family** is every same-name method declared on the family's
+  exact declaring Type, regardless of accessibility.
 
 Heat and hub derivation read only the analyzed family. Methods outside the
 public roster, whether non-public or public but hidden by the API surface, are
@@ -128,9 +136,9 @@ they are reading, and one request per Type replaces a request per family.
 
 Selecting a concrete overload issues no implementation request; the Member
 detail restates its heat description from the Type heat record. Opening the
-detail's implementation-evidence disclosure requests that overload's family
-detail through the unchanged family query, so a walk that never asks for raw
-metrics pays one Analysis execution per Type.
+detail's implementation-evidence disclosure requests that visible ordinary or
+attached-extension roster through the unchanged family query, so a walk that
+never asks for raw metrics pays one Analysis execution per Type.
 
 The engine Worker is single-threaded. Heat analysis is synchronous managed CPU
 work in the same ordinary Worker as interactive requests such as Member
@@ -160,21 +168,22 @@ One Type heat request names one exact implementation participant and Type:
   the exact selected implementation Library asset identity;
 - a platform request uses framework, platform version, platform pack, and
   assembly file name; and
-- both routes carry one metadata Type definition ID. The query derives the
-  eligible families and their analyzed families from the participant's public
-  API surface and metadata.
+- both routes carry one visible metadata Type definition ID. The query derives
+  eligible rosters from that Type's public API surface and derives each
+  analyzed family from the roster's exact declaring-Type metadata.
 
-Unknown, ambiguous, or non-public Type selection fails visibly and never
-widens to whole-Library analysis. A Type with no eligible family completes as
-an available record with no families.
+Unknown, ambiguous, or non-public visible-Type selection fails visibly and
+never widens to whole-Library analysis. An attached family without one exact
+declaring Type is ineligible rather than guessed from display text. A Type with
+no eligible family completes as an available record with no families.
 
 ## Type heat record
 
 The Type heat query issues, inside the completed `InspectionEnvelope`, one
 record per eligible family. Each family record carries:
 
-- the family's public Member anchors in roster order: Type definition ID,
-  stable selector, and the owner-issued logical method token;
+- the family's public Member anchors in visible-roster order: visible Type
+  definition ID, stable selector, and the owner-issued logical method token;
 - for each analyzed method: metadata token, whether it is a roster member,
   whether it was declared with a body, its size, whether its measurement,
   including every body counted in that size, is complete, and, for a complete
@@ -197,6 +206,9 @@ normalize repeated identities, but it preserves these exact join currencies:
 
 - method identity: module version ID plus metadata token;
 - public Member identity: Type definition ID plus stable selector;
+- attached-extension declaration identity: the exact metadata declaring-Type
+  definition ID, separate from the visible receiver Type carried by the Member
+  anchor;
 - overload relationships: caller and callee method identity, and, for the
   family detail result, evidence-body identity, IL offset, and call kind; and
 - subject identity: assembly name, version, culture, and public-key token.
@@ -241,8 +253,9 @@ waiter; it does not convert a valid shared result into cancellation.
 
 ## Family projection
 
-The Browser joins the Type heat record to the member list by Type definition
-ID and stable selector; it never matches by rendered signature text.
+The Browser joins the Type heat record to the visible member list by Type
+definition ID and stable selector; it never matches by rendered signature text
+or reconstructs an extension's declaring Type from display text.
 
 Each analyzed method has one **size**: the sum of the instruction counts of its
 own logical body and every generated body attributed to it, such as an async or
@@ -397,6 +410,8 @@ Subjects:
   - `JsonDocument.Parse`: 5 public overloads measuring 55, 44, 33, 9, and 8
     instructions; the non-public `Parse(ReadOnlySpan<byte>, JsonReaderOptions,
     ref MetadataDb, ref StackRowStack)` measures 288; neither channel shows;
+  - `JsonDocument.Deserialize`: 5 attached extension overloads declared by
+    `JsonSerializer`, measuring 17, 21, 19, 19, and 24 instructions; and
   - `Utf8JsonWriter.WriteString`: 28 public overloads, largest body 17
     instructions, 8 hubs; and
   - `JsonSerializer.Serialize`: all-forwarder overloads with a largest body of
@@ -434,13 +449,16 @@ boundaries.
 The following gates enforce this design:
 
 1. Type heat query tests prove, on real assets, that `JsonDocument.Parse`
-   records its non-public implementation as the family maximum; that Dapper
-   `SqlMapper.QueryAsync` sizes its private async implementation as stub plus
-   state machine; that trivial flags follow every counted body; that
-   `Utf8JsonWriter.WriteString` records the same-name relationships from which
-   the Browser derives its 8 hubs; that ineligible, attached-extension, and
-   mixed groups are absent; and that one Analysis execution serves every family
-   on the Type. The family query and CLI `Member Metrics` gates pass unchanged.
+   records its non-public implementation as the family maximum; that
+   `JsonDocument.Deserialize` profiles its attached `JsonSerializer`
+   extension roster; that Dapper `SqlMapper.QueryAsync` sizes its private async
+   implementation as stub plus state machine; that trivial flags follow every
+   counted body; that `Utf8JsonWriter.WriteString` records the same-name
+   relationships from which the Browser derives its 8 hubs; that mixed and
+   multi-declarer groups remain absent; that CoreLib's private
+   `System.Type.TryMakeArrayType` extensions remain outside Browser eligibility;
+   and that one Analysis execution serves every family on the Type. The family
+   query and CLI `Member Metrics` gates pass unchanged.
 2. Analysis-facade projection tests compare Type heat and family detail wire
    results with their completed host-neutral envelopes, including outcome,
    identities, sizes, relationships, coverage, Share, and ordered diagnostics.

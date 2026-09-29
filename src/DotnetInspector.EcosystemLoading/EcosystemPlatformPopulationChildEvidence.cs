@@ -43,7 +43,8 @@ public static class EcosystemPlatformPopulationChildProjection
         ArgumentNullException.ThrowIfNull(artifacts);
         ValidateChildAssociation(request, childRequest, childReceipt);
         if (population.Value.Members
-            .SelectMany(static member => member.Library.Contents)
+            .SelectMany(
+                static member => member.PlatformLibrary.Library.Contents)
             .Any(
                 content => !ReferenceEquals(
                     content.ArtifactReference.Generation,

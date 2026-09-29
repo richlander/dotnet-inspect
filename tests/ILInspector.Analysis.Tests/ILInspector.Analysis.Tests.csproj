@@ -44,6 +44,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Metadata.LegacyOracles\ILInspector.Metadata.LegacyOracles.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AllocationLifetimeFixtures\ILInspector.Analysis.AllocationLifetimeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.BodyUseFixtures\ILInspector.Analysis.BodyUseFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.BodyUseVbFixtures\ILInspector.Analysis.BodyUseVbFixtures.vbproj" />

@@ -784,14 +784,15 @@ public static partial class ApiSurfaceExtractor
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         return ExtractBoundedCore(
             peReader, scope, bounds,
-            typesOnly: false, includeCompilerGenerated: false,
+            typesOnly: false, includeCompilerGenerated,
             source, catalog, bindingPolicy);
     }
 
@@ -1600,7 +1601,7 @@ public static partial class ApiSurfaceExtractor
                             observeDecodeWork),
                     MemorySafety = ApiMemorySafetyFacts.Read(
                         reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
-                    Accessibility = GetAccessibility(effectiveAccess),
+                    Accessibility = GetPopulationAccessibility(effectiveAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     ObsoleteIsError = obsoleteIsError,
@@ -1836,7 +1837,7 @@ public static partial class ApiSurfaceExtractor
                         reader, moduleVersionId,
                         [accessors.Getter, accessors.Setter, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(propHandle)],
-                    Accessibility = GetAccessibility(bestAccess),
+                    Accessibility = GetPopulationAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     ObsoleteIsError = obsoleteIsError,
@@ -2326,7 +2327,7 @@ public static partial class ApiSurfaceExtractor
                     IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverrideEvent,
                     IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
-                    Accessibility = GetAccessibility(eventAccess),
+                    Accessibility = GetPopulationAccessibility(eventAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     ObsoleteIsError = obsoleteIsError,

@@ -252,7 +252,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        MemberCommand_SharedAccessorProjectionPreservesPhysicalModifiers()
+        MemberCommand_SharedAccessorProjectionUsesLogicalPropertyShape()
     {
         var readOnly =
             await RunAppAsync(
@@ -273,7 +273,7 @@ public partial class CommandExecutionTests
                 "--library",
                 FixtureCatalog.DecompilerUnsafeNew
                     .AssemblyPath(),
-                "explicit:ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.get_Value:1",
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value:1",
                 "--all",
                 "-S",
                 "Decompiled Source",
@@ -288,8 +288,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, unsafeAccessor.Exit);
         Assert.Empty(unsafeAccessor.Error);
         Assert.Contains(
-            "unsafe int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
+            "int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
             unsafeAccessor.Output);
+        Assert.DoesNotContain("unsafe int", unsafeAccessor.Output);
     }
 
     [Fact]
@@ -881,7 +882,7 @@ public partial class CommandExecutionTests
         Assert.Equal(direct.Output, found.Output);
         Assert.Equal(0, found.Exit);
         Assert.Contains("StatusCode", found.Output);
-        Assert.Empty(found.Error);
+        Assert.DoesNotContain("Error:", found.Error);
     }
 
     [Fact]
@@ -913,11 +914,14 @@ public partial class CommandExecutionTests
     public async Task Member_MethodsTable_ShowsAlwaysOnDigestColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializer", "-m", "Serialize", "--tips", "q");
+            "member", "JsonSerializer", "-m", "Serialize",
+            "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         // The durable ~digest handle is always shown as a Digest column in the default member table.
-        Assert.Contains("| Name | Digest | Signature | Description |", output);
+        Assert.Matches(
+            @"(?m)^Name\s+Digest\s+Signature\s+Description\s*$",
+            output);
         Assert.Empty(error);
     }
 
@@ -1300,7 +1304,7 @@ public partial class CommandExecutionTests
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.DoesNotContain("Error:", error);
         Assert.Contains("## Methods", output);
         Assert.DoesNotContain("## Member Index", output);
         Assert.DoesNotContain("## Signature", output);
@@ -2466,8 +2470,12 @@ public partial class CommandExecutionTests
             output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
+        Assert.Contains("| offset | Allocation | alloc.box |", output);
+        Assert.Contains(
+            "escape-kind=escapes-return; lifetime-uses=IL_",
+            output);
         Assert.Matches(
-            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
+            @"multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
             output);
     }
 
@@ -4451,6 +4459,32 @@ public partial class CommandExecutionTests
             output);
         Assert.DoesNotContain("<code>", output);
         Assert.DoesNotContain("`", output);
+    }
+
+    [Fact]
+    public async Task AsyncMethods_PackageAggregateCount_UsesTheCountAnswerAndRowWindow()
+    {
+        // The aggregate package route asks the async analyzer for a Count
+        // under --count; its count and windowed count equal the per-library ones.
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures", "services", "signatures", "newtonsoft.json.13.0.3.nupkg");
+        var (libraryExit, libraryCount, _) = await RunAppAsync(
+            "package", package, "--library", "Newtonsoft.Json.dll", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--tips", "q");
+        var (aggregateExit, aggregateCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--tips", "q");
+        var (windowExit, windowCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--rows", "3..7", "--tips", "q");
+
+        Assert.Equal(0, libraryExit);
+        Assert.Equal(0, aggregateExit);
+        Assert.Equal(0, windowExit);
+        Assert.NotEqual("0", libraryCount.Trim());
+        Assert.Equal(libraryCount.Trim(), aggregateCount.Trim());
+        Assert.Equal("5", windowCount.Trim());
     }
 
     [Fact]

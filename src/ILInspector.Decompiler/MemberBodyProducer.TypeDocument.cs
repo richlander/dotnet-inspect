@@ -51,6 +51,7 @@ public static partial class MemberBodyProducer
                 "Complete same-reader API extraction did not retain the selected Type.",
                 tracker.Attempted);
         }
+        MergeResolutionAwareDeclarations(type, requestedType);
 
         MetadataReader reader = source.Reader;
         TypeDefinition definition = reader.GetTypeDefinition(typeHandle);
@@ -499,6 +500,36 @@ public static partial class MemberBodyProducer
         return failures.Length == 0
             ? new CSharpTypeDocumentOutcome.Available(document)
             : new CSharpTypeDocumentOutcome.Incomplete(document, failures);
+    }
+
+    static void MergeResolutionAwareDeclarations(
+        ApiType completeType,
+        ApiType requestedType)
+    {
+        var resolvedByIdentity =
+            new Dictionary<(int Token, string Kind), ApiMember>();
+        foreach (ApiMember member in requestedType.Members)
+        {
+            if (DeclarationToken(member) is { } token
+                && member.SignatureModel is not null)
+            {
+                resolvedByIdentity.TryAdd(
+                    (token, member.Kind),
+                    member);
+            }
+        }
+
+        for (int index = 0; index < completeType.Members.Count; index++)
+        {
+            ApiMember member = completeType.Members[index];
+            if (DeclarationToken(member) is { } token
+                && resolvedByIdentity.TryGetValue(
+                    (token, member.Kind),
+                    out ApiMember? resolved))
+            {
+                completeType.Members[index] = resolved;
+            }
+        }
     }
 
     static List<ApiMember> SelectLogicalMembers(

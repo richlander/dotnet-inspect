@@ -109,20 +109,35 @@ public sealed class AssemblyContextTypeImplementationHeatQueryTests
     }
 
     [Fact]
-    public async Task ExecuteParticipant_ExcludesAttachedAndMixedExtensionGroups()
+    public async Task ExecuteParticipant_IncludesAttachedAndExcludesMixedExtensionGroups()
     {
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, FixturePath());
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
 
+        string typeId =
+            TypeId(group, participant, "ImplementationHeatWidget");
         AssemblyTypeImplementationHeatInspection result = Available(
             group,
             participant,
-            TypeId(group, participant, "ImplementationHeatWidget"));
+            typeId);
 
-        ImplementationHeatFamily scale = Assert.Single(result.Families);
-        Assert.Equal("Scale", scale.Member);
+        Assert.Equal(
+            ["Scale", "Spin"],
+            result.Families.Select(family => family.Member).Order());
+        Assert.DoesNotContain(
+            result.Families,
+            family => family.Member is "Run" or "Shift");
+
+        ImplementationHeatFamily spin = Assert.Single(
+            result.Families,
+            family => family.Member == "Spin");
+        Assert.Equal(2, spin.Roster.Length);
+        Assert.All(spin.Methods, method => Assert.True(method.IsRosterMember));
+        Assert.All(
+            spin.Roster,
+            member => Assert.Equal(typeId, member.TypeDefinitionId));
     }
 
     [Fact]
@@ -228,6 +243,29 @@ public sealed class AssemblyContextTypeImplementationHeatQueryTests
             parse.Methods.Where(method => method.IsRosterMember),
             method => Assert.True(method.Size * 2 < largest.Size));
         Assert.Empty(Hubs(parse));
+
+        ImplementationHeatFamily deserialize = Assert.Single(
+            document.Families,
+            family => family.Member == "Deserialize");
+        Assert.Equal(5, deserialize.Roster.Length);
+        Assert.All(
+            deserialize.Roster,
+            member => Assert.Equal(
+                document.TypeDefinitionId,
+                member.TypeDefinitionId));
+        Assert.All(
+            deserialize.Roster,
+            member => Assert.StartsWith(
+                "extension:Deserialize~",
+                member.StableSelector,
+                StringComparison.Ordinal));
+        Assert.Equal(
+            [17, 21, 19, 19, 24],
+            deserialize.Roster.Select(member =>
+                Assert.Single(
+                    deserialize.Methods,
+                    method => method.MetadataToken == member.MetadataToken)
+                .Size));
 
         AssemblyTypeImplementationHeatInspection writer = Available(
             group,
