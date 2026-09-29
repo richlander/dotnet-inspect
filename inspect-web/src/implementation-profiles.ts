@@ -230,18 +230,6 @@ export interface ImplementationProfileCoordinator {
   deactivate(): boolean;
 }
 
-export interface ImplementationProfileBindingActions {
-  readonly onRetry: () => void;
-}
-
-export function bindImplementationProfileState(
-  root: ParentNode,
-  actions: ImplementationProfileBindingActions,
-): void {
-  root.querySelector("[data-implementation-profile-retry]")
-    ?.addEventListener("click", actions.onRetry);
-}
-
 interface ImplementationProfileOperationInput {
   readonly request: ImplementationProfileFamilyRequest;
   readonly selection: ImplementationProfileFamilySelection;

@@ -201,7 +201,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+observeAsync\(\s*restoreHistoryWorkspace\(\)/);
   assert.match(
     appSource,
-    /for \(const packageModel of discarded\)\s+releasePackageModelCaches\(packageModel\);/);
+    /for \(const packageModel of discarded\) \{\s*packageModel\.platformContextId = null;\s*releasePackageModelCaches\(packageModel\);\s*\}/);
   assert.match(
     appSource,
     /type: type\.queryId \?\? type\.id,\s+typeIdentity: type\.definitionId \?\? type\.id/);
