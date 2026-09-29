@@ -170,6 +170,12 @@ align, but do not use implementation identity as the fairness test. Run the
 same Roslyn fidelity corpus and ECMA safety fixtures against every column.
 Agreement on benign assets alone is insufficient.
 
+Make each comparison inspectable and reusable. The report links the exact
+LINQ, NLinq, and Planner query implementations, population source, pinned
+NLinq provenance, and invocation. Do not publish ratios without the code that
+produced each column. When an oracle wins, identify the concrete implementation
+choice Planner can adopt.
+
 When a comparison exposes a safety check, place it at the narrowest shared
 owner. A general ECMA containment rule normally belongs in an upstream
 metadata or input boundary so multiple producers inherit it once. A
@@ -225,10 +231,13 @@ assets:
 - Report each cell as a ratio to NLinq, measured by the same binary in the
   same run. Give the geometric mean across assets and the range, with
   absolute medians alongside.
-- Check that every column gives the same answer for every closing and asset:
-  the Boolean, the count, or the rows' identity. Report a strict window's
-  failure as a failure, never as a success. Include the producer's hostile
-  safety fixtures in the check.
+- On the owner-named Roslyn fidelity corpus, check that every column gives the
+  same Boolean, count, or row identity for every closing and asset. Report a
+  strict window's failure as a failure, never as a success.
+- Run every column against the producer's ECMA safety fixtures. Check bounded,
+  inert behavior and each owner-required visible failure independently.
+  Require matching semantic answers on a safety-only input only when the
+  owning contract requires them.
 - Mark each Planner cell as shipping in the candidate or measured only in an
   experiment.
 - Run on at least two machines, and exclude a loaded run with its reason.

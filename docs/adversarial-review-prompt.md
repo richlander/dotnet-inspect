@@ -151,9 +151,11 @@ repeat Planner's incidental work. A comparator is fair only when it satisfies
 the same Roslyn fidelity and ECMA safety rules; change a comparator that does
 not. When a fair comparator beats Planner, treat the result as evidence that
 Planner should be capable of meeting or beating it, not as a reason to burden
-the comparator or Planner with unowned checks. For a safety concern, determine
-whether it is a general ECMA containment rule that belongs at a shared upstream
-boundary or a niche hazard that remains with the producer.
+the comparator or Planner with unowned checks. Require the comparison to link
+the exact LINQ, NLinq, and Planner implementations and pinned provenance so the
+fairness and transferable technique are auditable. For a safety concern,
+determine whether it is a general ECMA containment rule that belongs at a
+shared upstream boundary or a niche hazard that remains with the producer.
 
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
