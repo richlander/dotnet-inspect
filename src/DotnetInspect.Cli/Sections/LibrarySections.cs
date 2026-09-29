@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
+using ILInspector.Analysis;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Inspector.Findings;
@@ -23,6 +24,20 @@ public sealed record LibrarySectionCatalog(
 /// </summary>
 public static class LibrarySections
 {
+    private static readonly MetadataOperationPolicy
+        s_libraryMetricsSignatureUsePolicy =
+            new(
+                maxMetadataRows: 10_000_000,
+                maxDeclarationCandidates: 1_000_000,
+                maxRelationshipEdges: 10_000_000,
+                maxSignatureBytes: 256_000_000,
+                maxGenericSubstitutionNodes: 10_000_000,
+                maxStructuredNodes: 10_000_000,
+                maxRetainedText: 16_000_000);
+
+    private static readonly AnalysisLibraryBodyUseRequest
+        s_libraryMetricsBodyUseRequest = new();
+
     /// <summary>The reusable fixed-domain catalog for per-assembly library queries.</summary>
     public static InspectionQueryCatalog<InspectionQueryContext> QueryCatalog { get; } =
         BuildQueryCatalog();
@@ -488,9 +503,70 @@ public static class LibrarySections
     internal static LibraryMetricsResult
         ExecuteLibraryMetricsQuery(
             InspectionQueryContext context)
-        => ExecuteLibraryMetricsQuery(
-            context.MetadataContext?.HasMetadata != false,
-            context.BodyAnalysis);
+    {
+        if (context.MetadataContext?.HasMetadata == false)
+            return new LibraryMetricsResult.NoMetadata();
+
+        try
+        {
+            LibraryBodyAnalysisExecution analysis =
+                context.BodyAnalysis();
+            MetadataLibrarySignatureUseOutcome signatureOutcome =
+                context.Query(
+                    session => session.LibrarySignatureUses(
+                        new(s_libraryMetricsSignatureUsePolicy)),
+                    error => throw new InvalidOperationException(
+                        "Library Metrics could not acquire its exact metadata "
+                            + "session.",
+                        error));
+            MetadataLibrarySignatureUseResult signatureUse =
+                signatureOutcome switch
+                {
+                    MetadataLibrarySignatureUseOutcome.Available available =>
+                        available.Result,
+                    MetadataLibrarySignatureUseOutcome.Rejected rejected =>
+                        throw new InvalidOperationException(
+                            "Library Metrics signature-use acquisition was "
+                                + $"rejected ({rejected.Kind}): "
+                                + rejected.Detail),
+                    _ => throw new InvalidOperationException(
+                        "Unknown Library Metrics signature-use outcome."),
+                };
+            var metadata = context.MetadataContext
+                ?? throw new InvalidOperationException(
+                    "Library Metrics requires the command's exact prefetched "
+                        + "metadata image.");
+            AnalysisLibraryBodyUseOutcome bodyOutcome =
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    context.AssemblyPath,
+                    metadata.GetPrefetchedImage(),
+                    s_libraryMetricsBodyUseRequest);
+            AnalysisLibraryBodyUseResult bodyUse =
+                bodyOutcome switch
+                {
+                    AnalysisLibraryBodyUseOutcome.Available available =>
+                        available.Result,
+                    AnalysisLibraryBodyUseOutcome.Rejected rejected =>
+                        throw new InvalidOperationException(
+                            "Library Metrics body-use acquisition was rejected "
+                                + $"({rejected.Kind}): {rejected.Detail}"),
+                    _ => throw new InvalidOperationException(
+                        "Unknown Library Metrics body-use outcome."),
+                };
+            return LibraryMetricsQuery.Execute(
+                analysis,
+                signatureUse,
+                bodyUse);
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new LibraryMetricsResult.Failed(ex);
+        }
+    }
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)

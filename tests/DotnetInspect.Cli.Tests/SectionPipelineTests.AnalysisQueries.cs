@@ -444,7 +444,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryMetricsQuery_RunsOnlyItsFocusedProducer()
+    public void LibraryMetricsQuery_RunsOnlyItsFocusedProducers()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
