@@ -25,6 +25,33 @@ Run without installing:
 dnx dotnet-inspect -y -- <command>
 ```
 
+### Select an installed .NET root
+
+Agents should treat the installed .NET location as invocation configuration,
+not ambient machine discovery. Learn the intended installation from machine
+provisioning or the tool manager that installed it, verify that the root
+contains `packs`, and set process-scoped `DOTNET_ROOT`:
+
+```bash
+dotnet_root=/absolute/path/to/dotnet-root
+test -d "$dotnet_root/packs"
+DOTNET_ROOT="$dotnet_root" dnx dotnet-inspect -y -- find JsonSerializer
+```
+
+```powershell
+$dotnetRoot = "C:\absolute\path\to\dotnet-root"
+if (-not (Test-Path (Join-Path $dotnetRoot "packs"))) {
+    throw "The selected .NET root does not contain packs."
+}
+$env:DOTNET_ROOT = $dotnetRoot
+dnx dotnet-inspect -y -- find JsonSerializer
+```
+
+dotnet-inspect does not search `PATH` for an installed hive. Without a usable
+`DOTNET_ROOT`, a framework-dependent process may derive the hive containing its
+current CoreCLR runtime. A NativeAOT process has no such runtime hive and uses
+the package-backed Platform fallback.
+
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands

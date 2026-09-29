@@ -14,6 +14,18 @@ and `--` passes the remaining arguments to dotnet-inspect. Start by identifying
 the kind of result needed. If the intent or result space is unclear, use a bare
 target and let the router choose. Otherwise, enter the matching space directly.
 
+For installed Platform queries, first learn the intended .NET installation
+from the machine's provisioning or tool-manager state, verify that its root
+contains `packs`, and set process-scoped `DOTNET_ROOT` for the invocation:
+
+```bash
+DOTNET_ROOT=/absolute/path/to/dotnet-root \
+  dnx dotnet-inspect -y -- find JsonSerializer
+```
+
+The agent owns this selection. Do not expect dotnet-inspect to infer the
+installed hive from whichever `dotnet` command appears first on `PATH`.
+
 ## Common starts
 
 | Goal | Command |
