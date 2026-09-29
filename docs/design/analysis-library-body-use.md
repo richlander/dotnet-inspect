@@ -102,15 +102,20 @@ or the operand unavailable, with a typed diagnostic:
 
 - an unreadable or over-limit IL body, and an instruction or occurrence limit;
 - an operand token that does not resolve, or resolves to the wrong kind;
-- a malformed or truncated method signature: owner-only resolution reads only
-  the declaring Type and instantiation, but still decodes the whole signature
-  under `SignatureBlobGuard`, as full member resolution does;
+- a malformed or truncated method signature, whether the body's own or an
+  operand's: owner-only resolution reads only the declaring Type and
+  instantiation, but still decodes the whole signature under
+  `SignatureBlobGuard`, as full member resolution does;
 - a malformed TypeSpec, and a MethodSpec invalid for its target or its
   caller's generic scope; and
 - a current-image reference that cannot be bound.
 
 What a non-Roslyn input can change without a diagnostic is only the logical
 owner, as [Fidelity and security](#fidelity-and-security) allows.
+
+Each signature blob's decode outcome, and each operand's binding, is retained
+per execution, a recoverable failure included. A malformed blob or operand
+therefore fails every use visibly without repeating its decode.
 
 Attribution never requires the owner's body to reference the lifted body. A
 local function whose calls Roslyn elided, such as a `[Conditional("DEBUG")]`

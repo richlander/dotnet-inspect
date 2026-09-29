@@ -764,6 +764,68 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
+    public void ExecuteImage_ReportsBodyWithTruncatedOwnSignature()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    BuildIndependentImage(
+                        [(byte)ILOpCode.Ret],
+                        truncatedOwnSignature: true),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Partial,
+            result.Disposition);
+        Assert.Equal(1, result.Coverage.BodiesUnavailable);
+        Assert.Single(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.MalformedBody);
+    }
+
+    [Fact]
+    public void ExecuteImage_DecodesRepeatedMalformedSignatureOnce()
+    {
+        // 256 calls to one MemberRef whose 8 KiB signature is truncated. Each
+        // call fails visibly, but the signature is decoded once.
+        const int calls = 256;
+        byte[] il = new byte[(calls * 5) + 1];
+        for (int i = 0; i < calls; i++)
+        {
+            il[i * 5] = (byte)ILOpCode.Call;
+            il[(i * 5) + 1] = 0x01;
+            il[(i * 5) + 4] = 0x0A;
+        }
+        il[^1] = (byte)ILOpCode.Ret;
+        ImmutableArray<byte> image =
+            BuildIndependentImage(il, largeTruncatedParameters: 4096);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "IndependentEcma335.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(calls, result.Coverage.OperandsUnavailable);
+        Assert.Equal(
+            calls,
+            result.Diagnostics.Count(static diagnostic =>
+                diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind
+                        .UnresolvedOperand));
+        // One decode allocates about 2 MB; one per call would be about 600 MB.
+        Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+    }
+
+    [Fact]
     public void ExecuteImage_BoundsStateMachineAttributeNames()
     {
         AnalysisLibraryBodyUseResult result =
@@ -1000,7 +1062,9 @@ public sealed class AnalysisLibraryBodyUseTests
         bool unreadableSecondBody = false,
         bool missingCurrentModuleTypeReference = false,
         bool methodMemberReference = false,
-        bool truncatedMethodMemberReference = false)
+        bool truncatedMethodMemberReference = false,
+        bool truncatedOwnSignature = false,
+        int largeTruncatedParameters = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1055,6 +1119,23 @@ public sealed class AnalysisLibraryBodyUseTests
                 metadata.GetOrAddString("NotAField"),
                 metadata.GetOrAddBlob(signature));
         }
+        if (largeTruncatedParameters > 0)
+        {
+            // Declares one more parameter than it encodes.
+            var truncated = new BlobBuilder();
+            truncated.WriteByte(0x00);
+            truncated.WriteCompressedInteger(largeTruncatedParameters + 1);
+            truncated.WriteByte(0x01);
+            for (int i = 0; i < largeTruncatedParameters; i++)
+            {
+                truncated.WriteByte(0x1D);
+                truncated.WriteByte(0x08);
+            }
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("LargeTruncated"),
+                metadata.GetOrAddBlob(truncated));
+        }
         if (truncatedMethodMemberReference)
         {
             // A method header with no parameter count or return type.
@@ -1105,7 +1186,9 @@ public sealed class AnalysisLibraryBodyUseTests
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(name),
-                metadata.GetOrAddBlob(signature),
+                truncatedOwnSignature
+                    ? metadata.GetOrAddBlob(new byte[] { 0x00 })
+                    : metadata.GetOrAddBlob(signature),
                 offset,
                 MetadataTokens.ParameterHandle(1));
         }

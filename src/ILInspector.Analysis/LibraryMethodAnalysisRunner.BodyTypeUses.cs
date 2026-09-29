@@ -43,6 +43,10 @@ internal sealed partial class LibraryMethodAnalysisRunner
             GenericScope scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
+            // The body's own signature is decoded as the full method identity
+            // decodes it, so a malformed one still fails the body visibly.
+            _infrastructure.MethodSignature(methodDefinition.Signature)
+                .ThrowIfFailed();
             _bodyUseOwners ??= new(_infrastructure.Reader);
             BodyUseOwner owner = _bodyUseOwners.Attribute(methodHandle);
             TypeDefinitionHandle? source =
@@ -380,26 +384,42 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 key,
                 out BodyTypeUseOperandBinding? binding))
         {
+            if (binding.Failure is { } failure)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Throw(failure);
+            }
             return binding;
         }
 
-        ImmutableArray<TypeRef> roots =
-            ResolveOperandTypes(resolver, scope, path, token);
-        string? unavailable = roots.IsDefaultOrEmpty
-            ? "no typed root"
-            : FirstUnavailableTypeReason(roots);
-        if (unavailable is not null)
+        // A recoverable failure is retained too, so a malformed operand fails
+        // every use without repeating its resolution.
+        try
         {
-            binding = new(unavailable, []);
+            ImmutableArray<TypeRef> roots =
+                ResolveOperandTypes(resolver, scope, path, token);
+            string? unavailable = roots.IsDefaultOrEmpty
+                ? "no typed root"
+                : FirstUnavailableTypeReason(roots);
+            if (unavailable is not null)
+            {
+                binding = new(unavailable, []);
+            }
+            else
+            {
+                var targets =
+                    ImmutableArray.CreateBuilder<BodyTypeUseOperandTarget>();
+                int ordinal = 0;
+                foreach (TypeRef root in roots)
+                    CollectLocalTargets(root, targets, ref ordinal);
+                binding = new(null, targets.DrainToImmutable());
+            }
         }
-        else
+        catch (Exception exception)
+            when (IsRecoverableMethodFailure(exception))
         {
-            var targets =
-                ImmutableArray.CreateBuilder<BodyTypeUseOperandTarget>();
-            int ordinal = 0;
-            foreach (TypeRef root in roots)
-                CollectLocalTargets(root, targets, ref ordinal);
-            binding = new(null, targets.DrainToImmutable());
+            _bodyUseOperandBindings.Add(key, new(null, [], exception));
+            throw;
         }
         _bodyUseOperandBindings.Add(key, binding);
         return binding;
@@ -530,7 +550,8 @@ internal readonly record struct BodyTypeUseOperandTarget(
 
 internal sealed record BodyTypeUseOperandBinding(
     string? Unavailable,
-    ImmutableArray<BodyTypeUseOperandTarget> Targets);
+    ImmutableArray<BodyTypeUseOperandTarget> Targets,
+    Exception? Failure = null);
 
 internal readonly record struct BodyTypeUseOccurrence(
     TypeDefinitionHandle Source,

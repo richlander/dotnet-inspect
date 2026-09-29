@@ -796,10 +796,7 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 MethodDefinition method =
                     _reader.GetMethodDefinition(
                         (MethodDefinitionHandle)handle);
-                if (!SignatureBlobGuard.IsSafeToDecode(
-                        _reader,
-                        method.Signature,
-                        SignatureBlobGuard.Kind.Method))
+                if (!MethodSignature(method.Signature).Safe)
                 {
                     return MethodOwner.Unsupported(
                         "method signature nesting depth exceeded");
@@ -826,10 +823,7 @@ internal sealed class LibraryBodyMethodReferenceResolver
                         : ResolveMemberReferenceDeclaringType(
                             member.Parent,
                             scope);
-                if (!SignatureBlobGuard.IsSafeToDecode(
-                        _reader,
-                        member.Signature,
-                        SignatureBlobGuard.Kind.Method))
+                if (!MethodSignature(member.Signature).Safe)
                 {
                     return MethodOwner.Unsupported(
                         "member-reference signature nesting depth exceeded");
@@ -844,17 +838,52 @@ internal sealed class LibraryBodyMethodReferenceResolver
         }
     }
 
-    // Signatures are shared by many methods, so each blob's full decode is
-    // done once; a malformed blob throws on every use, as ResolveMethod does.
-    readonly ConcurrentDictionary<BlobHandle, int> _methodGenericArities = new();
+    // Signatures are shared by many methods, so each blob is guarded and fully
+    // decoded once per execution, and its outcome, including a recoverable
+    // decode failure, is retained. A malformed blob fails every use exactly as
+    // ResolveMethod does, without repeating the decode.
+    readonly ConcurrentDictionary<BlobHandle, MethodSignatureOutcome>
+        _methodSignatures = new();
+
+    internal MethodSignatureOutcome MethodSignature(BlobHandle signature)
+    {
+        if (_methodSignatures.TryGetValue(
+                signature,
+                out MethodSignatureOutcome? outcome))
+        {
+            return outcome;
+        }
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            outcome = MethodSignatureOutcome.Unsafe;
+        }
+        else
+        {
+            try
+            {
+                outcome = new(
+                    Safe: true,
+                    MemberResolver.MethodGenericArity(_reader, signature),
+                    Failure: null);
+            }
+            catch (Exception exception)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(exception))
+            {
+                outcome = new(Safe: true, 0, exception);
+            }
+        }
+        return _methodSignatures.GetOrAdd(signature, outcome);
+    }
 
     int MethodGenericArity(BlobHandle signature)
     {
-        if (_methodGenericArities.TryGetValue(signature, out int arity))
-            return arity;
-        arity = MemberResolver.MethodGenericArity(_reader, signature);
-        _methodGenericArities.TryAdd(signature, arity);
-        return arity;
+        MethodSignatureOutcome outcome = MethodSignature(signature);
+        outcome.ThrowIfFailed();
+        return outcome.GenericArity;
     }
 
     ImmutableArray<TypeRef> DecodeMethodSpecificationArguments(
@@ -970,4 +999,23 @@ internal sealed class LibraryBodyMethodReferenceResolver
             type,
             scope.TypeParameters.Length,
             scope.MethodParameters.Length);
+}
+
+/// <summary>
+/// One method signature blob's guarded decode outcome: unsafe to decode, its
+/// generic arity, or the recoverable failure its full decode raised.
+/// </summary>
+internal sealed record MethodSignatureOutcome(
+    bool Safe,
+    int GenericArity,
+    Exception? Failure)
+{
+    internal static MethodSignatureOutcome Unsafe { get; } =
+        new(Safe: false, 0, Failure: null);
+
+    internal void ThrowIfFailed()
+    {
+        if (Failure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(Failure);
+    }
 }

@@ -287,6 +287,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             MetadataTokens.EntityHandle(token),
             scope);
 
+    MethodSignatureOutcome ILibraryMethodAnalysisInfrastructure
+        .MethodSignature(BlobHandle signature) =>
+        _methodReferenceResolver.MethodSignature(signature);
+
     CallerUnsafeMode?
         ILibraryMethodAnalysisInfrastructure
             .ResolveSameImageCallerUnsafeMode(
