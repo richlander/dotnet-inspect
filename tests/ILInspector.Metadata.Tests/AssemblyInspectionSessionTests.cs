@@ -204,7 +204,6 @@ public class AssemblyInspectionSessionTests
         Assert.NotEmpty(session.ApiSurface(includeAll: true).Types);
         Assert.NotNull(session.Resources());
         Assert.NotNull(session.CustomAttributes());
-        Assert.NotNull(session.ClassifiedMethods());
         Assert.NotNull(session.TypeForwarders());
         Assert.NotNull(session.UnionTypes());
         Assert.NotNull(session.Switches());

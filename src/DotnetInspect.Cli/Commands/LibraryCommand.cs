@@ -119,6 +119,13 @@ public partial class LibraryCommand
         new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
+    /// <summary>
+    /// The <c>--json</c> model dump shows every method classification count;
+    /// lists appear only when a row section asks for them.
+    /// </summary>
+    internal static readonly HostQueryDemand ModelDumpCountsDemand =
+        new("--json model counts", MethodClassificationDemand.ModelCounts);
+
     internal static readonly HostQueryDemand[]
         BareDiscoveryQueries =
         [
@@ -978,6 +985,10 @@ public partial class LibraryCommand
                     "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
+
+        if (!discoveryInspection
+            && LibraryMetadataService.WritesDefaultModelDump(options))
+            commandQueryDemand.Add(ModelDumpCountsDemand);
 
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(trace, commandQueryDemand);

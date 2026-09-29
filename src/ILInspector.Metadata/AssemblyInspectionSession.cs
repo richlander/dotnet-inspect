@@ -396,12 +396,6 @@ public sealed class AssemblyInspectionSession :
         return SwitchScanner.Scan(_image.PEReader);
     }
 
-    /// <summary>Classified methods (unsafe / P-Invoke / async).</summary>
-    public List<ClassifiedMethodInfo> ClassifiedMethods()
-    {
-        _image.EnsureAlive();
-        return MethodClassificationScanner.Scan(_image.PEReader);
-    }
 
     /// <summary>OpenTelemetry integration signals.</summary>
     public List<OpenTelemetrySignalInfo> OpenTelemetrySignals()

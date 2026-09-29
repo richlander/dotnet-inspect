@@ -302,6 +302,8 @@ public partial class PackageCommand
                     "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
+        if (LibraryMetadataService.WritesDefaultModelDump(libraryOptions))
+            commandQueryDemand.Add(LibraryCommand.ModelDumpCountsDemand);
         HashSet<InspectionQueryDefinition> queries =
             sectionPlan.Activate(commandDemand: commandQueryDemand);
         bool readLibraryDocument =
@@ -1988,10 +1990,12 @@ public partial class PackageCommand
                     continue;
                 }
 
-                projection.Merge(CountProjectionFormatter.Capture(
+                CountProjection library = CountProjectionFormatter.Capture(
                     new LibraryInspectionView(inspection),
                     InspectionContext.Default,
-                    CreateAllLibrariesWriterOptions(section, options)));
+                    CreateAllLibrariesWriterOptions(section, options));
+                OutputFormatter.ApplyClassificationCounts(library, inspection, [section], options.Rows);
+                projection.Merge(library);
             }
         }
 

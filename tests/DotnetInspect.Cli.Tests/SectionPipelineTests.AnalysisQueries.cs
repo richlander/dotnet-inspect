@@ -106,14 +106,14 @@ public partial class SectionPipelineTests
         InspectionQueryResults results = queryRegistry.Run(
             [
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.ModelCounts,
             ],
             context);
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             context.AssemblyPath,
             context.Model,
             context.Logger,
-            results.Get(ClassifiedMethodsQuery.Definition));
+            results.Get(MethodClassificationDemand.ModelCounts));
         LibraryMetadataService.ApplyAuditMetadataResult(
             context.AssemblyPath,
             context.Model,
@@ -122,12 +122,12 @@ public partial class SectionPipelineTests
 
         Assert.Equal(2, context.SharedQueryCount);
         Assert.NotNull(context.Session());
-        Assert.NotNull(context.Model.ClassifiedMethodInspection);
+        Assert.NotNull(context.Model.UnsafeMethodCount);
         Assert.NotNull(context.Model.AuditSignals);
     }
 
     [Fact]
-    public void Trace_RecordsClassifiedMethodsAsDirectQueryDemand()
+    public void Trace_RecordsPInvokeSectionClassificationAsDirectQueryDemand()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var pipeline = LibrarySections.CreatePipeline();
@@ -142,7 +142,7 @@ public partial class SectionPipelineTests
         trace.RecordQueryClosure(registry.ExpandRequired(requested));
 
         Assert.Equal(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.PInvokeMethods],
             trace.RequestedQueries);
         Assert.Contains(
             trace.QueryDemand,
@@ -150,7 +150,7 @@ public partial class SectionPipelineTests
             {
                 Section: SectionNames.PInvokeMethods,
                 Query: var query,
-            } && ReferenceEquals(query, ClassifiedMethodsQuery.Definition));
+            } && ReferenceEquals(query, MethodClassificationDemand.PInvokeMethods));
         Assert.Equal(trace.RequestedQueries, trace.QueryClosure);
     }
 
@@ -202,10 +202,13 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                MethodClassificationDemand.AsyncMethods,
+                MethodClassificationDemand.LibraryInfo,
+                MethodClassificationDemand.PInvokeMethods,
+                MethodClassificationDemand.Signals,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SwitchesQuery.Definition,
@@ -223,7 +226,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void Trace_RecordsNoBodyIndexForClassifiedMethodsQuery()
+    public void Trace_RecordsNoBodyIndexForMethodClassification()
     {
         // The negative half of the minimum-work claim, and the one worth gating. A regression that
         // makes a metadata-only scan open the whole-assembly IL index costs seconds and changes no
@@ -242,7 +245,7 @@ public partial class SectionPipelineTests
         };
 
         registry.Run(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.ModelCounts],
             context,
             trace.RecordQueryExecution);
 
@@ -1007,16 +1010,10 @@ public partial class SectionPipelineTests
         var logger = new Output.VerboseLogger(false);
         const string Path = "disposed.dll";
 
-        var classifiedResult = Assert.IsType<ClassifiedMethodsResult.Failed>(
-            ClassifiedMethodsQuery.Execute(session));
-        var classifiedModel = new LibraryInspection();
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
-            Path,
-            classifiedModel,
-            logger,
-            classifiedResult);
-        Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
-            classifiedModel.ClassifiedMethodInspection!.Value);
+        Assert.Throws<ObjectDisposedException>(
+            () => MethodClassificationQuery.Execute(
+                session,
+                MethodClassificationDemand.AllQuestions));
 
         var auditResult = Assert.IsType<AuditMetadataResult.Failed>(
             AuditMetadataQuery.Execute(session));
@@ -1087,13 +1084,13 @@ public partial class SectionPipelineTests
             };
 
             InspectionQueryResults classifiedResults = queryRegistry.Run(
-                [ClassifiedMethodsQuery.Definition],
+                [MethodClassificationDemand.ModelCounts],
                 context);
-            LibraryMetadataService.ApplyClassifiedMethodsResult(
+            LibraryMetadataService.ApplyMethodClassificationResult(
                 linkedAssembly,
                 model,
                 context.Logger,
-                classifiedResults.Get(ClassifiedMethodsQuery.Definition));
+                classifiedResults.Get(MethodClassificationDemand.ModelCounts));
 
             Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
 
@@ -1414,11 +1411,7 @@ public partial class SectionPipelineTests
         {
             AssemblyInfo = new AssemblyInfo(),
             HasPInvokeImports = true,
-            ClassifiedMethodInspection = new FindingInspection<ClassifiedMethodObservation>.Failed(
-                new InspectionError(
-                    FindingTestData.Subject,
-                    MetadataFindings.ClassifiedMethodDescriptor,
-                    "method scan failed")),
+            MethodClassificationFailure = "method scan failed",
         };
         HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase)
         {
