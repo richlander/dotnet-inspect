@@ -18,6 +18,25 @@ public static partial class ApiSurfaceExtractor
         bool includeAll)
         => includeAll || effectiveAccess == MethodAttributes.Public;
 
+    internal static MetadataMethodAccessibilityFilter AccessibilityBucket(
+        MethodAttributes access) =>
+        access switch
+        {
+            MethodAttributes.Public =>
+                MetadataMethodAccessibilityFilter.Public,
+            MethodAttributes.Family
+                or MethodAttributes.FamANDAssem
+                or MethodAttributes.FamORAssem =>
+                MetadataMethodAccessibilityFilter.Protected,
+            MethodAttributes.Assembly =>
+                MetadataMethodAccessibilityFilter.Internal,
+            MethodAttributes.Private
+                or MethodAttributes.PrivateScope =>
+                MetadataMethodAccessibilityFilter.Private,
+            _ => throw new BadImageFormatException(
+                "The member accessibility is invalid."),
+        };
+
     /// <summary>
     /// A method's effective access. A private body that implements an
     /// interface member through a MethodImpl is reachable by exactly the

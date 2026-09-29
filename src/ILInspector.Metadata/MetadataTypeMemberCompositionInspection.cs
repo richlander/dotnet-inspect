@@ -128,22 +128,6 @@ internal static class MetadataTypeMemberCompositionInspection
         }
     }
 
-    /// <summary>
-    /// The <c>api.accessibility</c> bucket of an access, as extraction spells
-    /// it and <c>ApiAccessibility.Classify</c> classifies that spelling: a
-    /// composite spelling containing <c>protected</c> is <c>protected</c>, and
-    /// an access extraction leaves unspelled is <c>public</c>.
-    /// </summary>
-    static MetadataMethodAccessibilityFilter Bucket(MethodAttributes access) => access switch
-    {
-        MethodAttributes.Family
-            or MethodAttributes.FamORAssem
-            or MethodAttributes.FamANDAssem => MetadataMethodAccessibilityFilter.Protected,
-        MethodAttributes.Assembly => MetadataMethodAccessibilityFilter.Internal,
-        MethodAttributes.Private => MetadataMethodAccessibilityFilter.Private,
-        _ => MetadataMethodAccessibilityFilter.Public,
-    };
-
     struct CompositionCounts(
         bool includeHidden,
         MetadataMethodAccessibilityFilter accessibility)
@@ -162,7 +146,8 @@ internal static class MetadataTypeMemberCompositionInspection
             if (member.IsHidden && !includeHidden)
                 return;
 
-            MetadataMethodAccessibilityFilter bucket = Bucket(member.Access);
+            MetadataMethodAccessibilityFilter bucket =
+                ApiSurfaceExtractor.AccessibilityBucket(member.Access);
             switch (bucket)
             {
                 case MetadataMethodAccessibilityFilter.Public:

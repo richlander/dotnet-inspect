@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata.Tests;
@@ -74,6 +76,40 @@ public sealed class TypeMemberCompositionTests
         Assert.Equal(
             all.Public + all.Protected + all.Internal + all.Private,
             all.Static + all.This + all.Extension);
+    }
+
+    [Fact]
+    public void PrivateScopeMethod_CountsAsPrivateAndNotAsPublicReceiver()
+    {
+        byte[] image = BuildPrivateScopeMethodImage();
+        MetadataTypeDefinitionName type =
+            Name("Fixtures", "PrivateScopeType");
+
+        MetadataTypeMemberComposition @public = Compose(
+            image,
+            type,
+            MetadataMethodAccessibilityFilter.Public);
+        MetadataTypeMemberComposition @private = Compose(
+            image,
+            type,
+            MetadataMethodAccessibilityFilter.Private);
+
+        Assert.Equal(
+            (0, 0, 0, 1),
+            (@public.Public, @public.Protected, @public.Internal, @public.Private));
+        Assert.Equal(
+            (0, 0, 0),
+            (@public.Static, @public.This, @public.Extension));
+        Assert.Equal(
+            (1, 0, 0),
+            (@private.Static, @private.This, @private.Extension));
+
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        ApiType publicType = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader, includeAll: false).Types,
+            candidate => candidate.DefinitionName == type);
+        Assert.Empty(publicType.Members);
     }
 
     [Theory]
@@ -165,6 +201,23 @@ public sealed class TypeMemberCompositionTests
             .Composition;
     }
 
+    static MetadataTypeMemberComposition Compose(
+        byte[] image,
+        MetadataTypeDefinitionName type,
+        MetadataMethodAccessibilityFilter accessibility)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        return Assert.IsType<MetadataTypeMemberCompositionOutcome.Counted>(
+                MetadataTypeMemberCompositionInspection.Read(
+                    peReader.GetMetadataReader(),
+                    type,
+                    MetadataMemberSpelling.CSharp,
+                    includeHidden: true,
+                    accessibility))
+            .Composition;
+    }
+
     static MetadataTypeDefinitionName Name(string @namespace, params string[] segments)
         => Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.Create(@namespace, [.. segments]))
@@ -179,4 +232,62 @@ public sealed class TypeMemberCompositionTests
 
     static string Pinned(params string[] parts)
         => Path.Combine([AppContext.BaseDirectory, "PinnedArtifacts", .. parts]);
+
+    static byte[] BuildPrivateScopeMethodImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("PrivateScope.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("D31947D2-E090-44E8-969D-4A4F24AA4361")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("PrivateScope"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.PrivateScope | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("Scoped"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("PrivateScopeType"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
 }
