@@ -25,6 +25,38 @@ Run without installing:
 dnx dotnet-inspect -y -- <command>
 ```
 
+### Choose a Platform source
+
+dotnet-inspect can load direct local libraries, packages from configured
+Package Sources, and Platform libraries. Platform requests prefer locally
+installed packs when dotnet-inspect has a usable .NET root and the requested
+version is installed. Otherwise, they use the package-backed Platform source.
+
+A framework-dependent invocation may derive the root containing its current
+CoreCLR runtime; a NativeAOT invocation cannot. For a .NET installation outside
+that runtime-derived location, learn the root from machine provisioning or its
+tool manager, verify that it contains `packs`, and set process-scoped
+`DOTNET_ROOT`:
+
+```bash
+dotnet_root=/absolute/path/to/dotnet-root
+test -d "$dotnet_root/packs" &&
+  DOTNET_ROOT="$dotnet_root" dnx dotnet-inspect -y -- find JsonSerializer
+```
+
+```powershell
+$dotnetRoot = "C:\absolute\path\to\dotnet-root"
+if (-not (Test-Path -Path (Join-Path $dotnetRoot "packs") -PathType Container)) {
+    throw "The selected .NET root does not contain packs."
+}
+$env:DOTNET_ROOT = $dotnetRoot
+dnx dotnet-inspect -y -- find JsonSerializer
+```
+
+`DOTNET_ROOT` is the installed-root override; dotnet-inspect does not infer it
+from `PATH`. Without a usable explicit or runtime-derived root, Platform
+requests use the package-backed source.
+
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
@@ -53,7 +85,7 @@ and repository-specific guidance.
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
 | Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S "Package README file"` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
-| Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
+| Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Prefers installed packs when the requested version is available; otherwise uses package-backed Platform packs. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
 Platform packs have distinct package, Platform, and direct-library views. For
