@@ -173,39 +173,61 @@ internal static partial class MetadataRelationInspection
             ImmutableArray.CreateBuilder<MetadataRelationDiagnostic>();
         diagnostics.AddRange(analysis.Diagnostics);
         var failedSources = new HashSet<MetadataTypeDefinitionAddress>();
+        var limitedSources = new HashSet<MetadataTypeDefinitionAddress>();
 
-        foreach (MetadataHierarchyRelationAnalysisRow row
-            in analysis.Evidence)
+        for (int rowIndex = 0;
+            rowIndex < analysis.Evidence.Length;
+            rowIndex++)
         {
+            MetadataHierarchyRelationAnalysisRow row =
+                analysis.Evidence[rowIndex];
             TypeDefinitionHandle sourceHandle =
                 (TypeDefinitionHandle)MetadataTokens.EntityHandle(
                     row.Source.Definition.Value);
             TypeDefinition sourceDefinition =
                 reader.GetTypeDefinition(sourceHandle);
-            foreach (int occurrenceToken in row.MetadataTokens)
+            try
             {
-                EntityHandle target =
-                    row.Kind == MetadataHierarchyRelationKind.BaseType
-                        ? sourceDefinition.BaseType
-                        : reader.GetInterfaceImplementation(
-                            (InterfaceImplementationHandle)
-                                MetadataTokens.EntityHandle(
-                                    occurrenceToken))
-                            .Interface;
-                int before = diagnostics.Count;
-                AddHierarchy(
-                    reader,
-                    target,
-                    sourceDefinition,
-                    sourceHandle,
-                    row.Kind,
-                    operation,
-                    evidence,
-                    diagnostics,
-                    occurrenceToken,
-                    relationshipAlreadyCharged: true);
-                if (diagnostics.Count != before)
-                    failedSources.Add(row.Source);
+                foreach (int occurrenceToken in row.MetadataTokens)
+                {
+                    EntityHandle target =
+                        row.Kind == MetadataHierarchyRelationKind.BaseType
+                            ? sourceDefinition.BaseType
+                            : reader.GetInterfaceImplementation(
+                                (InterfaceImplementationHandle)
+                                    MetadataTokens.EntityHandle(
+                                        occurrenceToken))
+                                .Interface;
+                    int before = diagnostics.Count;
+                    AddHierarchy(
+                        reader,
+                        target,
+                        sourceDefinition,
+                        sourceHandle,
+                        row.Kind,
+                        operation,
+                        evidence,
+                        diagnostics,
+                        occurrenceToken,
+                        relationshipAlreadyCharged: true);
+                    if (diagnostics.Count != before)
+                        failedSources.Add(row.Source);
+                }
+            }
+            catch (MetadataOperationBudgetExceededException exception)
+            {
+                diagnostics.Add(
+                    LimitDiagnostic(
+                        MetadataRelationFamily.Hierarchy,
+                        exception));
+                for (int remainingIndex = rowIndex;
+                    remainingIndex < analysis.Evidence.Length;
+                    remainingIndex++)
+                {
+                    limitedSources.Add(
+                        analysis.Evidence[remainingIndex].Source);
+                }
+                break;
             }
         }
 
@@ -213,6 +235,7 @@ internal static partial class MetadataRelationInspection
             analysis.Coverage
             ?? throw new InvalidOperationException(
                 "Targeted hierarchy analysis requires coverage.");
+        failedSources.ExceptWith(limitedSources);
         if (failedSources.Count != 0)
         {
             int newlyUnavailable =
@@ -223,6 +246,17 @@ internal static partial class MetadataRelationInspection
                 coverage.Excluded,
                 checked(coverage.Unavailable + newlyUnavailable),
                 coverage.Limited);
+        }
+        if (limitedSources.Count != 0)
+        {
+            int newlyLimited =
+                Math.Min(limitedSources.Count, coverage.Examined);
+            coverage = new(
+                coverage.Considered,
+                coverage.Examined - newlyLimited,
+                coverage.Excluded,
+                coverage.Unavailable,
+                checked(coverage.Limited + newlyLimited));
         }
         return CompleteOrPartial(
             evidence,

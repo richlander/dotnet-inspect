@@ -564,6 +564,83 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void HierarchyTargetSelectionPreservesTypeScope()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        MetadataTypeDefinitionAddress memoryStream =
+            Address(path, "System.IO", "MemoryStream");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        MetadataOperationPolicy.Unbounded,
+                        typeScope: [memoryStream],
+                        hierarchyTarget: new(
+                            TypeName("System.IO", "Stream"),
+                            MetadataHierarchyRelationKind.BaseType)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Complete,
+            available.Result.Hierarchy.Disposition);
+        MetadataHierarchyRelationEvidence relation =
+            Assert.Single(available.Result.Hierarchy.Evidence);
+        Assert.Equal(memoryStream, relation.Source);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Considered);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Examined);
+    }
+
+    [Fact]
+    public void HierarchyTargetSelectionContainsProjectionBudgetFailure()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        MetadataTypeDefinitionAddress memoryStream =
+            Address(path, "System.IO", "MemoryStream");
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Hierarchy],
+                        new MetadataOperationPolicy(
+                            maxMetadataRows: long.MaxValue,
+                            maxStructuredNodes: 0),
+                        typeScope: [memoryStream],
+                        hierarchyTarget: new(
+                            TypeName("System.IO", "Stream"),
+                            MetadataHierarchyRelationKind.BaseType)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            available.Result.Hierarchy.Disposition);
+        Assert.Empty(available.Result.Hierarchy.Evidence);
+        MetadataRelationDiagnostic diagnostic =
+            Assert.Single(available.Result.Hierarchy.Diagnostics);
+        Assert.Equal(
+            MetadataRelationDiagnosticKind.Limit,
+            diagnostic.Kind);
+        Assert.Equal(
+            MetadataOperationDimension.StructuredNodes,
+            diagnostic.BudgetDimension);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Considered);
+        Assert.Equal(0, available.Result.Hierarchy.Coverage?.Examined);
+        Assert.Equal(1, available.Result.Hierarchy.Coverage?.Limited);
+    }
+
+    [Fact]
     public void HierarchyTargetSelectionRetainsMatchingGenericTypeSpecifications()
     {
         string path = Path.Combine(
