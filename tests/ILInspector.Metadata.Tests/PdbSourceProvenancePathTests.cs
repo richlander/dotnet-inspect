@@ -22,14 +22,16 @@ public class PdbSourceProvenancePathTests
 
         PdbGeneratedPathEvidence evidence = result.Evidence;
         Assert.Equal(
-            evidence.GeneratorAssembly,
-            evidence.GeneratorAssemblySpan.Slice(path));
+            evidence.GeneratorAssembly.ToString(),
+            evidence.GeneratorAssemblySpan.SliceRaw(path));
         Assert.Equal(
-            evidence.GeneratorType,
-            evidence.GeneratorTypeSpan.Slice(path));
-        Assert.Equal(evidence.HintName, evidence.HintNameSpan.Slice(path));
-        Assert.EndsWith("Generator", evidence.GeneratorType);
-        Assert.EndsWith(".g.cs", evidence.HintName);
+            evidence.GeneratorType.ToString(),
+            evidence.GeneratorTypeSpan.SliceRaw(path));
+        Assert.Equal(
+            evidence.HintName.ToString(),
+            evidence.HintNameSpan.SliceRaw(path));
+        Assert.EndsWith("Generator", evidence.GeneratorType.ToString());
+        Assert.EndsWith(".g.cs", evidence.HintName.ToString());
     }
 
     [Fact]

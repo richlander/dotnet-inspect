@@ -2,7 +2,7 @@
 
 ## Status, owner, and claim
 
-Status: **design contract** for
+Status: **implemented and Release-gated contract** for
 [#8643](https://github.com/richlander/dotnet-inspect/issues/8643).
 
 The **PDB Source Provenance** owner in `ILInspector.Metadata` defines this
@@ -26,8 +26,8 @@ document for which this methodology found no source-generator evidence. It
 does not prove human authorship, physical syntax-tree origin, or the absence of
 files generated before compiler invocation.
 
-The contract is **unverified** until the Release gates under
-[Required evidence](#required-evidence) land.
+The Release gates and pinned real-asset evidence under
+[Required evidence](#required-evidence) verify this contract.
 
 ## User question
 
@@ -270,9 +270,10 @@ method and Type association.
 A method-to-document association is a **mapped destination**, not proof of the
 physical syntax tree that produced the method. C# `#line` and
 `#pragma checksum` can map an ordinary syntax tree to a generated-looking
-document path with its declared checksum. Portable PDB sequence points do not
-retain a separate physical-origin identity from which this owner could recover
-that distinction.
+document path. When Roslyn also embeds the physical document, it records the
+actual embedded-source checksum rather than an inconsistent checksum declared
+by the pragma. Portable PDB sequence points do not retain a separate
+physical-origin identity from which this owner could recover that distinction.
 
 `MappedGenerated` and `MappedOrdinary` therefore state exactly the PDB evidence
 observed. They are never renamed `PhysicallyGenerated`, `PhysicallyOrdinary`,
@@ -419,8 +420,9 @@ independently compiled fixtures under `fixtures/metadata/` and must cover:
 - ordinary-evidence-only, generated-evidence-only, mixed-evidence
   partial-Type, and no-document unknown aggregates;
 - an ordinary method mapped by `#line` and `#pragma checksum` to the same
-  generated-looking embedded document row produces `MappedGenerated` evidence
-  without a physical-origin claim;
+  generated-looking embedded document row produces `MappedGenerated` evidence,
+  retains Roslyn's actual embedded-source checksum, and makes no physical-origin
+  claim;
 - embedded ordinary source remaining unknown rather than ordinary;
 - explicit generated output outside the supported path profile remaining
   unknown without an attribute marker;
@@ -443,6 +445,31 @@ commit. It requires:
 
 The canary records exact counts as change-sensitive evidence, not as a
 permanent product invariant.
+
+The implementation canary rebuilt commit
+`b8dafb797636da14319e5896052c40ba9e0c1370` in Release, admitted the PE through
+an artifact-backed stream, loaded the Portable PDB from a stream, and produced:
+
+| Evidence | Exact count |
+| --- | ---: |
+| Documents | 3,272 |
+| Types | 4,347 |
+| Method-to-document associations | 52,973 |
+| Authentic generation-marker rows | 19,819 |
+| Ordinary-evidence-only Types | 1,411 |
+| Generated-evidence-only Types | 2,790 |
+| Mixed-evidence Types | 0 |
+| Unknown Types | 146 |
+| Markout generated-path documents | 244 |
+| System.Text.Json generated-path documents | 2,625 |
+| Valid System.Text.Json `GeneratedCodeAttribute` rows | 53 |
+
+On Linux x64 with .NET SDK `11.0.100-rc.1.26425.128`, the median of five warm
+measurements was 6.2 ms for PE/PDB opening. Temporary phase instrumentation
+over five additional warm inspections measured medians of 36.3 ms for document
+classification, 211.6 ms for association construction, and 39.7 ms for
+aggregate construction. These measurements are implementation evidence, not a
+runtime guarantee.
 
 ## Production adoption
 

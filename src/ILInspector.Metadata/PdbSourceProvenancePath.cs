@@ -1,3 +1,5 @@
+using InertText;
+
 namespace ILInspector.Metadata;
 
 public enum PdbSourceProvenancePathProfileVersion
@@ -7,14 +9,14 @@ public enum PdbSourceProvenancePathProfileVersion
 
 public readonly record struct PdbSourcePathSpan(int Offset, int Length)
 {
-    public string Slice(string path) => path.Substring(Offset, Length);
+    internal string SliceRaw(string path) => path.Substring(Offset, Length);
 }
 
 public sealed record PdbGeneratedPathEvidence(
     PdbSourceProvenancePathProfileVersion Profile,
-    string GeneratorAssembly,
-    string GeneratorType,
-    string HintName,
+    InertString GeneratorAssembly,
+    InertString GeneratorType,
+    InertString HintName,
     PdbSourcePathSpan GeneratorAssemblySpan,
     PdbSourcePathSpan GeneratorTypeSpan,
     PdbSourcePathSpan HintNameSpan);
@@ -157,9 +159,15 @@ public static class PdbSourceProvenancePathClassifier
         return new PdbGeneratedPathClassification.Generated(
             new PdbGeneratedPathEvidence(
                 profile,
-                assembly.Slice(path),
-                type.Slice(path),
-                path.Substring(hintStart.Offset, hintLength),
+                new InertString(
+                    TextPolicy.Field,
+                    assembly.SliceRaw(path)),
+                new InertString(
+                    TextPolicy.Field,
+                    type.SliceRaw(path)),
+                new InertString(
+                    TextPolicy.Field,
+                    path.Substring(hintStart.Offset, hintLength)),
                 new(assembly.Offset, assembly.Length),
                 new(type.Offset, type.Length),
                 new(hintStart.Offset, hintLength)));
@@ -208,6 +216,7 @@ public static class PdbSourceProvenancePathClassifier
         public bool Is(string path, string value) =>
             path.AsSpan(Offset, Length).SequenceEqual(value);
 
-        public string Slice(string path) => path.Substring(Offset, Length);
+        public string SliceRaw(string path) =>
+            path.Substring(Offset, Length);
     }
 }

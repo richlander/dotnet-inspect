@@ -250,7 +250,7 @@ public record MethodExceptionRegionInfo(
 /// Wraps PE + PDB readers, exposes high-level operations with no SRM in public signatures.
 /// CLI orchestrates PDB acquisition (download via Packages), then calls back into this context.
 /// </summary>
-public class PdbContext : IDisposable
+public partial class PdbContext : IDisposable
 {
     private const int DebugDirectoryEntrySize = 28;
     internal const int MaxDebugDirectoryEntries = 64;
@@ -263,6 +263,7 @@ public class PdbContext : IDisposable
     private readonly Action<string>? _log;
     private readonly string? _assemblyPath;
     private readonly string _assemblyDisplayName;
+    private readonly AssemblyAcquisitionRegistration? _assemblyRegistration;
 
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
@@ -378,7 +379,8 @@ public class PdbContext : IDisposable
         string assemblyDisplayName,
         Action<string>? log,
         bool entireImagePrefetched,
-        DateTime? lastWriteTimeUtc)
+        DateTime? lastWriteTimeUtc,
+        AssemblyAcquisitionRegistration? assemblyRegistration)
     {
         _peStream = peStream;
         _peReader = peReader;
@@ -386,6 +388,7 @@ public class PdbContext : IDisposable
         _entireImagePrefetched = entireImagePrefetched;
         _assemblyPath = assemblyPath;
         _assemblyDisplayName = assemblyDisplayName;
+        _assemblyRegistration = assemblyRegistration;
         _log = log;
         FileSize = peStream.Length - peImageStart;
         LastWriteTimeUtc = peStream is FileStream fileStream
@@ -720,7 +723,8 @@ public class PdbContext : IDisposable
                 assemblyDisplayName,
                 log,
                 (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
-                lastWriteTimeUtc);
+                lastWriteTimeUtc,
+                assemblyRegistration?.Registration);
             if (!hasMetadata)
                 return context;
 
