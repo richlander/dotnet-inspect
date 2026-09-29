@@ -10,20 +10,26 @@ that [The source gate owns safety](producer-planning.md#the-source-gate-owns-saf
 defines. Not implemented; every property below is **unverified** until its
 gate lands.
 
+Slice 2b of #8733 amends the async analyzer chosen in
+[#8788](https://github.com/richlander/dotnet-inspect/issues/8788). Async is
+now two analyzers, runtime async and compiler async, and the async analyzer
+asks both in one pass. Compiler async matches the state-machine attributes in
+place instead of reading `StateMachineRelationshipIndex`, under the
+[fidelity policy](#fidelity-policy).
+
 ## Examples
 
 `dotnet-inspect library System.Text.Json --section "Async Methods"` shows the
 library's public async methods. The request names one producer, the async
 analyzer. The gate applies the scope and classifies each row. The analyzer
-reads the runtime-async flag, else the method's state-machine relationship
-from `StateMachineRelationshipIndex`, then reads identity text only for the
-rows it publishes. Nothing tests for P/Invoke imports or walks pointer
-signatures, and the analyzer has no dependency, so it runs as a closed-query
-kernel.
+reads the runtime-async flag, and only when it is clear matches the method's
+state-machine attributes in place, then reads identity text only for the rows
+it publishes. Nothing tests for P/Invoke imports or walks pointer signatures,
+and the analyzer has no dependency, so it runs as a closed-query kernel.
 
 `dotnet-inspect library System.Text.Json --section "Async Methods" --count`
 reads no identity text. The plan declares no `IdentityText`, so the gate's
-budget is never armed.
+budget is never armed. An Exists question stops at the first async method.
 
 A hostile image that exhausts the gate's identity budget while rows are being
 projected aborts the execution. Every requested analyzer is `Aborted` with one
@@ -34,13 +40,16 @@ together in the same case.
 
 **Method classification analyzers** owns this exact claim:
 
-> The P/Invoke, async, and pointer-signature analyzers each publish, for one
-> method-definition image, the rows `MethodClassificationScanner.Scan` publishes
-> for its classification on the same image, with the same method name,
-> declaring type, namespace, signature text, classification, module name,
-> anchor, and return type. Rows from two or more analyzers, merged by metadata
-> order and then by the legacy order P/Invoke, async, pointer, equal the
-> legacy list. Count and Exists over these analyzers read no identity text.
+> The P/Invoke, runtime-async, compiler-async, and pointer-signature analyzers
+> each publish, for one method-definition image compiled by Roslyn, the rows
+> `MethodClassificationScanner.Scan` publishes for its classification on the
+> same image, with the same method name, declaring type, namespace, signature
+> text, classification, module name, anchor, and return type. Runtime async
+> publishes legacy's `RuntimeAsync` rows and compiler async its
+> `StateMachineAsync` rows. Rows from two or more analyzers, merged by
+> metadata order and then by the legacy order P/Invoke, async, pointer, equal
+> the legacy list. Count and Exists over these analyzers read no identity
+> text.
 
 This owner defines:
 
@@ -49,8 +58,10 @@ This owner defines:
   defines it;
 - the gate's classes for classification and which classes each analyzer
   accepts;
-- each analyzer's test and the fields it declares; and
-- the merge order that reproduces the legacy list.
+- each analyzer's test and the fields it declares;
+- the fidelity each analyzer promises; and
+- the async analyzer that asks both async tests and the merge order that reproduces the
+  legacy list.
 
 This owner does not define:
 
@@ -67,7 +78,9 @@ This owner does not define:
 | Analyzer | Accepts, from the gate | Test (Tier 1) | Declares |
 | --- | --- | --- | --- |
 | P/Invoke | `PInvoke` | none: the class is the test | `Flags`, and `IdentityText` for rows |
-| Async | `Other` | runtime-async flag; else a `StateMachineRelationshipIndex` kickoff result `Resolved` with claim kind `ClassicAsync` or `AsyncIterator` | `Flags`, `StateMachineRelationship`, and `IdentityText` for rows |
+| Async | `Other` | the runtime-async test, else the compiler-async test, per row | `Flags`, `AttributeTypeMatch`, and `IdentityText` for rows |
+| Runtime async | `Other` | the runtime-async implementation flag, `0x2000` | `Flags`, and `IdentityText` for rows |
+| Compiler async | `Other` | no runtime-async flag, and a custom attribute whose type is `System.Runtime.CompilerServices.AsyncStateMachineAttribute` or `AsyncIteratorStateMachineAttribute`, matched in place | `Flags`, `AttributeTypeMatch`, and `IdentityText` for rows |
 | Pointer signature | `Other` | a pointer in the return or a parameter type | `SignatureShape`, and `IdentityText` for rows |
 
 For classification, the gate applies the legacy scope. It then classifies each
@@ -76,7 +89,12 @@ the scope belong to neither class, so no analyzer attempts them. The analyzers
 accept gate classes through the scope guards of #8735, with the gate as the
 classifier, which makes this migration the production caller #8735 owes.
 
-Async and pointer signature are independent. A method that is both async and
+Runtime async and compiler async are disjoint: compiler async excludes
+methods that carry the runtime flag, as legacy classifies the flag first. The
+async analyzer reuses both tests in one pass, so its rows are their union and
+a runtime-async method never pays for the attribute match. Each row carries
+the kind the test found. Async
+and pointer signature are independent. A method that is both async and
 has a pointer signature produces one async row and one pointer row, as legacy
 does. A P/Invoke method produces only its P/Invoke row, because legacy
 classifies P/Invoke first and stops.
@@ -93,54 +111,39 @@ Each Tier 1 test must equal the legacy test on every input:
 - **Scope and P/Invoke** are flag and name tests. The name prefixes (`<`,
   `get_`, `set_`, `add_`, `remove_`) are compared in place with
   `MetadataStringComparer`.
-- **Async** in legacy is not in place. `ClassifyAsyncMethod` calls
+- **Runtime async** is a flag test, equal to legacy on every input.
+- **Compiler async** in legacy is not in place. `ClassifyAsyncMethod` calls
   `AttributeReader.HasAttribute`, which materializes each custom attribute's
   full type name through `TypeResolver.GetTypeName` and compares strings. It
   charges no budget. Hardening that path for its existing consumers is
   [#8780](https://github.com/richlander/dotnet-inspect/issues/8780).
-  The async analyzer does not match attributes at all. Classic async comes
-  from the Metadata semantic substrate `StateMachineRelationshipIndex`
-  ([state-machine relationship index](state-machine-relationship-index.md)).
-  That substrate exists so that consumers do not reinterpret state-machine
-  metadata independently, and the Decompiler's classic async request adapter
-  already consumes it. The analyzer keeps its own scope policy.
-  - A kickoff whose relationship is `Rejected` fails the async analyzer with
-    a typed `Failed` outcome that names the method.
-  - The index's global `BudgetExceeded` aborts the execution.
-  - The index builds once per reader, a fixed cost that the async analyzer
-    pays even for Count. Measured builds on the performance scorecard assemblies were
-    0.26 ms (Mono.Cecil) to 7.5 ms (Roslyn C#), against legacy per-method
-    matching of 0.14 to 6.0 ms. Sharing one index across executions is
-    assembly-session lifetime,
-    [#8576](https://github.com/richlander/dotnet-inspect/issues/8576).
+  Compiler async asks the same question through the gate's Tier 1 attribute
+  type match, which materializes no name:
+  - It compares namespace and name handles in place with
+    `MetadataStringComparer`, walking a nested type's declaring or
+    resolution-scope chain segment by segment, and spells the name as
+    `TypeResolver` does.
+  - A `TypeSpecification` parent is read as `TypeResolver` decodes it:
+    custom modifiers and `pinned` spell nothing, and `class` or `valuetype`
+    spells its TypeDef or TypeRef. A generic instantiation, and every other
+    element type, spells a bracket, suffix, keyword, or argument list that
+    never equals the two non-generic target names, so it is answered without
+    decoding.
+  - Its answer is memoized per attribute constructor handle, per attribute
+    type handle, and for a `TypeSpecification` parent per signature blob, for
+    the execution. Total work is therefore linear in the CustomAttribute,
+    MemberRef, TypeRef, and TypeDef rows and the `#Blob` heap.
+  - The existing `MaxRelationshipNodes` chain bound backstops each walk. A
+    `TypeSpecification` blob is read only where legacy's `TypeSpecGuard`
+    would decode it: within 4,096 bytes and `SignatureBlobGuard`'s structural
+    bounds. A chain that repeats a handle or exceeds the bound, or a blob
+    past legacy's guard, aborts; an unreadable name fails the analyzer at
+    that method.
 
-  This departs from legacy only for malformed or untrusted state-machine
-  attributes, which legacy counted as async. On the repository's pinned
-  packages and the eight performance scorecard assemblies, both classifications agree
-  method for method. Across the repository's built fixtures they agree
-  except for three methods with malformed or untrusted attributes:
-
-  | Fixture | Method | Outcome |
-  | --- | --- | --- |
-  | `analysis.async-sibling.friend` | `MalformedAsyncSourceFixture::AnalyzeAsync` | fails the async analyzer (rejected) |
-  | `analysis.lookalike` | the lookalike method with `[AsyncStateMachine(null)]` | fails the async analyzer (rejected) |
-  | `analysis.spoof.system-runtime` | `AsyncAttributeSpoofer::Analyze` | not async |
-
-  The gate's attribute type match remains available for other producers. It
-  compares namespace and name handles in place, walking a nested type's
-  declaring or resolution-scope chain segment by segment. Its answer is
-  memoized per attribute constructor handle, and the chain walk per type
-  handle, for the execution. Total work is therefore linear in the
-  CustomAttribute, MemberRef, TypeRef, and TypeDef rows. The existing
-  `MaxRelationshipNodes` chain bound backstops each walk, and exceeding it
-  aborts. The match must equal the materialized comparison for attribute
-  types that are:
-  - defined in the image or referenced;
-  - nested, including a nested chain whose segments spell the target name
-    in legacy's formatting;
-  - reached through a generic `TypeSpecification` parent. Such a type is
-    answered without decoding, because a generic instantiation's formatted
-    name can never equal the two non-generic target names.
+  The match equals the materialized comparison for attribute types that are
+  defined in the image or referenced, nested, or reached through a
+  `TypeSpecification` parent. Compiler async therefore equals legacy's
+  attribute test wherever legacy's test completes.
 - **Pointer signature** in legacy walks the signature with a detector that
   charges the shared scan work budget. Every composite and `TypeSpec` visit is
   charged, because a wide `GENERICINST` repeated across methods is the known
@@ -165,6 +168,38 @@ Each Tier 1 test must equal the legacy test on every input:
   pointer" for that part, a success-shaped answer. The gate aborts with the
   typed `CriticalFailure` instead, as the abort rule requires. On inputs where
   no guard refuses, the answer equals legacy.
+
+## Fidelity policy
+
+A classification may take a fast path whose answer is exact for Roslyn
+output, including SDK-trimmed output, and wrong but never insecure for output
+of other tools:
+
+- **Roslyn output is exact.** Roslyn emits `AsyncStateMachineAttribute` or
+  `AsyncIteratorStateMachineAttribute` exactly on the kickoff methods of its
+  async state machines. ILLink keeps or removes a kickoff method and its state
+  machine as a unit and has no default rule that strips either attribute. A
+  trim experiment on .NET 11.0.0-rc.1 compared the attribute test with
+  `StateMachineRelationshipIndex` across 10 assemblies, untrimmed and with
+  `PublishTrimmed` in `partial` and `full` modes, and found no disagreement,
+  rejected relationship, or orphan state machine.
+- **Other tools may be wrong, never insecure.** A rewriter that keeps the
+  attribute but deletes the state machine makes compiler async overclaim; a
+  custom trimmer that strips the attribute makes it undercount. Every read
+  stays bounded, memoized, and inert, so neither case costs more than the
+  image's rows or allocates metadata names.
+- **One fidelity for every closing.** Rows, Count, and Exists apply the same
+  test, so Count equals the number of rows whenever Rows succeeds.
+- **Authentication stays with its owner.** `StateMachineRelationshipIndex`
+  serves work whose job is authentication: decompiler reconstruction and
+  explicitly requested relationship facts. The classification analyzers do
+  not read it.
+
+Fixture scope follows the policy. The analyzers' equivalence gates use
+normal-case, Roslyn-shaped fixtures and every built repository fixture as
+legacy classifies it, and pin no spoofed or malformed state-machine outcome;
+adversarial correctness fixtures belong to the authentication owners, while
+the gate keeps its hostile safety fixtures.
 
 ## Budget
 
@@ -210,9 +245,24 @@ Below the budget, the analyzers handle recoverable failures as follows:
 The queries live in host-neutral `DotnetInspector.Queries`, beside
 `UnsafeEvidencePresenceQuery`:
 
-- **One query per analyzer:** P/Invoke, async, and pointer signature. Each is
-  parameterized by its closing (Rows, Count, or Exists) and returns a typed
-  result for that closing, or the typed critical failure.
+- **One query per analyzer:** P/Invoke, runtime async, compiler async, and
+  pointer signature. Each is parameterized by its closing (Rows, Count, or
+  Exists) and returns a typed result for that closing, or the typed critical
+  failure.
+- **Async is one producer,** not a composition of the two. Its test is the
+  runtime-async test, else the compiler-async test, reusing both analyzers'
+  code, and it declares the union of their fields. Exists stops at the first
+  async method, and Count and Rows are one walk; the answers equal the union
+  of runtime async and compiler async, which stay askable on their own.
+  Composing disjunctions across producers belongs to QuerySpace
+  ([#8574](https://github.com/richlander/dotnet-inspect/issues/8574)).
+  The operator chose this on 2026-09-28 over a query-layer composite that
+  asked runtime async across the whole scope before compiler async. Slice
+  2b's performance scorecard showed that composite paid for two walks on
+  assets with no runtime async: Exists rose 16% on Humanizer and 8% on
+  Mono.Cecil, and CoreLib's Count 4%.
+
+  Scope (library, type, or method) is an axis independent of the question.
 - **Request identity.** Each analyzer has exactly one producer declaration.
   Closing and row order are request parameters, not declaration parameters.
   So several consumers asking the same analyzer never create conflicting
@@ -233,7 +283,7 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
 
   | Analyzer | Model order (JSON, `LibraryInspection`) | Display order (Markdown view) |
   | --- | --- | --- |
-  | Async | kind (ordinal), then declaring type, then method name (default comparer) | declaring type, method name, signature (`OrdinalIgnoreCase`) |
+  | Async, runtime async, compiler async | kind (ordinal), then declaring type, then method name (default comparer) | declaring type, method name, signature (`OrdinalIgnoreCase`) |
   | P/Invoke | declaring type, then method name (default comparer) | declaring type, method name, module name, signature (`OrdinalIgnoreCase`) |
   | Pointer signature | declaring type, then method name (default comparer) | none; the list has no Markdown view |
 
@@ -270,7 +320,7 @@ Each consumer asks only for what it shows:
 | Pointer-signature method list (`UnsafeMethods`) | pointer rows |
 | Signals | Count for pointer ("public pointer signatures"); Count for P/Invoke when the metadata-wide P/Invoke count is unavailable |
 | LibraryInfo counts | Count for each analyzer |
-| Classified-method Finding | Rows of all three, merged |
+| Classified-method Finding | Rows of every analyzer, merged |
 
 The combined request's Finding observations equal those legacy produces from
 `ClassifiedMethodsQuery`. On a critical failure, every query that was asked
@@ -347,16 +397,21 @@ work, tracked in #8733, and not part of this change.
   - runtime async, and state-machine async;
   - a method that is both async and has a pointer signature (two rows);
   - an unreadable signature.
-- **In-place attribute match**, for any producer that uses it. It equals the
-  materialized comparison on attribute types that are defined, referenced,
-  nested, and reached through a generic `TypeSpec` parent.
-- **Async from the index.** On the pinned packages, the eight performance scorecard
-  assemblies, and every built repository fixture, async rows equal legacy
-  except for the three departures above, which the gates enumerate
-  exactly. `MalformedAsyncSourceFixture::AnalyzeAsync` and the lookalike
-  method fail the async analyzer instead of counting as async;
-  `AsyncAttributeSpoofer::Analyze` is not async. Runtime-async fixtures are
-  unchanged.
+- **In-place attribute match.** It equals the materialized comparison on
+  attribute types that are defined, referenced, nested, and reached through
+  a `TypeSpec` parent (generic, `class`, modified, array, and self-naming).
+  A cyclic or over-bound nested chain, and a `TypeSpec` blob past legacy's
+  byte or shape guard, abort. `TypeSpec` rows that share one blob read it
+  once.
+- **Async equals legacy.** On the pinned packages, the eight performance
+  scorecard assemblies, and every built repository fixture, runtime-async
+  rows equal legacy's `RuntimeAsync` rows, compiler-async rows its
+  `StateMachineAsync` rows, the two are disjoint, and async's Rows, Count,
+  and Exists agree with legacy's async rows.
+- **One pass.** Async's rows, Count, and Exists equal the union of runtime
+  async and compiler async. Exists stops at the first async method, before a
+  later method whose attribute match would abort; a runtime-async method's
+  attributes are never matched.
 - **Count reads no identity text.** On the existing hostile classification
   fixtures, Count, Exists, and classification charge zero identity budget and
   complete. Rows on the same fixtures abort with `CriticalFailure`.
@@ -383,8 +438,8 @@ work, tracked in #8733, and not part of this change.
 - **End to end.** A NativeAOT base/head comparison of the migrated sections,
   per the [evidence contract](../evidence-and-validation.md#nativeaot-beforeafter-for-modernization),
   on every supported terminal: rows, `--count`, `-n`, and `--rows`.
-- **Performance scorecard.** Old, LINQ, NLinq, and Planner over the async question, against the
-  NLinq fixture of
-  [#8745](https://github.com/richlander/dotnet-inspect/issues/8745). The
-  recorded 1.19–1.69× came from an experiment that treated async and pointer
-  as exclusive and skipped projection and budgets, so it is re-measured.
+- **Performance scorecard.** Old, LINQ, NLinq, and Planner over async and
+  each of runtime and compiler async, against the NLinq fixture
+  of [#8745](https://github.com/richlander/dotnet-inspect/issues/8745). LINQ,
+  NLinq, and Planner apply the identical analysis, the same flag test and
+  in-place attribute match; only the read machinery differs.
