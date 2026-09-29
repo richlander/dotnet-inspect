@@ -233,22 +233,20 @@ public sealed class MethodClassificationQueryTests
         Assert.Equal(new ClassificationAnswer.Exists(true), result.AnswerTo(exists));
 
         // One execution per closing; Count and Exists read no identity text.
-        // The fixture has no runtime async, so the composite Exists asks
-        // compiler async in a second execution.
         Assert.Equal(
-            [ClassificationClosing.Rows, ClassificationClosing.Count, ClassificationClosing.Exists, ClassificationClosing.Exists],
-            result.Receipts.Select(static receipt => receipt.Closing));
-        Assert.True(result.Receipts[0].Receipt.IdentityBudgetArmed);
-        Assert.False(result.Receipts[1].Receipt.IdentityBudgetArmed);
-        Assert.False(result.Receipts[2].Receipt.IdentityBudgetArmed);
-        Assert.Equal(0, result.Receipts[1].Receipt.IdentityWorkCharged);
+            [ClassificationClosing.Rows, ClassificationClosing.Count, ClassificationClosing.Exists],
+            result.Receipts.Keys.Order());
+        Assert.True(result.Receipts[ClassificationClosing.Rows].IdentityBudgetArmed);
+        Assert.False(result.Receipts[ClassificationClosing.Count].IdentityBudgetArmed);
+        Assert.False(result.Receipts[ClassificationClosing.Exists].IdentityBudgetArmed);
+        Assert.Equal(0, result.Receipts[ClassificationClosing.Count].IdentityWorkCharged);
     }
 
     [Fact]
-    public void Async_ExistsStopsAtRuntimeAsyncWithoutReadingCompilerAsync()
+    public void Async_ExistsStopsAtTheFirstAsyncMethodInOnePass()
     {
         // Runtime async first, then a method whose attribute type nests
-        // beyond the chain bound: reading compiler async would abort.
+        // beyond the chain bound: reading its attribute would abort.
         byte[] image = AsyncImage(runtimeAsync: true, hostileAttribute: true);
         ClassificationQuestion exists = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Exists);
         ClassificationQuestion count = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Count);
@@ -262,11 +260,11 @@ public sealed class MethodClassificationQueryTests
             (ClassificationClosing closing, WorkReceipt receipt) = Assert.Single(result.Receipts);
             Assert.Equal(ClassificationClosing.Exists, closing);
             Assert.Equal(
-                [RuntimeAsyncAnalyzer.Instance.Identity],
+                [AsyncAnalyzer.Instance.Identity],
                 receipt.Producers.Select(static participation => participation.Producer));
         }
 
-        // The same scope's composite Count reads compiler async and aborts.
+        // The same scope's Count reads the hostile attribute and aborts.
         using (var peReader = new PEReader(ImmutableArray.Create(image)))
         {
             MethodClassificationResult result = MethodClassificationQuery.Execute(peReader, [count]);
@@ -279,7 +277,7 @@ public sealed class MethodClassificationQueryTests
     [InlineData(false, false, false)]
     [InlineData(false, true, true)]
     [InlineData(true, false, true)]
-    public void Async_CompositeExistsAsksCompilerAsyncOnlyWhenRuntimeAsyncFindsNothing(
+    public void Async_ExistsCountAndRowsAgree(
         bool runtimeAsync,
         bool compilerAsync,
         bool expected)
@@ -295,11 +293,10 @@ public sealed class MethodClassificationQueryTests
         Assert.Equal(new ClassificationAnswer.Exists(expected), result.AnswerTo(exists));
         var listed = Assert.IsType<ClassificationAnswer.Rows>(result.AnswerTo(rows));
         Assert.Equal(new ClassificationAnswer.Count(listed.Methods.Length), result.AnswerTo(count));
-        Assert.Equal(runtimeAsync ? 1 : 2, result.Receipts.Count(static receipt => receipt.Closing == ClassificationClosing.Exists));
     }
 
     [Fact]
-    public void Async_CompositeRowsMergeRuntimeThenCompilerInTheRequestedOrder()
+    public void Async_RowsCarryTheirKindInTheRequestedOrder()
     {
         byte[] image = AsyncImage(runtimeAsync: true, hostileAttribute: false, compilerAsync: true);
         ClassificationQuestion metadata = new(MethodClassificationAnalyzer.Async, ClassificationClosing.Rows);

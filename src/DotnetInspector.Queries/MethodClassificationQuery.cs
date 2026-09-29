@@ -13,18 +13,15 @@ using Result = ILInspector.Analysis.Planning.ProducerResult<
 
 namespace DotnetInspector.Queries;
 
-/// <summary>
-/// What a question asks about: one method classification analyzer, or
-/// <see cref="Async"/>, the named composite of the two async analyzers.
-/// </summary>
+/// <summary>What a question asks about: one method classification analyzer.</summary>
 public enum MethodClassificationAnalyzer
 {
     PInvoke,
 
     /// <summary>
-    /// Runtime async or compiler async: the composite of
-    /// <see cref="RuntimeAsync"/> and <see cref="CompilerAsync"/>, whose rows
-    /// are disjoint.
+    /// Runtime async or compiler async, in one pass: the union of
+    /// <see cref="RuntimeAsync"/> and <see cref="CompilerAsync"/>, which are
+    /// disjoint.
     /// </summary>
     Async,
 
@@ -78,7 +75,7 @@ public sealed record ClassificationQuestion(
     ClassificationClosing Closing,
     ClassifiedRowOrder Order = ClassifiedRowOrder.Metadata);
 
-/// <summary>An analyzer's or a composite's answer to one question.</summary>
+/// <summary>An analyzer's answer to one question.</summary>
 public abstract record ClassificationAnswer
 {
     private ClassificationAnswer()
@@ -105,16 +102,15 @@ public abstract record ClassificationAnswer
 /// <see cref="Finding"/> is null only when the Finding was not requested. When
 /// an analyzer failed or the execution aborted, it is a failed inspection that
 /// names the analyzer and the unit, and <see cref="MergedRows"/> is default.
-/// <see cref="Receipts"/> holds one work receipt per execution that ran, in
-/// execution order, and <see cref="Critical"/> the first execution's critical
-/// failure, if any.
+/// <see cref="Receipts"/> holds one work receipt per closing that ran, and
+/// <see cref="Critical"/> the first execution's critical failure, if any.
 /// </summary>
 public sealed record MethodClassificationResult(
     ImmutableArray<(ClassificationQuestion Question, ClassificationAnswer Answer)> Answers,
     ImmutableArray<ClassifiedMethodRow> MergedRows,
     FindingInspection<ClassifiedMethodObservation>? Finding,
     CriticalFailure? Critical,
-    ImmutableArray<(ClassificationClosing Closing, WorkReceipt Receipt)> Receipts)
+    ImmutableDictionary<ClassificationClosing, WorkReceipt> Receipts)
 {
     public ClassificationAnswer AnswerTo(ClassificationQuestion question)
     {
@@ -129,13 +125,11 @@ public sealed record MethodClassificationResult(
 }
 
 /// <summary>
-/// Host-neutral method classification: per-analyzer questions, the composite
-/// async question, and one combined request. Each closing runs as its own
-/// request in its own Producer Planning execution, so Count and Exists never
-/// derive from Rows and never read identity text; composing requests belongs
-/// to QuerySpace (#8574). The composite combines the answers of two distinct
-/// producers and never merges requests for one producer. Hosts bind
-/// questions and map answers; they never sort, merge, or count rows.
+/// Host-neutral method classification: per-analyzer questions and one
+/// combined request. Each closing runs as its own request in its own Producer
+/// Planning execution, so Count and Exists never derive from Rows and never
+/// read identity text; composing requests belongs to QuerySpace (#8574).
+/// Hosts bind questions and map answers; they never sort, merge, or count rows.
 /// </summary>
 /// <remarks>
 /// Owned by <c>docs/design/method-classification-analyzers.md#queries-and-demand</c>.
@@ -187,78 +181,47 @@ public static class MethodClassificationQuery
 
         // Each closing is its own request and its own execution: planning
         // never derives Count or Exists from Rows. The Finding asks for Rows
-        // of every analyzer, so it shares the Rows execution. The composite
-        // async Exists asks runtime async first, across the whole scope, and
-        // asks compiler async in a second execution only when runtime async
-        // found nothing.
-        var executions = new List<(ClassificationClosing Closing, MethodDefinitionExecution Execution)>();
-        var results = new Dictionary<(ClassificationClosing, Analyzer), Result>();
+        // of every analyzer, so it shares the Rows execution.
+        var executions = new Dictionary<ClassificationClosing, MethodDefinitionExecution>();
         foreach (ClassificationClosing closing in Enum.GetValues<ClassificationClosing>())
         {
-            var producers = new List<Analyzer>();
-            if (finding && closing == ClassificationClosing.Rows)
-                producers.AddRange(AllProducers);
-            foreach (ClassificationQuestion question in questions)
-            {
-                if (question.Closing != closing)
-                    continue;
-                if (question.Analyzer == MethodClassificationAnalyzer.Async && closing == ClassificationClosing.Exists)
-                    producers.Add(RuntimeAsyncAnalyzer.Instance);
-                else
-                    producers.AddRange(ProducersFor(question.Analyzer));
-            }
-
-            Run(closing, producers);
-        }
-
-        foreach (ClassificationQuestion question in questions)
-        {
-            if (question is { Analyzer: MethodClassificationAnalyzer.Async, Closing: ClassificationClosing.Exists }
-                && results[(ClassificationClosing.Exists, RuntimeAsyncAnalyzer.Instance)] is { HasValue: true, Value.Exists: false })
-            {
-                Run(ClassificationClosing.Exists, [CompilerAsyncAnalyzer.Instance]);
-                break;
-            }
-        }
-
-        void Run(ClassificationClosing closing, List<Analyzer> producers)
-        {
             var requests = new List<ProducerRequest>();
-            foreach (Analyzer producer in AllProducers)
+            foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
             {
-                if (producers.Contains(producer) && !results.ContainsKey((closing, producer)))
-                    requests.Add(new ProducerRequest(producer, TerminalFor(closing)));
+                bool requested = finding && closing == ClassificationClosing.Rows && MergedAnalyzers.Contains(analyzer);
+                foreach (ClassificationQuestion question in questions)
+                    requested |= question.Analyzer == analyzer && question.Closing == closing;
+                if (requested)
+                    requests.Add(new ProducerRequest(ProducerFor(analyzer), TerminalFor(closing)));
             }
 
             if (requests.Count == 0)
-                return;
+                continue;
 
             WorkDescription description =
                 ProducerPlanner.Plan(requests) is ProducerPlanResult.Accepted accepted
                     ? accepted.Description
                     : throw new InvalidOperationException(
                         "The method classification request must plan.");
-            MethodDefinitionExecution execution = MethodDefinitionExecution.Execute(
+            executions[closing] = MethodDefinitionExecution.Execute(
                 description,
                 "MethodClassification",
                 peReader);
-            executions.Add((closing, execution));
-            foreach (ProducerRequest request in requests)
-            {
-                var producer = (Analyzer)request.Producer;
-                results[(closing, producer)] = execution.ResultOf(producer);
-            }
         }
 
         var answers = ImmutableArray.CreateBuilder<(ClassificationQuestion, ClassificationAnswer)>(questions.Count);
         foreach (ClassificationQuestion question in questions)
-            answers.Add((question, Answer(results, question)));
+        {
+            answers.Add((question, Answer(
+                executions[question.Closing].ResultOf(ProducerFor(question.Analyzer)),
+                question)));
+        }
 
         ImmutableArray<ClassifiedMethodRow> merged = default;
         FindingInspection<ClassifiedMethodObservation>? inspection = null;
         if (finding)
         {
-            merged = Merge(results, out string? failure);
+            merged = Merge(executions[ClassificationClosing.Rows], out string? failure);
             inspection = merged.IsDefault
                 ? new FindingInspection<ClassifiedMethodObservation>(
                     new FindingInspection<ClassifiedMethodObservation>.Failed(
@@ -271,11 +234,13 @@ public static class MethodClassificationQuery
                     findingSubject!);
         }
 
-        var receipts = ImmutableArray.CreateBuilder<(ClassificationClosing, WorkReceipt)>(executions.Count);
+        var receipts = ImmutableDictionary.CreateBuilder<ClassificationClosing, WorkReceipt>();
         CriticalFailure? critical = null;
-        foreach ((ClassificationClosing closing, MethodDefinitionExecution execution) in executions)
+        foreach (ClassificationClosing closing in Enum.GetValues<ClassificationClosing>())
         {
-            receipts.Add((closing, execution.Receipt));
+            if (!executions.TryGetValue(closing, out MethodDefinitionExecution? execution))
+                continue;
+            receipts[closing] = execution.Receipt;
             critical ??= execution.Receipt.Critical;
         }
 
@@ -284,7 +249,7 @@ public static class MethodClassificationQuery
             merged,
             inspection,
             critical,
-            receipts.MoveToImmutable());
+            receipts.ToImmutable());
     }
 
     static MethodClassificationResult Empty(
@@ -309,26 +274,28 @@ public static class MethodClassificationQuery
                 ? null
                 : MetadataFindings.InspectClassifiedMethods([], findingSubject),
             null,
-            []);
+            ImmutableDictionary<ClassificationClosing, WorkReceipt>.Empty);
     }
 
-    /// <summary>Every analyzer, in the legacy within-method order: P/Invoke, async, pointer signature.</summary>
-    static readonly Analyzer[] AllProducers =
+    /// <summary>
+    /// The analyzers the Finding merges, in the legacy within-method order:
+    /// P/Invoke, async, pointer signature. Async covers runtime and compiler async.
+    /// </summary>
+    static readonly MethodClassificationAnalyzer[] MergedAnalyzers =
     [
-        PInvokeAnalyzer.Instance,
-        RuntimeAsyncAnalyzer.Instance,
-        CompilerAsyncAnalyzer.Instance,
-        PointerSignatureAnalyzer.Instance,
+        MethodClassificationAnalyzer.PInvoke,
+        MethodClassificationAnalyzer.Async,
+        MethodClassificationAnalyzer.PointerSignature,
     ];
 
-    static Analyzer[] ProducersFor(MethodClassificationAnalyzer analyzer) =>
+    static Analyzer ProducerFor(MethodClassificationAnalyzer analyzer) =>
         analyzer switch
         {
-            MethodClassificationAnalyzer.PInvoke => [PInvokeAnalyzer.Instance],
-            MethodClassificationAnalyzer.Async => [RuntimeAsyncAnalyzer.Instance, CompilerAsyncAnalyzer.Instance],
-            MethodClassificationAnalyzer.PointerSignature => [PointerSignatureAnalyzer.Instance],
-            MethodClassificationAnalyzer.RuntimeAsync => [RuntimeAsyncAnalyzer.Instance],
-            MethodClassificationAnalyzer.CompilerAsync => [CompilerAsyncAnalyzer.Instance],
+            MethodClassificationAnalyzer.PInvoke => PInvokeAnalyzer.Instance,
+            MethodClassificationAnalyzer.Async => AsyncAnalyzer.Instance,
+            MethodClassificationAnalyzer.PointerSignature => PointerSignatureAnalyzer.Instance,
+            MethodClassificationAnalyzer.RuntimeAsync => RuntimeAsyncAnalyzer.Instance,
+            MethodClassificationAnalyzer.CompilerAsync => CompilerAsyncAnalyzer.Instance,
             _ => throw new ArgumentOutOfRangeException(nameof(analyzer)),
         };
 
@@ -340,53 +307,25 @@ public static class MethodClassificationQuery
             _ => ProducerTerminal.Exists,
         };
 
-    /// <summary>
-    /// The answer to one question. For the composite, the first producer's
-    /// abort or failure is the answer; otherwise Rows concatenates both
-    /// producers' rows before ordering, Count sums, and Exists is runtime
-    /// async's answer when it found a row and compiler async's otherwise.
-    /// </summary>
-    static ClassificationAnswer Answer(
-        Dictionary<(ClassificationClosing, Analyzer), Result> results,
-        ClassificationQuestion question)
+    static ClassificationAnswer Answer(Result result, ClassificationQuestion question)
     {
-        var rows = ImmutableArray.CreateBuilder<ClassifiedMethodRow>();
-        int count = 0;
-        foreach (Analyzer producer in ProducersFor(question.Analyzer))
-        {
-            // A composite Exists settles at runtime async's row before
-            // reading compiler async, which ran only if there was none.
-            Result result = results[(question.Closing, producer)];
-            if (result.Outcome == ProducerOutcome.Aborted)
-                return new ClassificationAnswer.Aborted(result.Critical!);
-            if (!result.HasValue)
-                return new ClassificationAnswer.Failed(result.Failure!);
+        if (result.Outcome == ProducerOutcome.Aborted)
+            return new ClassificationAnswer.Aborted(result.Critical!);
+        if (!result.HasValue)
+            return new ClassificationAnswer.Failed(result.Failure!);
 
-            ClosedQueryResult<ClassifiedMethodRow> value = result.Value!;
-            switch (question.Closing)
-            {
-                case ClassificationClosing.Rows:
-                    rows.AddRange(
-                        value.HasRows
-                            ? value.Rows
-                            : throw new InvalidOperationException("The Rows closing must publish rows."));
-                    break;
-                case ClassificationClosing.Count:
-                    count += value.Count;
-                    break;
-                default:
-                    if (value.Exists)
-                        return new ClassificationAnswer.Exists(true);
-                    break;
-            }
-        }
-
+        ClosedQueryResult<ClassifiedMethodRow> value = result.Value!;
         return question.Closing switch
         {
             ClassificationClosing.Rows => new ClassificationAnswer.Rows(
-                Order(rows.ToImmutable(), question.Analyzer, question.Order)),
-            ClassificationClosing.Count => new ClassificationAnswer.Count(count),
-            _ => new ClassificationAnswer.Exists(false),
+                Order(
+                    value.HasRows
+                        ? value.Rows
+                        : throw new InvalidOperationException("The Rows closing must publish rows."),
+                    question.Analyzer,
+                    question.Order)),
+            ClassificationClosing.Count => new ClassificationAnswer.Count(value.Count),
+            _ => new ClassificationAnswer.Exists(value.Exists),
         };
     }
 
@@ -398,14 +337,15 @@ public static class MethodClassificationQuery
     /// the analyzer and the unit.
     /// </summary>
     static ImmutableArray<ClassifiedMethodRow> Merge(
-        Dictionary<(ClassificationClosing, Analyzer), Result> results,
+        MethodDefinitionExecution execution,
         out string? failure)
     {
         failure = null;
         var rows = new List<ClassifiedMethodRow>();
-        foreach (Analyzer producer in AllProducers)
+        foreach (MethodClassificationAnalyzer analyzer in MergedAnalyzers)
         {
-            Result result = results[(ClassificationClosing.Rows, producer)];
+            Analyzer producer = ProducerFor(analyzer);
+            Result result = execution.ResultOf(producer);
             if (result.Outcome == ProducerOutcome.Aborted)
             {
                 CriticalFailure critical = result.Critical!;

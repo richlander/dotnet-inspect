@@ -245,3 +245,46 @@ public sealed class CompilerAsyncAnalyzer
     internal override SourceGateGuard? SourceGate { get; } =
         new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
 }
+
+/// <summary>
+/// Async, one pass: each row tests the runtime flag first, then the compiler
+/// attribute, through the runtime-async and compiler-async analyzers' own
+/// tests. Its rows are their union, which is disjoint.
+/// </summary>
+public struct AsyncTest : IMethodDefinitionPredicate
+{
+    public readonly bool Test(scoped MethodDefinitionView view) =>
+        default(RuntimeAsyncTest).Test(view) || default(CompilerAsyncTest).Test(view);
+}
+
+/// <summary>Carries the kind of async the test found, re-read from the runtime flag.</summary>
+public struct AsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodRow>
+{
+    public readonly ClassifiedMethodRow Project(scoped MethodDefinitionView view) =>
+        default(RuntimeAsyncTest).Test(view)
+            ? default(RuntimeAsyncRowProjection).Project(view)
+            : default(CompilerAsyncRowProjection).Project(view);
+}
+
+/// <summary>
+/// The async analyzer: <c>Other</c> rows that are runtime or compiler async,
+/// in one pass. It declares the union of the two analyzers' fields.
+/// </summary>
+public sealed class AsyncAnalyzer
+    : MethodDefinitionQueryProducer<AsyncTest, AsyncRowProjection, ClassifiedMethodRow>
+{
+    AsyncAnalyzer()
+        : base(
+            "MethodClassification.Async",
+            version: 2,
+            tier: 0,
+            MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch,
+            MethodDefinitionLayers.IdentityText)
+    {
+    }
+
+    public static AsyncAnalyzer Instance { get; } = new();
+
+    internal override SourceGateGuard? SourceGate { get; } =
+        new(MethodClassificationScope.Instance, 1UL << MethodClassificationScope.Other);
+}

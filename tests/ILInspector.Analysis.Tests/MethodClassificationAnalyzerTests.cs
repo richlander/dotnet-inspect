@@ -94,6 +94,40 @@ public sealed class MethodClassificationAnalyzerTests
                 .Select(static row => (row.MethodName.ToString(), row.Classification)));
     }
 
+    [Fact]
+    public void Async_OnePassEqualsTheUnionAndSkipsTheAttributeTestForRuntimeAsync()
+    {
+        GateFixtureImage builder = new();
+        TypeReferenceHandle asyncAttribute = builder.TypeRef(
+            "System.Runtime.CompilerServices", "AsyncStateMachineAttribute");
+        // An attribute type nested beyond the chain bound: matching it aborts.
+        TypeReferenceHandle deep = builder.TypeRef("System.Runtime", "CompilerServices");
+        for (int i = 0; i < MetadataSafetyPolicy.MaxRelationshipNodes; i++)
+            deep = builder.TypeRef("", "AsyncStateMachineAttribute", deep);
+        builder.Type("N", "Mixed")
+            .Method("RuntimeWithHostileAttribute", implAttributes: RuntimeAsync, attributeConstructors: [builder.AttributeConstructor(deep)])
+            .Method("Compiler", attributeConstructors: [builder.AttributeConstructor(asyncAttribute)])
+            .Method("Plain");
+        ImmutableArray<byte> image = builder.Build();
+
+        ImmutableArray<ClassifiedMethodRow> async = Rows(image, AsyncAnalyzer.Instance);
+        Assert.Equal(
+            [("RuntimeWithHostileAttribute", MethodClassification.RuntimeAsync), ("Compiler", MethodClassification.StateMachineAsync)],
+            async.Select(static row => (row.MethodName.ToString(), row.Classification)));
+        Assert.Equal(
+            2,
+            Execute(image, new ProducerRequest(AsyncAnalyzer.Instance)).ResultOf(AsyncAnalyzer.Instance).Value!.Count);
+        Assert.Equal(
+            MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.Declaration,
+            AsyncAnalyzer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
+
+        // Neither the one pass nor compiler async alone reads the runtime-async
+        // method's attribute: reading it would abort.
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> compiler =
+            Execute(image, new ProducerRequest(CompilerAsyncAnalyzer.Instance)).ResultOf(CompilerAsyncAnalyzer.Instance);
+        Assert.Equal(1, compiler.Value!.Count);
+    }
+
     [Theory]
     [InlineData(ProducerTerminal.Complete)]
     [InlineData(ProducerTerminal.Exists)]
@@ -310,7 +344,7 @@ public sealed class MethodClassificationAnalyzerTests
     // ---- Helpers ----
 
     static readonly ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>>[] Analyzers =
-        [PInvokeAnalyzer.Instance, RuntimeAsyncAnalyzer.Instance, CompilerAsyncAnalyzer.Instance, PointerSignatureAnalyzer.Instance];
+        [PInvokeAnalyzer.Instance, AsyncAnalyzer.Instance, RuntimeAsyncAnalyzer.Instance, CompilerAsyncAnalyzer.Instance, PointerSignatureAnalyzer.Instance];
 
     static BlobBuilder PointerParameter() =>
         GateFixtureImage.VoidSignature(static t => t.Pointer().Int32());

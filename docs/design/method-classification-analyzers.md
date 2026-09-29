@@ -12,25 +12,24 @@ gate lands.
 
 Slice 2b of #8733 amends the async analyzer chosen in
 [#8788](https://github.com/richlander/dotnet-inspect/issues/8788). Async is
-now two analyzers, runtime async and compiler async, and "async" is a named
-composite question in the query layer. Compiler async matches the state-machine
-attributes in place instead of reading `StateMachineRelationshipIndex`, under
-the [fidelity policy](#fidelity-policy).
+now two analyzers, runtime async and compiler async, and the async analyzer
+asks both in one pass. Compiler async matches the state-machine attributes in
+place instead of reading `StateMachineRelationshipIndex`, under the
+[fidelity policy](#fidelity-policy).
 
 ## Examples
 
 `dotnet-inspect library System.Text.Json --section "Async Methods"` shows the
-library's public async methods. The request asks the composite async question
-for Rows, which names two producers, runtime async and compiler async. The
-gate applies the scope and classifies each row. Runtime async reads the
-runtime-async flag; compiler async matches the method's state-machine
-attributes in place. Each reads identity text only for the rows it publishes.
-Nothing tests for P/Invoke imports or walks pointer signatures.
+library's public async methods. The request names one producer, the async
+analyzer. The gate applies the scope and classifies each row. The analyzer
+reads the runtime-async flag, and only when it is clear matches the method's
+state-machine attributes in place, then reads identity text only for the rows
+it publishes. Nothing tests for P/Invoke imports or walks pointer signatures,
+and the analyzer has no dependency, so it runs as a closed-query kernel.
 
 `dotnet-inspect library System.Text.Json --section "Async Methods" --count`
 reads no identity text. The plan declares no `IdentityText`, so the gate's
-budget is never armed. An Exists question asks runtime async across the whole
-library first, and asks compiler async only when runtime async finds nothing.
+budget is never armed. An Exists question stops at the first async method.
 
 A hostile image that exhausts the gate's identity budget while rows are being
 projected aborts the execution. Every requested analyzer is `Aborted` with one
@@ -61,7 +60,7 @@ This owner defines:
   accepts;
 - each analyzer's test and the fields it declares;
 - the fidelity each analyzer promises; and
-- the composite async question and the merge order that reproduces the
+- the async analyzer that asks both async tests and the merge order that reproduces the
   legacy list.
 
 This owner does not define:
@@ -79,6 +78,7 @@ This owner does not define:
 | Analyzer | Accepts, from the gate | Test (Tier 1) | Declares |
 | --- | --- | --- | --- |
 | P/Invoke | `PInvoke` | none: the class is the test | `Flags`, and `IdentityText` for rows |
+| Async | `Other` | the runtime-async test, else the compiler-async test, per row | `Flags`, `AttributeTypeMatch`, and `IdentityText` for rows |
 | Runtime async | `Other` | the runtime-async implementation flag, `0x2000` | `Flags`, and `IdentityText` for rows |
 | Compiler async | `Other` | no runtime-async flag, and a custom attribute whose type is `System.Runtime.CompilerServices.AsyncStateMachineAttribute` or `AsyncIteratorStateMachineAttribute`, matched in place | `Flags`, `AttributeTypeMatch`, and `IdentityText` for rows |
 | Pointer signature | `Other` | a pointer in the return or a parameter type | `SignatureShape`, and `IdentityText` for rows |
@@ -90,7 +90,10 @@ accept gate classes through the scope guards of #8735, with the gate as the
 classifier, which makes this migration the production caller #8735 owes.
 
 Runtime async and compiler async are disjoint: compiler async excludes
-methods that carry the runtime flag, as legacy classifies the flag first. Async
+methods that carry the runtime flag, as legacy classifies the flag first. The
+async analyzer reuses both tests in one pass, so its rows are their union and
+a runtime-async method never pays for the attribute match. Each row carries
+the kind the test found. Async
 and pointer signature are independent. A method that is both async and
 has a pointer signature produces one async row and one pointer row, as legacy
 does. A P/Invoke method produces only its P/Invoke row, because legacy
@@ -242,19 +245,20 @@ The queries live in host-neutral `DotnetInspector.Queries`, beside
   pointer signature. Each is parameterized by its closing (Rows, Count, or
   Exists) and returns a typed result for that closing, or the typed critical
   failure.
-- **Async is a named composite question** over runtime async and compiler
-  async. It composes the answers of two distinct producers and never merges
-  requests for one producer:
-  - **Exists** asks runtime async across the whole scope first, and asks
-    compiler async, in a second execution, only if runtime async finds
-    nothing.
-  - **Count** is the sum of the two Counts.
-  - **Rows** are both analyzers' rows, merged per method with runtime async
-    before compiler async, in the requested order.
-  - The first producer's abort or failure is the composite's answer.
+- **Async is one producer,** not a composition of the two. Its test is the
+  runtime-async test, else the compiler-async test, reusing both analyzers'
+  code, and it declares the union of their fields. Exists stops at the first
+  async method, and Count and Rows are one walk; the answers equal the union
+  of runtime async and compiler async, which stay askable on their own.
+  Composing disjunctions across producers belongs to QuerySpace
+  ([#8574](https://github.com/richlander/dotnet-inspect/issues/8574)).
+  The operator chose this on 2026-09-28 over a query-layer composite that
+  asked runtime async across the whole scope before compiler async. Slice
+  2b's performance scorecard showed that composite paid for two walks on
+  assets with no runtime async: Exists rose 16% on Humanizer and 8% on
+  Mono.Cecil, and CoreLib's Count 4%.
 
-  Scope (library, type, or method) is an axis independent of the question:
-  the composite has the same meaning at every scope.
+  Scope (library, type, or method) is an axis independent of the question.
 - **Request identity.** Each analyzer has exactly one producer declaration.
   Closing and row order are request parameters, not declaration parameters.
   So several consumers asking the same analyzer never create conflicting
@@ -396,11 +400,12 @@ work, tracked in #8733, and not part of this change.
 - **Async equals legacy.** On the pinned packages, the eight performance
   scorecard assemblies, and every built repository fixture, runtime-async
   rows equal legacy's `RuntimeAsync` rows, compiler-async rows its
-  `StateMachineAsync` rows, the two are disjoint, and the composite's Rows,
-  Count, and Exists agree.
-- **Composite Exists stops early.** When runtime async exists, the composite
-  Exists runs one execution with runtime async only; compiler async, which
-  would abort on the fixture, is never read.
+  `StateMachineAsync` rows, the two are disjoint, and async's Rows, Count,
+  and Exists agree with legacy's async rows.
+- **One pass.** Async's rows, Count, and Exists equal the union of runtime
+  async and compiler async. Exists stops at the first async method, before a
+  later method whose attribute match would abort; a runtime-async method's
+  attributes are never matched.
 - **Count reads no identity text.** On the existing hostile classification
   fixtures, Count, Exists, and classification charge zero identity budget and
   complete. Rows on the same fixtures abort with `CriticalFailure`.
@@ -427,8 +432,8 @@ work, tracked in #8733, and not part of this change.
 - **End to end.** A NativeAOT base/head comparison of the migrated sections,
   per the [evidence contract](../evidence-and-validation.md#nativeaot-beforeafter-for-modernization),
   on every supported terminal: rows, `--count`, `-n`, and `--rows`.
-- **Performance scorecard.** Old, LINQ, NLinq, and Planner over the
-  composite async question and each async analyzer, against the NLinq fixture
+- **Performance scorecard.** Old, LINQ, NLinq, and Planner over async and
+  each of runtime and compiler async, against the NLinq fixture
   of [#8745](https://github.com/richlander/dotnet-inspect/issues/8745). LINQ,
   NLinq, and Planner apply the identical analysis, the same flag test and
   in-place attribute match; only the read machinery differs.
