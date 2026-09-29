@@ -18,6 +18,12 @@ The model combines five mechanisms:
 `-D`, `-S`, and `-Q` are intentionally capitalized. They form a query namespace that
 is less likely to collide with command-specific lowercase options.
 
+Contextual post-success tips are separate from output scope and are opt-in.
+Bare `-T` or `--tips` requests up to three suggestions on `stderr`; `-T:d`
+requests up to six. The request is independent of output verbosity, format,
+section selection, and row or line limits. A successful command with no
+applicable suggestions emits no tip block.
+
 ## API visibility and implementation populations
 
 `--all` has one meaning at API boundaries: it widens the ordinary

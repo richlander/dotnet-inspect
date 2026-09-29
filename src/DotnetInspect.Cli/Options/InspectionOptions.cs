@@ -309,7 +309,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// Tip verbosity level.
     /// </summary>
-    public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+    public TipLevel TipLevel { get; init; } = TipLevel.Quiet;
 
     /// <summary>
     /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose

@@ -198,8 +198,7 @@ public static class DiffOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || options.SelectDefault || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
+        var tipLevel = opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);
     }
