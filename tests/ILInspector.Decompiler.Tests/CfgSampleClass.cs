@@ -2420,6 +2420,18 @@ public class CfgSampleClass
         int Read() => _localFunctionState + previous;
     }
 
+    // NullCoalescingAssignmentPass raises the later write before local-function
+    // recovery, but the earlier environment-field snapshot must remain distinct.
+    public string InstanceLocalFunctionWithNullCoalescingSnapshot(string? input)
+    {
+        string? source = input;
+        string? previous = source;
+        source ??= "after";
+        return Read() + "/" + source;
+
+        string Read() => _localFunctionState + previous;
+    }
+
     int Read(int value) => value + 10;
 
     // The authored `this.Read` must not become a recursive call to the recovered
@@ -2430,6 +2442,28 @@ public class CfgSampleClass
 
         int Read(int current)
             => current == 0 ? 0 : this.Read(current - 1) + 1;
+    }
+
+    // The local declaration shadows the member throughout the containing block,
+    // including member calls that sit outside the imported local-function body.
+    public int InstanceLocalFunctionShadowingHostInstanceMember(int value)
+    {
+        return this.Read(value) + Read(value);
+
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    // Method-group spelling drops the exact-this receiver too, so the recovered
+    // declaration would otherwise redirect this delegate to the local function.
+    public int InstanceLocalFunctionShadowingInstanceMemberGroup(int value)
+    {
+        return Read(value);
+
+        int Read(int current)
+        {
+            Func<int, int> callback = this.Read;
+            return callback(current) + _localFunctionState;
+        }
     }
 
     // Adversarial breadth: one capturing local function called twice. Both calls

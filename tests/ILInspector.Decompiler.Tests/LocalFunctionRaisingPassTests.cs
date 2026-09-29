@@ -251,10 +251,44 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void InstanceLocalFunctionWithNullCoalescingSnapshot_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionWithNullCoalescingSnapshot),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("DisplayClass", output);
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
     public void InstanceLocalFunctionShadowingInstanceMember_StaysLowered()
     {
         string output = PrintRaised(
             nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceMember),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingHostInstanceMember_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingHostInstanceMember),
+            function => Assert.Empty(
+                function.Descendants.OfType<LocalFunctionStatement>()));
+
+        Assert.Contains("g__Read", output);
+    }
+
+    [Fact]
+    public void InstanceLocalFunctionShadowingInstanceMemberGroup_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.InstanceLocalFunctionShadowingInstanceMemberGroup),
             function => Assert.Empty(
                 function.Descendants.OfType<LocalFunctionStatement>()));
 

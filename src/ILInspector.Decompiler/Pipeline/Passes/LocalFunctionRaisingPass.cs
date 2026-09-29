@@ -277,6 +277,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (calls.Any(call => !CanPreserveParameterRefKinds(call.Callee, visibleParameterCount)))
                 continue;
 
+            string sourceName = CSharpNaming.MethodName(method.Name);
+            if (HasShadowedInstanceMemberReference(function, method, sourceName))
+                continue;
+
             if (!context.TryEnterCrossMethodPipeline(method, out var importScope))
                 continue;
             using (importScope)
@@ -334,8 +338,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 {
                     continue;
                 }
-                string sourceName = CSharpNaming.MethodName(method.Name);
-                if (HasShadowedInstanceMemberCall(body, method, sourceName))
+                if (HasShadowedInstanceMemberReference(body, method, sourceName))
                     continue;
 
                 importScope.Run(body, IrPasses.Default);
@@ -349,7 +352,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 {
                     continue;
                 }
-                if (HasShadowedInstanceMemberCall(body, method, sourceName))
+                if (HasShadowedInstanceMemberReference(body, method, sourceName))
                     continue;
                 // And vote again on the body's self-references, for the same reason the
                 // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
@@ -855,19 +858,56 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             && CallsUseHostReceiver(body, references.Cast<Call>());
     }
 
-    static bool HasShadowedInstanceMemberCall(
-        IrFunction body,
+    static bool HasShadowedInstanceMemberReference(
+        IrFunction function,
         MethodRef localMethod,
         string localName)
-        => body.Descendants.OfType<Call>().Any(call =>
-            !SameLocalFunctionMethod(call.Callee, localMethod)
-            && call.Callee.HasThis
-            && call.Arguments.Count > 0
-            && IsHostReceiver(body, call.Arguments[0])
-            && string.Equals(
-                CSharpNaming.SourceMethodName(call.Callee),
-                localName,
-                StringComparison.Ordinal));
+    {
+        foreach (var node in function.Descendants)
+        {
+            MethodRef method;
+            IrExpression receiver;
+            switch (node)
+            {
+                case Call
+                {
+                    Callee.HasThis: true,
+                    Arguments.Count: > 0,
+                } call:
+                    method = call.Callee;
+                    receiver = call.Arguments[0];
+                    break;
+                case DelegateCreation
+                {
+                    Method.HasThis: true,
+                } creation:
+                    method = creation.Method;
+                    receiver = creation.Target;
+                    break;
+                case LoadFunctionPointer
+                {
+                    Method.HasThis: true,
+                    Instance: { } instance,
+                } pointer:
+                    method = pointer.Method;
+                    receiver = instance;
+                    break;
+                default:
+                    continue;
+            }
+
+            if (!SameLocalFunctionMethod(method, localMethod)
+                && IsHostReceiver(function, receiver)
+                && string.Equals(
+                    CSharpNaming.SourceMethodName(method),
+                    localName,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     static bool CallsUseHostReceiver(IrFunction function, IEnumerable<Call> calls)
         => function.Signature.HasThis
@@ -992,6 +1032,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                         LocalIndex: var assignedLocal,
                         IsDeclared: false,
                     } when assignedLocal == index:
+                case NullCoalescingAssignment assignment
+                    when assignment.LocalIndex == index:
                     return true;
             }
         }
