@@ -297,10 +297,15 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void ExecutePath_LimitsLiftedOwnerAttributionProbe()
+    public void ExecutePath_AttributesLiftedBodyWithoutDecodingItsOwner()
     {
         using var image = new PEReader(File.OpenRead(FixturePath));
         MetadataReader reader = image.GetMetadataReader();
+        MethodDefinitionHandle owner = Assert.Single(
+            reader.MethodDefinitions,
+            handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(BodyUseSource.BoundedLiftedOwner)));
         MethodDefinitionHandle lifted = Assert.Single(
             reader.MethodDefinitions,
             handle => reader.GetString(
@@ -308,8 +313,9 @@ public sealed class AnalysisLibraryBodyUseTests
                 .Contains(
                     "<BoundedLiftedOwner>g__Local",
                     StringComparison.Ordinal));
-        int liftedToken = MetadataTokens.GetToken(lifted);
 
+        // The owner exceeds the two-instruction limit; the lifted body
+        // (newobj, ret) does not, and its attribution decodes no other body.
         AnalysisLibraryBodyUseResult result =
             Available(
                 AnalysisLibraryBodyUseService.ExecutePath(
@@ -319,22 +325,82 @@ public sealed class AnalysisLibraryBodyUseTests
                             MaximumInstructionsPerBody: 2)),
                     TestContext.Current.CancellationToken)).Result;
 
-        Assert.Equal(
-            AnalysisLibraryBodyUseDisposition.Partial,
-            result.Disposition);
-        AnalysisLibraryBodyUseDiagnostic diagnostic =
-            Assert.Single(
-                result.Diagnostics,
-                candidate =>
-                    candidate.MethodToken == liftedToken
-                    && candidate.Kind
-                        == AnalysisLibraryBodyUseDiagnosticKind.Limit);
-        Assert.Equal(2, diagnostic.Limit);
-        Assert.Equal(3, diagnostic.AttemptedCharge);
         Assert.Contains(
-            "Logical-owner attribution probe",
-            diagnostic.Detail,
-            StringComparison.Ordinal);
+            result.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == MetadataTokens.GetToken(owner)
+                && diagnostic.Kind
+                    == AnalysisLibraryBodyUseDiagnosticKind.Limit);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == MetadataTokens.GetToken(lifted));
+        Assert.Equal(
+            AnalysisLibraryBodyUseFidelity.LogicalOwner,
+            Assert.Single(
+                result.PhysicalEvidence,
+                evidence =>
+                    evidence.PhysicalMethodToken
+                        == MetadataTokens.GetToken(lifted)).Fidelity);
+        Assert.Contains(
+            result.Occurrences,
+            occurrence =>
+                occurrence.PhysicalMethodToken
+                    == MetadataTokens.GetToken(lifted)
+                && Name(occurrence.SourceType)
+                    == "AnalysisBodyUseFixtures.BodyUseSource"
+                && Name(occurrence.TargetType)
+                    == "AnalysisBodyUseFixtures.BodyUseTarget");
+    }
+
+    [Fact]
+    public void ExecutePath_AttributesOnlyStateMachineRoleBodies()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecutePath(
+                    FixturePath,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        using var image = new PEReader(
+            File.OpenRead(FixturePath));
+        MetadataReader reader = image.GetMetadataReader();
+        MethodDefinitionHandle kickoff = reader.MethodDefinitions.Single(
+            handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                nameof(BodyUseSource.IteratorUse)));
+        StateMachineRelationshipResult.Resolved relationship =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                StateMachineRelationshipIndex
+                    .Create(reader)
+                    .GetByKickoff(kickoff));
+        var roles = relationship.Relationship.Roles
+            .OfType<StateMachineRoleDisposition.Present>()
+            .Select(static role => role.Method.Token)
+            .ToHashSet();
+        Assert.Equal(2, roles.Count);
+
+        // Roslyn's iterator role bodies (MoveNext, Dispose) belong to the
+        // kickoff's declaring Type; its other generated members do not.
+        TypeDefinitionHandle stateMachine =
+            reader.GetMethodDefinition(
+                    MetadataTokens.MethodDefinitionHandle(roles.First()))
+                .GetDeclaringType();
+        foreach (MethodDefinitionHandle method
+            in reader.GetTypeDefinition(stateMachine).GetMethods())
+        {
+            int token = MetadataTokens.GetToken(method);
+            AnalysisLibraryBodyUsePhysicalEvidence evidence =
+                Assert.Single(
+                    result.PhysicalEvidence,
+                    candidate => candidate.PhysicalMethodToken == token);
+            Assert.Equal(
+                roles.Contains(token)
+                    ? AnalysisLibraryBodyUseFidelity.LogicalOwner
+                    : AnalysisLibraryBodyUseFidelity.PhysicalOnly,
+                evidence.Fidelity);
+        }
     }
 
     [Fact]

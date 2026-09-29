@@ -201,8 +201,6 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
         using var builder =
             new LibraryBodyAnalysisBuilder(path, reader, image);
         var runner = new LibraryMethodAnalysisRunner(builder);
-        StateMachineRelationshipIndex stateMachines =
-            StateMachineRelationshipIndex.Create(reader);
         var occurrences =
             ImmutableArray.CreateBuilder<CanonicalOccurrence>();
         int types = 0;
@@ -250,7 +248,6 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                         method,
                         image.GetMethodBody(
                             method.RelativeVirtualAddress),
-                        stateMachines.GetByImplementation(methodHandle),
                         int.MaxValue,
                         int.MaxValue,
                         cancellationToken);

@@ -10,13 +10,14 @@ namespace ILInspector.Analysis;
 
 internal sealed partial class LibraryMethodAnalysisRunner
 {
+    BodyUseOwnerAttribution? _bodyUseOwners;
+
     internal BodyTypeUseMethodFact AnalyzeBodyTypeUses(
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition,
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodBodyBlock body,
-        StateMachineRelationshipResult stateMachineByImplementation,
         int maximumInstructions,
         int maximumOccurrences,
         CancellationToken cancellationToken)
@@ -48,89 +49,15 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     methodHandle,
                     methodDefinition,
                     scope);
-            DeclaredOwnerResolution resolution;
-            MethodIdentity? logicalMethod;
-            if (stateMachineByImplementation
-                is StateMachineRelationshipResult.Rejected)
-            {
-                logicalMethod = null;
-                resolution = DeclaredOwnerResolution.Rejected;
-            }
-            else
-            {
-                MethodDefinitionHandle ownerHandle = methodHandle;
-                MethodDefinition ownerDefinition = methodDefinition;
-                TypeDefinitionHandle ownerTypeHandle = typeHandle;
-                TypeDefinition ownerType = typeDefinition;
-                MethodIdentity ownerMethod = physicalMethod;
-                if (stateMachineByImplementation
-                    is StateMachineRelationshipResult.Resolved stateMachine)
-                {
-                    ownerHandle =
-                        stateMachine.Relationship.Kickoff.Handle;
-                    ownerDefinition =
-                        _infrastructure.Reader.GetMethodDefinition(
-                            ownerHandle);
-                    ownerTypeHandle =
-                        ownerDefinition.GetDeclaringType();
-                    ownerType =
-                        _infrastructure.Reader.GetTypeDefinition(
-                            ownerTypeHandle);
-                    GenericScope ownerScope =
-                        _infrastructure.CreateScope(
-                            ownerType,
-                            ownerDefinition);
-                    ownerMethod =
-                        _infrastructure.CreateMethodIdentity(
-                            ownerTypeHandle,
-                            ownerHandle,
-                            ownerDefinition,
-                            ownerScope);
-                }
-
-                bool ownerSourceGenerated =
-                    _infrastructure.IsSourceGeneratedTypeOrEnclosing(
-                        ownerTypeHandle);
-                bool ownerCompilerGenerated =
-                    _infrastructure.HasCompilerGeneratedAttribute(
-                        ownerDefinition.GetCustomAttributes())
-                    || _infrastructure.HasCompilerGeneratedAttribute(
-                        ownerType.GetCustomAttributes());
-                try
-                {
-                    resolution =
-                        _infrastructure.ResolveUltimateDeclaredMethod(
-                            ownerHandle,
-                            ownerDefinition,
-                            ownerMethod,
-                            ownerSourceGenerated,
-                            maximumInstructions,
-                            cancellationToken,
-                            out _,
-                            out AuthenticatedSourceOwner? ultimateOwner);
-                    logicalMethod = resolution switch
-                    {
-                        DeclaredOwnerResolution.None
-                            when !ownerCompilerGenerated => ownerMethod,
-                        DeclaredOwnerResolution.Resolved =>
-                            ultimateOwner!.Value.Method,
-                        _ => null,
-                    };
-                }
-                catch (
-                    AttributionBodyInstructionLimitExceededException exception)
-                {
-                    return BodyTypeUseMethodFact.CreateLimited(
-                        typeHandle,
-                        methodToken,
-                        exception.AttemptedCharge,
-                        exception.Limit,
-                        detail:
-                            "Logical-owner attribution probe "
-                            + $"0x{exception.MethodToken:X8} exceeded its "
-                            + "Analysis body-use instruction limit.");
-                }
-            }
+            _bodyUseOwners ??= new(_infrastructure.Reader);
+            BodyUseOwner owner = _bodyUseOwners.Attribute(methodHandle);
+            TypeDefinitionHandle? source =
+                owner.Status == BodyUseOwnerStatus.Logical
+                    && AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
+                        _infrastructure.Reader,
+                        _infrastructure.Reader.GetTypeDefinition(owner.Source))
+                    ? owner.Source
+                    : null;
 
             var rows = ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>();
             var diagnostics =
@@ -198,7 +125,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             token,
                             instruction.Offset,
                             methodToken,
-                            logicalMethod,
+                            source,
                             operandRows,
                             ref ordinal);
                     }
@@ -232,7 +159,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 }
             }
 
-            if (logicalMethod is null)
+            if (owner.Status != BodyUseOwnerStatus.Logical)
             {
                 diagnostics.Add(
                     new(
@@ -240,7 +167,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             .UnavailableLogicalOwner,
                         methodToken,
                         null,
-                        resolution == DeclaredOwnerResolution.Rejected
+                        owner.Status == BodyUseOwnerStatus.Rejected
                             ? "Generated-body ownership evidence was rejected."
                             : "The physical body has no authenticated logical owner."));
             }
@@ -250,9 +177,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
             return new(
                 physicalType,
                 methodToken,
-                logicalMethod is null
-                    ? AnalysisLibraryBodyUseFidelity.PhysicalOnly
-                    : AnalysisLibraryBodyUseFidelity.LogicalOwner,
+                owner.Status == BodyUseOwnerStatus.Logical
+                    ? AnalysisLibraryBodyUseFidelity.LogicalOwner
+                    : AnalysisLibraryBodyUseFidelity.PhysicalOnly,
                 rows.ToImmutable(),
                 diagnostics.ToImmutable(),
                 operandsConsidered,
@@ -284,20 +211,14 @@ internal sealed partial class LibraryMethodAnalysisRunner
         int operandToken,
         int ilOffset,
         int methodToken,
-        MethodIdentity? logicalMethod,
+        TypeDefinitionHandle? source,
         ImmutableArray<BodyTypeUseOccurrence>.Builder rows,
         ref int ordinal)
     {
         switch (type.Kind)
         {
             case TypeRefKind.Definition:
-                if (logicalMethod is not null
-                    && _infrastructure.TryResolveLocalTypeDefinition(
-                        logicalMethod.DeclaringType,
-                        out TypeDefinitionHandle source)
-                    && AnalysisLibraryBodyUseProducer.IsTypeInPopulation(
-                        _infrastructure.Reader,
-                        _infrastructure.Reader.GetTypeDefinition(source))
+                if (source is { } logicalSource
                     && _infrastructure.TryResolveLocalTypeDefinition(
                         type,
                         out TypeDefinitionHandle target)
@@ -307,7 +228,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 {
                     rows.Add(
                         new(
-                            source,
+                            logicalSource,
                             target,
                             methodToken,
                             kind,
@@ -326,7 +247,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         operandToken,
                         ilOffset,
                         methodToken,
-                        logicalMethod,
+                        source,
                         rows,
                         ref ordinal);
                 }
@@ -338,7 +259,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         operandToken,
                         ilOffset,
                         methodToken,
-                        logicalMethod,
+                        source,
                         rows,
                         ref ordinal);
                 }
@@ -356,7 +277,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         operandToken,
                         ilOffset,
                         methodToken,
-                        logicalMethod,
+                        source,
                         rows,
                         ref ordinal);
                 }
@@ -372,7 +293,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         operandToken,
                         ilOffset,
                         methodToken,
-                        logicalMethod,
+                        source,
                         rows,
                         ref ordinal);
                 }
@@ -382,7 +303,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     operandToken,
                     ilOffset,
                     methodToken,
-                    logicalMethod,
+                    source,
                     rows,
                     ref ordinal);
                 break;
@@ -394,7 +315,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     operandToken,
                     ilOffset,
                     methodToken,
-                    logicalMethod,
+                    source,
                     rows,
                     ref ordinal);
                 foreach (TypeRef parameter
@@ -406,7 +327,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         operandToken,
                         ilOffset,
                         methodToken,
-                        logicalMethod,
+                        source,
                         rows,
                         ref ordinal);
                 }

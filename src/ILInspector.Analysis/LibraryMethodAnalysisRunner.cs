@@ -88,9 +88,6 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool HasGeneratedCodeAttribute(
         CustomAttributeHandleCollection attributes);
 
-    bool IsSourceGeneratedTypeOrEnclosing(
-        TypeDefinitionHandle typeHandle);
-
     bool TryResolveLocalTypeDefinition(
         TypeRef type,
         out TypeDefinitionHandle handle);
@@ -146,16 +143,6 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         MethodIdentity method,
         bool typeSourceGenerated,
-        out AuthenticatedSourceOwner? immediateOwner,
-        out AuthenticatedSourceOwner? ultimateOwner);
-
-    DeclaredOwnerResolution ResolveUltimateDeclaredMethod(
-        MethodDefinitionHandle methodHandle,
-        MethodDefinition methodDefinition,
-        MethodIdentity method,
-        bool typeSourceGenerated,
-        int maximumInstructionsPerAttributionBody,
-        CancellationToken cancellationToken,
         out AuthenticatedSourceOwner? immediateOwner,
         out AuthenticatedSourceOwner? ultimateOwner);
 

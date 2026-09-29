@@ -13,10 +13,10 @@ Its exact claim is:
 > Given one exact supported ECMA-335 assembly image and one explicit
 > whole-Library body-use request, safely examine every admitted managed IL
 > body, resolve typed operands that name Types defined in that exact image,
-> attribute Roslyn-generated physical bodies to their authenticated declared
-> owners, and publish detached source-to-target occurrence evidence with exact
-> image identity, coverage, work, fidelity qualification, and visible
-> failures.
+> attribute Roslyn-generated physical bodies to their declared owners by
+> Roslyn's emission shape, and publish detached source-to-target occurrence
+> evidence with exact image identity, coverage, work, fidelity
+> qualification, and visible failures.
 
 This owner defines Analysis construction, logical ownership, binding, and
 qualification only. It does not define Metadata signature use, Graph degree,
@@ -25,10 +25,12 @@ provider-backed acquisition.
 
 ## Fidelity and security
 
-The fidelity claim covers Roslyn-produced assemblies. The producer may rely on
-gated Roslyn emission invariants when correlating generated physical bodies
-with declared source owners. An unrecognized or non-Roslyn lowering does not
-receive that fidelity claim.
+The fidelity claim covers Roslyn-produced assemblies, including SDK-trimmed
+output. Logical ownership follows Roslyn's emission shape directly, as
+[Logical ownership](#logical-ownership) states. For output from other tools
+(rewriters, custom trimming, hand-authored or adversarial metadata), an
+ownership answer may be wrong but is never insecure. Exists, Count, and Rows
+over this population share that one fidelity.
 
 Security covers every supported ECMA-335 input, regardless of compiler. The
 image remains untrusted: instruction decode, token resolution, relationship
@@ -36,24 +38,62 @@ construction, retained evidence, and diagnostics are bounded and fail
 visibly. A compiler shape cannot cause unbounded work, process failure, or
 partial success-shaped publication.
 
-The per-body instruction limit also governs every other body decoded to
-authenticate that body's logical owner. Both the current body and attribution
-probes observe cancellation during bounded decode. An attribution probe that
-exceeds the limit makes the dependent body limited and partial; Analysis does
-not decode the unadmitted suffix or publish logical ownership from it.
+Ownership attribution decodes no body other than the one it attributes, so
+the per-body instruction limit bounds each body's decode alone.
 
 The result distinguishes:
 
-- **logical fidelity**, where owner-issued evidence authenticates the
-  Roslyn-lowered body and declared owner;
+- **logical fidelity**, where the body's Roslyn emission shape names its
+  declared owner;
 - **physical only**, where the body is safe to inspect but logical ownership
   is outside the fidelity contract; and
 - **unavailable**, where malformed or bounded evidence prevents trustworthy
   physical publication.
 
 Physical-only evidence is not malformed evidence. It retains its physical
-owner and exact qualification but cannot silently participate as a
-Roslyn-authenticated logical owner.
+owner and exact qualification but cannot silently participate as a logical
+owner.
+
+## Logical ownership
+
+Attribution reads Roslyn's emission shape. It does not authenticate it.
+Authenticated substrates such as `StateMachineRelationshipIndex` remain the
+owners of explicitly requested relationship facts; body use asks only which
+declared Type a body's uses belong to, and Roslyn's shape answers that exactly.
+
+For one physical MethodDef body:
+
+1. **State-machine role.** When the body's declaring Type is a nested Type
+   whose name starts with `<`, its host is the Type that declares it. A host
+   method carrying `AsyncStateMachineAttribute`,
+   `AsyncIteratorStateMachineAttribute`, or `IteratorStateMachineAttribute`
+   is a kickoff; the attribute's serialized `System.Type` argument names the
+   state machine by its innermost nested segment. A body is a role
+   implementation when an explicit `MethodImpl` of that state machine binds
+   it to a role declaration: `MoveNext` and `SetStateMachine` for async;
+   those plus `MoveNextAsync` and `DisposeAsync` for an async iterator; and
+   `MoveNext` and `Dispose` for an iterator. A role body continues as its
+   kickoff. A Type claimed by two kickoffs, or a name two nested Types share,
+   maps no role.
+2. **Lifted method.** A method whose name is a canonical lifted lambda or
+   local-function name belongs to the innermost declaring Type whose name
+   does not start with `<>`. Roslyn places closure Types (`<>c`,
+   `<>c__DisplayClass…`) inside the Type that declares the source method, so
+   this also covers a lifted kickoff, such as an async lambda's. A name with a
+   lifted marker that is not canonical is rejected.
+3. **Otherwise** the method belongs to its declaring Type, unless the method
+   or that Type carries `CompilerGeneratedAttribute`; then the body is
+   physical only. Closure constructors, a state machine's non-role members,
+   auto-property accessors, and record-synthesized members are physical only.
+
+The rule is linear in metadata: each host's methods and attributes are read
+once, attribute constructors and Type answers are memoized, and a declaring
+chain walk is bounded by `MetadataSafetyPolicy.MaxRelationshipNodes`. An
+unreadable host fails every generated body it hosts visibly as malformed.
+
+Attribution never requires the owner's body to reference the lifted body. A
+local function whose calls Roslyn elided, such as a `[Conditional("DEBUG")]`
+helper, still belongs to the Type that declares it.
 
 ## Identity and population
 
@@ -83,10 +123,9 @@ operand produces `A -> B` when:
 A physical-only body retains qualified operand evidence but does not
 manufacture a logical source relationship.
 
-Authenticated state-machine implementation ownership first identifies the
-kickoff method, then resolves that method through the ultimate declared-owner
-relationship. This composition prevents an async lambda's generated kickoff
-Type from becoming a logical endpoint.
+A state-machine role body continues as its kickoff before lifted-method
+attribution, so an async lambda's generated kickoff Type never becomes a
+logical endpoint.
 
 Typed method, field, Type, and method-instantiation operands participate.
 Constructed shapes contribute every contained named definition. Intrinsic
@@ -116,8 +155,7 @@ terminal. It declares the smallest applicable combination of:
 
 - declaration metadata;
 - managed body;
-- execution-scoped module lookup;
-- state-machine or declared-owner evidence; and
+- execution-scoped module lookup; and
 - identity text needed only by retained rows.
 
 The producer visits units handed to it; it never iterates the Library.
@@ -168,8 +206,8 @@ The producer reuses:
 - `LibraryBodyAnalysisService` for exact-image execution;
 - `MethodDefinitionProducer` and its typed outcome and receipt;
 - `ILInspector.Instructions` for bounded decode and physical offsets;
-- `LibraryBodyDeclaredSourceResolver` plus
-  `StateMachineRelationshipIndex` for declared ownership;
+- the execution-scoped module lookup for
+  [logical ownership](#logical-ownership);
 - existing Analysis generic-scope and same-image token resolution; and
 - `MetadataTypeDefinitionAddress` and structured Type names.
 
@@ -224,8 +262,10 @@ Release gates prove:
 - typed method, field, Type, and method-instantiation operand participation;
 - constructed shapes, parallel occurrences, and self relationships;
 - exact local binding and foreign-target omission;
-- Roslyn async, iterator, local-function, lambda, and top-level ownership;
-- safe, visibly qualified non-Roslyn or unrecognized lowering;
+- Roslyn async, iterator, local-function, lambda, and top-level ownership,
+  with only state-machine role bodies continuing as their kickoff;
+- compiler-generated non-lifted members kept physical only, and bounded,
+  visibly failing handling of non-Roslyn or unrecognized lowering;
 - malformed bodies and tokens, unresolved operands, duplicate identities, and
   exact work limits;
 - atomic operand publication and retained healthy evidence; and
