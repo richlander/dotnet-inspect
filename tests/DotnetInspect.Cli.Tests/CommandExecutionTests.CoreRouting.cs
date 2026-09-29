@@ -3063,10 +3063,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains(
-            "# System.Text.Json.JsonSerializer",
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Deserialize (",
             routed.Output);
-        Assert.Contains("## Methods", routed.Output);
+        Assert.DoesNotContain("## Methods", routed.Output);
     }
 
     [Fact]

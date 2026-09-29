@@ -914,11 +914,14 @@ public partial class CommandExecutionTests
     public async Task Member_MethodsTable_ShowsAlwaysOnDigestColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializer", "-m", "Serialize", "--tips", "q");
+            "member", "JsonSerializer", "-m", "Serialize",
+            "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         // The durable ~digest handle is always shown as a Digest column in the default member table.
-        Assert.Contains("| Name | Digest | Signature | Description |", output);
+        Assert.Matches(
+            @"(?m)^Name\s+Digest\s+Signature\s+Description\s*$",
+            output);
         Assert.Empty(error);
     }
 

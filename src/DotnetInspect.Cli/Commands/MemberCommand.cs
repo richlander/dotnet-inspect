@@ -815,6 +815,8 @@ public static class MemberCommand
                     CancellationToken.None);
             }
             if (effectiveOptions.Tree
+                && !(effectiveOptions.Count
+                    && effectiveOptions.IncludeSections is { Count: 1 })
                 && (effectiveOptions.IncludeSections is not { Count: 1 }
                     || !effectiveOptions.IncludeSections.Contains(
                         SectionNames.CallGraph)))
