@@ -10,6 +10,7 @@ public sealed class MetadataDeclarationSession : IDisposable
     MetadataImageAdmissionResult? _imageAdmission;
     MetadataTypeDefinitionIndex? _typeDefinitionIndex;
     MemorySafetyMetadataIndex? _memorySafetyIndex;
+    MetadataTypeMemberCompositionModule? _compositionModule;
     MethodSemanticsAssociationSession? _methodSemanticsAssociations;
     Dictionary<
         MetadataAccessorDeclarationRequest,
@@ -99,8 +100,11 @@ public sealed class MetadataDeclarationSession : IDisposable
         if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
             return new MetadataTypeMemberCompositionOutcome.Failed();
 
+        MetadataReader reader =
+            _assemblySession!.GetMetadataReaderForDeclarationSession();
         return MetadataTypeMemberCompositionInspection.Read(
-            _assemblySession!.GetMetadataReaderForDeclarationSession(),
+            reader,
+            _compositionModule ??= new MetadataTypeMemberCompositionModule(reader),
             type,
             spelling,
             includeHidden,
