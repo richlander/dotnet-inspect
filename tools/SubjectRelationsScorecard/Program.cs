@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.PerformanceOracles;
@@ -117,7 +116,6 @@ sealed class HierarchyAsset : IDisposable
         Path = path;
         Kind = kind;
         Target = target;
-        Reader = new PEReader(ImmutableArray.Create(content));
         Session = AssemblyInspectionSession.OpenPrefetched(
             new MemoryStream(content, writable: false));
         Name =
@@ -146,21 +144,13 @@ sealed class HierarchyAsset : IDisposable
 
     public MetadataTypeDefinitionName Target { get; }
 
-    public PEReader Reader { get; }
-
     public AssemblyInspectionSession Session { get; }
 
     public MetadataRelationInspectionRequest OldRequest { get; }
 
     public MetadataRelationInspectionRequest PlannerRequest { get; }
 
-    public MetadataReader Metadata => Reader.GetMetadataReader();
-
-    public void Dispose()
-    {
-        Session.Dispose();
-        Reader.Dispose();
-    }
+    public void Dispose() => Session.Dispose();
 
     public static bool TryLoad(
         string specification,
@@ -246,16 +236,13 @@ struct HierarchyAnalysisUnits :
         HierarchyAnalysisUnits,
         MetadataHierarchyRelationAnalysisUnit>
 {
-    readonly MetadataReader _reader;
     TypeDefinitionHandleCollection.Enumerator _types;
     readonly MetadataHierarchyRelationAnalysisPass _pass;
 
     public HierarchyAnalysisUnits(
-        MetadataReader reader,
         MetadataHierarchyRelationAnalysisPass pass)
     {
-        _reader = reader;
-        _types = reader.TypeDefinitions.GetEnumerator();
+        _types = pass.TypeDefinitions.GetEnumerator();
         _pass = pass;
     }
 
@@ -269,7 +256,7 @@ struct HierarchyAnalysisUnits :
         }
 
         hasMore = true;
-        return _pass.Analyze(_reader, _types.Current);
+        return _pass.Analyze(_types.Current);
     }
 
     static TAccumulator
@@ -330,16 +317,16 @@ static class HierarchySafetyCheck
         byte[] content,
         MetadataTypeDefinitionName target)
     {
-        using var image =
-            new PEReader(ImmutableArray.Create(content));
-        MetadataReader reader = image.GetMetadataReader();
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(content, writable: false));
         using var pass =
             new MetadataHierarchyRelationAnalysisPass(
-                reader,
+                session,
                 Request(target));
         MetadataHierarchyRelationAnalysisUnit[] units =
-            reader.TypeDefinitions
-                .Select(handle => pass.Analyze(reader, handle))
+            pass.TypeDefinitions
+                .Select(pass.Analyze)
                 .ToArray();
         return Observe(units, pass.Counters);
     }
@@ -348,14 +335,14 @@ static class HierarchySafetyCheck
         byte[] content,
         MetadataTypeDefinitionName target)
     {
-        using var image =
-            new PEReader(ImmutableArray.Create(content));
-        MetadataReader reader = image.GetMetadataReader();
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(content, writable: false));
         using var pass =
             new MetadataHierarchyRelationAnalysisPass(
-                reader,
+                session,
                 Request(target));
-        var source = new HierarchyAnalysisUnits(reader, pass);
+        var source = new HierarchyAnalysisUnits(pass);
         List<MetadataHierarchyRelationAnalysisUnit> units =
             source.ToList<
                 HierarchyAnalysisUnits,
@@ -424,31 +411,30 @@ static class HierarchySafetyCheck
 }
 
 struct HierarchyCandidateRows :
-    NLinq.IEnumerator<HierarchyCandidateRows, HierarchyAnswerRow>
+    NLinq.IEnumerator<HierarchyCandidateRows, HierarchyAnswerRow>,
+    IDisposable
 {
-    readonly MetadataReader _reader;
     TypeDefinitionHandleCollection.Enumerator _types;
     readonly MetadataHierarchyRelationKind _kind;
     readonly bool _materializeRows;
     readonly MetadataHierarchyRelationAnalysisPass _pass;
 
     public HierarchyCandidateRows(
-        MetadataReader reader,
+        AssemblyInspectionSession session,
         MetadataHierarchyRelationKind kind,
         MetadataTypeDefinitionName target,
         bool materializeRows = true)
     {
-        _reader = reader;
-        _types = reader.TypeDefinitions.GetEnumerator();
         _kind = kind;
         _materializeRows = materializeRows;
         _pass =
             new(
-                reader,
+                session,
                 new(
                     new(target, kind),
                     MetadataOperationPolicy.Unbounded,
                     materializeRows: materializeRows));
+        _types = _pass.TypeDefinitions.GetEnumerator();
     }
 
     public HierarchyAnswerRow TryGetNext(out bool hasMore)
@@ -457,7 +443,7 @@ struct HierarchyCandidateRows :
         {
             TypeDefinitionHandle source = _types.Current;
             MetadataHierarchyRelationAnalysisUnit unit =
-                _pass.Analyze(_reader, source);
+                _pass.Analyze(source);
             bool matched =
                 _kind == MetadataHierarchyRelationKind.BaseType
                     ? unit.BaseMatched
@@ -483,6 +469,8 @@ struct HierarchyCandidateRows :
         hasMore = false;
         return default;
     }
+
+    public void Dispose() => _pass.Dispose();
 
     static TAccumulator
         NLinq.IEnumerator<HierarchyCandidateRows, HierarchyAnswerRow>
@@ -530,72 +518,80 @@ static class HierarchyPopulation
     {
         var selected =
             new HierarchyCandidateRows(
-                asset.Metadata,
+                asset.Session,
                 asset.Kind,
                 asset.Target,
                 materializeRows:
                     closing is not ScorecardClosing.Count
                         and not ScorecardClosing.Exists);
-        switch (closing)
+        try
         {
-            case ScorecardClosing.Exists:
-                _ = selected.TryGetNext(out bool exists);
-                return ScorecardAnswer<HierarchyAnswerRow>.OfExists(
-                    exists);
-            case ScorecardClosing.Count:
-                return ScorecardAnswer<HierarchyAnswerRow>.OfCount(
-                    selected.CountFold<
-                        HierarchyCandidateRows,
-                        HierarchyAnswerRow>());
-            case ScorecardClosing.Rows:
-                return ScorecardAnswer<HierarchyAnswerRow>.OfRows(
-                    selected.ToList<
-                        HierarchyCandidateRows,
-                        HierarchyAnswerRow>());
-            case ScorecardClosing.Head:
+            switch (closing)
             {
-                var rows =
-                    selected.Take<
-                        HierarchyCandidateRows,
-                        HierarchyAnswerRow>(shape.N);
-                var result = new List<HierarchyAnswerRow>(shape.N);
-                while (true)
-                {
-                    HierarchyAnswerRow row =
-                        rows.TryGetNext(out bool hasMore);
-                    if (!hasMore)
-                    {
-                        return ScorecardAnswer<HierarchyAnswerRow>
-                            .OfRows(result);
-                    }
-                    result.Add(row);
-                }
-            }
-            case ScorecardClosing.Tail:
-            {
-                List<HierarchyAnswerRow> last =
-                    selected.TakeLast<
-                        HierarchyCandidateRows,
-                        HierarchyAnswerRow>(shape.N);
-                return ScorecardAnswer<HierarchyAnswerRow>.OfRows(
-                    last);
-            }
-            case ScorecardClosing.Window:
-                return selected
-                        .Skip<
+                case ScorecardClosing.Exists:
+                    _ = selected.TryGetNext(out bool exists);
+                    return ScorecardAnswer<HierarchyAnswerRow>.OfExists(
+                        exists);
+                case ScorecardClosing.Count:
+                    return ScorecardAnswer<HierarchyAnswerRow>.OfCount(
+                        selected.CountFold<
                             HierarchyCandidateRows,
-                            HierarchyAnswerRow>(shape.WindowSkip)
-                        .TryTakeExactly<
-                            SkipEnumerator<
+                            HierarchyAnswerRow>());
+                case ScorecardClosing.Rows:
+                    return ScorecardAnswer<HierarchyAnswerRow>.OfRows(
+                        selected.ToList<
+                            HierarchyCandidateRows,
+                            HierarchyAnswerRow>());
+                case ScorecardClosing.Head:
+                {
+                    var rows =
+                        selected.Take<
+                            HierarchyCandidateRows,
+                            HierarchyAnswerRow>(shape.N);
+                    var result = new List<HierarchyAnswerRow>(shape.N);
+                    while (true)
+                    {
+                        HierarchyAnswerRow row =
+                            rows.TryGetNext(out bool hasMore);
+                        if (!hasMore)
+                        {
+                            return ScorecardAnswer<HierarchyAnswerRow>
+                                .OfRows(result);
+                        }
+                        result.Add(row);
+                    }
+                }
+                case ScorecardClosing.Tail:
+                {
+                    List<HierarchyAnswerRow> last =
+                        selected.TakeLast<
+                            HierarchyCandidateRows,
+                            HierarchyAnswerRow>(shape.N);
+                    return ScorecardAnswer<HierarchyAnswerRow>.OfRows(
+                        last);
+                }
+                case ScorecardClosing.Window:
+                    return selected
+                            .Skip<
                                 HierarchyCandidateRows,
-                                HierarchyAnswerRow>,
-                            HierarchyAnswerRow>(
-                                shape.WindowTake,
-                                out List<HierarchyAnswerRow> window)
-                    ? ScorecardAnswer<HierarchyAnswerRow>.OfRows(window)
-                    : ScorecardAnswer<HierarchyAnswerRow>.OfWindowFailure();
-            default:
-                throw new ArgumentOutOfRangeException(nameof(closing));
+                                HierarchyAnswerRow>(shape.WindowSkip)
+                            .TryTakeExactly<
+                                SkipEnumerator<
+                                    HierarchyCandidateRows,
+                                    HierarchyAnswerRow>,
+                                HierarchyAnswerRow>(
+                                    shape.WindowTake,
+                                    out List<HierarchyAnswerRow> window)
+                        ? ScorecardAnswer<HierarchyAnswerRow>.OfRows(window)
+                        : ScorecardAnswer<HierarchyAnswerRow>
+                            .OfWindowFailure();
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(closing));
+            }
+        }
+        finally
+        {
+            selected.Dispose();
         }
     }
 
@@ -606,7 +602,7 @@ static class HierarchyPopulation
     {
         IEnumerable<HierarchyAnswerRow> rows =
             EnumerateCandidates(
-                asset.Metadata,
+                asset.Session,
                 asset.Kind,
                 asset.Target);
         return Answer(closing, rows, shape);
@@ -713,12 +709,12 @@ static class HierarchyPopulation
         };
 
     static IEnumerable<HierarchyAnswerRow> EnumerateCandidates(
-        MetadataReader reader,
+        AssemblyInspectionSession session,
         MetadataHierarchyRelationKind kind,
         MetadataTypeDefinitionName target)
     {
-        var rows = new HierarchyCandidateRows(
-            reader,
+        using var rows = new HierarchyCandidateRows(
+            session,
             kind,
             target);
         while (true)

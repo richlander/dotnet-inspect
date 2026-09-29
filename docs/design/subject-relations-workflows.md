@@ -350,6 +350,13 @@ LINQ, NLinq, and Planner call the same product-owned analysis pass for this
 scope, matching, guarded decoding, budget charging, and row projection, as
 required by the
 [performance-oracle rule](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+Every standard scorecard column starts from the same session-owned admitted
+metadata image. General format classification and `MetadataReader`
+construction occur once when the asset session opens; LINQ and NLinq construct
+their shared pass from that session, while Planner consumes the same retained
+reader without repeating admission. The scorecard therefore measures reader
+and terminal machinery after a common admission boundary. Exact end-to-end
+measurements separately retain acquisition and admission cost.
 The scorecard answer gate includes the producer's malformed generic-TypeSpec
 fixture and compares diagnostics and operation counters as well as benign rows.
 The scorecard measures the shipping analysis stage; exact NativeAOT base/head
@@ -382,10 +389,16 @@ blob reads; it must not create unbounded work, unsafe memory behavior, assembly
 loading, or another containment failure. A malformed or non-canonical target
 may be rejected as incomplete and is not promised an exact semantic answer.
 Its failure remains visible in producer disposition and diagnostics. Hierarchy
-analysis uses one lazy, memoized nested-Type visibility resolver per admitted
-image. It charges declaring-Type edges to the relationship budget, detects
-cycles by identity, and aborts that malformed family instead of repeating a
-declaring-Type walk for each candidate.
+production is responsible for high-fidelity answers on Roslyn-produced
+assemblies and secure, bounded behavior on every admitted assembly. The
+session-owned image, not the hierarchy producer, rejects unsupported Windows
+Metadata and malformed metadata-reader construction before the producer runs.
+Within an admitted reader, guarded decoding and operation budgets remain the
+producer's responsibility. Hierarchy analysis uses one lazy, memoized
+nested-Type visibility resolver per admitted image. It charges declaring-Type edges
+to the relationship budget, detects cycles by identity, and aborts that
+malformed family instead of repeating a declaring-Type walk for each
+candidate.
 
 The canonical row unit is one logical relation. Each row preserves:
 

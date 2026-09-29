@@ -898,6 +898,18 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void OpenPrefetched_RejectsInvalidReaderBeforeSessionPublication()
+    {
+        var stream = new DisposeCountingMemoryStream(
+            BuildOverflowingMetadataStreamCount());
+
+        Assert.Throws<OverflowException>(
+            () => AssemblyInspectionSession.OpenPrefetched(stream));
+
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Fact]
     public void SurfaceClassification_PreservesMalformedRootReason()
     {
         string path = Path.Combine(

@@ -11,6 +11,49 @@ namespace ILInspector.Metadata.Tests;
 public sealed class MetadataRelationInspectionTests
 {
     [Fact]
+    public void HierarchyAnalysisPassRequiresAnAdmittedSession()
+    {
+        System.Reflection.ConstructorInfo constructor =
+            Assert.Single(
+                typeof(MetadataHierarchyRelationAnalysisPass)
+                    .GetConstructors());
+
+        Assert.Equal(
+            [
+                typeof(AssemblyInspectionSession),
+                typeof(MetadataHierarchyRelationAnalysisRequest),
+            ],
+            constructor.GetParameters()
+                .Select(static parameter => parameter.ParameterType));
+    }
+
+    [Fact]
+    public void HierarchyAnalysisRejectsNativeImageBeforeProducerExecution()
+    {
+        byte[] image =
+            MetadataFormatAdmissionTests.BuildImage("v4.0.30319");
+        MetadataFormatAdmissionTests.RemoveMetadataDirectory(image);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+
+        var rejected =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Rejected>(
+                    session.AnalyzeHierarchyRelations(
+                        new(
+                            new(
+                                TypeName("System", "Object"),
+                                MetadataHierarchyRelationKind.BaseType),
+                            MetadataOperationPolicy.Unbounded),
+                        TestContext.Current.CancellationToken));
+
+        Assert.IsType<MetadataImageFormatResult.NoMetadata>(
+            rejected.Format);
+        Assert.False(session.HasMetadata);
+    }
+
+    [Fact]
     public void AssemblyReferencePopulationPushesCountAndBoundedRows()
     {
         using AssemblyInspectionSession session =
@@ -727,14 +770,9 @@ public sealed class MetadataRelationInspectionTests
                         MetadataOperationPolicy.Unbounded,
                         hierarchyTarget: target),
                     TestContext.Current.CancellationToken));
-        using var image =
-            new PEReader(
-                ImmutableArray.Create(
-                    File.ReadAllBytes(path)));
-        MetadataReader reader = image.GetMetadataReader();
         using var pass =
             new MetadataHierarchyRelationAnalysisPass(
-                reader,
+                session,
                 new(
                     target,
                     MetadataOperationPolicy.Unbounded));
@@ -742,10 +780,10 @@ public sealed class MetadataRelationInspectionTests
             ImmutableArray.CreateBuilder<
                 MetadataHierarchyRelationAnalysisRow>();
         int passCandidateCount = 0;
-        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        foreach (TypeDefinitionHandle handle in pass.TypeDefinitions)
         {
             MetadataHierarchyRelationAnalysisUnit unit =
-                pass.Analyze(reader, handle);
+                pass.Analyze(handle);
             Assert.Null(unit.Diagnostic);
             passCandidateCount += unit.CandidateCount;
             if (unit.BaseRelation is { } baseRelation)
@@ -945,12 +983,9 @@ public sealed class MetadataRelationInspectionTests
             diagnostic.Kind);
         Assert.NotEmpty(diagnostic.Detail);
 
-        using var image =
-            new PEReader(ImmutableArray.Create(content));
-        MetadataReader reader = image.GetMetadataReader();
         using var pass =
             new MetadataHierarchyRelationAnalysisPass(
-                reader,
+                session,
                 new(
                     new(
                         TypeName("Sample", "ITarget`1"),
@@ -958,8 +993,8 @@ public sealed class MetadataRelationInspectionTests
                     MetadataOperationPolicy.Unbounded));
         MetadataHierarchyRelationAnalysisUnit unit =
             Assert.Single(
-                reader.TypeDefinitions
-                    .Select(handle => pass.Analyze(reader, handle)),
+                pass.TypeDefinitions
+                    .Select(pass.Analyze),
                 static candidate =>
                     candidate.Diagnostic is not null);
         Assert.Equal(

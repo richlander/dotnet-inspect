@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
@@ -116,25 +115,32 @@ public readonly record struct MetadataHierarchyRelationAnalysisUnit(
 /// One product-owned hierarchy-analysis pass. LINQ, NLinq, and Planner readers
 /// use this pass so only their iteration and closing machinery differs.
 /// </summary>
+/// <remarks>
+/// The source session must remain alive until this pass is disposed.
+/// Construction consumes the session's retained admitted metadata reader;
+/// producers do not repeat general image-format admission.
+/// </remarks>
 public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 {
+    readonly MetadataReader _reader;
     readonly MetadataHierarchyRelationAnalysisRequest _request;
     readonly MetadataOperationContext _operation;
     readonly MetadataVisibilityResolver? _visibility;
     readonly bool _ownsOperation;
 
     public MetadataHierarchyRelationAnalysisPass(
-        MetadataReader reader,
+        AssemblyInspectionSession session,
         MetadataHierarchyRelationAnalysisRequest request)
     {
-        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(session);
         _request = request
             ?? throw new ArgumentNullException(nameof(request));
+        _reader = session.GetAdmittedMetadataReader();
         _operation = new(request.Policy);
         _ownsOperation = true;
         try
         {
-            if (_operation.AdmitImage(reader)
+            if (_operation.AdmitImage(_reader)
                 is MetadataImageAdmissionResult.Rejected rejected)
             {
                 throw new InvalidOperationException(
@@ -144,7 +150,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
             }
             _visibility = request.IncludeNonPublic
                 ? null
-                : new MetadataVisibilityResolver(reader);
+                : new MetadataVisibilityResolver(_reader);
         }
         catch
         {
@@ -162,7 +168,8 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
             ?? throw new ArgumentNullException(nameof(request));
         _operation = operation
             ?? throw new ArgumentNullException(nameof(operation));
-        ArgumentNullException.ThrowIfNull(reader);
+        _reader = reader
+            ?? throw new ArgumentNullException(nameof(reader));
         _visibility = request.IncludeNonPublic
             ? null
             : new MetadataVisibilityResolver(reader);
@@ -170,26 +177,27 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 
     public MetadataOperationCounters Counters => _operation.Counters;
 
+    public TypeDefinitionHandleCollection TypeDefinitions =>
+        _reader.TypeDefinitions;
+
     public MetadataHierarchyRelationAnalysisUnit Analyze(
-        MetadataReader reader,
         TypeDefinitionHandle handle)
     {
-        ArgumentNullException.ThrowIfNull(reader);
         _operation.Charge(
             MetadataOperationDimension.DeclarationCandidates);
 
         try
         {
             TypeDefinition definition =
-                reader.GetTypeDefinition(handle);
+                _reader.GetTypeDefinition(handle);
             if ((!_request.IncludeNonPublic
                     && !_visibility!.IsExternallyVisible(
-                        reader,
+                        _reader,
                         handle,
                         _operation))
                 || (!_request.IncludeHidden
                     && AttributeReader.HasHiddenAttribute(
-                        reader,
+                        _reader,
                         definition.GetCustomAttributes())))
             {
                 return new(
@@ -215,7 +223,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                 baseToken = MetadataTokens.GetToken(handle);
                 MetadataRelationDiagnostic? diagnostic =
                     Match(
-                        reader,
+                        _reader,
                         definition.BaseType,
                         baseToken,
                         out baseMatched);
@@ -233,13 +241,13 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                         MetadataOperationDimension
                             .InterfaceImplementationRows);
                     InterfaceImplementation implementation =
-                        reader.GetInterfaceImplementation(
+                        _reader.GetInterfaceImplementation(
                             implementationHandle);
                     int token =
                         MetadataTokens.GetToken(implementationHandle);
                     MetadataRelationDiagnostic? diagnostic =
                         Match(
-                            reader,
+                            _reader,
                             implementation.Interface,
                             token,
                             out bool matches);
@@ -282,7 +290,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 
             MetadataTypeDefinitionNameReadResult read =
                 MetadataTypeDefinitionName.Read(
-                    reader,
+                    _reader,
                     handle);
             if (read
                 is MetadataTypeDefinitionNameReadResult.Rejected rejected)
@@ -303,7 +311,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 
             MetadataTypeDefinitionAddress address =
                 MetadataTypeDefinitionAddress.FromHandle(
-                    reader,
+                    _reader,
                     handle);
             return new(
                 IsExcluded: false,
@@ -395,7 +403,7 @@ public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
 /// </summary>
 public static class MetadataHierarchyRelationAnalysis
 {
-    public static MetadataTypeDefinitionNameMatchResult MatchTarget(
+    internal static MetadataTypeDefinitionNameMatchResult MatchTarget(
         MetadataReader reader,
         EntityHandle target,
         MetadataTypeDefinitionName expected) =>
@@ -476,46 +484,13 @@ internal static partial class MetadataRelationInspection
 {
     internal static MetadataHierarchyRelationAnalysisOutcome
         ExecuteHierarchyAnalysis(
-            PEReader image,
+            MetadataReader reader,
             MetadataHierarchyRelationAnalysisRequest request,
             CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-
-        MetadataImageFormatResult format =
-            MetadataImageFormatClassifier.Classify(image);
-        if (format is not MetadataImageFormatResult.SupportedEcma335)
-        {
-            return new MetadataHierarchyRelationAnalysisOutcome.Rejected(
-                format,
-                format switch
-                {
-                    MetadataImageFormatResult.NoMetadata =>
-                        "The selected image contains no managed metadata.",
-                    MetadataImageFormatResult.UnsupportedWindowsMetadata =>
-                        "Windows Metadata is not a supported relation input.",
-                    MetadataImageFormatResult.MalformedRoot =>
-                        "The selected image has a malformed metadata root.",
-                    _ => "The selected image format is unavailable.",
-                });
-        }
-
-        MetadataReader reader;
-        try
-        {
-            reader = image.GetMetadataReader(MetadataReaderOptions.None);
-        }
-        catch (Exception exception)
-            when (exception is BadImageFormatException
-                or OverflowException)
-        {
-            return new MetadataHierarchyRelationAnalysisOutcome.Rejected(
-                new MetadataImageFormatResult.MalformedRoot(
-                    MetadataRootMalformedReason.UnmappableMetadataDirectory),
-                exception.Message);
-        }
 
         var relationRequest = new MetadataRelationInspectionRequest(
             [MetadataRelationFamily.Hierarchy],
@@ -667,7 +642,7 @@ internal static partial class MetadataRelationInspection
                     continue;
                 considered++;
                 MetadataHierarchyRelationAnalysisUnit unit =
-                    pass.Analyze(reader, handle);
+                    pass.Analyze(handle);
                 if (unit.IsExcluded)
                 {
                     excluded++;

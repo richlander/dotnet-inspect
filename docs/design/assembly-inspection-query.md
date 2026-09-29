@@ -1317,6 +1317,31 @@ friend only its test assemblies. The current
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
 friend set rather than checking selected production assembly names.
 
+### Format admission is an owner precondition
+
+`AssemblyImage` owns general assembly-format admission. Its construction
+classifies the immutable image and, for supported ECMA-335 metadata,
+constructs the shared `MetadataReader` before publishing an
+`AssemblyInspectionSession`. Unsupported Windows Metadata and malformed
+reader construction therefore fail before any producer runs. A native image
+may publish a session with `HasMetadata == false`; the session settles a
+metadata request as `NoMetadata` without invoking its producer.
+
+A Metadata producer reached through `AssemblyInspectionSession` consumes only
+that retained admitted reader. It must not classify the image again or carry
+its own Windows Metadata check. Raw `PEReader` entry points that remain during
+the incremental scanner migration are compatibility admission boundaries, not
+the producer contract; migrate them behind the session rather than copying
+their checks into new producers.
+
+Admission does not make metadata rows trustworthy. Each producer remains
+responsible for high-fidelity answers on Roslyn-produced assemblies and for
+secure, bounded behavior on every admitted assembly. Producer-owned guarded
+decoding, work budgets, recursion bounds, and visible partial or failed
+outcomes enforce that second responsibility. General format admission and
+producer-local containment are separate gates; neither substitutes for the
+other.
+
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
 {
