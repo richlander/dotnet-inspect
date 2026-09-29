@@ -37,20 +37,16 @@ import {
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
 
-test("retained Workspace clones drop live implementation callbacks", () => {
+test("retained Workspace clones drop live Type heat callbacks", () => {
   const clone = sourceText(
     functionDeclaration("cloneCanonicalWorkspaceSnapshotForRetention"),
   );
   assert.match(
     clone,
-    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*implementationProfiles:\s*\{\s*status:\s*"idle" as const\s*\},\s*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
+    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
   );
 
   const liveState = {
-    implementationProfiles: {
-      status: "ready",
-      selection: { isCurrent: () => true },
-    },
     typeHeat: {
       status: "ready",
       isCurrent: () => true,
@@ -63,11 +59,9 @@ test("retained Workspace clones drop live implementation callbacks", () => {
   assert.deepEqual(
     structuredClone({
       ...liveState,
-      implementationProfiles: { status: "idle" },
       typeHeat: { status: "idle" },
     }),
     {
-      implementationProfiles: { status: "idle" },
       typeHeat: { status: "idle" },
     },
   );
@@ -457,7 +451,7 @@ test("package call graph traversal policy is independent of saved workspace memb
     /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
 });
 
-test("source-bearing Workspace URLs use page-session retained activation", () => {
+test("complete Workspace URLs use page-session retained activation", () => {
   const initialRestore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}/)?.[0] ?? "";
   const inAppNavigation = appSource.match(
@@ -524,6 +518,9 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     workspaceFeedActivationSource,
     /describeWorkspacePackageSources[\s\S]*AuthenticationRequired[\s\S]*workspaceCredentialPromptHtml/);
+  assert.doesNotMatch(
+    workspaceFeedActivationSource,
+    /description\.sources\.length/);
   assert.match(
     workspaceFeedActivationSource,
     /patInput\.value = ""[\s\S]*credential\.pat = ""[\s\S]*secretValues\.fill\(""\)/);
@@ -1254,7 +1251,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const predecessorEntryId = ensureCurrentHistoryEntryId\(\);[\s\S]*const successorState = predecessorEntryId[\s\S]*packageActivityHistoryState\([\s\S]*predecessorEntryId,[\s\S]*returnFocus[\s\S]*if \(!workspaceLocation\.push\(PACKAGE_ACTIVITY_PATH, successorState\)\) \{[\s\S]*reportProductNavigationFailure\(\s*"activity",[\s\S]*return false;[\s\S]*state\.packageQueryOpen = false;[\s\S]*state\.packageActivityOpen = true;[\s\S]*focusPackageActivityInput\(\)/);
   assert.match(
     appSource,
-    /function focusPackageActivityInput\(\) \{[\s\S]*const packageSet = document\.querySelector<HTMLSelectElement>\([\s\S]*if \(packageSet && !packageSet\.disabled\) \{[\s\S]*packageSet\.focus\(\);[\s\S]*document\.activeElement === packageSet[\s\S]*focusLevelOneHeading\(\)/);
+    /function focusPackageActivityInput\(\) \{[\s\S]*const ecosystem = document\.querySelector<HTMLSelectElement>\(\s*"#package-changes-ecosystem"\);[\s\S]*if \(ecosystem && !ecosystem\.disabled\) \{[\s\S]*ecosystem\.focus\(\);[\s\S]*document\.activeElement === ecosystem[\s\S]*focusLevelOneHeading\(\)/);
   assert.match(
     closeActivityRoute,
     /packageChangesController\.cancel\("disposed"\);[\s\S]*state\.packageActivityOpenedFromApp[\s\S]*history\.back\(\)[\s\S]*state\.packageActivityOpen = false;[\s\S]*workspaceLocation\.replace\("\/"\)/);
@@ -1833,7 +1830,7 @@ test("history validates saved type and member identity before restoring Member s
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
   assert.match(
     applyView,
-    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{\s*render\(\)/);
+    /navigationHistory\.normalizeCurrent\(\);[\s\S]*loadMemberSectionContent\(state\.memberSection\)[\s\S]*else \{\s*render\(\)/);
   assert.match(
     appSource,
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);

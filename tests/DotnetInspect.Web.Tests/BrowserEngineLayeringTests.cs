@@ -519,12 +519,15 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void CoreAndCapabilityProjectsPinBroadLayeringGate()
+    public void CoreAndRemainingCapabilityProjectsPinBroadLayeringGate()
     {
         string[] projects =
         [
             CoreProjectPath,
-            .. CapabilityProjectPaths,
+            .. CapabilityProjectPaths.Where(project =>
+                !project.Equals(
+                    CallGraphProjectPath,
+                    StringComparison.OrdinalIgnoreCase)),
         ];
 
         Assert.NotEmpty(projects);
@@ -540,8 +543,19 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void ExecutablePinsPlatformHazardsNotBroadInventory()
     {
+        AssertPinsPlatformHazardsNotBroadInventory(EngineProjectPath);
+    }
+
+    [Fact]
+    public void CallGraphFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(CallGraphProjectPath);
+    }
+
+    static void AssertPinsPlatformHazardsNotBroadInventory(string project)
+    {
         IReadOnlyList<string> additionalFiles =
-            EvaluatedProjectItemPaths(EngineProjectPath, "AdditionalFiles");
+            EvaluatedProjectItemPaths(project, "AdditionalFiles");
 
         Assert.Contains(
             additionalFiles,
@@ -730,6 +744,12 @@ public sealed class BrowserEngineLayeringTests
         "src",
         "DotnetInspect.Web.Interop.Package",
         "DotnetInspect.Web.Interop.Package.csproj");
+
+    static string CallGraphProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.CallGraph",
+        "DotnetInspect.Web.Interop.CallGraph.csproj");
 
     static string BroadBanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,

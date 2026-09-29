@@ -92,6 +92,9 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     openUploadedLibrary: () => unexpected("openUploadedLibrary"),
   },
   package: {
+    openPlatformForwarderView: () => unexpected("openPlatformForwarderView"),
+    activatePlatformForwarder: () => unexpected("activatePlatformForwarder"),
+    closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
@@ -136,8 +139,14 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
+    queryMemberGroupDocument: () =>
+      unexpected("queryMemberGroupDocument"),
     queryPlatformMemberDeclaration: () =>
       unexpected("queryPlatformMemberDeclaration"),
+    queryPlatformMemberGroupDocument: () =>
+      unexpected("queryPlatformMemberGroupDocument"),
+    queryUploadedLibraryMemberGroupDocument: () =>
+      unexpected("queryUploadedLibraryMemberGroupDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -155,10 +164,6 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   analysis: {
     queryCloneCandidates: () => unexpected("queryCloneCandidates"),
     queryMemberFacts: () => unexpected("queryMemberFacts"),
-    queryPackageImplementationProfiles: () =>
-      unexpected("queryPackageImplementationProfiles"),
-    queryPlatformImplementationProfiles: () =>
-      unexpected("queryPlatformImplementationProfiles"),
     queryPackageTypeImplementationHeat: () =>
       unexpected("queryPackageTypeImplementationHeat"),
     queryPlatformTypeImplementationHeat: () =>
@@ -182,6 +187,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   },
   source: {
     queryMemberSource: () => unexpected("queryMemberSource"),
+    queryPlatformMemberSource: () =>
+      unexpected("queryPlatformMemberSource"),
     queryTypeMemberSource: () => unexpected("queryTypeMemberSource"),
     cancelSourceQuery: () => unexpected("cancelSourceQuery"),
     queryMethodBodyComparisonTargets: () =>
@@ -443,6 +450,109 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
     assert.equal(oversizedInput.reason, "oversized");
     assert.match(oversizedInput.message, /exceeds 33554432 bytes/);
   }
+});
+
+test("uploaded Library MemberGroup queries use the retained exact image", async () => {
+  const content = [0x4d, 0x5a, 0x00, 0x01];
+  const identity = `sha256:${"a".repeat(64)}`;
+  let received:
+    [string, number[], string, string] | undefined;
+  const state = fixture({
+    library: {
+      async openUploadedLibrary(declaredName, bytes) {
+        return {
+          content: {
+            outcome: "Available",
+            declaredName,
+            digest: "a".repeat(64),
+            byteLength: bytes.length,
+            provenance: {
+              contentRef: "browser-upload",
+              digest: identity,
+              declaredName,
+            },
+            assembly: null,
+            surface: null,
+            inspectionFailures: [],
+            failure: null,
+            isComplete: true,
+          },
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "embedded-library/share",
+            reason: "Uploaded Library bytes are session-local.",
+          },
+          diagnostics: [],
+        };
+      },
+    },
+    metadata: {
+      async queryUploadedLibraryMemberGroupDocument(
+        declaredName,
+        bytes,
+        typeIdentity,
+        memberName,
+      ) {
+        received = [declaredName, bytes, typeIdentity, memberName];
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity,
+            memberName,
+            count: 1,
+            rows: [{
+              metadataToken: 0x06000001,
+              baselineOrdinal: 1,
+              displaySignature: "void Run()",
+              canonicalSignature: "M:Example.Widget.Run",
+              fingerprint: "run",
+              accessibility: "Public",
+              receiver: "This",
+            }],
+          },
+          diagnostics: [],
+        };
+      },
+    },
+  });
+
+  const opened =
+    state.client.library.openUploadedLibrary("Uploaded.dll", content);
+  await state.environment.flushAsync();
+  await opened;
+
+  const document =
+    state.client.metadata.queryUploadedLibraryMemberGroupDocument(
+      identity,
+      "Example.Widget",
+      "Run",
+    );
+  await state.environment.flushAsync();
+
+  assert.equal((await document).outcome, "Available");
+  assert.deepEqual(received, [
+    "Uploaded.dll",
+    content,
+    "Example.Widget",
+    "Run",
+  ]);
+
+  const mismatched =
+    state.client.metadata.queryUploadedLibraryMemberGroupDocument(
+      `sha256:${"b".repeat(64)}`,
+      "Example.Widget",
+      "Run",
+    );
+  const mismatchFailure = assert.rejects(
+    mismatched,
+    /not the image retained in this Worker epoch/,
+  );
+  await state.environment.flushAsync();
+  await mismatchFailure;
+  state.host.dispose();
 });
 
 test("format 3 packet remains opaque across Browser Worker transport", async () => {
@@ -860,44 +970,6 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let libraryDiffCancelArguments: readonly unknown[] = [];
   let platformDocumentationArguments: readonly unknown[] = [];
   let libraryQueryArguments: readonly unknown[] = [];
-  let implementationProfileArguments: readonly unknown[] = [];
-  let platformImplementationProfileArguments: readonly unknown[] = [];
-  const implementationProfiles = {
-    schemaVersion: 2,
-    outcome: "available",
-    subject: null,
-    content: {
-      members: [{
-        typeDefinitionId: "type:Example.Widget",
-        member: "M",
-        stableSelector: "M(int)",
-        bodyTokens: [0x06000001],
-      }, {
-        typeDefinitionId: "type:Example.Widget",
-        member: "M",
-        stableSelector: "M(string)",
-        bodyTokens: [0x06000002],
-      }],
-      methods: [{
-        key: "m:06000001",
-        metadataToken: 0x06000001,
-      }],
-      profiles: [{
-        methodKey: "m:06000001",
-        evidenceMethodKey: "m:06000001",
-        instructionCount: 42,
-      }],
-    },
-    failure: null,
-    share: {
-      kind: "nonProjectable",
-      fullUrl: null,
-      packet: null,
-      path: "implementation-profile-family/share",
-      reason: "No canonical projection.",
-    },
-    diagnostics: [],
-  };
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -1002,14 +1074,6 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
           kind: "Rejected",
         });
       },
-      queryPackageImplementationProfiles: (...args) => {
-        implementationProfileArguments = args;
-        return contractViolation(implementationProfiles);
-      },
-      queryPlatformImplementationProfiles: (...args) => {
-        platformImplementationProfileArguments = args;
-        return contractViolation(implementationProfiles);
-      },
     },
   });
 
@@ -1086,24 +1150,6 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     discovery: "SimilarNames" as const,
   };
   const clone = state.client.analysis.queryCloneCandidates(cloneRequest);
-  const profiles =
-    state.client.analysis.queryPackageImplementationProfiles(
-      "Example.Package",
-      "1.0.0",
-      "net11.0",
-      "lib/net11.0/Example.dll",
-      "type:Example.Widget",
-      ["M(int)", "M(string)"],
-    );
-  const platformProfiles =
-    state.client.analysis.queryPlatformImplementationProfiles(
-      "net11.0",
-      "11.0.0",
-      "System.Private.CoreLib.dll",
-      "Microsoft.NETCore.App",
-      "type:System.Text.StringBuilder",
-      ["AppendFormat(string,object)", "AppendFormat(string,object[])"],
-    );
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     {
@@ -1188,24 +1234,6 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     schemaVersion: 1,
     kind: "Rejected",
   });
-  assert.deepEqual(await profiles, implementationProfiles);
-  assert.deepEqual(await platformProfiles, implementationProfiles);
-  assert.deepEqual(implementationProfileArguments, [
-    "Example.Package",
-    "1.0.0",
-    "net11.0",
-    "lib/net11.0/Example.dll",
-    "type:Example.Widget",
-    ["M(int)", "M(string)"],
-  ]);
-  assert.deepEqual(platformImplementationProfileArguments, [
-    "net11.0",
-    "11.0.0",
-    "System.Private.CoreLib.dll",
-    "Microsoft.NETCore.App",
-    "type:System.Text.StringBuilder",
-    ["AppendFormat(string,object)", "AppendFormat(string,object[])"],
-  ]);
   assert.deepEqual(cloneArguments, [cloneRequest]);
   assert.deepEqual(await libraryDiff, {
     schemaVersion: 1,
@@ -1420,6 +1448,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
   const state = fixture({
     source: {
       queryMemberSource: async () => member,
+      queryPlatformMemberSource: async () => member,
       queryTypeMemberSource: async () => flat,
     },
   });
@@ -1446,9 +1475,22 @@ test("ordinary source transport preserves member parts and flat graph source", a
     0x06000001,
     "[]",
   );
+  const platformMemberResult = state.client.source.queryPlatformMemberSource(
+    "net11.0",
+    "11.0.0",
+    "System.Private.CoreLib.dll",
+    "netcore.app",
+    "System.String",
+    "Clone",
+    "Clone()",
+    0x06000001,
+    "[]",
+    "platform-context",
+  );
   await state.environment.flushAsync();
 
   assert.deepEqual(await memberResult, member);
+  assert.deepEqual(await platformMemberResult, member);
   assert.deepEqual(await graphResult, flat);
   state.host.dispose();
 });
@@ -1921,6 +1963,54 @@ test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () =>
   assert.equal(encode(["id", null, excessive]).kind, "rejected");
 });
 
+test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
+  const calls: unknown[][] = [];
+  const result = {
+    status: "stale" as const,
+    message: "The Library view changed.",
+    view: null,
+    hops: [
+      { sourceAssembly: "System.Xml", targetAssembly: "System.Xml.ReaderWriter" },
+      { sourceAssembly: "System.Xml.ReaderWriter", targetAssembly: "System.Private.Xml" },
+    ],
+    resolutionKind: "Resolved",
+    terminalAssembly: "System.Private.Xml",
+    houseStatus: "Completed",
+    sourceStatus: null,
+  };
+  const state = fixture({
+    package: {
+      openPlatformForwarderView: async (...args) => {
+        calls.push(args);
+        return result;
+      },
+      activatePlatformForwarder: async (action) => {
+        calls.push([action]);
+        return result;
+      },
+      closePlatformForwarderView: (view) => {
+        calls.push([view]);
+        return false;
+      },
+    },
+  });
+  const opened = state.client.package.openPlatformForwarderView(
+    "net11.0", "11.0.0-rc.1.26425.128", "System.Xml.dll", "netcore.app",
+  );
+  const activated = state.client.package.activatePlatformForwarder("opaque-action");
+  const closed = state.client.package.closePlatformForwarderView("opaque-view");
+  await state.environment.flushAsync();
+  assert.deepEqual(await opened, result);
+  assert.deepEqual(await activated, result);
+  assert.equal(await closed, false);
+  assert.deepEqual(calls, [
+    ["net11.0", "11.0.0-rc.1.26425.128", "System.Xml.dll", "netcore.app"],
+    ["opaque-action"],
+    ["opaque-view"],
+  ]);
+  state.host.dispose();
+});
+
 test("a closed-epoch ordinary client cannot dispatch into a replacement", async () => {
   let calls = 0;
   const state = fixture({
@@ -1967,15 +2057,18 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "openUploadedLibrary",
     ],
     package: [
+      "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
+      "closePlatformForwarderView",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
       "loadRuntimePack",
       "loadRuntimePackAssembly",
       "matchPackageDependencyCoordinate",
+      "openPlatformForwarderView",
       "packageCacheStats",
       "prefetchPlatformPacks",
       "queryLibraries",
@@ -1998,7 +2091,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
+      "queryMemberGroupDocument",
       "queryPlatformMemberDeclaration",
+      "queryPlatformMemberGroupDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2006,17 +2101,16 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadata",
       "queryPlatformMetadataTable",
       "queryTypeProjection",
+      "queryUploadedLibraryMemberGroupDocument",
     ],
     analysis: [
       "queryCloneCandidates",
       "queryMemberFacts",
-      "queryPackageImplementationProfiles",
       "queryPackageIntegrations",
       "queryPackageLibraryMetrics",
       "queryPackageOpportunities",
       "queryPackagePerformance",
       "queryPackageTypeImplementationHeat",
-      "queryPlatformImplementationProfiles",
       "queryPlatformIntegrations",
       "queryPlatformLibraryMetrics",
       "queryPlatformOpportunities",
@@ -2032,6 +2126,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberSourceComparison",
       "queryMethodBodyComparison",
       "queryMethodBodyComparisonTargets",
+      "queryPlatformMemberSource",
       "queryTypeMemberSource",
     ],
     callGraph: [
@@ -2078,7 +2173,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 88);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 93);
 
   const state = fixture();
   const groups = [

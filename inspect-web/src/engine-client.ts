@@ -22,17 +22,20 @@ type AsyncFacade<
 };
 
 type PackageOperations =
+  | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
   | "classifyPackageGraphIdentities"
   | "clearWorkspacePackageOccurrences"
+  | "closePlatformForwarderView"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
-  | "listPackageActivityPackageSets"
+  | "listPackageActivityEcosystems"
   | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
+  | "openPlatformForwarderView"
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryLibraries"
@@ -58,7 +61,9 @@ type MetadataOperations =
   | "findTypes"
   | "queryLibraryApiDiff"
   | "queryMemberDeclaration"
+  | "queryMemberGroupDocument"
   | "queryPlatformMemberDeclaration"
+  | "queryPlatformMemberGroupDocument"
   | "queryGraphMemberSurface"
   | "queryPackageHeapEntries"
   | "queryPackageMetadata"
@@ -71,13 +76,11 @@ type MetadataOperations =
 type AnalysisOperations =
   | "queryCloneCandidates"
   | "queryMemberFacts"
-  | "queryPackageImplementationProfiles"
   | "queryPackageTypeImplementationHeat"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
-  | "queryPlatformImplementationProfiles"
   | "queryPlatformTypeImplementationHeat"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformIntegrations"
@@ -90,6 +93,7 @@ type SourceOperations =
   | "cancelSourceQuery"
   | "queryMemberFindingCensus"
   | "queryMemberSource"
+  | "queryPlatformMemberSource"
   | "queryMethodBodyComparison"
   | "queryMethodBodyComparisonTargets"
   | "queryTypeExplorer"
@@ -142,7 +146,15 @@ export interface EngineClient {
     ): Promise<ReturnType<PackageFacade["requestPackageQueryMatches"]>>;
   };
   readonly library: AsyncFacade<LibraryFacade, LibraryOperations>;
-  readonly metadata: AsyncFacade<MetadataFacade, MetadataOperations>;
+  readonly metadata: AsyncFacade<MetadataFacade, MetadataOperations> & {
+    readonly queryUploadedLibraryMemberGroupDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      memberName: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
+    >>>;
+  };
   readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations>;
   readonly source: AsyncFacade<SourceFacade, SourceOperations> & {
     queryMemberSourceComparison(

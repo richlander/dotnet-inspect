@@ -337,7 +337,7 @@ public static class ApiMemberSectionDescriptors
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => !MemberFilters.IsCompilerGenerated(m.Name));
+            => model.Members.Count > 0;
     }
 
     public sealed class MethodGroups : ISectionDescriptor<ApiType>
@@ -607,7 +607,7 @@ public static class ApiMemberSectionDescriptors
         public static bool CanRender(ApiType model)
             // Enums have no method bodies but the whole-type listing renders
             // their declaration and values.
-            => model.Members.Any(IsMethodLike) || model.Kind == "enum";
+            => model.Members.Any(IsBodyBacked) || model.Kind == "enum";
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>

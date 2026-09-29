@@ -150,6 +150,7 @@ const run: BrowserMemberSurface = {
   anchorDigest: "widget-run",
   canonicalSignature: "void Example.Widget.Run()",
   anchorTypeFullName: "Example.Widget",
+  declaringTypeDefinitionId: null,
   graphSelectorKey: "Run",
   bodySelectors: [{ token: 0x06000001, memberName: "Run", selectorKey: "Run" }],
 };
@@ -773,17 +774,18 @@ async function installFacades(
           maxWorkspaceRetainedImageBytes: 67108864,
         };
       }
-      export function listPackageActivityPackageSets() {
+      export function listPackageActivityEcosystems() {
         if (packageLoading.activityCatalogFailure) {
           throw new Error("Package Activity catalog offline");
         }
         return {
           version: 1,
-          packageSets: [{
-            id: "package-set.fixture",
-            title: "Fixture packages",
-            summary: "Browser fixture package set.",
+          ecosystems: [{
+            id: "ecosystem.fixture",
+            title: "Fixture",
+            summary: "Browser fixture Ecosystem.",
             order: 10,
+            prefixes: ["Fixture."],
           }],
         };
       }
@@ -940,6 +942,68 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      function memberGroupDocument(surface, typeIdentity, memberName) {
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const overloads = type?.api.filter(member =>
+          member.kind === "method"
+          && member.name === memberName
+          && !member.graphOnly) ?? [];
+        if (!type || overloads.length === 0) {
+          return {
+            outcome: "Rejected",
+            detail: "The exact ordinary method group was not found.",
+            document: null,
+            diagnostics: [],
+          };
+        }
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity: type.queryId,
+            memberName,
+            count: overloads.length,
+            rows: overloads.map((member, index) => ({
+              metadataToken: member.metadataToken ?? 0,
+              baselineOrdinal: index + 1,
+              displaySignature: member.signature,
+              canonicalSignature: member.canonicalSignature,
+              fingerprint: member.anchorDigest,
+              accessibility: member.accessibility,
+              receiver: member.isExtension
+                ? "Extension"
+                : member.isStatic ? "Static" : "This",
+            })),
+          },
+          diagnostics: [],
+        };
+      }
+      export async function queryMemberGroupDocument(
+        id, version, framework, assembly, typeIdentity, memberName) {
+        document.documentElement.dataset.memberGroupDocumentRequest =
+          JSON.stringify([id, version, framework, assembly, typeIdentity, memberName]);
+        return memberGroupDocument(
+          surfaceFor(id, version, framework), typeIdentity, memberName);
+      }
+      export async function queryPlatformMemberGroupDocument(
+        framework, version, assembly, pack, typeIdentity, memberName) {
+        document.documentElement.dataset.platformMemberGroupDocumentRequest =
+          JSON.stringify([framework, version, assembly, pack, typeIdentity, memberName]);
+        return memberGroupDocument(
+          surfaceFor("Microsoft.NETCore.App", version, framework),
+          typeIdentity,
+          memberName);
+      }
+      export async function queryUploadedLibraryMemberGroupDocument(
+        declaredName, content, typeIdentity, memberName) {
+        document.documentElement.dataset.uploadedLibraryMemberGroupDocumentRequest =
+          JSON.stringify([declaredName, content.length, typeIdentity, memberName]);
+        return memberGroupDocument(
+          surfaces[0],
+          typeIdentity,
+          memberName);
+      }
       export async function queryPlatformMetadata(tfm, version, file, pack) {
         document.documentElement.dataset.platformMetadataRequest = JSON.stringify([tfm, version, file, pack]);
         return {
@@ -1638,6 +1702,42 @@ async function installFacades(
           surface, selected, version, framework, selected.id));
       }`,
     source: `
+      export async function queryPlatformMemberSource(
+        framework,
+        version,
+        assembly,
+        pack,
+        type,
+        member,
+        selector,
+        token,
+        taste,
+        contextId
+      ) {
+        document.documentElement.dataset.platformMemberSourceRequest =
+          JSON.stringify([
+            framework,
+            version,
+            assembly,
+            pack,
+            type,
+            member,
+            selector,
+            token,
+            taste,
+            contextId,
+          ]);
+        return {
+          source: {
+            provider: "decompiled",
+            provenance: "fixture platform implementation",
+            url: null,
+            pdbSourceLimitation: null,
+            text: "public void Run() {}",
+          },
+          parts: [],
+        };
+      }
       export async function queryTypeSource() {
         return {
           version: 1,
@@ -1736,7 +1836,82 @@ async function installFacades(
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
       }
-      export function describeWorkspacePackageSources() {
+      export function describeWorkspacePackageSources(packet) {
+        if (workspaceSources.length === 0) {
+          let state;
+          try {
+            state = JSON.parse(atob(packet));
+          } catch (error) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "InvalidPacket",
+                path: "packet",
+                message: error instanceof Error
+                  ? error.message
+                  : "The Workspace packet is invalid.",
+              },
+            };
+          }
+          if (![2, 3, 4, 5].includes(state.f)) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedVersion",
+                path: "packet",
+                message: "Complete Workspace restoration does not support this packet format.",
+              },
+            };
+          }
+          if (!Array.isArray(state.t) || state.t.length === 0) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedDefinition",
+                path: "packet.tabs",
+                message: "Complete Workspace link activation requires at least one Package or Platform target.",
+              },
+            };
+          }
+          const states = Array.isArray(state.v) ? state.v : [];
+          const isUnscoped = view =>
+            (!Array.isArray(view?.q) || view.q.length === 0)
+            && (!Array.isArray(view?.l) || view.l.length === 0);
+          const workspace = states[0];
+          const workspaceSupported =
+            states.length === state.t.length + 1
+            && isUnscoped(workspace)
+            && workspace?.u?.k === "workspace"
+            && workspace?.r === undefined
+            && (workspace?.f === undefined
+              || workspace.f === "workspace.overview");
+          const tabsSupported = state.t.every((tab, index) => {
+            const view = states[index + 1];
+            if (!isUnscoped(view)) return false;
+            if (typeof tab?.[0] === "string" && tab[0].startsWith(":")) {
+              return view?.u === undefined
+                && view?.r === undefined
+                && view?.f === undefined;
+            }
+            return view?.u?.k === "package"
+              && view?.r?.k === "package"
+              && (view?.f === undefined || view.f === "package.overview");
+          });
+          if (!workspaceSupported || !tabsSupported) {
+            return {
+              succeeded: false,
+              sources: [],
+              failure: {
+                kind: "UnsupportedDefinition",
+                path: "packet.view.active",
+                message: "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+              },
+            };
+          }
+        }
         return { succeeded: true, sources: workspaceSources, failure: null };
       }`,
   };
@@ -1924,10 +2099,11 @@ async function installLibraryUploadFacades(
   page: Page,
   libraryUpload: LibraryUploadFixture,
   packageLoading: PackageLoadingFixture = {},
+  model: BrowserPackageSurface = surface,
 ) {
   await installFacades(
     page,
-    surface,
+    model,
     [],
     "ready",
     "ready",

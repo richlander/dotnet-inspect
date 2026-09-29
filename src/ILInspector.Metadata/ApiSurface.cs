@@ -1355,6 +1355,14 @@ public class ApiMember
     public string? Accessibility { get; set; }
 
     /// <summary>
+    /// The declaration's own accessibility modifier when it differs from the
+    /// bucket in <see cref="Accessibility"/>, as for an attached extension
+    /// whose declaring Type is narrower than the method; <c>"public"</c> for a
+    /// public declaration in a narrower bucket. Null when the two agree.
+    /// </summary>
+    public string? DeclaredAccessibility { get; set; }
+
+    /// <summary>
     /// True if this is an extension method.
     /// </summary>
     public bool IsExtension { get; set; }

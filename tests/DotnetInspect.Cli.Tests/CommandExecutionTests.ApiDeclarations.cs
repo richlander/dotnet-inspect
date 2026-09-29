@@ -100,7 +100,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Type_ApiDeclarations_PrivateExplicitImplementationsRequireAll(
+    public async Task Type_ApiDeclarations_PrivateExplicitPropertyRequiresAllAndUsesLogicalSpelling(
         bool includeAll)
     {
         string[] scope = includeAll ? ["--all"] : [];
@@ -113,10 +113,14 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        if (includeAll)
-            Assert.Contains("System.Collections.IList.get_IsFixedSize();", output);
-        else
-            Assert.DoesNotContain("System.Collections.IList.get_IsFixedSize();", output);
+        Assert.Equal(
+            includeAll,
+            output.Contains(
+                "bool System.Collections.IList.IsFixedSize { get; }",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "System.Collections.IList.get_IsFixedSize",
+            output);
     }
 
     [Fact]

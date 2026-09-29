@@ -144,6 +144,39 @@ depends on its author's choices, and it costs one loop per question where
 NLinq costs one source per population. A hand-written loop appears only as
 the Old column of a path that already exists.
 
+**Same analysis, different read.** LINQ, NLinq, and Planner answer the same
+question with the same analysis: the same scope and class tests, the same
+predicates, the same guarded decoders and budgets, and the same row
+projection. Only the read machinery may differ: iteration, fusion, query
+execution, and a source-native fact that yields the same answer, such as a
+count from a table size. A gap between columns must mean that one column
+reads more efficiently, never that it omits contract work the others do.
+Only Old legitimately differs, as the labeled product baseline. A
+source-native answer is a Planner technique within this rule, not an
+exception to it; the labeled source-native ceiling column below remains
+outside the standard columns.
+
+The oracle columns therefore call the product's own analysis code, such as
+its gate classification, predicate, and projection structs, rather than
+re-implementing it. A harness that re-implements the analysis drifts in one
+direction: it omits whatever work the pinned assets do not exercise, such as
+containment, authentication, row fidelity, or per-call memo scope. Answers
+still agree on benign assets, so the answer check cannot see the omission,
+and the timing reports a gap that is not there. The answer check also runs
+the producer's hostile safety fixtures, so omitted containment surfaces as a
+mismatch rather than a speedup.
+
+**The frontier lane.** A faster algorithm for the same contract is valuable,
+and oracle authors often find one first, for example one attribute walk
+instead of one per target, or hoisting a per-Type test out of a per-method
+loop. Explore it in a separately labeled frontier experiment, never in the
+oracle column. A frontier implementation may change the algorithm but not
+the contract: it gives the same answers on benign and hostile fixtures and
+keeps the same bounds and visible failures. A frontier win becomes a Planner
+hypothesis. Port it to the product analysis, and re-measure it through the
+standard columns, where the oracle adopts it too, because the oracle calls
+the product code.
+
 Every scorecard closing has an NLinq query; when NLinq lacks an operator, the
 fixture adds it. A source-native answer, such as a count from a table size, is
 a Planner technique, not an exception: its ratio to NLinq shows what it skips.
@@ -162,11 +195,21 @@ than an inspected artifact:
   and times rotated rounds. `MethodPopulation<TSelection>` supplies the LINQ
   and NLinq columns for any method selection; an enablement registers its Old
   and Planner columns beside them.
+- `tests/ILInspector.Metadata.PerformanceOracles.Tests` owns the privileged
+  Metadata test projection. `MemberGroupPopulation` projects Metadata's
+  prepared exact-overload model through LINQ, NLinq, and the shipping Planner
+  kernel, preserving the same selection, row projection, bounds, and closing
+  without exposing raw-reader lifetime through the public product API.
 - `tools/QuerySpaceScorecard` runs a scorecard over the public-methods
   population. `queryspace-scorecard check <assembly>...` compares answers, and
   `queryspace-scorecard time [--rounds N] [--budget-ms N] [--tsv <path>]
   <assembly>...` prints the ratios and absolute medians. Time the NativeAOT
   publish, not `dotnet run`.
+- `tools/MemberGroupScorecard` checks and times exact-overload Count and Rows
+  over pinned `System.Text.Json` scenarios. It reports preparation, kernel,
+  and composed costs separately; its answer hashes cover the complete
+  normalized result. Publish it for the target RID and run
+  `membergroup-scorecard <check|time> <System.Text.Json.dll>`.
 
 **The scorecard** scores Old, LINQ, NLinq, and Planner for Exists, Count,
 Head(N), Tail(N), Rows, and Rows(n..m), over one open query on pinned real
@@ -177,7 +220,8 @@ assets:
   absolute medians alongside.
 - Check that every column gives the same answer for every closing and asset:
   the Boolean, the count, or the rows' identity. Report a strict window's
-  failure as a failure, never as a success.
+  failure as a failure, never as a success. Include the producer's hostile
+  safety fixtures in the check.
 - Mark each Planner cell as shipping in the candidate or measured only in an
   experiment.
 - Run on at least two machines, and exclude a loaded run with its reason.

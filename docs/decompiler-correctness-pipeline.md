@@ -48,10 +48,15 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
-Syntax and semantic validity bind the same first product projection. The
-harness may sample that immutable rendered artifact for the semantic lane, but
-must not invoke a mutating raising pipeline again and accidentally compile a
-different second projection.
+Syntax and semantic validity bind the same first product projection, using the
+product printer's fully qualified type artifact before host-owned
+collision-aware shortening. The harness may sample that immutable rendered
+artifact for the semantic lane and wrap it in its declaration shell, but must
+not rewrite the body or invoke a mutating raising pipeline again and
+accidentally compile a different second projection. Missing fully qualified
+target-assembly namespaces remain explicit shell-visibility noise (`CS0400`);
+the harness does not reference the inspected assembly and accidentally bind a
+different product version already present in its own runtime closure.
 `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
 gates this ownership boundary with compiler-produced runtime-async IL.
 

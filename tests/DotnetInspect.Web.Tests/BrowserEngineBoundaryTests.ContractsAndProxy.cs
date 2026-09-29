@@ -10,6 +10,7 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -305,6 +306,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.False(ordinary.IsStatic);
         Assert.False(ordinary.IsObsolete);
 
+        // The projection carries the Metadata owner's effective
+        // accessibility: an explicit implementation of a public interface is
+        // public, of an internal interface internal, and a finalizer protected.
         BrowserMemberSurfaceInfo explicitImplementation = BrowserSurfaceProjection.Member(
             type,
             new ApiMember
@@ -314,7 +318,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 Signature = "void IDisposable.Dispose()",
             });
 
-        Assert.Equal("private", explicitImplementation.Accessibility);
+        Assert.Equal("public", explicitImplementation.Accessibility);
+
+        BrowserMemberSurfaceInfo internalImplementation = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "IInternalContract.Hidden",
+                Kind = "explicit-interface-implementation",
+                Signature = "void IInternalContract.Hidden()",
+                Accessibility = "internal",
+            });
+
+        Assert.Equal("internal", internalImplementation.Accessibility);
 
         BrowserMemberSurfaceInfo finalizer = BrowserSurfaceProjection.Member(
             type,
@@ -323,9 +339,80 @@ public sealed partial class BrowserEngineBoundaryTests
                 Name = "Finalize",
                 Kind = "finalizer",
                 Signature = "~Widget()",
+                Accessibility = "protected",
             });
 
         Assert.Equal("protected", finalizer.Accessibility);
+    }
+
+    [Fact]
+    public void MemberProjection_CarriesExactExtensionDeclarerDistinctFromReceiver()
+    {
+        using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        ApiSurface surface = session.ApiSurface(includeAll: true);
+        ApiType receiver = Assert.Single(
+            surface.Types,
+            type => type.FullName
+                == "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".ImplementationHeatWidget");
+        BrowserMemberSurfaceInfo[] projected =
+        [
+            .. receiver.Members
+                .Where(member => member.Kind == "extension-method"
+                    && member.Name == "Shift")
+                .Select(member => BrowserSurfaceProjection.Member(receiver, member)),
+        ];
+
+        Assert.Equal(2, projected.Length);
+        Assert.All(
+            projected,
+            member => Assert.Equal(receiver.FullName, member.AnchorTypeFullName));
+        Assert.Equal(
+            [
+                "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".ImplementationHeatWidgetExtensions",
+                "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".OtherImplementationHeatWidgetExtensions",
+            ],
+            projected
+                .Select(member => member.DeclaringTypeDefinitionId)
+                .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void MemberProjection_CarriesPrivateCoreLibExtensionScope()
+    {
+        using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PlatformDemo",
+                "System.Private.CoreLib.dll"));
+        ApiSurface surface = session.ApiSurface(
+            ApiSurfaceExtractionScope.PublicWithNonPublicTypes);
+        ApiType receiver = Assert.Single(
+            surface.Types,
+            type => type.FullName == "System.Type");
+        BrowserMemberSurfaceInfo[] projected =
+        [
+            .. receiver.Members
+                .Where(member => member.Kind == "extension-method"
+                    && member.Name == "TryMakeArrayType")
+                .Select(member => BrowserSurfaceProjection.Member(receiver, member)),
+        ];
+
+        Assert.Equal(2, projected.Length);
+        Assert.All(
+            projected,
+            member =>
+            {
+                Assert.Equal("private", member.Accessibility);
+                Assert.Equal("System.Type", member.AnchorTypeFullName);
+                Assert.Equal(
+                    "System.Reflection.SignatureTypeExtensions",
+                    member.DeclaringTypeDefinitionId);
+            });
     }
 
     [Fact]

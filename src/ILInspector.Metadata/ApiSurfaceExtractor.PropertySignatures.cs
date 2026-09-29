@@ -78,8 +78,21 @@ public static partial class ApiSurfaceExtractor
             setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
         }
 
-        bool hasPublicGetter = hasGetter && getterAccess == MethodAttributes.Public;
-        bool hasPublicSetter = hasSetter && setterAccess == MethodAttributes.Public;
+        // A private explicit-implementation accessor is reachable through its
+        // interface. The public population admits its property only when that
+        // interface is public, so the accessor is part of the public view.
+        bool hasPublicGetter = hasGetter
+            && (getterAccess == MethodAttributes.Public
+                || IsExplicitAccessorBody(
+                    accessors.Getter,
+                    getterAccess,
+                    explicitImplementationBodies));
+        bool hasPublicSetter = hasSetter
+            && (setterAccess == MethodAttributes.Public
+                || IsExplicitAccessorBody(
+                    accessors.Setter,
+                    setterAccess,
+                    explicitImplementationBodies));
 
         // Build accessor string
         string accessorStr;
@@ -563,6 +576,13 @@ public static partial class ApiSurfaceExtractor
         }
     }
 
+    static bool IsExplicitAccessorBody(
+        MethodDefinitionHandle accessor,
+        MethodAttributes access,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies)
+        => access == MethodAttributes.Private
+            && explicitImplementationBodies.Contains(accessor);
+
     static bool AccessorDeclarationModifiersMatchProperty(
         IReadOnlyList<ApiAccessor> accessors,
         MetadataReader reader,
@@ -815,6 +835,33 @@ public static partial class ApiSurfaceExtractor
                 && signature.ParameterTypes.Length > 0
                     ? signature.ParameterTypes[0]
                     : null;
+    }
+
+    /// <summary>
+    /// The first parameter of an extension method, decoded through the same
+    /// guarded signature walk as <see cref="GetFirstParameterDefinitionName"/>
+    /// (so a malformed signature fails the same way) without materializing
+    /// any Type name.
+    /// </summary>
+    private static ExtensionReceiver? GetExtensionReceiver(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var context = GenericContext.ForMethod(reader, typeDef, method);
+        MethodSignature<ReceiverKey> signature =
+            GuardedProviderDecode.Method(
+                reader,
+                method,
+                DefinesPrimitiveTypes(reader)
+                    ? ExtensionReceiverKeyProvider.WithLocalPrimitives
+                    : ExtensionReceiverKeyProvider.WithoutLocalPrimitives,
+                context,
+                fallbackReturn: default);
+        return signature.ParameterTypes.Length > 0
+            && signature.ParameterTypes[0] is { IsNone: false } key
+            ? new ExtensionReceiver(reader, key)
+            : null;
     }
 
     private static MetadataTypeDefinitionName? GetFirstParameterDefinitionName(

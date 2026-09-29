@@ -252,17 +252,10 @@ import {
   renderMemberFacts,
 } from "./member-facts.ts";
 import {
-  bindImplementationProfileState,
-  createImplementationProfileCoordinator,
-  renderImplementationProfileState,
-  type ImplementationProfileFamilySelection,
-  type ImplementationProfileFamilyRequest,
-  type ImplementationProfileState,
-} from "./implementation-profiles.ts";
-import {
   createTypeHeatCoordinator,
   familyHeatCue,
   familyHeatFor,
+  implementationHeatFamilyIsEligible,
   type TypeHeatRequest,
   type TypeHeatState,
 } from "./implementation-heat.ts";
@@ -655,7 +648,7 @@ import {
 } from "./package-changes.ts";
 import {
   createBrowserPackageChangesDataSource,
-  packageChangesPackageSets,
+  packageChangesEcosystems,
 } from "./package-changes-source.ts";
 import {
   bindPackageChangesView,
@@ -718,7 +711,7 @@ import {
 } from "./type-explorer-view.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
-  BrowserPackageChangesPackageSetDescriptor,
+  BrowserPackageChangesEcosystemDescriptor,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
@@ -738,6 +731,7 @@ import type {
 } from "./facades/inspect-web-library.d.ts";
 import type {
   BrowserMemberDeclaration,
+  BrowserMemberGroupDocumentInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
 import type {
@@ -817,8 +811,14 @@ let inspectGraphMemberSurface:
   EngineClient["metadata"]["queryGraphMemberSurface"];
 let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
+let inspectMemberGroupDocument:
+  EngineClient["metadata"]["queryMemberGroupDocument"];
 let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
+let inspectPlatformMemberGroupDocument:
+  EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
+let inspectUploadedLibraryMemberGroupDocument:
+  EngineClient["metadata"]["queryUploadedLibraryMemberGroupDocument"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -839,8 +839,6 @@ let inspectLibraryApiDiff:
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
-let inspectPackageImplementationProfiles:
-  EngineClient["analysis"]["queryPackageImplementationProfiles"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
@@ -851,8 +849,6 @@ let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
-let inspectPlatformImplementationProfiles:
-  EngineClient["analysis"]["queryPlatformImplementationProfiles"];
 let inspectPackageTypeImplementationHeat:
   EngineClient["analysis"]["queryPackageTypeImplementationHeat"];
 let inspectPlatformTypeImplementationHeat:
@@ -871,6 +867,8 @@ let cancelTypeExplorerInspection:
 let inspectMemberFindingCensus:
   EngineClient["source"]["queryMemberFindingCensus"];
 let inspectMemberSource: EngineClient["source"]["queryMemberSource"];
+let inspectPlatformMemberSource:
+  EngineClient["source"]["queryPlatformMemberSource"];
 let inspectTypeMemberSource:
   EngineClient["source"]["queryTypeMemberSource"];
 let inspectTypeSource: EngineClient["source"]["queryTypeSource"];
@@ -1001,7 +999,12 @@ async function loadEngineModule() {
       queryLibraryApiDiff: inspectLibraryApiDiff,
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
+      queryMemberGroupDocument: inspectMemberGroupDocument,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
+      queryPlatformMemberGroupDocument:
+        inspectPlatformMemberGroupDocument,
+      queryUploadedLibraryMemberGroupDocument:
+        inspectUploadedLibraryMemberGroupDocument,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -1013,14 +1016,10 @@ async function loadEngineModule() {
     ({
       queryCloneCandidates: inspectCloneCandidates,
       queryMemberFacts: inspectMemberFacts,
-      queryPackageImplementationProfiles:
-        inspectPackageImplementationProfiles,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
-      queryPlatformImplementationProfiles:
-        inspectPlatformImplementationProfiles,
       queryPackageTypeImplementationHeat:
         inspectPackageTypeImplementationHeat,
       queryPlatformTypeImplementationHeat:
@@ -1034,6 +1033,7 @@ async function loadEngineModule() {
       cancelSourceQuery: cancelSourceInspection,
       queryMemberFindingCensus: inspectMemberFindingCensus,
       queryMemberSource: inspectMemberSource,
+      queryPlatformMemberSource: inspectPlatformMemberSource,
       queryTypeMemberSource: inspectTypeMemberSource,
       queryTypeSource: inspectTypeSource,
       queryTypeExplorer: inspectTypeExplorer,
@@ -1242,7 +1242,7 @@ const initialState = {
   packageQueryInspection: null,
   packageQueryPresets: [],
   packageQueryTerms: [],
-  packageChangesPackageSets: [],
+  packageChangesEcosystems: [],
   packageChangesState: initialPackageChangesState(),
   platformIndex: null,
   rootKind: "package" as "package" | "platform" | "library",
@@ -1268,9 +1268,7 @@ const initialState = {
   memberAccessibilityFilter: "all",
   memberTraitFilter: "",
   memberTextFilter: "",
-  implementationProfiles: { status: "idle" as const },
   typeHeat: { status: "idle" } as TypeHeatState,
-  implementationEvidenceKey: null as string | null,
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1341,7 +1339,6 @@ const initialState = {
   graphMemberNavigationTitle: "",
   pendingGraphMemberDeepLink: null,
   platformStack: [],
-  platformDemoContextId: null,
   platformDrillLoading: false,
   platformDrillError: "",
   memberFacts: null,
@@ -1355,6 +1352,10 @@ const initialState = {
   memberDeclarationLoading: false,
   memberDeclarationError: "",
   memberDeclarationKey: "",
+  memberGroupDocument: null as BrowserMemberGroupDocumentInspection | null,
+  memberGroupDocumentLoading: false,
+  memberGroupDocumentError: "",
+  memberGroupDocumentKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
@@ -1438,9 +1439,7 @@ interface StateOverrides {
   } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
-  implementationProfiles: ImplementationProfileState;
   typeHeat: TypeHeatState;
-  implementationEvidenceKey: string | null;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -1473,7 +1472,6 @@ interface StateOverrides {
   memberCallGraph: InspectedCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
-  platformDemoContextId: string | null;
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
@@ -1505,7 +1503,7 @@ interface StateOverrides {
   diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
   packageChangesCatalogError: string;
-  packageChangesPackageSets: BrowserPackageChangesPackageSetDescriptor[];
+  packageChangesEcosystems: BrowserPackageChangesEcosystemDescriptor[];
   packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryPresets: QueryPreset[];
@@ -1740,6 +1738,8 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberFactsLoading = snapshotState.memberFactsLoading;
   const memberDocumentationLoading = snapshotState.memberDocumentationLoading;
   const memberDeclarationLoading = snapshotState.memberDeclarationLoading;
+  const memberGroupDocumentLoading =
+    snapshotState.memberGroupDocumentLoading;
 
   snapshotState.loading = false;
   snapshotState.memberAnnotatedLoading = false;
@@ -1756,6 +1756,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
   snapshotState.memberDeclarationLoading = false;
+  snapshotState.memberGroupDocumentLoading = false;
   snapshotState.runtimePackLoading = false;
   settleInterruptedPlatformStatus(snapshotState);
   if (snapshotState.graphSource.status === "loading") {
@@ -1801,6 +1802,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (memberFactsLoading) snapshotState.memberFactsKey = "";
   if (memberDocumentationLoading) snapshotState.memberDocumentationKey = "";
   if (memberDeclarationLoading) snapshotState.memberDeclarationKey = "";
+  if (memberGroupDocumentLoading) snapshotState.memberGroupDocumentKey = "";
 }
 
 function settleInterruptedPlatformStatus(targetState: AppState): void {
@@ -1866,7 +1868,6 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     platformIndex: null,
     retryAction: null,
     queryNoticeRetryAction: null,
-    implementationProfiles: { status: "idle" as const },
     typeHeat: { status: "idle" as const },
   });
   const retainedState: AppState = {
@@ -1944,7 +1945,7 @@ function captureRetainedHostState() {
     packageQueryInspection: state.packageQueryInspection,
     packageQueryPresets: state.packageQueryPresets,
     packageQueryTerms: state.packageQueryTerms,
-    packageChangesPackageSets: state.packageChangesPackageSets,
+    packageChangesEcosystems: state.packageChangesEcosystems,
     packageChangesState: state.packageChangesState,
     platformIndex: state.platformIndex,
     platformRecent: state.platformRecent,
@@ -3247,7 +3248,7 @@ async function deleteManagedRetainedWorkspace(
 const keybindings = createWorkbenchKeybindings();
 let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
-const implementationProfileWorkspaceGenerations =
+const typeHeatWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
 const typeHeat = createTypeHeatCoordinator({
   state,
@@ -3283,46 +3284,31 @@ const typeHeat = createTypeHeatCoordinator({
   },
   render: renderPreservingMemberFocus,
 });
-const implementationProfiles = createImplementationProfileCoordinator({
-  state,
-  operationAuthority,
-  query: request => request.kind === "package"
-    ? inspectPackageImplementationProfiles(
-        request.packageId,
-        request.version,
-        request.targetFramework,
-        request.assemblyName,
-        request.typeDefinitionId,
-        [...request.stableSelectors])
-    : inspectPlatformImplementationProfiles(
-        request.targetFramework,
-        request.platformVersion,
-        request.assemblyFileName,
-        request.pack,
-        request.typeDefinitionId,
-        [...request.stableSelectors]),
-  describeError: errorMessage,
-  reportOperationDiagnostic: diagnostic => {
-    console.error(
-      "Implementation Profiles operation authority failure.",
-      diagnostic);
-    return undefined;
-  },
-  render: renderPreservingMemberFocus,
-});
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   operationAuthority,
-  queryMemberSource: request => inspectMemberSource(
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.type,
-    request.member,
-    request.selectorKey,
-    request.metadataToken,
-    request.taste),
+  queryMemberSource: request => request.kind === "package"
+    ? inspectMemberSource(
+        request.packageId,
+        request.version,
+        request.framework,
+        request.assembly,
+        request.type,
+        request.member,
+        request.selectorKey,
+        request.metadataToken,
+        request.taste)
+    : inspectPlatformMemberSource(
+        request.framework,
+        request.version,
+        request.assembly,
+        request.pack,
+        request.type,
+        request.member,
+        request.selectorKey,
+        request.metadataToken,
+        request.taste,
+        request.contextId),
   queryTypeSource: (operationId, request) => inspectTypeSource(
     operationId,
     request.packageId,
@@ -3861,21 +3847,7 @@ function applyView(view: WorkspaceView) {
   }
   navigationHistory.normalizeCurrent();
   if (!state.atPackageRoot && !state.atLibraryRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    const section = state.memberSection;
-    if (section === "source")
-      observeAsync(loadSelectedMemberSource(), "Loading member source");
-    else if (section === "annotated")
-      observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-    else if (section === "call-graph")
-      observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-    else if (section === "facts")
-      observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
-    else if (section === "overview")
-      observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-    else if (section === "compare")
-      render();
-    else
-      assertNever(section, "member section");
+    loadMemberSectionContent(state.memberSection);
   } else {
     render();
   }
@@ -5290,7 +5262,6 @@ function removeWorkspacePackageRow(key: string): void {
 }
 
 function clearWorkspacePackages() {
-  state.platformDemoContextId = null;
   const discarded = state.packages;
   state.packages = [];
   state.package = null;
@@ -5303,8 +5274,10 @@ function clearWorkspacePackages() {
   state.platformSlot = -1;
   state.rootKind = "package";
   state.integrationMode = "integrations";
-  for (const packageModel of discarded)
+  for (const packageModel of discarded) {
+    packageModel.platformContextId = null;
     releasePackageModelCaches(packageModel);
+  }
 }
 
 function resetLocationFilters() {
@@ -6327,7 +6300,7 @@ function activateCompareMember(memberFingerprint: string) {
     subject.pkg,
     type,
     match.group,
-    match.group.overloads.length > 1 ? match.overloadIndex : null,
+    match.overloadIndex,
     null,
     "compare");
 }
@@ -6367,104 +6340,17 @@ function memberSectionUsesWorkingSurface(section: MemberSection) {
     || section === "facts";
 }
 
-function implementationProfileWorkspaceGeneration(pkg: AppPackage) {
-  const existing = implementationProfileWorkspaceGenerations.get(pkg);
+function typeHeatWorkspaceGeneration(pkg: AppPackage) {
+  const existing = typeHeatWorkspaceGenerations.get(pkg);
   if (existing) return existing;
   const generation = crypto.randomUUID();
-  implementationProfileWorkspaceGenerations.set(pkg, generation);
+  typeHeatWorkspaceGenerations.set(pkg, generation);
   return generation;
 }
 
-function implementationProfileTarget(): {
-  request: ImplementationProfileFamilyRequest;
-  selection: ImplementationProfileFamilySelection;
-} | null {
-  const pkg = state.package;
-  const type = selectedType();
-  const member = selectedMember(type);
-  if (!pkg
-    || !type
-    || !member
-    || state.rootKind === "library"
-    || member.kind !== "method"
-    || member.overloads.length < 2) {
-    return null;
-  }
-
-  const selectedOverloadIndex = state.selectedOverloadIndex;
-  const typeDefinitionId = type.definitionId;
-  const stableSelectors = member.overloads.map(
-    overload => overload.stableSelector);
-  const request: ImplementationProfileFamilyRequest =
-    pkg.isRuntimePack
-      ? (() => {
-          const row = platformLibraryForRequest(pkg, type.assemblyId);
-          return {
-            kind: "platform",
-            workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
-            targetFramework: pkg.activeFramework,
-            platformVersion: pkg.version,
-            pack: row.pack,
-            assemblyFileName: platformAssemblyRequest(row),
-            typeDefinitionId,
-            stableSelectors,
-          };
-        })()
-      : {
-          kind: "package",
-          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
-          packageId: pkg.id,
-          version: pkg.version,
-          targetFramework: pkg.activeFramework,
-          assemblyName: type.assemblyId,
-          typeDefinitionId,
-          stableSelectors,
-        };
-  const selection: ImplementationProfileFamilySelection = {
-    typeDefinitionId,
-    display: `${typeDisplayName(type)}.${member.name}`,
-    members: member.overloads.map((overload, index) => ({
-      typeDefinitionId,
-      stableSelector: overload.stableSelector,
-      display: overload.signature,
-      bodyTokens: [
-        ...new Set([
-          ...(overload.metadataToken === null
-            ? []
-            : [overload.metadataToken]),
-          ...overload.bodySelectors.map(body => body.token),
-        ]),
-      ],
-      selected: selectedOverloadIndex === index,
-    })),
-    isCurrent: () =>
-      state.package === pkg
-      && selectedType()?.id === type.id
-      && selectedMember(selectedType())?.key === member.key,
-  };
-  return { request, selection };
-}
-
-function loadSelectedImplementationProfiles(retry = false) {
-  const target = implementationProfileTarget();
-  if (!target) return Promise.resolve();
-  return retry
-    ? implementationProfiles.retry(target.request, target.selection)
-    : implementationProfiles.activate(target.request, target.selection);
-}
-
-function currentImplementationProfileState(): ImplementationProfileState {
-  const current = state.implementationProfiles;
-  if (current.status === "idle" || current.selection.isCurrent())
-    return current;
-  const target = implementationProfileTarget();
-  return target
-    ? {
-        status: "loading",
-        request: target.request,
-        selection: target.selection,
-      }
-    : { status: "idle" };
+function platformDemoContextIdFor(pkg: AppPackage | null) {
+  if (!pkg?.isRuntimePack) return null;
+  return pkg.platformContextId ?? null;
 }
 
 // Member-list heat: after a Type's member list paints, one request covers every
@@ -6489,7 +6375,7 @@ function typeHeatTarget(): {
         const row = platformLibraryForRequest(pkg, type.assemblyId);
         return {
           kind: "platform",
-          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+          workspaceGeneration: typeHeatWorkspaceGeneration(pkg),
           targetFramework: pkg.activeFramework,
           platformVersion: pkg.version,
           pack: row.pack,
@@ -6499,7 +6385,7 @@ function typeHeatTarget(): {
       })()
     : {
         kind: "package",
-        workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+        workspaceGeneration: typeHeatWorkspaceGeneration(pkg),
         packageId: pkg.id,
         version: pkg.version,
         targetFramework: pkg.activeFramework,
@@ -6514,17 +6400,23 @@ function typeHeatTarget(): {
   };
 }
 
-// The producer's eligibility: at least two public overloads, and every public
-// member sharing the name is an ordinary method (an attached extension group
-// of the same name makes the family ineligible).
+// The Browser mirrors the producer's ordinary/attached-extension family
+// predicate before scheduling heat.
 function familyIsEligible(
   type: AppTypeSurface,
-  group: { name: string; kind: string; overloads: readonly unknown[] },
+  group: {
+    name: string;
+    kind: string;
+    overloads: readonly {
+      readonly accessibility: string;
+      readonly declaringTypeDefinitionId?: string | null;
+    }[];
+  },
 ) {
-  return group.kind === "method"
-    && group.overloads.length > 1
-    && memberGroups(type).every(candidate =>
-      candidate.name !== group.name || candidate.kind === "method");
+  return implementationHeatFamilyIsEligible(
+    type.accessibility,
+    memberGroups(type),
+    group);
 }
 
 function typeHasEligibleFamily(type: AppTypeSurface) {
@@ -6556,22 +6448,6 @@ function scheduleTypeHeat() {
   }, 0));
 }
 
-// The implementation-evidence disclosure is the only family-detail request.
-// It belongs to the overload it was opened on, and it renders open only while
-// the published family detail still serves the current selection, so moving
-// to another overload or Type never issues a request by itself.
-function implementationEvidenceKey(stableSelector: string) {
-  return `${selectedType()?.id ?? ""}\u0000${stableSelector}`;
-}
-
-function implementationEvidenceIsOpen(stableSelector: string) {
-  const published = state.implementationProfiles;
-  return state.implementationEvidenceKey
-      === implementationEvidenceKey(stableSelector)
-    && published.status !== "idle"
-    && published.selection.isCurrent();
-}
-
 function navGroupSelectors(group: { key: string }) {
   const type = selectedType();
   const appGroup = type
@@ -6599,7 +6475,6 @@ function memberNavOverloadHeat(group: { key: string }, index: number) {
         heatStrength: overload.heatStrength,
         hub: overload.hub,
         description: overload.description,
-        size: overload.size,
       }
     : null;
 }
@@ -6609,36 +6484,6 @@ function memberNavFamilyHeatCue(group: { key: string }) {
   return family
     ? familyHeatCue(currentTypeHeatState(), family.name, family.selectors)
     : null;
-}
-
-function renderOverloadImplementationEvidence(stableSelector: string) {
-  const member = selectedMember(selectedType());
-  if (!member || !implementationProfileTarget()) return "";
-  const evidenceOpen = implementationEvidenceIsOpen(stableSelector);
-  const selectors = member.overloads.map(overload => overload.stableSelector);
-  const heatState = currentTypeHeatState();
-  const overloadHeat = familyHeatFor(heatState, member.name, selectors)
-    ?.overloads.find(item => item.stableSelector === stableSelector);
-  const summary = heatState.status === "failed"
-    ? `<div class="implementation-heat-failure"><p>Implementation heat is unavailable (${escapeHtml(heatState.outcome)}): ${escapeHtml(heatState.message)}${heatState.outcome === "producer-failed" ? ' <button type="button" id="type-heat-retry" data-type-heat-retry>Retry heat</button>' : ""}</p>${heatState.diagnostics?.length ? `<ul>${heatState.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>` : ""}</div>`
-    : overloadHeat
-      ? `<p class="implementation-profile-heat-summary">${escapeHtml(overloadHeat.description)}</p>`
-      : heatState.status === "loading"
-        ? '<p class="docs-loading">Measuring this Type\'s overloads…</p>'
-        : "";
-  return `<section class="learn-section member-implementation" aria-labelledby="member-implementation-title">
-    <h2 id="member-implementation-title">Implementation</h2>
-    ${summary}
-    <details class="implementation-evidence" data-implementation-evidence="${escapeHtml(stableSelector)}"${evidenceOpen ? " open" : ""}>
-      <summary>Implementation evidence</summary>
-      ${evidenceOpen
-        ? renderImplementationProfileState(
-            currentImplementationProfileState(),
-            escapeHtml,
-            stableSelector)
-        : ""}
-    </details>
-  </section>`;
 }
 
 function currentSourceOperationKind() {
@@ -6672,6 +6517,14 @@ function clearMemberContentCache() {
 function resetMemberSectionState() {
   state.memberSection = "overview";
   clearMemberContentCache();
+  clearMemberGroupDocumentCache();
+}
+
+function clearMemberGroupDocumentCache() {
+  state.memberGroupDocument = null;
+  state.memberGroupDocumentLoading = false;
+  state.memberGroupDocumentError = "";
+  state.memberGroupDocumentKey = "";
 }
 
 function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
@@ -6679,6 +6532,23 @@ function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
     || !memberSectionsFor(member).some(([id]) => id === state.memberSection)) {
     state.memberSection = "overview";
   }
+}
+
+function ordinaryMethodGroup(
+  group: {
+    readonly kind: string;
+    readonly overloads: readonly { readonly graphOnly?: boolean }[];
+  } | null | undefined,
+) {
+  return group?.kind === "method"
+    && group.overloads.every(overload => !overload.graphOnly);
+}
+
+function loadSelectedMemberOverview() {
+  return ordinaryMethodGroup(selectedMember(selectedType()))
+      && state.selectedOverloadIndex === null
+    ? loadSelectedMemberGroupDocument()
+    : loadSelectedMemberDocumentation();
 }
 
 function loadMemberSectionContent(id: MemberSection) {
@@ -6691,7 +6561,7 @@ function loadMemberSectionContent(id: MemberSection) {
   else if (id === "facts")
     observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
   else if (id === "overview")
-    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+    observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
     render();
   else
@@ -6707,12 +6577,17 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
+  const methodGroup = ordinaryMethodGroup(group);
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
   clearMemberContentCache();
+  if (state.memberGroupDocumentKey
+      !== memberGroupDocumentRequestKey(type, group)) {
+    clearMemberGroupDocumentCache();
+  }
   state.selectedBodyTarget = graphOnlyTarget;
-  if (!preserveSection) {
+  if (methodGroup || !preserveSection) {
     state.memberSection = "overview";
   } else {
     const retainedSection = state.memberSection;
@@ -6788,12 +6663,11 @@ function openOverload(index: number) {
 }
 
 // Switch the open member's section and kick off its lazy load. Shared by the scope-bar strip
-// click and the section shortcut. Overload-specific sections select the first overload as
-// needed.
+// click and the section shortcut. Exact-member sections select the first overload as needed.
 function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
   if (member
-    && member.overloads.length > 1
+    && id !== "overview"
     && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
     state.selectedBodyTarget = graphOnlyBodyTarget(member.overloads[0]);
@@ -6842,7 +6716,10 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      if (entry.group.overloads.length === 1) {
+      if (ordinaryMethodGroup(entry.group)) {
+        state.memberSection = "overview";
+        openMemberGroup(entry.group.key);
+      } else if (entry.group.overloads.length === 1) {
         render();
       } else {
         state.selectedOverloadIndex = null;
@@ -6930,7 +6807,7 @@ function stepHorizontal(delta: number) {
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
   const overloadOpen = member
-    && !(member.overloads.length > 1
+    && !(ordinaryMethodGroup(member)
       && state.selectedOverloadIndex == null);
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
@@ -6984,7 +6861,8 @@ function drillIn() {
     }
   } else {
     const member = selectedMember(type);
-    if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+    if (ordinaryMethodGroup(member)
+      && state.selectedOverloadIndex == null) {
       showContentDetailAfterRender();
       openOverload(0);
     } else if (contentFrameUsesPush() && contentFrameMedia.matches) {
@@ -6998,13 +6876,15 @@ function drillIn() {
 function drillOut() {
   if (navMode() === "member") {
     const member = selectedMember(selectedType());
-    if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
+    if (ordinaryMethodGroup(member)
+      && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
-      resetMemberSectionState();
+      state.memberSection = "overview";
+      clearMemberContentCache();
+      loadMemberSectionContent(state.memberSection);
     } else {
       return exitMemberScope();
     }
-    render();
     return true;
   }
   if (!state.atPackageRoot && !state.atLibraryRoot) {
@@ -9496,6 +9376,12 @@ function drillToPerfMember(
   });
   if (!target) return;
   const { type: targetType, member } = target;
+  const group = memberGroups(targetType)
+    .find(candidate => candidate.overloads.includes(member));
+  if (!group) {
+    showToast("That ranked Member is no longer loaded in the selected Type.");
+    return;
+  }
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -9505,14 +9391,8 @@ function drillToPerfMember(
   state.namespaceFilter = "";
   resetMemberFilters();
   state.lens = "api";
-  const key = `${member.kind}:${member.name}`;
-  state.selectedMemberKey = key;
-  const group = memberGroups(targetType).find(candidate => candidate.key === key);
-  const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(
-      overload => overload.stableSelector === stableSelector)
-    : -1;
-  state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
+  state.selectedMemberKey = group.key;
+  state.selectedOverloadIndex = group.overloads.indexOf(member);
   resetMemberSectionState();
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
   observeAsync(
@@ -10077,22 +9957,82 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && Number.isInteger(selectedOverloadIndex)
     && selectedOverloadIndex >= 0
     && selectedOverloadIndex < member.overloads.length;
-  if (member.overloads.length > 1
+  if (member.kind === "method"
     && !hasSelectedOverload) {
+    const documentKey =
+      memberGroupDocumentRequestKey(type, member);
+    const currentDocument =
+      state.memberGroupDocumentKey === documentKey
+        ? state.memberGroupDocument
+        : null;
+    if (state.memberGroupDocumentLoading
+      && state.memberGroupDocumentKey === documentKey) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>Loading exact overloads… <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-loading">Building the shared MemberGroup document…</p>
+          </div>
+        </section>`;
+    }
+    if (state.memberGroupDocumentError
+      && state.memberGroupDocumentKey === documentKey) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>MemberGroup unavailable <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-unavailable">Overload query failed: ${escapeHtml(state.memberGroupDocumentError)}</p>
+          </div>
+        </section>`;
+    }
+    const document = currentDocument?.outcome === "Available"
+      ? currentDocument.document
+      : null;
+    if (!document) {
+      return `
+        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+          <header class="api-surface-head member-surface-head">
+            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+            <p>MemberGroup unavailable <span>· ${escapeHtml(member.kind)}</span></p>
+          </header>
+          <div class="member-surface-scroll">
+            <p class="docs-unavailable">The exact overload document is unavailable.</p>
+          </div>
+        </section>`;
+    }
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-          <p>${member.overloads.length} overloads <span>· ${escapeHtml(member.kind)}</span></p>
+          <p>${document.count} ${document.count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
-            ${member.overloads.map((overload, index) => `
-              <button class="api-row overload-row" data-overload="${index}">
-                <span class="member-icon">${index + 1}</span>
-                <code>${highlight(overload.signature)}</code>
-                <small>open →</small>
-              </button>`).join("")}
+            ${document.rows.map(row => {
+              const index = member.overloads.findIndex(overload =>
+                (overload.declarationMetadataToken
+                  ?? overload.metadataToken
+                  ?? 0) === row.metadataToken);
+              const signature =
+                `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`;
+              return index >= 0
+                ? `<button class="api-row overload-row" data-overload="${index}">
+                    <span class="member-icon">${row.baselineOrdinal}</span>
+                    <code>${highlight(signature)}</code>
+                    <small>open →</small>
+                  </button>`
+                : `<div class="api-row overload-row" aria-disabled="true">
+                    <span class="member-icon">${row.baselineOrdinal}</span>
+                    <code>${highlight(signature)}</code>
+                    <small>detail unavailable</small>
+                  </div>`;
+            }).join("")}
           </div>
         </div>
         <footer class="api-surface-footer member-surface-footer">
@@ -10183,7 +10123,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
               ? "error"
               : "loaded",
         })}
-        ${renderOverloadImplementationEvidence(overload.stableSelector)}
       </article>
     `;
   } else if (state.memberSection === "call-graph") {
@@ -10294,6 +10233,19 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       </header>
       <div class="member-surface-scroll">${content}</div>
     </section>`;
+}
+
+function memberReceiverPrefix(receiver: string): string {
+  switch (receiver) {
+    case "This":
+      return "";
+    case "Static":
+      return "static ";
+    case "Extension":
+      return "extension ";
+    default:
+      throw new Error(`Unknown member receiver '${receiver}'.`);
+  }
 }
 
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
@@ -11533,42 +11485,6 @@ function bindMemberFactsEvents() {
   });
 }
 
-function bindImplementationProfileEvents() {
-  document.querySelector<HTMLDetailsElement>("[data-implementation-evidence]")
-    ?.addEventListener("toggle", event => {
-      const details = event.currentTarget;
-      if (!(details instanceof HTMLDetailsElement)) return;
-      const selector = details.dataset.implementationEvidence ?? "";
-      if (details.open === implementationEvidenceIsOpen(selector)) return;
-      state.implementationEvidenceKey = details.open
-        ? implementationEvidenceKey(selector)
-        : null;
-      if (details.open)
-        observeAsync(
-          loadSelectedImplementationProfiles(),
-          "Loading implementation evidence");
-      else
-        renderPreservingMemberFocus();
-    });
-  document.querySelector("[data-type-heat-retry]")
-    ?.addEventListener("click", () => {
-      const target = typeHeatTarget();
-      if (target) typeHeat.retry(target.request, target.isCurrent);
-    });
-  bindImplementationProfileState(document, {
-    onRetry: () => {
-      observeAsync(
-        loadSelectedImplementationProfiles(true).finally(() => {
-          requestAnimationFrame(() =>
-            document.querySelector<HTMLElement>(
-              "#implementation-profile-retry, #implementation-profile-state-title")
-              ?.focus({ preventScroll: true }));
-        }),
-        "Retrying implementation profiles");
-    },
-  });
-}
-
 function bindAnnotatedSourceEvents() {
   bindAnnotatedSource(document, {
     onAction: applyAnnotatedSourceAction,
@@ -11654,7 +11570,6 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindMemberFactsEvents();
-  bindImplementationProfileEvents();
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibrarySubjectNavEvents();
@@ -13291,7 +13206,7 @@ async function pickSpotlightMember(
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
   render({ synchronizeUrl: rollbackSnapshot === null });
-  await loadSelectedMemberDocumentation();
+  await loadSelectedMemberOverview();
   focusTypeList(navigationGeneration, focusGeneration);
 }
 
@@ -14572,6 +14487,9 @@ function loadSelectionData() {
   if (!state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
   if (!member) return undefined;
+  if (state.memberSection === "overview") {
+    return loadSelectedMemberOverview();
+  }
   if (member.overloads.length > 1
     && state.selectedOverloadIndex == null) {
     return undefined;
@@ -14581,7 +14499,6 @@ function loadSelectionData() {
     case "annotated": return loadSelectedMemberAnnotatedSource();
     case "call-graph": return loadSelectedMemberCallGraph();
     case "facts": return loadSelectedMemberFactsSurface();
-    case "overview": return loadSelectedMemberDocumentation();
     case "compare": return undefined;
     default: return assertNever(state.memberSection, "member section");
   }
@@ -15854,11 +15771,11 @@ function focusPackageQueryInput() {
 
 function focusPackageActivityInput() {
   afterCurrentNavigationFrame(() => {
-    const packageSet = document.querySelector<HTMLSelectElement>(
-      "#package-changes-package-set");
-    if (packageSet && !packageSet.disabled) {
-      packageSet.focus();
-      if (document.activeElement === packageSet) return;
+    const ecosystem = document.querySelector<HTMLSelectElement>(
+      "#package-changes-ecosystem");
+    if (ecosystem && !ecosystem.disabled) {
+      ecosystem.focus();
+      if (document.activeElement === ecosystem) return;
     }
     focusLevelOneHeading();
   });
@@ -17221,22 +17138,22 @@ function runPackageQuery(text: string) {
 }
 
 function runPackageChanges(
-  packageSetId: string,
+  ecosystemId: string,
   fromExclusive: string | null,
   throughInclusive: string | null,
   securityOnly: boolean,
   maximumRows: number,
 ) {
-  if (!state.packageChangesPackageSets.some(
-    packageSet => packageSet.id === packageSetId)) {
+  if (!state.packageChangesEcosystems.some(
+    ecosystem => ecosystem.id === ecosystemId)) {
     state.packageChangesCatalogError =
-      "The selected product package set is unavailable.";
+      "The selected product Ecosystem is unavailable.";
     render();
     return;
   }
   state.packageChangesCatalogError = "";
   void packageChangesController.run(createPackageChangesRequest(
-    packageSetId,
+    ecosystemId,
     {
       fromExclusive,
       throughInclusive,
@@ -17648,7 +17565,7 @@ function renderPackageActivityPage() {
   document.title = "Package Activity · dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, renderPackageChangesView({
     state: state.packageChangesState,
-    packageSets: state.packageChangesPackageSets,
+    ecosystems: state.packageChangesEcosystems,
     catalogError: state.packageChangesCatalogError,
     escapeHtml,
     viewport,
@@ -17808,6 +17725,89 @@ async function loadSelectedMemberDocumentation() {
   ]);
 }
 
+function memberGroupDocumentRequestKey(
+  type: AppTypeSurface | null | undefined,
+  member: AppMemberGroup | null | undefined,
+) {
+  if (!type || !member) return "";
+  const pkg = state.package;
+  return memberRequestKey([
+    pkg?.id ?? "",
+    pkg?.version ?? "",
+    pkg?.activeFramework ?? "",
+    platformDemoContextIdFor(pkg ?? null) ?? "",
+    type.assemblyId,
+    type.definitionId ?? type.id,
+    member.key,
+  ]);
+}
+
+async function loadSelectedMemberGroupDocument() {
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!type || !member || member.kind !== "method") {
+    renderPreservingMemberFocus();
+    return;
+  }
+  const key = memberGroupDocumentRequestKey(type, member);
+  if (!key
+    || state.memberGroupDocumentLoading
+      && state.memberGroupDocumentKey === key
+    || state.memberGroupDocument
+      && state.memberGroupDocumentKey === key) {
+    renderPreservingMemberFocus();
+    return;
+  }
+
+  state.memberGroupDocument = null;
+  state.memberGroupDocumentLoading = true;
+  state.memberGroupDocumentError = "";
+  state.memberGroupDocumentKey = key;
+  renderPreservingMemberFocus();
+  const pkg = currentPackage();
+  try {
+    const result = state.rootKind === "library"
+      ? inspectUploadedLibraryMemberGroupDocument(
+          type.assemblyId,
+          type.definitionId ?? type.id,
+          member.name)
+      : pkg.isRuntimePack
+      ? (() => {
+          const row = platformLibraryForRequest(pkg, type.assemblyId);
+          return inspectPlatformMemberGroupDocument(
+            pkg.activeFramework,
+            pkg.version,
+            platformAssemblyRequest(row),
+            row.pack,
+            type.definitionId ?? type.id,
+            member.name);
+        })()
+      : inspectMemberGroupDocument(
+          pkg.id,
+          pkg.version,
+          pkg.activeFramework,
+          type.assembly,
+          type.definitionId ?? type.id,
+          member.name);
+    const inspection = await result;
+    if (state.memberGroupDocumentKey !== key) return;
+    state.memberGroupDocument = inspection;
+    state.memberGroupDocumentError =
+      inspection.outcome === "Available"
+        ? ""
+        : inspection.detail
+          ?? `Member-group inspection returned ${inspection.outcome}.`;
+  } catch (error) {
+    if (state.memberGroupDocumentKey !== key) return;
+    state.memberGroupDocumentError = errorMessage(error);
+  } finally {
+    if (state.memberGroupDocumentKey === key) {
+      state.memberGroupDocumentLoading = false;
+      renderPreservingMemberFocus();
+    }
+  }
+}
+
 async function loadSelectedMemberSource() {
   if (currentSourceOperationKind() !== "member") {
     render();
@@ -17827,12 +17827,8 @@ async function loadSelectedMemberSource() {
   }
   const signature = memberRequestSignature(type, overload, false, true);
   const pkg = currentPackage();
-  return sourceInspection.loadMemberSource({
+  const selection = {
     signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
     type: type.definitionId ?? type.id,
     member: state.selectedBodyTarget?.memberName ?? overload.name,
     selectorKey:
@@ -17843,6 +17839,26 @@ async function loadSelectedMemberSource() {
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
     taste: JSON.stringify(state.taste),
     isCurrent: () => memberRequestIsCurrent(signature, false, true),
+  };
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, type.assemblyId);
+    return sourceInspection.loadMemberSource({
+      ...selection,
+      kind: "platform",
+      framework: pkg.activeFramework,
+      version: pkg.version,
+      assembly: platformAssemblyRequest(row),
+      pack: row.pack,
+      contextId: platformDemoContextIdFor(pkg),
+    });
+  }
+  return sourceInspection.loadMemberSource({
+    ...selection,
+    kind: "package",
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
   });
 }
 
@@ -17891,7 +17907,7 @@ function memberRequestSignature(
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
-    pkg?.isRuntimePack ? state.platformDemoContextId : null,
+    platformDemoContextIdFor(pkg ?? null),
     type?.assembly,
     type?.queryId ?? type?.id,
     type?.definitionId ?? type?.id,
@@ -18412,7 +18428,7 @@ async function loadSelectedMemberCallGraph() {
       type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
     platformPack:
       platformPackForAssembly(type.assembly, type.platformPack) ?? "",
-    platformContextId: state.platformDemoContextId,
+    platformContextId: platformDemoContextIdFor(pkg),
     platformAssemblyVersion: platformAssembly?.version ?? null,
     platformAssemblyCulture: platformAssembly?.culture ?? null,
     platformAssemblyPublicKeyToken:
@@ -19484,9 +19500,7 @@ async function drillPlatformNode(
     runtimePack,
     framework);
   return callGraphInspection.drill({
-    contextId: state.package?.isRuntimePack
-      ? state.platformDemoContextId
-      : null,
+    contextId: platformDemoContextIdFor(state.package),
     framework,
     platformVersion,
     assembly: node.assembly,
@@ -20966,7 +20980,7 @@ async function installPlatformHomeDemoSource(
     throw new Error(
       "The native Platform Library path did not retain the engine-run demo surface.");
   }
-  state.platformDemoContextId = source.contextId;
+  source.package.platformContextId = source.contextId;
   return true;
 }
 
@@ -22046,13 +22060,13 @@ async function bootstrap() {
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      state.packageChangesPackageSets = packageChangesPackageSets(
-        await engineClient.package.listPackageActivityPackageSets());
+      state.packageChangesEcosystems = packageChangesEcosystems(
+        await engineClient.package.listPackageActivityEcosystems());
       state.packageChangesCatalogError = "";
     } catch (error) {
-      state.packageChangesPackageSets = [];
+      state.packageChangesEcosystems = [];
       state.packageChangesCatalogError =
-        `Package Activity package sets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       const catalog =

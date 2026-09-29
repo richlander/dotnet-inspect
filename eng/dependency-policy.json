@@ -64,6 +64,26 @@
       ]
     },
     {
+      "id": "inspect-web-call-graph-facade-stays-at-capability-boundary",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#call-graph-facade-2-exports",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.CallGraph"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.CallGraph/DotnetInspect.Web.Interop.CallGraph.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections"
+      ]
+    },
+    {
       "id": "inspector-graph-stays-independent",
       "source": "docs/design/inspector-graph-library-boundary.md#dependency-boundary",
       "graphs": [
@@ -571,6 +591,7 @@
         "ILInspector.Analysis",
         "ILInspector.Decompiler",
         "Inspector.Findings",
+        "Inspector.Graph",
         "ILInspector.ILDiff",
         "ILInspector.Instructions",
         "ILInspector.Metadata",

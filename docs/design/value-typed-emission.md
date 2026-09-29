@@ -777,14 +777,32 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 
    At materialization, a slot whose stores are all Boolean-valued may recover
    the Boolean identity of an integer-typed load consumed by a Boolean sink
-   or condition. Every load still testifies: a numeric use conflicts, and an
-   underivable use vetoes recovery. This is identity recovery, not an
-   integer-to-Boolean conversion; mixed Boolean/integer stores retain the
-   existing `BooleanSinkIdentityRecovery` boundary. Earlier raising passes
-   retain their original testimony so materialization does not preempt their
-   constant or control-flow decisions. The printer uses the same Boolean-sink
-   rule for lowered and still-deferred slots instead of maintaining a second
-   sink vocabulary.
+   or condition. Canonical `ldc.i4.0`/`ldc.i4.1` stores are Boolean-valued when
+   every load in that proven live range testifies Boolean;
+   `BooleanSlotIdentityPass` retypes those constants through the existing
+   typed-constant owner before materialization replaces the carrier with a
+   local. Every load still testifies: a numeric use conflicts, an underivable
+   use vetoes recovery, and any other integer producer retains the existing
+   `BooleanSinkIdentityRecovery` boundary. This is identity recovery, not an
+   integer-to-Boolean conversion. Earlier raising passes retain their original
+   testimony so materialization does not preempt their constant or control-flow
+   decisions. The printer uses the same Boolean-sink rule for lowered and
+   still-deferred slots instead of maintaining a second sink vocabulary.
+
+   Live-range splitting consumes that same Boolean sink testimony when the
+   importer's `LoadStackSlot.Type` still reports the I4 storage width. It may
+   distinguish a completed Boolean range from a later integer range only when
+   the existing block-local proof already establishes the store/load boundary;
+   it does not add a control-flow edge, move an expression, or reinterpret an
+   integer producer outside the canonical zero/one set. Microsoft.CodeAnalysis
+   Common 5.0.0
+   `ControlFlowGraphBuilder.VisitConditionalAccess` is the motivating witness:
+   its Boolean flag range ends before the same evaluation-stack position is
+   reused for an integer capture ID. The identity split lets the Boolean range
+   materialize and leaves the later integer expression to normal inlining.
+   `RealRoslynReusedBooleanCarrierSplitsBeforeMaterialization` gates the
+   compiler-produced shape; synthetic positive and non-Boolean-neighbor tests
+   gate the identity boundary.
 
    A Boolean `box` operand is also a semantic Boolean observer: its metadata
    token names the boxed value type, not the evaluation-stack storage width.

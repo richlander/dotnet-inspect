@@ -1521,7 +1521,6 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.HealthChecks (List`1): computed projection still null after the walk",
         "LibraryInspection.Hosting (List`1): computed projection still null after the walk",
         "LibraryInspection.HttpClient (List`1): computed projection still null after the walk",
-        "LibraryInspection.InspectionFailures (List`1): computed projection still null after the walk",
         "LibraryInspection.Integrations (List`1): computed projection still null after the walk",
         "LibraryInspection.Logging (List`1): computed projection still null after the walk",
         "LibraryInspection.MetadataOverview (MetadataImageOverview): computed projection still null after the walk",

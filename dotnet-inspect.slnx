@@ -242,6 +242,8 @@
     <Project Path="tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
     <Project Path="tests/ILInspector.ILDiff.Tests/ILInspector.ILDiff.Tests.csproj" />
     <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
+    <Project Path="tests/ILInspector.Metadata.LegacyOracles/ILInspector.Metadata.LegacyOracles.csproj" />
+    <Project Path="tests/ILInspector.Metadata.PerformanceOracles.Tests/ILInspector.Metadata.PerformanceOracles.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
@@ -296,7 +298,9 @@
     <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/AotProbe/AotProbe.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
+    <Project Path="tools/MemberGroupScorecard/MemberGroupScorecard.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
+    <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
