@@ -451,7 +451,7 @@ test("package call graph traversal policy is independent of saved workspace memb
     /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
 });
 
-test("source-bearing Workspace URLs use page-session retained activation", () => {
+test("complete Workspace URLs use page-session retained activation", () => {
   const initialRestore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}/)?.[0] ?? "";
   const inAppNavigation = appSource.match(
@@ -518,6 +518,9 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     workspaceFeedActivationSource,
     /describeWorkspacePackageSources[\s\S]*AuthenticationRequired[\s\S]*workspaceCredentialPromptHtml/);
+  assert.doesNotMatch(
+    workspaceFeedActivationSource,
+    /description\.sources\.length/);
   assert.match(
     workspaceFeedActivationSource,
     /patInput\.value = ""[\s\S]*credential\.pat = ""[\s\S]*secretValues\.fill\(""\)/);

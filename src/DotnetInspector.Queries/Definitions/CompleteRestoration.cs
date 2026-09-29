@@ -424,6 +424,16 @@ public abstract record CompleteRestorationPreparationResult
 /// <summary>Resource-free front door for the complete restoration transaction.</summary>
 public static class CompleteRestorationPreparation
 {
+    /// <summary>
+    /// Returns whether complete restoration accepts the canonical packet format.
+    /// </summary>
+    public static bool SupportsPacketFormat(int formatVersion) =>
+        formatVersion is (
+            WorkspaceSharePacketCodec.Format2Version
+            or WorkspaceSharePacketCodec.CurrentFormatVersion
+            or WorkspaceSharePacketCodec.Format4Version
+            or WorkspaceSharePacketCodec.Format5Version);
+
     internal static CompleteRestorationPreparationResult
         FromCommittedDefinitions(
             CommittedScenarioDefinitionSet definitions,
@@ -501,11 +511,7 @@ public static class CompleteRestorationPreparation
 
         if (NonCurrent(authority, request) is { } superseded)
             return superseded;
-        if (packet.FormatVersion is not (
-            WorkspaceSharePacketCodec.Format2Version
-            or WorkspaceSharePacketCodec.CurrentFormatVersion
-            or WorkspaceSharePacketCodec.Format4Version
-            or WorkspaceSharePacketCodec.Format5Version))
+        if (!SupportsPacketFormat(packet.FormatVersion))
         {
             return new CompleteRestorationPreparationResult.Failed(
                 authority.Identity,
