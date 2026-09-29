@@ -71,6 +71,34 @@ public sealed class PackageDocumentContentInspectionTests
             Assert.Single(envelope.Diagnostics).Code);
     }
 
+    [Fact]
+    public async Task CaseVariantDuplicatesAreVisiblyAmbiguous()
+    {
+        PackageHouseSettlement.Acquired settlement =
+            CreateSettlement(
+                producerKey =>
+                    new InMemoryPackageContent(
+                        TestPackageArchive.CreateWithContent(
+                            ("README.md", "first"u8.ToArray()),
+                            ("readme.md", "second"u8.ToArray()),
+                            ("Contoso.Documents.nuspec", [])),
+                        fromCache: true,
+                        producerKey));
+
+        InspectionEnvelope<PackageDocumentContentDocument> envelope =
+            await PackageDocumentContentInspection.ExecuteAsync(
+                new(settlement, "README.md"),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PackageDocumentContentStatus.Unavailable,
+            envelope.Content.Status);
+        Assert.Empty(envelope.Content.Content);
+        Assert.Equal(
+            "package-document-content.entry-ambiguous",
+            Assert.Single(envelope.Diagnostics).Code);
+    }
+
     private static PackageHouseSettlement.Acquired CreateSettlement(
         Func<string, IPackageContent> createContent)
     {

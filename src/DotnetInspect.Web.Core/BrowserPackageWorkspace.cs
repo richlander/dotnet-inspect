@@ -4470,22 +4470,42 @@ internal sealed class BrowserPackage
                 $"'{path}' is not a browsable document in "
                     + $"{coordinate.PackageId} {coordinate.Version}.");
 
-        await using Stream input = document.Kind is "readme" or "skill"
-            ? settlement.OpenPayloadRead(document.Path, document.Size)
-            : content.TryOpenEntry(
-                document.Path,
-                MaxTextEntryBytes,
-                out Stream? eager)
+        Stream input;
+        if (document.Kind is "readme" or "skill")
+        {
+            PackageDocumentEntryResolution resolution =
+                PackageDocumentEntryResolver.Resolve(
+                    settlement,
+                    document.Path);
+            PackageContentEntry entry = resolution.Entry
+                ?? throw new InvalidOperationException(
+                    $"The requested package document entry could not be resolved: "
+                        + $"{resolution.Status}.");
+            input = settlement.OpenPayloadRead(
+                entry.Path,
+                entry.Length);
+        }
+        else
+        {
+            input = content.TryOpenEntry(
+                    document.Path,
+                    MaxTextEntryBytes,
+                    out Stream? eager)
                 ? eager
                 : throw new InvalidOperationException(
                     $"The requested package entry was not found in "
                         + $"{coordinate.PackageId} {coordinate.Version}.");
-        return new BrowserPackageDocumentPayload(
-            document.Kind,
-            document.Name,
-            document.Path,
-            await DecodeUtf8Async(input, cancellationToken)
-                .ConfigureAwait(false));
+        }
+
+        await using (input)
+        {
+            return new BrowserPackageDocumentPayload(
+                document.Kind,
+                document.Name,
+                document.Path,
+                await DecodeUtf8Async(input, cancellationToken)
+                    .ConfigureAwait(false));
+        }
     }
 
     private static async Task<string> DecodeUtf8Async(

@@ -293,17 +293,17 @@ root `README.md` and the Markdown under `skills/`. Two consumers read them:
   the .NET tool-wrapper check reads the ranged directory as it reads the
   complete archive; a possible wrapper takes the complete package-content
   path, which follows the redirect, and says so in verbose output. The shared
-  content inspection copies the exact materialized entry into a detached
-  envelope; the CLI then applies its existing separator, raw, JSONL, or
-  `--out` projection. Offline, the command keeps the local package cache path,
-  as the search Root's offline branch does, so it does not yet answer from the
-  authority-scoped store or the entry cache. For `Newtonsoft.Json` 13.0.4
-  (2.5 MB), a cold README content request is the size probe, the directory
-  tail, and one span: 6 of 24 entries.
+  entry resolver selects the exact manifest entry and the content inspection
+  copies it into a detached envelope; the CLI then applies its existing
+  separator, raw, JSONL, or `--out` projection. Offline, the command keeps the
+  local package cache path, as the search Root's offline branch does, so it
+  does not yet answer from the authority-scoped store or the entry cache. For
+  `Newtonsoft.Json` 13.0.4 (2.5 MB), a cold README content request is the size
+  probe, the directory tail, and one span: 6 of 24 entries.
 - **The Browser/Wasm viewer** (#8489), which reads root `README.md` and
   `skills/**/*.md` document-manifest entries through a House `Acquire` and
-  the settlement's pull stream. It keeps complete `Acquire` until Inspect Web
-  adopts ranged access
+  the same entry resolver and settlement pull stream. It keeps complete
+  `Acquire` until Inspect Web adopts ranged access
   ([cache policy adoption step 5](package-cache-policy.md#adoption)).
 
 ### Per-command demand

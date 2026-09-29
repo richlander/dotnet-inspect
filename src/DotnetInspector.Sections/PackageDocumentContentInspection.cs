@@ -125,31 +125,27 @@ public static class PackageDocumentContentInspection
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (request.Settlement.Payload.Content
-            is not IPackageContentEntryManifest manifest)
+        PackageDocumentEntryResolution resolution =
+            PackageDocumentEntryResolver.Resolve(
+                request.Settlement,
+                request.Path);
+        if (resolution.Status
+            == PackageDocumentEntryResolutionStatus.ManifestUnavailable)
         {
             return Failed(
                 PackageDocumentContentStatus.Unavailable,
                 "package-document-content.manifest-unavailable",
                 "The acquired package content does not expose declared entry lengths.");
         }
-
-        PackageContentEntry[] matches =
-        [
-            .. manifest.EnumerateEntriesWithLengths()
-                .Where(entry => entry.Path.Equals(
-                    request.Path,
-                    StringComparison.OrdinalIgnoreCase))
-                .Take(2),
-        ];
-        if (matches.Length == 0)
+        if (resolution.Status == PackageDocumentEntryResolutionStatus.Missing)
         {
             return Failed(
                 PackageDocumentContentStatus.Unavailable,
                 "package-document-content.entry-missing",
                 $"The package does not contain '{request.Path}'.");
         }
-        if (matches.Length > 1)
+        if (resolution.Status
+            == PackageDocumentEntryResolutionStatus.Ambiguous)
         {
             return Failed(
                 PackageDocumentContentStatus.Unavailable,
@@ -157,7 +153,9 @@ public static class PackageDocumentContentInspection
                 $"The package contains more than one entry matching '{request.Path}'.");
         }
 
-        PackageContentEntry entry = matches[0];
+        PackageContentEntry entry = resolution.Entry
+            ?? throw new InvalidOperationException(
+                "A resolved package document entry is required.");
         if (entry.Length < 0 || entry.Length > Array.MaxLength)
         {
             return Failed(
