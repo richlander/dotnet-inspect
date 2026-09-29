@@ -119,6 +119,35 @@ public sealed partial class CSharpPrinter
         Func<MethodRef, IrFunction?>? importMethodBody,
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => PrintRaisedCore(
+            function,
+            importMethodBody,
+            options,
+            typesProvablyDisjoint,
+            fullyQualifyTypeNames: false);
+
+    /// <summary>
+    /// Runs the product raising path and prints its body with fully qualified
+    /// type names for composition into a host-owned declaration artifact.
+    /// </summary>
+    public static DecompilerResult PrintRaisedFullyQualified(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options = null,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => PrintRaisedCore(
+            function,
+            importMethodBody,
+            options,
+            typesProvablyDisjoint,
+            fullyQualifyTypeNames: true);
+
+    static DecompilerResult PrintRaisedCore(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint,
+        bool fullyQualifyTypeNames)
     {
         if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
             return unavailable;
@@ -132,7 +161,9 @@ public sealed partial class CSharpPrinter
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        return WithAppliedLenses(Print(function, options), appliedLenses);
+        return WithAppliedLenses(
+            Print(function, options, fullyQualifyTypeNames),
+            appliedLenses);
     }
 
     /// <summary>

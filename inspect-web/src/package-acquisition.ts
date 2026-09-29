@@ -167,6 +167,7 @@ export interface AppPackage {
   versionSettlement?: BrowserPackageVersionSettlementInspection;
   packageInfo?: BrowserPackageInfoMeasurementInspection;
   isRuntimePack: boolean;
+  platformContextId?: string | null;
   surfaceRevision?: number;
 }
 
