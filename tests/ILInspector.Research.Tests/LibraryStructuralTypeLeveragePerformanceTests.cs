@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -126,11 +125,11 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             leverage.SeaLevel.Types.Length,
             leverage.MountainPeak.Types.Length,
             CategoryCount(
-                leverage.Rows,
-                static row => row.SignatureIncomingDegree),
+                leverage.Rows.Select(
+                    static row => row.SignatureIncomingDegree)),
             CategoryCount(
-                leverage.Rows,
-                static row => row.SignatureOutgoingDegree),
+                leverage.Rows.Select(
+                    static row => row.SignatureOutgoingDegree)),
             Checksum(leverage),
             parentCost.ParentMilliseconds,
             parentCost.ParentBytes,
@@ -314,20 +313,19 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static int CategoryCount(
-        ImmutableArray<LibraryStructuralTypeLeverageRow> rows,
-        Func<LibraryStructuralTypeLeverageRow, int> degree)
+    [Fact]
+    public void CategoryCountIncludesTheCanonicalMaximum()
     {
-        int maximum = rows
-            .Where(static row => row.RankingEligible)
-            .Select(degree)
-            .DefaultIfEmpty()
-            .Max();
+        Assert.Equal(1, CategoryCount([20, 8, 6]));
+    }
+
+    private static int CategoryCount(IEnumerable<int> degrees)
+    {
+        int[] values = [.. degrees];
+        int maximum = values.DefaultIfEmpty().Max();
         if (maximum == 0)
             return 0;
-        return rows.Count(row =>
-            row.RankingEligible
-            && degree(row) >= maximum * 0.5);
+        return values.Count(value => value >= maximum * 0.5);
     }
 
     private static double Median(double[] values)
