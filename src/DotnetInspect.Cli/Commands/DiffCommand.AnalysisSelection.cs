@@ -96,15 +96,6 @@ public partial class DiffCommand
                 + "outside analysis selection until they migrate.");
             return false;
         }
-        if (options.EnvelopeOutput || options.JsonOutput)
-        {
-            CommandError.Write(
-                "--envelope and --json are not yet supported for the "
-                + "analysis-set result; its JSON transport lands with its "
-                + "Browser/Wasm adoption.");
-            return false;
-        }
-
         AnalysisReportSurfaceKind surface =
             AnalysisSurfaceOf(options, out int targetCount);
         InspectionAnalysisConsumerBinding binding =
@@ -181,7 +172,9 @@ public partial class DiffCommand
         if (views is [var only]
             && only == DiffSections.Changes.Name
             && selection.Analyses is [var single]
-            && IsApi(single))
+            && IsApi(single)
+            && !options.EnvelopeOutput
+            && !options.JsonOutput)
         {
             return true;
         }
@@ -224,21 +217,28 @@ public partial class DiffCommand
         Console.WriteLine(writer.Complete().TrimEnd());
     }
 
-    static void WriteNonComparedOutcomes(DiffAnalysisResult result)
+    static void WriteAnalysisDiagnostics(
+        IReadOnlyList<InspectionDiagnostic> diagnostics)
     {
-        foreach (DiffAnalysisOutcome outcome in result.Outcomes)
+        foreach (InspectionDiagnostic diagnostic in diagnostics)
         {
-            switch (outcome)
+            if (diagnostic.Code
+                == "diff-analysis.api-inspection-failure")
             {
-                case DiffAnalysisOutcome.Failed failed:
-                    CommandError.Write(
-                        $"Analysis '{failed.Analysis.Id.Value}' failed: "
-                        + failed.Diagnostic);
+                continue;
+            }
+
+            string summary = diagnostic.Summary.ToString();
+            switch (diagnostic.Severity)
+            {
+                case InspectionDiagnosticSeverity.Information:
+                    CommandError.WriteNote(summary);
                     break;
-                case DiffAnalysisOutcome.Unavailable unavailable:
-                    CommandError.WriteWarning(
-                        $"Analysis '{unavailable.Analysis.Id.Value}' was not "
-                        + $"compared: {unavailable.Reason}");
+                case InspectionDiagnosticSeverity.Warning:
+                    CommandError.WriteWarning(summary);
+                    break;
+                case InspectionDiagnosticSeverity.Error:
+                    CommandError.Write(summary);
                     break;
             }
         }
@@ -365,6 +365,7 @@ public partial class DiffCommand
         return
         [
             .. RunAnalysisSet(
+                    "Diff",
                     fromPaths,
                     toPaths,
                     fromSurface,
@@ -372,9 +373,10 @@ public partial class DiffCommand
                     fromVersion,
                     toVersion,
                     planned,
-                    plan.Selection)
-                .Projected
-                .SelectMany(entry => entry.Rows),
+                    plan)
+                .Inspection.Content.Transitions
+                .GetValueOrDefault()
+                .Select(ToView),
         ];
     }
 
@@ -394,9 +396,7 @@ public partial class DiffCommand
             options);
 
     internal sealed record AnalysisSetRun(
-        DiffAnalysisResult Result,
-        IReadOnlyList<(DiffAnalysisOutcome Outcome, IReadOnlyList<FindingTransitionRow> Rows)>
-            Projected);
+        InspectionEnvelope<DiffAnalysisDocument> Inspection);
 
     /// <summary>
     /// Resolves request targets, runs every selected analysis's registered
@@ -404,6 +404,7 @@ public partial class DiffCommand
     /// resolution failure throws before any producer runs.
     /// </summary>
     static AnalysisSetRun RunAnalysisSet(
+        string name,
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
         ApiSurface fromSurface,
@@ -411,8 +412,9 @@ public partial class DiffCommand
         string fromVersion,
         string toVersion,
         DiffOptions options,
-        AnalysisSetValidationResult.Accepted selection)
+        DiffAnalysisPlan plan)
     {
+        AnalysisSetValidationResult.Accepted selection = plan.Selection;
         AnalysisReportSurfaceKind surface = selection.Surface;
         string[] bodyTargeted =
         [
@@ -478,23 +480,16 @@ public partial class DiffCommand
                         descriptors)),
                 options,
                 "--analysis"));
-        DiffAnalysisResult result = DiffAnalysisOperation.Execute(
-            DiffAnalysisCommandCapability.Catalog,
-            selection,
-            input);
-
-        var scope = new TransitionScope(
-            surface,
-            [.. typeNames],
-            targets,
-            fromVersion,
-            toVersion);
         return new AnalysisSetRun(
-            result,
-            [
-                .. result.Outcomes.Select(outcome =>
-                    (outcome, TransitionRows(outcome, scope))),
-            ]);
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    name,
+                    fromVersion,
+                    toVersion,
+                    DiffAnalysisCommandCapability.Catalog,
+                    selection,
+                    input,
+                    DocumentViews(plan.Views))));
     }
 
     /// <summary>
@@ -507,6 +502,7 @@ public partial class DiffCommand
         DiffAnalysisPlan plan)
     {
         AnalysisSetRun run = RunAnalysisSet(
+            inputs.Name,
             inputs.FromPaths,
             inputs.ToPaths,
             inputs.FromSurface,
@@ -514,7 +510,7 @@ public partial class DiffCommand
             inputs.FromVersion,
             inputs.ToVersion,
             options,
-            plan.Selection);
+            plan);
         return WriteAnalysisSet(
             inputs.Name,
             inputs.FromSurface,
@@ -541,8 +537,8 @@ public partial class DiffCommand
     {
         AnalysisSetValidationResult.Accepted selection = plan.Selection;
         bool selectsApi = selection.Analyses.Any(IsApi);
-        DiffAnalysisResult result = run.Result;
-        var projected = run.Projected;
+        InspectionEnvelope<DiffAnalysisDocument> inspection = run.Inspection;
+        DiffAnalysisDocument document = inspection.Content;
 
         IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures =
             selectsApi
@@ -550,15 +546,18 @@ public partial class DiffCommand
                     fromSurface,
                     toSurface)
                 : [];
-        bool failed = result.Outcomes.Any(static outcome =>
-                outcome is DiffAnalysisOutcome.Failed)
+        bool failed = document.Outcomes.Any(static outcome =>
+                outcome.Kind == DiffAnalysisDocumentOutcomeKind.Failed)
             || inspectionFailures.Count > 0;
 
         DiffAnalysisSummaryView? summaryView =
             plan.Views.Contains(DiffSections.Summary.Name)
                 ? DiffOutputFormatter.BuildAnalysisSummaryView(
                     name,
-                    [.. projected.Select(entry => SummaryRow(entry.Outcome, entry.Rows))],
+                    [
+                        .. document.Summary.GetValueOrDefault()
+                            .Select(ToView),
+                    ],
                     fromVersion,
                     toVersion)
                 : null;
@@ -566,29 +565,24 @@ public partial class DiffCommand
             plan.Views.Contains(DiffSections.Transitions.Name)
                 ? DiffOutputFormatter.BuildTransitionsView(
                     name,
-                    [.. projected.SelectMany(entry => entry.Rows)],
+                    [
+                        .. document.Transitions.GetValueOrDefault()
+                            .Select(ToView),
+                    ],
                     fromVersion,
                     toVersion)
                 : null;
         ApiDiff? changes = null;
         if (plan.Views.Contains(DiffSections.Changes.Name)
-            && result.Outcomes.FirstOrDefault(outcome => IsApi(outcome.Analysis))
-                is DiffAnalysisOutcome.Compared
-                {
-                    Comparison: KeyedFindingComparison.Api api,
-                })
+            && document.GetApiChanges() is { } apiChanges)
         {
-            changes = BuildApiDiff(
-                api.Comparison,
-                fromSurface,
-                toSurface,
-                options);
+            changes = apiChanges;
         }
 
         // Every analysis that did not compare stays visible, whichever views
         // are selected. The Changes view never stands in for an api
         // analysis that did not compare; other selected views still render.
-        WriteNonComparedOutcomes(result);
+        WriteAnalysisDiagnostics(inspection.Diagnostics);
         if (plan.Views.Contains(DiffSections.Changes.Name) && changes is null)
         {
             CommandError.Write(
@@ -597,6 +591,13 @@ public partial class DiffCommand
             if (plan.Views is [_])
                 return 1;
             failed = true;
+        }
+
+        if (options.EnvelopeOutput || options.JsonOutput)
+        {
+            return DiffAnalysisOutput.Write(inspection, options)
+                ? failed ? 1 : 0
+                : 1;
         }
 
         if (plan.Views is [var onlyView])
@@ -693,203 +694,47 @@ public partial class DiffCommand
         }
     }
 
-    /// <summary>The request surface a Transitions or Summary view projects.</summary>
-    sealed record TransitionScope(
-        AnalysisReportSurfaceKind Surface,
-        HashSet<string> TypeNames,
-        ResolvedDiffMemberTargets? MemberTargets,
-        string FromVersion,
-        string ToVersion);
-
-    static DiffAnalysisSummaryRow SummaryRow(
-        DiffAnalysisOutcome outcome,
-        IReadOnlyList<FindingTransitionRow> rows)
+    private static DiffAnalysisDocumentViews DocumentViews(
+        IReadOnlyList<string> views)
     {
-        int Count(PairKind kind)
-            => rows.Count(row => row.Transition == $"PairFinding.{kind}");
-        return outcome switch
-        {
-            DiffAnalysisOutcome.Compared => new DiffAnalysisSummaryRow(
-                outcome.Identity,
-                "Compared",
-                Count(PairKind.Added),
-                Count(PairKind.Removed),
-                Count(PairKind.Changed),
-                Count(PairKind.Present),
-                rows.FirstOrDefault(row =>
-                    row.Transition == "FindingComparison.Failed")?.Detail
-                    ?? (outcome is DiffAnalysisOutcome.Compared
-                        {
-                            Comparison: KeyedFindingComparison.Api
-                            {
-                                Comparison.ApiDiff.InspectionFailures.Count: > 0 and var failures,
-                            },
-                        }
-                        ? $"incomplete: {failures} metadata inspection failure(s)"
-                        : null)),
-            DiffAnalysisOutcome.Unavailable unavailable => new DiffAnalysisSummaryRow(
-                outcome.Identity,
-                "Unavailable",
-                0,
-                0,
-                0,
-                0,
-                unavailable.Reason),
-            DiffAnalysisOutcome.Failed failure => new DiffAnalysisSummaryRow(
-                outcome.Identity,
-                "Failed",
-                0,
-                0,
-                0,
-                0,
-                failure.Diagnostic),
-            _ => throw new InvalidOperationException("Unknown Diff analysis outcome."),
-        };
+        DiffAnalysisDocumentViews result = DiffAnalysisDocumentViews.None;
+        if (views.Contains(DiffSections.Changes.Name))
+            result |= DiffAnalysisDocumentViews.Changes;
+        if (views.Contains(DiffSections.Summary.Name))
+            result |= DiffAnalysisDocumentViews.Summary;
+        if (views.Contains(DiffSections.Transitions.Name))
+            result |= DiffAnalysisDocumentViews.Transitions;
+        return result;
     }
 
-    /// <summary>
-    /// Projects one outcome's per-Finding transitions over the request
-    /// surface, in the analysis's descriptor declaration order.
-    /// </summary>
-    static IReadOnlyList<FindingTransitionRow> TransitionRows(
-        DiffAnalysisOutcome outcome,
-        TransitionScope scope)
+    private static DotnetInspect.Cli.Views.DiffAnalysisSummaryRow ToView(
+        DotnetInspector.ResearchSections.DiffAnalysisSummaryRow row)
+        => new(
+            row.Analysis,
+            row.Outcome.ToString(),
+            row.Added,
+            row.Removed,
+            row.Changed,
+            row.Present,
+            row.Detail);
+
+    private static FindingTransitionRow ToView(
+        DiffAnalysisTransitionRow row)
     {
-        string fromVersion = scope.FromVersion;
-        string toVersion = scope.ToVersion;
-        string descriptors = string.Join(
-            ", ",
-            outcome.Participation.Descriptors.Select(descriptor => descriptor.Id));
-        switch (outcome)
-        {
-            case DiffAnalysisOutcome.Unavailable unavailable:
-                return [new FindingTransitionRow(
-                    "Unavailable", descriptors, outcome.Identity,
-                    fromVersion, toVersion, "n/a", "n/a", unavailable.Reason)];
-            case DiffAnalysisOutcome.Failed failure:
-                return [new FindingTransitionRow(
-                    "Failed", descriptors, outcome.Identity,
-                    fromVersion, toVersion, "n/a", "n/a", failure.Diagnostic)];
-        }
-
-        var compared = (DiffAnalysisOutcome.Compared)outcome;
-        List<FindingTransitionRow> rows = [];
-        foreach (FindingDescriptor descriptor in outcome.Participation.Descriptors)
-        {
-            IEnumerable<FindingTransitionRow> descriptorRows = compared.Comparison switch
-            {
-                KeyedFindingComparison.Api api =>
-                    ApiTransitionRows(api.Comparison, descriptor, scope),
-                KeyedFindingComparison.Retained retained =>
-                    RetainedTransitionRows(retained.Comparisons, descriptor, scope),
-                _ => throw new InvalidOperationException(
-                    "Unknown keyed Finding comparison."),
-            };
-            rows.AddRange(descriptorRows);
-        }
-        return rows;
-    }
-
-    // The api comparison is library-wide, so its whole-comparison topology
-    // marker (FindingComparison.Complete with no pairs) is not a fact about
-    // the request surface; failed comparisons still project as rows.
-    static IEnumerable<FindingTransitionRow> ApiTransitionRows(
-        ApiFindingComparison comparison,
-        FindingDescriptor descriptor,
-        TransitionScope scope)
-        => ApiComparisonTransitionRows(comparison, descriptor, scope)
-            .Where(row => row.Transition != "FindingComparison.Complete");
-
-    static IEnumerable<FindingTransitionRow> ApiComparisonTransitionRows(
-        ApiFindingComparison comparison,
-        FindingDescriptor descriptor,
-        TransitionScope scope)
-    {
-        string fromVersion = scope.FromVersion;
-        string toVersion = scope.ToVersion;
-        if (descriptor.Id == MetadataFindings.TypeDescriptor.Id)
-        {
-            return ComparisonRows(
-                    comparison.Types,
-                    MetadataFindings.TypeDescriptor,
-                    "API surface",
-                    fromVersion,
-                    toVersion,
-                    emitEmptyComparison: false,
-                    pair => ToTypeTransitionRow(pair, fromVersion, toVersion),
-                    scope.Surface == AnalysisReportSurfaceKind.Library
-                        ? null
-                        : pair => scope.TypeNames.Contains(TypeTarget(pair)))
-                .OrderBy(row => row.Target, StringComparer.Ordinal);
-        }
-        if (descriptor.Id == MetadataFindings.MemberDescriptor.Id)
-        {
-            Func<PairFinding<ApiMemberHandle>, bool>? include = scope.Surface switch
-            {
-                AnalysisReportSurfaceKind.Library => null,
-                AnalysisReportSurfaceKind.Type =>
-                    pair => scope.TypeNames.Contains(MemberTypeTarget(pair)),
-                _ => pair => MatchesMemberPair(
-                    pair,
-                    scope.MemberTargets
-                        ?? throw new InvalidOperationException(
-                            "Member targets were not resolved.")),
-            };
-            return ComparisonRows(
-                    comparison.Members,
-                    MetadataFindings.MemberDescriptor,
-                    "API surface",
-                    fromVersion,
-                    toVersion,
-                    emitEmptyComparison: false,
-                    pair => ToMemberTransitionRow(pair, fromVersion, toVersion),
-                    include)
-                .OrderBy(row => row.Target, StringComparer.Ordinal);
-        }
-        throw new InvalidOperationException(
-            $"The api comparison carries no '{descriptor.Id}' Findings.");
-    }
-
-    static IEnumerable<FindingTransitionRow> RetainedTransitionRows(
-        RetainedFindingComparisonSet comparisons,
-        FindingDescriptor descriptor,
-        TransitionScope scope)
-    {
-        string fromVersion = scope.FromVersion;
-        string toVersion = scope.ToVersion;
-        IEnumerable<FindingTransitionRow> Rows<T>(
-            bool emitEmptyComparison,
-            Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
-                toTransitionRow)
-            where T : notnull
-            => comparisons.Get<T>(descriptor)
-                .SelectMany(comparison => RetainedComparisonRows(
-                    comparison,
-                    fromVersion,
-                    toVersion,
-                    emitEmptyComparison,
-                    toTransitionRow))
-                .OrderBy(row => row.Target, StringComparer.Ordinal)
-                .ThenBy(row => row.Transition, StringComparer.Ordinal);
-
-        return descriptor.Id switch
-        {
-            var id when id == MetadataFindings.AttributeDescriptor.Id =>
-                Rows<ApiAttributeHandle>(
-                    emitEmptyComparison: false,
-                    (_, pair, from, to) => ToAttributeTransitionRow(pair, from, to)),
-            var id when id == AnalysisFindings.AllocationDescriptor.Id =>
-                Rows<AllocationOccurrence>(false, ToAllocationTransitionRow),
-            var id when id == AnalysisFindings.CallSiteDescriptor.Id =>
-                Rows<DirectCall>(false, ToCallSiteTransitionRow),
-            var id when id == AnalysisFindings.UnsafetyDescriptor.Id =>
-                Rows<UnsafetyOccurrence>(false, ToUnsafetyTransitionRow),
-            var id when id == CSharpFindings.LineDescriptor.Id =>
-                Rows<CSharpCanonicalLine>(true, ToCSharpTransitionRow),
-            var id when id == IlFindings.OperationDescriptor.Id =>
-                Rows<CanonicalIlOperation>(true, ToIlTransitionRow),
-            _ => throw new InvalidOperationException(
-                $"No Transitions projection is registered for '{descriptor.Id}'."),
-        };
+        var view = new FindingTransitionRow(
+            row.Transition,
+            row.Finding,
+            row.Target,
+            row.From,
+            row.To,
+            row.Old,
+            row.New,
+            row.Detail);
+        return row.OldInspection is not null
+                && row.NewInspection is not null
+            ? view.WithInspectionStates(
+                row.OldInspection,
+                row.NewInspection)
+            : view;
     }
 }

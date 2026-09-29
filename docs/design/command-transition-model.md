@@ -904,10 +904,13 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 #### Producers and views
 
 `--analysis` selects producers. `-S` selects views of the result. A Diff
-section never chooses a producer. It is a projection of the envelope Content
-that the selected analyses produced, which is the original role of sections.
-One request therefore runs each selected analysis's comparison once, and any
-combination of views may be selected over it.
+section never chooses a producer. It is a projection of the
+`DiffAnalysisDocument` Content that the selected analyses produced, which is
+the original role of sections. `DiffAnalysisInspection` dispatches each
+selected producer once, then constructs only the requested Changes, Summary,
+and Transitions payloads. Summary may compute transitions for its counts
+without retaining the Transitions payload. Hosts consume that same completed
+document rather than reconstructing comparison semantics.
 
 Diff's existing keyed comparisons become the first registered Compare
 participations. Each row names the owner-issued comparison the analysis
@@ -1021,10 +1024,15 @@ and behavior.
 
 #### Content and failure
 
-A request with `--analysis` returns one Diff-owned `DiffAnalysisResult`: an
-ordered list of per-analysis outcomes, in selection order. It is Diff's own
-result shape for this operation, not a universal diff type. Each entry names
-its analysis identity and is exactly one of:
+`DiffAnalysisOperation` produces one internal `DiffAnalysisResult`: an ordered
+list of native per-analysis outcomes in selection order. It is Diff's
+producer result, not a universal diff type. `DiffAnalysisInspection` projects
+that result into one
+`InspectionEnvelope<DiffAnalysisDocument>` for host delivery. The Document
+retains the comparison context, selected analyses and views, flattened outcome
+state, the selected API Changes payload, selected Summary rows, and selected
+Transitions rows. Each outcome names its analysis identity and is exactly one
+of:
 
 - **Compared.** The analysis's native keyed comparison, such as
   `ApiFindingComparison` or `FindingComparison<T>`. Research keeps the
@@ -1046,12 +1054,17 @@ outcome. When a selected member resolves nothing, drifts across versions, is
 ambiguous, or selects no Analysis method, the request exits non-zero with the
 typed target diagnostic before any analysis runs.
 
-A request without `--analysis` keeps today's Content. The default single-`api`
-Library request still delivers `InspectionEnvelope<LibraryApiDiffOutcome>`, so
-default output does not change. A request with `--analysis` delivers
-`InspectionEnvelope<DiffAnalysisResult>`. The JSON transport of that Content
-lands with its Browser/Wasm adoption. Until then, `--envelope` and `--json`
-with `--analysis` are rejected visibly rather than emitting a partial shape.
+A request without analysis-set views keeps today's Content. The default
+single-`api` Library request still delivers
+`InspectionEnvelope<LibraryApiDiffOutcome>`, so default output does not change.
+An explicit `--analysis` request, or a request selecting Summary or
+Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>`.
+Unprojected `--json` writes that exact Content and `--envelope` writes the same
+Content with `result_kind` `diff-analysis`, schema version `1`, Share, and
+ordered diagnostics. Type and Member targets remain semantic request inputs;
+presentation-only columns, fields, row or line clipping, and tabular formats
+are rejected before acquisition. Browser/Wasm consumption of the same
+envelope remains a later adoption slice.
 
 #### Demo and evidence
 

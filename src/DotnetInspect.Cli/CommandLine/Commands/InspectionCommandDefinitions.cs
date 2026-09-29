@@ -234,13 +234,39 @@ public static class InspectionCommandDefinitions
                 || result.GetValue(implementationOption)
                     && result.GetResult(opts.Select)
                         is not { Implicit: false };
-            if (!implementationTransport)
+            string[] selectedViews = selector?
+                .Split(
+                    ',',
+                    StringSplitOptions.TrimEntries
+                        | StringSplitOptions.RemoveEmptyEntries)
+                ?? [];
+            bool analysisTransport =
+                result.GetResult(analysisOption) is { Implicit: false }
+                || selectedViews.Length > 0
+                    && selectedViews.All(view =>
+                        string.Equals(
+                            view,
+                            DiffSections.Summary.Name,
+                            StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(
+                            view,
+                            DiffSections.Changes.Name,
+                            StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(
+                            view,
+                            DiffSections.Transitions.Name,
+                            StringComparison.OrdinalIgnoreCase))
+                    && selectedViews.Any(view => !string.Equals(
+                        view,
+                        DiffSections.Changes.Name,
+                        StringComparison.OrdinalIgnoreCase));
+            if (!implementationTransport && !analysisTransport)
             {
                 if (result.GetResult(opts.Select) is { Implicit: false })
                 {
                     result.AddError(
                         "--envelope cannot be combined with --select unless "
-                            + "Implementation Diff is selected by itself.");
+                            + "Implementation Diff or analysis views are selected.");
                 }
                 if (result.GetResult(typeFilterOption) is { Implicit: false })
                     result.AddError("--envelope cannot be combined with --type.");
@@ -254,6 +280,7 @@ public static class InspectionCommandDefinitions
                 || result.GetValue(libraryOption) is not null;
             int positionalCount = result.GetValue(argsArg)?.Length ?? 0;
             if (!implementationTransport
+                && !analysisTransport
                 && positionalCount > (explicitSource ? 0 : 1))
             {
                 result.AddError(

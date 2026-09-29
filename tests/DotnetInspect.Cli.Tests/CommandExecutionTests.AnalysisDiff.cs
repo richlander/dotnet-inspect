@@ -1692,21 +1692,22 @@ public partial class CommandExecutionTests
         Assert.Contains("use -S Transitions", error, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("--json")]
-    [InlineData("--envelope")]
-    public async Task Diff_AnalysisWithJsonTransport_IsRejectedBeforeAcquisition(
-        string transport)
+    [Fact]
+    public async Task Diff_AnalysisJsonProjection_IsRejectedBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library", "missing-old.dll..missing-new.dll",
             "--analysis", "api",
-            transport,
+            "--json", "--rows", "1",
             "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("not yet supported with --analysis", error, StringComparison.Ordinal);
+        Assert.Contains(
+            "Complete analysis Diff transport cannot be combined",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using ILInspector.Metadata;
@@ -239,6 +240,65 @@ public sealed class AnalysisParticipationRegistrationTests
                 "were not admitted",
                 Assert.IsType<DiffAnalysisOutcome.Failed>(outcome).Diagnostic,
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DiffAnalysisInspection_ProjectsSelectedViewsFromOneExecution()
+    {
+        InspectionCapabilityCatalog catalog = ProductCatalog();
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Member,
+                targetCount: 1,
+                ["allocation", "call-site"]));
+        int prepared = 0;
+        var input = new DiffAnalysisInput(
+            new ApiSurface(),
+            new ApiSurface(),
+            [],
+            [],
+            new HashSet<string>(),
+            ["Sample.Widget"],
+            new HashSet<string>(),
+            descriptors =>
+            {
+                prepared++;
+                Assert.Equal(
+                    ["analysis.allocation", "analysis.call-site"],
+                    descriptors.Select(descriptor => descriptor.Id));
+                return new ResearchComparison([]);
+            });
+
+        InspectionEnvelope<DiffAnalysisDocument> inspection =
+            DiffAnalysisInspection.Execute(
+                new DiffAnalysisInspectionRequest(
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    catalog,
+                    accepted,
+                    input,
+                    DiffAnalysisDocumentViews.Summary));
+
+        Assert.Equal(1, prepared);
+        Assert.Equal(
+            ["allocation", "call-site"],
+            inspection.Content.Comparison.Analyses);
+        Assert.Equal(
+            DiffAnalysisDocumentViews.Summary,
+            inspection.Content.Comparison.Views);
+        Assert.Equal(2, inspection.Content.Outcomes.Length);
+        Assert.Equal(2, inspection.Content.Summary?.Length);
+        Assert.Null(inspection.Content.Changes);
+        Assert.Null(inspection.Content.Transitions);
+        string json = JsonSerializer.Serialize(
+            inspection.Content,
+            DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument);
+        using var parsed = JsonDocument.Parse(json);
+        Assert.True(parsed.RootElement.TryGetProperty("summary", out _));
+        Assert.False(parsed.RootElement.TryGetProperty("changes", out _));
+        Assert.False(parsed.RootElement.TryGetProperty("transitions", out _));
     }
 
     static DiffAnalysisInput Input(
