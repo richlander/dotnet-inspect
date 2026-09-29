@@ -652,11 +652,12 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }, true),
+    ["overview", "call-graph", "source"]);
 });
 
-// Arrowing between members keeps ordinary sections sticky. Implementation Profiles is
-// retained only for an exact family that was already activated, so navigation itself
-// cannot authorize expensive analysis for another family.
+// Arrowing between members keeps ordinary sections sticky.
 test("moving between members keeps sections sticky without section-driven profile activation", () => {
   const openMemberGroupBody =
     appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
@@ -740,6 +741,10 @@ test("source requests carry exact type and member identities", () => {
     generatedFacadeSource("inspect-web-source")
       .match(/export async function queryMemberSource\([\s\S]*?\n}/)?.[0]
     ?? "";
+  const platformMemberBridge =
+    generatedFacadeSource("inspect-web-source")
+      .match(/export async function queryPlatformMemberSource\([\s\S]*?\n}/)?.[0]
+    ?? "";
   const memberLoader =
     appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
@@ -747,8 +752,11 @@ test("source requests carry exact type and member identities", () => {
     memberBridge,
     /typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson/);
   assert.match(
+    platformMemberBridge,
+    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, contextId/);
+  assert.match(
     memberLoader,
-    /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken/);
+    /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformAssemblyRequest\(row\)[\s\S]*pack: row\.pack,[\s\S]*contextId: platformDemoContextIdFor\(pkg\)[\s\S]*kind: "package"/);
   assert.doesNotMatch(memberLoader, /signature:/);
 });
 
