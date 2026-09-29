@@ -318,6 +318,14 @@ public sealed class PackagePlatformHouseAdapter
             {
                 PlatformPopulationDemand.Library { Value: PlatformLibraryDemand.Assembly assembly } =>
                     new PackageReferencePopulationDemand.Assembly(assembly.Identity),
+                PlatformPopulationDemand.Library
+                    {
+                        Value:
+                            PlatformLibraryDemand.AssemblyReferenceBinding
+                                binding,
+                    } =>
+                    new PackageReferencePopulationDemand
+                        .AssemblyReferenceBinding(binding.Identity),
                 PlatformPopulationDemand.CompletePopulation => new PackageReferencePopulationDemand.CompletePopulation(),
                 _ => throw new InvalidOperationException("Unknown Platform population demand."),
             };
@@ -584,7 +592,7 @@ public sealed class PackagePlatformHouseAdapter
                         AssemblyBindingTarget.AssemblyReference target,
                 } when !fromDiscovery:
                 population = new PlatformPopulationDemand.Library(
-                    new PlatformLibraryDemand.Assembly(
+                    new PlatformLibraryDemand.AssemblyReferenceBinding(
                         target.Identity));
                 return true;
             default:
@@ -645,8 +653,7 @@ public sealed class PackagePlatformHouseAdapter
         {
             PackagePlatformSourceOutcome<T>.Unavailable unavailable =>
                 new PlatformSourceContribution.Unavailable(facet, capability, request.Snapshot, generation, target,
-                    unavailable.Diagnostic.Kind is PackagePlatformSourceDiagnosticKind.PackageUnavailable
-                        or PackagePlatformSourceDiagnosticKind.MemberUnavailable
+                    unavailable.Diagnostic.Kind is PackagePlatformSourceDiagnosticKind.MemberUnavailable
                         ? PlatformSourceUnavailabilityKind.Absent : PlatformSourceUnavailabilityKind.Unavailable),
             PackagePlatformSourceOutcome<T>.Rejected =>
                 new PlatformSourceContribution.Rejected(facet, capability, request.Snapshot, generation, target),

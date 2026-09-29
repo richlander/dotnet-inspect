@@ -8,6 +8,18 @@ namespace DotnetInspector.PlatformHouse;
 /// </summary>
 public static class PlatformAssemblyReferenceBindingPolicy
 {
+    public static bool OwnsName(
+        PlatformLibraryDemand.AssemblyReferenceBinding demand,
+        AssemblyReferenceIdentity candidate)
+    {
+        ArgumentNullException.ThrowIfNull(demand);
+        ArgumentNullException.ThrowIfNull(candidate);
+        return string.Equals(
+            demand.Identity.Name,
+            candidate.Name,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool MatchesCandidate(
         PlatformLibraryDemand.AssemblyReferenceBinding demand,
         AssemblyReferenceIdentity candidate)
