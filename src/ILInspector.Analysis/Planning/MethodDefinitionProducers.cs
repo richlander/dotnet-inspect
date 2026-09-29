@@ -50,6 +50,14 @@ public enum MethodDefinitionLayers
     /// full type name, memoized per attribute constructor and per type handle.
     /// </summary>
     AttributeTypeMatch = 128,
+
+    /// <summary>
+    /// Tier 1: the method's relationship from the Metadata semantic
+    /// substrate <c>StateMachineRelationshipIndex</c>, built once per execution
+    /// and bounded by its own budgets. Its global budget exhaustion aborts; a
+    /// per-row rejection is a recoverable failure.
+    /// </summary>
+    StateMachineRelationship = 256,
 }
 
 /// <summary>
@@ -413,6 +421,16 @@ public readonly ref struct MethodDefinitionView
         ArgumentNullException.ThrowIfNull(target);
         Require(MethodDefinitionLayers.AttributeTypeMatch);
         return _unit.Gate.HasAttributeOfType(target);
+    }
+
+    /// <summary>Tier 1: the method's implementation relationship from <c>StateMachineRelationshipIndex</c>.</summary>
+    public StateMachineRelationshipResult StateMachineByImplementation
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.StateMachineRelationship);
+            return _unit.Gate.StateMachineByImplementation();
+        }
     }
 
     /// <summary>Tier 2: the row's identity text, through the gate's identity budget.</summary>
