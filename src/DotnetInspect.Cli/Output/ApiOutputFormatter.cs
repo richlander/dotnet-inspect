@@ -965,7 +965,7 @@ public static class ApiOutputFormatter
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter)
     {
-        var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
+        IEnumerable<ApiMember> members = type.Members;
 
         if (memberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
@@ -989,7 +989,7 @@ public static class ApiOutputFormatter
     internal static void PopulateEnumValues(TypeView view, ApiType type, ApiOptions options)
     {
         var enumMembers = type.Members
-            .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
+            .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
             .OrderBy(m => m.EnumValue)
             .ToList();
         if (options.MemberFilter.Count > 0)
@@ -3545,9 +3545,7 @@ public static class ApiOutputFormatter
 
     internal static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false, HashSet<string>? kindFilter = null)
     {
-        var members = type.Members
-            .Where(m => !IsCompilerGenerated(m.Name))
-            .ToList();
+        var members = type.Members.ToList();
 
         if (memberFilter?.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter)).ToList();
@@ -3612,8 +3610,6 @@ public static class ApiOutputFormatter
         "finalizer" => "Finalizer",
         _ => char.ToUpper(kind[0]) + kind[1..] + "s"
     };
-
-    private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
 
 
     private static readonly string[] MemberKinds =

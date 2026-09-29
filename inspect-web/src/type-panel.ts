@@ -591,7 +591,6 @@ export interface MemberNavHeatCue {
   tone: "progress" | "problem";
 }
 
-/** Implementation evidence for one nested overload row. */
 const valueMemberKinds = new Set(["property", "field", "event"]);
 
 // A single member's row says what it is, not which kind it is (the icon
@@ -624,8 +623,6 @@ export interface MemberNavOverloadHeat {
   heatStrength: number | null;
   hub: boolean;
   description: string;
-  /** The measured size, shown on every overload that has one. */
-  size: number | null;
 }
 
 export interface MemberNavOptions {
@@ -705,11 +702,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const heatDescription = heat === null
             ? ""
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
-          const size = heat?.size != null
-            ? `<small class="overload-size" title="${heat.size} IL instructions">${heat.size}IL</small>`
-            : "";
-          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
-            <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>${size}
+          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+            <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>

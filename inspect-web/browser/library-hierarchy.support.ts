@@ -1703,6 +1703,42 @@ async function installFacades(
           surface, selected, version, framework, selected.id));
       }`,
     source: `
+      export async function queryPlatformMemberSource(
+        framework,
+        version,
+        assembly,
+        pack,
+        type,
+        member,
+        selector,
+        token,
+        taste,
+        contextId
+      ) {
+        document.documentElement.dataset.platformMemberSourceRequest =
+          JSON.stringify([
+            framework,
+            version,
+            assembly,
+            pack,
+            type,
+            member,
+            selector,
+            token,
+            taste,
+            contextId,
+          ]);
+        return {
+          source: {
+            provider: "decompiled",
+            provenance: "fixture platform implementation",
+            url: null,
+            pdbSourceLimitation: null,
+            text: "public void Run() {}",
+          },
+          parts: [],
+        };
+      }
       export async function queryTypeSource() {
         return {
           version: 1,

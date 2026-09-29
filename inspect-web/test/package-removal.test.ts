@@ -355,6 +355,7 @@ const graphHostNames = new Set([
   "finishPackageRemoval", "invalidateGraphMemberNavigation",
   "invalidateWorkspaceMembershipViews",
   "loadSelectedMemberCallGraph", "memberRequestSignature",
+  "platformDemoContextIdFor",
   "currentPackage", "selectedType", "selectedMember",
   "memberGroups", "scope",
 ]);

@@ -77,6 +77,78 @@ public sealed class PlatformAssemblyReferenceResolverTests
 
     [Fact]
     public async Task
+        ResolveAsync_BindingDemandReturnsCanonicalTargetIdentity()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity targetIdentity =
+            Descriptor(image).Identity;
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
+        var input = Input(
+            sourceIdentity,
+            image,
+            static () => true,
+            static () => { },
+            cancellationToken,
+            materializedIdentity: targetIdentity,
+            bindingDemand: true);
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    input.Request,
+                    input.Item,
+                    input.Consumed));
+        var decision = Assert.IsType<AssemblyBindingDecision.Resolved>(
+            completed.Value);
+        var demand = Assert.IsType<
+            PlatformLibraryDemand.AssemblyReferenceBinding>(
+                Assert.IsType<PlatformPopulationDemand.Library>(
+                    input.Contribution.Population).Value);
+
+        Assert.Equal(sourceIdentity, demand.Identity);
+        Assert.Equal(targetIdentity, decision.Candidate.Identity);
+        Assert.Equal(sourceIdentity, decision.Request.Target
+            is AssemblyBindingTarget.AssemblyReference target
+                ? target.Identity
+                : null);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_ExactDemandRejectsTargetVersionDifference()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity targetIdentity =
+            Descriptor(image).Identity;
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
+        int sourceOpens = 0;
+        var input = Input(
+            sourceIdentity,
+            image,
+            static () => true,
+            () => sourceOpens++,
+            cancellationToken,
+            materializedIdentity: targetIdentity);
+
+        Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    input.Request,
+                    input.Item,
+                    input.Consumed));
+        Assert.Equal(0, sourceOpens);
+    }
+
+    [Fact]
+    public async Task
         ResolveAsync_RejectsNonGlobalInputBeforeSourceAccess()
     {
         CancellationToken cancellationToken =
@@ -1379,8 +1451,12 @@ public sealed class PlatformAssemblyReferenceResolverTests
             Action observedOpen,
             CancellationToken cancellationToken,
             bool mismatchRoute = false,
-            Func<byte[], Stream>? openStream = null)
+            Func<byte[], Stream>? openStream = null,
+            AssemblyReferenceIdentity? materializedIdentity = null,
+            bool bindingDemand = false)
     {
+        AssemblyReferenceIdentity candidateIdentity =
+            materializedIdentity ?? identity;
         PlatformSourceCapabilityIdentity capability =
             PlatformSourceCapabilityIdentity.Create(
                 "reference-source");
@@ -1402,12 +1478,15 @@ public sealed class PlatformAssemblyReferenceResolverTests
                 PlatformSourceCoordinateIdentity.Create(
                     "reference-coordinate"),
                 new PlatformPopulationDemand.Library(
-                    new PlatformLibraryDemand.Assembly(identity)),
+                    bindingDemand
+                        ? new PlatformLibraryDemand
+                            .AssemblyReferenceBinding(identity)
+                        : new PlatformLibraryDemand.Assembly(identity)),
                 PlatformSourceContributionCompleteness.Authoritative);
         var item = new PlatformLibraryArtifactMaterializationItem(
             contribution,
             new TestProvenance(),
-            identity,
+            candidateIdentity,
             image.LongLength,
             token =>
             {
