@@ -559,7 +559,7 @@ public sealed class BrowserPlatformForwarderActivationTests
             InspectionEnvelope<LibraryInspectionOutcome> inspection =
                 LibraryInspectionOperation.Execute(
                     new(
-                        member.Library,
+                        member.PlatformLibrary.Library,
                         new(
                             new(
                                 LibraryTypeAccessibility.Public,
@@ -578,7 +578,7 @@ public sealed class BrowserPlatformForwarderActivationTests
                                     20_000_000))),
                     Assert.IsType<
                         LibraryOperationLeaseIssueOutcome.Issued>(
-                            owner.IssueOperationLease(member.Library))
+                            owner.IssueOperationLease(member.PlatformLibrary.Library))
                         .Lease,
                     cancellationToken);
             LibraryDocument document =
@@ -752,7 +752,7 @@ public sealed class BrowserPlatformForwarderActivationTests
         Assert.Single(
             completed.Population.Value.Members,
             member =>
-                member.Library.ApiAssembly.AssemblyIdentity is { } assembly
+                member.PlatformLibrary.Library.ApiAssembly.AssemblyIdentity is { } assembly
                 && assembly.Identity.IsEquivalentTo(identity));
 
     private static ResolvedAssemblyReference SnapshotDescriptor(
@@ -761,10 +761,10 @@ public sealed class BrowserPlatformForwarderActivationTests
     {
         LibraryContentOwner owner = Owner(completed, member);
         LibraryContentReference content =
-            member.Library.ImplementationAssembly!;
+            member.PlatformLibrary.Library.ImplementationAssembly!;
         using LibraryOperationLease lease =
             Assert.IsType<LibraryOperationLeaseIssueOutcome.Issued>(
-                    owner.IssueOperationLease(member.Library))
+                    owner.IssueOperationLease(member.PlatformLibrary.Library))
                 .Lease;
         return lease.Snapshot(
             content,

@@ -329,8 +329,10 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
-                result.GetResult(opts.Select)
-                    is { Implicit: false }
+                PackageOptionsParser.IsDependencyQueryRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && !(result.GetResult(opts.Rows)
                         is { Implicit: false }
                     && result.GetResult(opts.Limit)
@@ -354,8 +356,10 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
-                result.GetResult(opts.Select)
-                    is { Implicit: false }
+                PackageOptionsParser.IsDependencyQueryRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && result.GetResult(opts.Rows)
                     is { Implicit: false }
                 && result.GetResult(opts.Limit)
@@ -364,6 +368,31 @@ public static class PackageCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                PackageOptionsParser.IsGenericPackageSectionRowSelection(
+                    result,
+                    opts,
+                    commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering),
+            defaultUnit:
+                CliRowSelectionDefaultUnit.RenderedLines);
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(

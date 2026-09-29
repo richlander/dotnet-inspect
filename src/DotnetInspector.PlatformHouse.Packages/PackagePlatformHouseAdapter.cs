@@ -485,9 +485,23 @@ public sealed class PackagePlatformHouseAdapter
                 Math.Min(
                     workAllowance.MaxBytes,
                     limits.MaxBytes));
+            PackageImplementationPopulationDemand sourcePopulation =
+                realize.Population switch
+                {
+                    PlatformPopulationDemand.Library
+                        { Value: PlatformLibraryDemand.Assembly assembly } =>
+                        new PackageImplementationPopulationDemand.Assembly(
+                            assembly.Identity),
+                    PlatformPopulationDemand.CompletePopulation =>
+                        new PackageImplementationPopulationDemand
+                            .CompletePopulation(),
+                    _ => throw new InvalidOperationException(
+                        "The validated implementation population has no package-backed mapping."),
+                };
             Task<PackagePlatformSourceOutcome<PackageImplementationRealization>>
                 pending = _source.RealizeImplementationAsync(
                     coordinate,
+                    sourcePopulation,
                     work,
                     operation);
             transferred = true;
@@ -592,45 +606,6 @@ public sealed class PackagePlatformHouseAdapter
         if (outcome is PackagePlatformSourceOutcome<
                 PackageImplementationRealization>.Succeeded success)
         {
-            if (realize.Population is PlatformPopulationDemand.Library
-                { Value: PlatformLibraryDemand.Assembly assembly }
-                && !success.Value.Libraries.Any(
-                    library => assembly.Identity.IsEquivalentTo(
-                        library.Identity)))
-            {
-                var diagnostic = new PackagePlatformSourceDiagnostic(
-                    PackagePlatformSourceDiagnosticKind.MemberUnavailable,
-                    "The requested assembly is absent from the package-backed implementation closure.",
-                    [.. success.Value.Frameworks.SelectMany(
-                        static framework => framework.PackageFailures)]);
-                return new PackagePlatformHouseResult<
-                    PackageImplementationRealization>.NotSucceeded(
-                        diagnostic,
-                        new PlatformSourceContribution.Unavailable(
-                            PlatformSourceFacet.Implementation,
-                            ImplementationRealization,
-                            request.Snapshot,
-                            PlatformSourceGeneration.Create(
-                                outcome.Generation.Name),
-                            target,
-                            PlatformSourceUnavailabilityKind.Absent),
-                        RealizationWork(success.Value));
-            }
-
-            static PlatformHouseConsumedWork RealizationWork(
-                PackageImplementationRealization realization) =>
-                new(
-                    sourceOperations: 0,
-                    targetCandidates: 0,
-                    assemblies: realization.Libraries.Length,
-                    xmlDocuments: 0,
-                    portablePdbs: 0,
-                    sourceDocuments: 0,
-                    bytes: realization.ConsumedBytes,
-                    forwardingHops: 0,
-                    targetComparisons: 0,
-                    elapsed: TimeSpan.Zero);
-
             return new PackagePlatformHouseResult<
                 PackageImplementationRealization>.Succeeded(
                     success.Value,
@@ -681,7 +656,24 @@ public sealed class PackagePlatformHouseAdapter
                 new PlatformSourceContribution.Failed(facet, capability, request.Snapshot, generation, target),
             _ => throw new InvalidOperationException("Unknown package-backed Platform outcome."),
         };
-        return new PackagePlatformHouseResult<T>.NotSucceeded(failure.Diagnostic, contribution);
+        PlatformHouseConsumedWork? sourceWork =
+            failure.SourceWork is { } observed
+                ? new PlatformHouseConsumedWork(
+                    sourceOperations: 0,
+                    targetCandidates: 0,
+                    assemblies: observed.Assemblies,
+                    xmlDocuments: 0,
+                    portablePdbs: 0,
+                    sourceDocuments: 0,
+                    bytes: observed.Bytes,
+                    forwardingHops: 0,
+                    targetComparisons: 0,
+                    elapsed: TimeSpan.Zero)
+                : null;
+        return new PackagePlatformHouseResult<T>.NotSucceeded(
+            failure.Diagnostic,
+            contribution,
+            sourceWork);
     }
 
     PackagePlatformHouseResult<T> Stop<T>(

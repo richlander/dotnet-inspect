@@ -69,6 +69,26 @@ public sealed record PackageImplementationPlatformCoordinate
     }
 }
 
+/// <summary>The implementation members one source attempt must realize.</summary>
+public abstract class PackageImplementationPopulationDemand
+{
+    private protected PackageImplementationPopulationDemand() { }
+
+    public sealed class Assembly : PackageImplementationPopulationDemand
+    {
+        public Assembly(AssemblyReferenceIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
+        }
+
+        public AssemblyReferenceIdentity Identity { get; }
+    }
+
+    public sealed class CompletePopulation :
+        PackageImplementationPopulationDemand;
+}
+
 /// <summary>Finite work allowed for one package implementation closure.</summary>
 public sealed record PackageImplementationWorkBudget
 {

@@ -591,6 +591,7 @@
         "ILInspector.Analysis",
         "ILInspector.Decompiler",
         "Inspector.Findings",
+        "Inspector.Graph",
         "ILInspector.ILDiff",
         "ILInspector.Instructions",
         "ILInspector.Metadata",

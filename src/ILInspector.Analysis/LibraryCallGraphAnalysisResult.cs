@@ -146,11 +146,8 @@ public sealed class LibraryCallGraphAnalysisResult
     /// </summary>
     public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
         DirectCallsByEvidenceMethod =>
-        _directCallsByEvidenceMethod ??= DirectCalls
-            .GroupBy(call => call.EvidenceMethod.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
+        _directCallsByEvidenceMethod ??=
+            DirectCallIncidence.ByEvidenceMethod(DirectCalls);
 
     internal LibraryBodyLocalCallGraph RootPathGraph() =>
         _rootPathGraph ??=
