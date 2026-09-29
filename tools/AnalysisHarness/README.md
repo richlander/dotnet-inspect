@@ -24,6 +24,23 @@ dotnet "$DLL" --generated-fixtures alloc --json  # grade a subset (id/prefix/tag
 dotnet "$DLL" --generated-fixtures exception.unsuffixed.external --keep  # keep temp projects
 ```
 
+Selective implementation-metric work and latency are measured over one pinned
+CoreLib image:
+
+```bash
+dotnet "$DLL" --implementation-metrics \
+  <dotnet-root>/shared/Microsoft.NETCore.App/<version>/System.Private.CoreLib.dll \
+  --iterations 30 --json
+```
+
+The probe resolves the public `System.Text.StringBuilder.AppendFormat` family
+from metadata and compares body-size-only, body-size-plus-sibling-relationships,
+and `CompleteProfileV1`. It reports elapsed time, current-thread allocated
+bytes, charged attribution and metric work, and actual participating stages.
+Run the same harness source against exact base and head builds with the same
+assembly SHA-256; timing and allocation are reproducible H2H evidence rather
+than a fixed CI threshold.
+
 Top-level harness modes are mutually exclusive. Supplying more than one names
 the conflicting flags and exits 2 instead of silently running the first
 dispatch branch.
