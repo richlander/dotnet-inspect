@@ -1098,6 +1098,8 @@ interface AppMemberGroup {
   completeCountStatus: "available" | "pending" | "failed";
 }
 
+type MemberAccessibility = "public" | "protected" | "internal" | "private";
+
 function loadStoredTaste() {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
@@ -5798,9 +5800,16 @@ function memberKinds(type: AppTypeSurface) {
   return [...new Set(selectedMemberGroups(type).map(group => group.kind))];
 }
 
-function memberAccessibilities(type: AppTypeSurface) {
+function memberAccessibilities(type: AppTypeSurface): MemberAccessibility[] {
   void type;
   return ["public", "protected", "internal", "private"];
+}
+
+function isMemberAccessibility(value: string): value is MemberAccessibility {
+  return value === "public"
+    || value === "protected"
+    || value === "internal"
+    || value === "private";
 }
 
 function availableMemberTraits(type: AppTypeSurface) {
@@ -5815,16 +5824,8 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
   const composition = currentTypeMemberPopulation(type)?.composition;
-  const accessibilityCount = (accessibility: string) => {
-    if (!composition) return null;
-    switch (accessibility) {
-      case "public": return composition.public;
-      case "protected": return composition.protected;
-      case "internal": return composition.internal;
-      case "private": return composition.private;
-      default: return null;
-    }
-  };
+  const accessibilityCount = (accessibility: MemberAccessibility) =>
+    composition?.[accessibility] ?? null;
   const activeTrait = traits.find(
     ([property]) => property === state.memberTraitFilter)?.[1];
   const filterSummary = [
@@ -5907,7 +5908,7 @@ function renderMemberComposition(type: AppTypeSurface) {
   const accessibilities = counts
     ? memberAccessibilities(type)
       .map(accessibility => compositionFilterButton(
-        counts[accessibility as keyof typeof counts],
+        counts[accessibility],
         accessibility,
         "data-member-jump-access",
         accessibility,
@@ -14457,7 +14458,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       ? deep.memberKindFilter
       : "all";
     state.memberAccessibilityFilter = deep.memberAccessibilityFilter
-      && memberAccessibilities(type).includes(deep.memberAccessibilityFilter)
+      && isMemberAccessibility(deep.memberAccessibilityFilter)
       ? deep.memberAccessibilityFilter
       : "public";
     state.memberTraitFilter = deep.memberTraitFilter
