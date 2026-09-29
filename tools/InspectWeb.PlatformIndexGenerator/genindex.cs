@@ -1,4 +1,5 @@
 #:project ../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
+#:project ../../src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj
 #:project ../../src/ILInspector.Metadata/ILInspector.Metadata.csproj
 #:property OwnsItsOwnStderr=true
 
@@ -8,12 +9,26 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using ILInspector.Metadata;
+using NuGet.Frameworks;
 using NuGet.Versioning;
 
 var outputPath = args.Length > 0 ? args[0] : "platform-index.json";
 var cacheDir = Path.Combine(Path.GetTempPath(), "inspect-pack-cache");
 Directory.CreateDirectory(cacheDir);
+var defaultFramework = ProductDotNetReleaseLine.TargetFramework;
+NuGetFramework defaultTarget = NuGetFramework.ParseFolder(defaultFramework);
+if (!defaultTarget.Framework.Equals(
+        FrameworkConstants.FrameworkIdentifiers.NetCoreApp,
+        StringComparison.Ordinal)
+    || defaultTarget.Version.Major < 6
+    || defaultTarget.Version.Minor != 0)
+{
+    throw new InvalidDataException(
+        $"The product-default traversal target {defaultFramework} is not a "
+        + "supported .NET Platform release line.");
+}
 
 using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
 var versionsByPackage = new Dictionary<string, NuGetVersion[]>(StringComparer.Ordinal);
@@ -32,7 +47,9 @@ var families = new[]
         "microsoft.aspnetcore.app.runtime.linux-x64"),
 };
 
-foreach (var major in new[] { 6, 7, 8, 9, 10, 11 })
+foreach (var major in Enumerable.Range(
+    6,
+    defaultTarget.Version.Major - 5))
 {
     var tfm = $"net{major}.0";
     HashSet<NuGetVersion>? common = null;
@@ -98,7 +115,12 @@ await AddNetStandardAsync("netstandard.library", "2.0.3", "netstandard2.0", "bui
 await using (var output = File.Create(outputPath))
 await using (var writer = new StreamWriter(output))
 {
-    await writer.WriteLineAsync("{\"schemaVersion\":2,\"defaultFramework\":\"net11.0\",\"targets\":[");
+    await writer.WriteLineAsync(
+        "{\"schemaVersion\":2,\"defaultFramework\":"
+        + JsonSerializer.Serialize(
+            defaultFramework,
+            CatalogJsonContext.Default.String)
+        + ",\"targets\":[");
     for (var i = 0; i < targets.Count; i++)
     {
         var target = targets[i];

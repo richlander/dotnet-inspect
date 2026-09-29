@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  DEFAULT_PLATFORM_FRAMEWORK,
   isExactPlatformPruningFramework,
   parsePlatformCatalogTarget,
   parsePlatformIndex,
@@ -32,7 +31,7 @@ function row(assembly: string, overrides: Record<string, unknown> = {}) {
 function catalog() {
   return {
     schemaVersion: 2,
-    defaultFramework: DEFAULT_PLATFORM_FRAMEWORK,
+    defaultFramework: "net11.0",
     targets: [{
       tfm: "net11.0", version: "11.0.0-preview.7.26381.103",
       supplies: [{
@@ -168,7 +167,7 @@ test("shipped catalog supplies the exact default target and representative libra
   const value: unknown = JSON.parse(await readFile(
     new URL("../assets/platform-index.json", import.meta.url), "utf8"));
   const index = parsePlatformIndex(value);
-  const target = index.target(DEFAULT_PLATFORM_FRAMEWORK);
+  const target = index.target(index.defaultFramework);
   assert.ok(target);
   assert.match(target.version, /^11\.0\./);
   const json = index.lookup(target.tfm, "System.Text.Json", "netcore.app", target.version);
