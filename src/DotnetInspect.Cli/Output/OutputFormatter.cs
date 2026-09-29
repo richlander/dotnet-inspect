@@ -1357,7 +1357,7 @@ public static class OutputFormatter
     /// their analyzer for a Count, not rows, so the windowed count comes from
     /// that answer.
     /// </summary>
-    private static void ApplyClassificationCounts(
+    internal static void ApplyClassificationCounts(
         CountProjection projection,
         LibraryInspection inspection,
         IReadOnlyCollection<string>? includedSections,

@@ -700,6 +700,33 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void MethodClassificationDemand_FailedAnalyzerIsShownInSignalsAndLibraryInfo()
+    {
+        // A failed analyzer withholds only its own counts; each consumer that
+        // shows the count shows the failure instead of omitting it.
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo { AssemblyName = "Test", AssemblyVersion = "1.0.0.0" },
+            UnsafeMethodCount = 3,
+            PInvokeMethodCount = 2,
+            AsyncMethodCount = 4,
+        };
+        model.FailMethodClassification(MethodClassificationAnalyzer.PointerSignature, "PointerSignature analyzer failed at MethodDef 0x06000002: bad signature");
+        model.FailMethodClassification(MethodClassificationDemand.AsyncAnalyzer, "Async analyzer failed at MethodDef 0x06000003: bad attribute");
+        AuditSignalBuilder.RefreshLibraryAuditSignals(model);
+
+        var pointer = Assert.Single(model.AuditSignals!, signal => signal.Signal == "Unsafe public signatures");
+        Assert.Equal("Unavailable", pointer.Value);
+        Assert.Contains("MethodDef 0x06000002", pointer.Evidence, StringComparison.Ordinal);
+        var pinvoke = Assert.Single(model.AuditSignals!, signal => signal.Signal == "P/Invoke methods");
+        Assert.Equal("2", pinvoke.Value);
+
+        LibraryInfoSection info = new LibraryInspectionView(model).AssemblyInfoSection!;
+        Assert.Null(info.AsyncMethods);
+        Assert.Contains("MethodDef 0x06000003", info.ClassifiedMethods, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AuditMetadataQuery_ReturnsFactsFromBorrowedContent()
     {
         using var session = AssemblyInspectionSession.Open(

@@ -188,7 +188,8 @@ public class LibraryInspectionView
     {
         Architecture = fields.Architecture,
         AssemblyVersion = fields.AssemblyVersion,
-        AsyncMethods = _data.AsyncMethodCount ?? 0,
+        AsyncMethods = _data.AsyncMethodCount,
+        ClassifiedMethods = _data.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer),
         Company = fields.Company,
         Compilation = fields.Compilation,
         Copyright = fields.Copyright,
@@ -2633,7 +2634,11 @@ public class LibraryInfoSection
     public string? Architecture { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? AssemblyVersion { get => field; init => field = LibraryViewText.Contain(value); }
-    public int AsyncMethods { get; init; }
+    /// <summary>The async analyzer's Count; absent when it failed, and <see cref="ClassifiedMethods"/> says why.</summary>
+    public int? AsyncMethods { get; init; }
+    /// <summary>Why the async count is unavailable, or null when the analyzer answered.</summary>
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? ClassifiedMethods { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Company { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>

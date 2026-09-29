@@ -68,13 +68,63 @@ finally
         asset.Asset.Dispose();
 }
 
-/// <summary>Public, non-P/Invoke methods the legacy classifier calls async.</summary>
+/// <summary>
+/// Public, non-P/Invoke async methods, by the analysis the analyzers apply:
+/// the runtime-async flag, then an in-place, memoized match of each custom
+/// attribute's type against the compiler async state-machine attributes. Only
+/// the read machinery differs from the Planner's.
+/// </summary>
 struct AsyncSelection : IMethodSelection
 {
+    const MethodImplAttributes RuntimeAsyncFlag = (MethodImplAttributes)0x2000;
+
     public readonly bool IsSelected(MetadataReader reader, TypeDefinition type, MethodDefinition method) =>
         default(PublicMethodSelection).IsSelected(reader, type, method)
         && (method.Attributes & MethodAttributes.PinvokeImpl) == 0
-        && MethodClassificationScanner.ClassifyAsyncMethod(reader, method) is not null;
+        && ((method.ImplAttributes & RuntimeAsyncFlag) != 0 || InPlaceAsyncAttribute.Any(reader, method));
+}
+
+/// <summary>The gate's in-place attribute-type match, memoized per attribute type as the gate does.</summary>
+static class InPlaceAsyncAttribute
+{
+    static readonly MetadataTypeNameTarget AsyncStateMachine = new(KnownAttributeNames.AsyncStateMachineAttribute);
+    static readonly MetadataTypeNameTarget AsyncIteratorStateMachine = new(KnownAttributeNames.AsyncIteratorStateMachineAttribute);
+
+    [ThreadStatic] static MetadataReader? s_reader;
+    [ThreadStatic] static Dictionary<EntityHandle, bool>? s_types;
+
+    public static bool Any(MetadataReader reader, MethodDefinition method)
+    {
+        if (!ReferenceEquals(s_reader, reader))
+        {
+            s_reader = reader;
+            s_types = [];
+        }
+
+        foreach (CustomAttributeHandle handle in method.GetCustomAttributes())
+        {
+            EntityHandle constructor = reader.GetCustomAttribute(handle).Constructor;
+            EntityHandle attributeType = constructor.Kind switch
+            {
+                HandleKind.MemberReference => reader.GetMemberReference((MemberReferenceHandle)constructor).Parent,
+                HandleKind.MethodDefinition => reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
+                _ => default,
+            };
+            if (attributeType.IsNil)
+                continue;
+            if (!s_types!.TryGetValue(attributeType, out bool matches))
+            {
+                matches = MetadataTypeNameMatch.Matches(reader, attributeType, AsyncStateMachine) == MetadataTypeNameMatchResult.Match
+                    || MetadataTypeNameMatch.Matches(reader, attributeType, AsyncIteratorStateMachine) == MetadataTypeNameMatchResult.Match;
+                s_types[attributeType] = matches;
+            }
+
+            if (matches)
+                return true;
+        }
+
+        return false;
+    }
 }
 
 /// <summary>Public P/Invoke methods.</summary>

@@ -4469,6 +4469,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task AsyncMethods_PackageAggregateCount_UsesTheCountAnswerAndRowWindow()
+    {
+        // The aggregate package route asks the async analyzer for a Count
+        // under --count; its count and windowed count equal the per-library ones.
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures", "services", "signatures", "newtonsoft.json.13.0.3.nupkg");
+        var (libraryExit, libraryCount, _) = await RunAppAsync(
+            "package", package, "--library", "Newtonsoft.Json.dll", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--tips", "q");
+        var (aggregateExit, aggregateCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--tips", "q");
+        var (windowExit, windowCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--rows", "3..7", "--tips", "q");
+
+        Assert.Equal(0, libraryExit);
+        Assert.Equal(0, aggregateExit);
+        Assert.Equal(0, windowExit);
+        Assert.NotEqual("0", libraryCount.Trim());
+        Assert.Equal(libraryCount.Trim(), aggregateCount.Trim());
+        Assert.Equal("5", windowCount.Trim());
+    }
+
+    [Fact]
     public async Task PInvokeMethods_LocalFixture_RendersMarkdownMachineRowAndCount()
     {
         var (markdownExit, markdown, markdownError) = await RunAppAsync(
