@@ -265,12 +265,15 @@ before a platform rung can select. It states one of:
 
 - **Package applicable** — one or more retained PackageRefs correlate with the
   request and selected package content proves exact assembly ownership;
-- **Platform applicable** — no retained Package route owns the request and one
-  exact eligible Platform Library can supply it;
-- **No external supplier** — complete Package and Platform evidence establishes
-  no owner;
+- **Package `NameOwnedNoMatch`** — the complete Package rung attests one or
+  more Metadata name owners but no identity-eligible supplier; this is
+  terminal and requires no Platform applicability evidence;
+- **Platform applicable** — the complete Package rung returned `NoNameOwner`
+  and one exact eligible Platform Library can supply it;
+- **No external supplier** — the complete Package and Platform rungs both
+  return `NoNameOwner`;
 - **No eligible platform** — framework and Workspace evidence admit no
-  Platform family after Package association finds no owner; or
+  Platform family after the complete Package rung returns `NoNameOwner`; or
 - **Undetermined** — available reachability, pruning, Package correlation,
   selected-content, target, or Platform evidence cannot settle the supplier.
 
@@ -358,9 +361,10 @@ specialization:
    filename inventory finds every `<AssemblyRefName>.dll`. Boundary-prefix
    affinity ranks those candidates before no-affinity packages, and decoded
    Metadata identity settles each active tier.
-5. **Platform specialization** — only when no retained Package route owns the
-   request, owner-issued family eligibility and exact Platform Library
-   membership may nominate a Platform supplier.
+5. **Platform specialization** — only when the complete Package rung returns
+   `NoNameOwner`, owner-issued family eligibility and exact Platform Library
+   membership may nominate a Platform supplier. Package
+   `NameOwnedNoMatch` is terminal before this tier.
 
 Package ID and selected-asset filename are useful correlation evidence; neither
 is binding authority. A same-named or prefix-related PackageRef without
@@ -383,10 +387,13 @@ The evidence order is:
 4. evaluate an exact namesake PackageRef and its namesake file when present;
 5. after an exact miss, scan the complete retained selected-role filename
    inventory and rank namesake files by boundary-prefix affinity;
-6. decode only the active tier's namesake files and settle Package ownership;
-7. when no retained Package owns the request, settle eligible Platform family
-   and exact Platform Library membership; and
-8. issue the applicable Package or Platform route.
+6. decode only the active tier's namesake files and settle the complete Package
+   result;
+7. on Package `NameOwnedNoMatch`, close overlap applicability and issue no
+   Platform route;
+8. after Package `NoNameOwner`, settle eligible Platform family and exact
+   Platform Library membership; and
+9. issue the applicable Package or Platform route, or the typed external miss.
 
 Candidate payload acquisition and package asset decoding are not steps for a
 delegated edge. They belong only to retained package routes whose existing
@@ -397,12 +404,16 @@ The ladder derives overlap applicability after every stage settles:
 | Complete evidence | Overlap applicability |
 | --- | --- |
 | One or more retained Package routes own the request | Package applicable |
-| No retained Package route owns the request and exact Platform membership exists | Platform applicable |
-| No Package owner and no eligible Platform family | No eligible platform |
-| Complete Package and Platform evidence establish no owner | No external supplier |
+| Complete Package rung attests a name owner but no identity-eligible supplier | Package `NameOwnedNoMatch` |
+| Package `NoNameOwner` and exact Platform membership exists | Platform applicable |
+| Package `NoNameOwner` and no eligible Platform family | No eligible platform |
+| Package and Platform both return `NoNameOwner` | No external supplier |
 | Reachability, pruning, exact-candidate evaluation, required filename inventory, target, or Platform evidence is incomplete | Undetermined |
 
-A retained package name owner dominates the same-request Platform proposal.
+A Package `NameOwnedNoMatch` receipt closes route formation without a Platform
+rung; no Platform family or membership evidence is required for that terminal
+result. A retained package name owner dominates the same-request Platform
+proposal.
 `Undetermined` is terminal incomplete route formation; it is not permission to
 prefer Platform. Delegated-edge receipts remain attached to the route result so
 Platform resolution never erases why package acquisition was skipped.
