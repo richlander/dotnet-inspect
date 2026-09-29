@@ -52,7 +52,7 @@ public sealed class PlatformLibraryContentSelection
                 population))
         {
             throw new ArgumentException(
-                "Selected Library content must retain one exact one-Library realization demand.",
+                "Selected Library content must retain one one-Library realization demand.",
                 nameof(contribution));
         }
         if (!DemandMatches(population.Value, Evidence.AssemblyIdentity))
@@ -86,7 +86,9 @@ public sealed class PlatformLibraryContentSelection
             PlatformHouseOperationSnapshot.ResolveAssemblyReference operation =>
                 operation.RequiredView == PlatformViewDemand.Reference
                 && contribution.Facet == PlatformSourceFacet.Reference
-                && population.Value is PlatformLibraryDemand.Assembly,
+                && population.Value
+                    is PlatformLibraryDemand.Assembly
+                        or PlatformLibraryDemand.AssemblyReferenceBinding,
             _ => false,
         };
 
@@ -98,6 +100,10 @@ public sealed class PlatformLibraryContentSelection
             PlatformLibraryDemand.Assembly assembly =>
                 AssemblyReferenceIdentity.EquivalentComparer.Equals(
                     assembly.Identity,
+                    identity.Identity),
+            PlatformLibraryDemand.AssemblyReferenceBinding binding =>
+                PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                    binding,
                     identity.Identity),
             PlatformLibraryDemand.PlatformLibrary => true,
             _ => false,

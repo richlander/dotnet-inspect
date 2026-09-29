@@ -10,7 +10,7 @@ public enum PlatformViewDemand
     ReferenceAndImplementation,
 }
 
-/// <summary>One exact Metadata assembly identity requested from the platform.</summary>
+/// <summary>One Library-level demand issued to a selected Platform target.</summary>
 public abstract class PlatformLibraryDemand
 {
     private protected PlatformLibraryDemand()
@@ -20,6 +20,21 @@ public abstract class PlatformLibraryDemand
     public sealed class Assembly : PlatformLibraryDemand
     {
         public Assembly(AssemblyReferenceIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
+        }
+
+        public AssemblyReferenceIdentity Identity { get; }
+    }
+
+    /// <summary>
+    /// One arbitrary source assembly identity to bind against an already
+    /// selected Platform target.
+    /// </summary>
+    public sealed class AssemblyReferenceBinding : PlatformLibraryDemand
+    {
+        public AssemblyReferenceBinding(AssemblyReferenceIdentity identity)
         {
             ArgumentNullException.ThrowIfNull(identity);
             Identity = identity;

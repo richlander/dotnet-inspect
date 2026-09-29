@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>membergroup-scorecard</AssemblyName>
+    <RootNamespace>MemberGroupScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+    <PublishAot>true</PublishAot>
+    <IsPublishable>true</IsPublishable>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../tests/ILInspector.Metadata.PerformanceOracles.Tests/ILInspector.Metadata.PerformanceOracles.Tests.csproj" />
+  </ItemGroup>
+
+</Project>

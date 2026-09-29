@@ -676,14 +676,12 @@ public static class PlatformHouseAssemblyReferenceResolver
             || reference.Contribution.Population
                 is not PlatformPopulationDemand.Library
                 {
-                    Value: PlatformLibraryDemand.Assembly supplied,
+                    Value: var supplied,
                 }
-            || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                supplied.Identity,
-                target.Identity)
-            || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                reference.Identity,
-                target.Identity)
+            || !DemandMatchesRequestAndCandidate(
+                supplied,
+                target.Identity,
+                reference.Identity)
             || !request.Sources.Authorizes(
                 PlatformSourceFacet.Reference,
                 reference.Contribution.Capability)
@@ -701,6 +699,29 @@ public static class PlatformHouseAssemblyReferenceResolver
 
         return true;
     }
+
+    static bool DemandMatchesRequestAndCandidate(
+        PlatformLibraryDemand demand,
+        AssemblyReferenceIdentity request,
+        AssemblyReferenceIdentity candidate) =>
+        demand switch
+        {
+            PlatformLibraryDemand.Assembly assembly =>
+                AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    assembly.Identity,
+                    request)
+                && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    candidate,
+                    request),
+            PlatformLibraryDemand.AssemblyReferenceBinding binding =>
+                AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    binding.Identity,
+                    request)
+                && PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                    binding,
+                    candidate),
+            _ => false,
+        };
 
     static bool TryValidateAttempts(
         PlatformHouseRequest request,
@@ -873,7 +894,7 @@ public static class PlatformHouseAssemblyReferenceResolver
                 view.Reference.Registration,
                 () => new MemoryStream(content, writable: false),
                 AssemblyResolutionProvenance.Designated(
-                    "PlatformHouse exact assembly-reference operation"))
+                    "PlatformHouse selected assembly-reference operation"))
             ?? throw new BadImageFormatException(
                 "The selected Platform Library content is not a managed assembly.");
         if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
@@ -884,7 +905,7 @@ public static class PlatformHouseAssemblyReferenceResolver
                 "Metadata decoded an identity different from the selected Platform Library.");
         }
 
-        var policy = new ExactAssemblyBindingPolicy(
+        var policy = new SelectedAssemblyBindingPolicy(
             state.Request,
             descriptor);
         using var catalog = new TypeResolutionCatalog(
@@ -1231,7 +1252,7 @@ public static class PlatformHouseAssemblyReferenceResolver
         AssemblyBindingRequest Request,
         AssemblyReferenceIdentity ExpectedIdentity);
 
-    sealed class ExactAssemblyBindingPolicy(
+    sealed class SelectedAssemblyBindingPolicy(
         AssemblyBindingRequest expectedRequest,
         ResolvedAssemblyReference assembly)
         : IAcquisitionFreeAssemblyBindingPolicy
