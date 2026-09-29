@@ -48,7 +48,7 @@ internal sealed class LibraryBodyMethodReferenceResolver
     long _methodReferenceSignatureWork;
     long _methodReferenceDecodeWork;
     long _bodyUseMethodSignatureBytes;
-    readonly ConcurrentDictionary<BlobHandle, Lazy<bool>>
+    readonly ConcurrentDictionary<BlobHandle, BodyUseBlobReservationState>
         _bodyUseMethodSignatureReservations = new();
 
     internal LibraryBodyMethodReferenceResolver(
@@ -1116,18 +1116,40 @@ internal sealed class LibraryBodyMethodReferenceResolver
         int maximum,
         int unitToken)
     {
-        _ = _bodyUseMethodSignatureReservations.GetOrAdd(
-            blob,
-            _ => new Lazy<bool>(
-                () =>
-                {
-                    ReserveBodyUseMethodSignatureBytes(
-                        charge,
-                        maximum,
-                        unitToken);
-                    return true;
-                },
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        if (_bodyUseMethodSignatureReservations.TryAdd(
+                blob,
+                BodyUseBlobReservationState.Pending))
+        {
+            try
+            {
+                ReserveBodyUseMethodSignatureBytes(
+                    charge,
+                    maximum,
+                    unitToken);
+                _bodyUseMethodSignatureReservations[blob] =
+                    BodyUseBlobReservationState.Reserved;
+                return;
+            }
+            catch (ProducerAbortException)
+            {
+                _bodyUseMethodSignatureReservations[blob] =
+                    BodyUseBlobReservationState.Rejected;
+                throw;
+            }
+        }
+
+        var wait = new SpinWait();
+        BodyUseBlobReservationState state;
+        while ((state = _bodyUseMethodSignatureReservations[blob])
+            == BodyUseBlobReservationState.Pending)
+        {
+            wait.SpinOnce();
+        }
+
+        if (state == BodyUseBlobReservationState.Rejected)
+        {
+            throw BodyUseMethodSignatureBudgetExceeded(unitToken);
+        }
     }
 
     void ReserveBodyUseMethodSignatureBytes(
@@ -1144,14 +1166,7 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 Interlocked.Exchange(
                     ref _bodyUseMethodSignatureBytes,
                     -1);
-                throw new ProducerAbortException(
-                    new(
-                        "AnalysisLibraryBodyUse",
-                        "MethodSignatureBytes",
-                        unitToken,
-                        $"MethodDef 0x{unitToken:X8}",
-                        "The Analysis body-use method-signature byte budget "
-                            + "was exceeded."));
+                throw BodyUseMethodSignatureBudgetExceeded(unitToken);
             }
             if (Interlocked.CompareExchange(
                     ref _bodyUseMethodSignatureBytes,
@@ -1162,6 +1177,24 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 return;
             }
         }
+    }
+
+    static ProducerAbortException BodyUseMethodSignatureBudgetExceeded(
+        int unitToken) =>
+        new(
+            new(
+                "AnalysisLibraryBodyUse",
+                "MethodSignatureBytes",
+                unitToken,
+                $"MethodDef 0x{unitToken:X8}",
+                "The Analysis body-use method-signature byte budget "
+                    + "was exceeded."));
+
+    enum BodyUseBlobReservationState : byte
+    {
+        Pending,
+        Reserved,
+        Rejected,
     }
 
     ImmutableArray<TypeRef> DecodeMethodSpecificationArguments(
