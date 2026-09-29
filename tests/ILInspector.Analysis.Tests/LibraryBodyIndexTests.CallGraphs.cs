@@ -115,6 +115,19 @@ public partial class LibraryBodyIndexTests
                 callee.MetadataToken,
                 out ImmutableArray<DirectCall> missing));
         Assert.True(missing.IsDefault);
+
+        // Contiguous runs whose tokens descend take the hashed index.
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> descending =
+            DirectCallIncidence.ByEvidenceMethod([b1, a1, a2]);
+        Assert.Equal(
+            [b.MetadataToken, a.MetadataToken],
+            descending.Keys);
+        Assert.Equal([b1], descending[b.MetadataToken]);
+        Assert.Equal([a1, a2], descending[a.MetadataToken]);
+        Assert.False(descending.ContainsKey(callee.MetadataToken));
+        Assert.Equal(
+            [[b1], [a1, a2]],
+            descending.Values.Select(static group => group.ToArray()));
     }
 
     [Fact]

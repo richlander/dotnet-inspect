@@ -48,14 +48,27 @@ internal static class DirectCallIncidence
             tokens[runs] = current;
             ends[runs++] = calls.Length;
 
-            var ordinals = new Dictionary<int, int>(runs);
-            for (int run = 0; run < runs; run++)
+            // Analysis emits bodies in metadata order, so run tokens are
+            // normally ascending and a binary search replaces hashing.
+            bool ascending = true;
+            for (int run = 1; run < runs && ascending; run++)
+                ascending = tokens[run - 1] < tokens[run];
+            Dictionary<int, int>? ordinals = null;
+            if (!ascending)
             {
-                if (!ordinals.TryAdd(tokens[run], run))
-                    return Interleaved(directCalls);
+                ordinals = new Dictionary<int, int>(runs);
+                for (int run = 0; run < runs; run++)
+                {
+                    if (!ordinals.TryAdd(tokens[run], run))
+                        return Interleaved(directCalls);
+                }
             }
 
-            return new RunView(directCalls, ordinals, ends.AsSpan(0, runs));
+            return new RunView(
+                directCalls,
+                tokens.AsSpan(0, runs),
+                ordinals,
+                ends.AsSpan(0, runs));
         }
         finally
         {
@@ -98,16 +111,19 @@ internal static class DirectCallIncidence
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
     {
         readonly ImmutableArray<DirectCall> _calls;
-        readonly Dictionary<int, int> _ordinals;
+        readonly ImmutableArray<int> _tokens;
+        readonly Dictionary<int, int>? _ordinals;
         readonly int[] _ends;
         readonly ImmutableArray<DirectCall>[] _groups;
 
         internal RunView(
             ImmutableArray<DirectCall> calls,
-            Dictionary<int, int> ordinals,
+            ReadOnlySpan<int> tokens,
+            Dictionary<int, int>? ordinals,
             ReadOnlySpan<int> ends)
         {
             _calls = calls;
+            _tokens = [.. tokens];
             _ordinals = ordinals;
             _ends = ends.ToArray();
             _groups = new ImmutableArray<DirectCall>[_ends.Length];
@@ -121,7 +137,7 @@ internal static class DirectCallIncidence
                 : throw new KeyNotFoundException(
                     $"No direct calls have evidence method {key:X8}.");
 
-        public IEnumerable<int> Keys => _ordinals.Keys;
+        public IEnumerable<int> Keys => _tokens;
 
         public IEnumerable<ImmutableArray<DirectCall>> Values
         {
@@ -132,13 +148,14 @@ internal static class DirectCallIncidence
             }
         }
 
-        public bool ContainsKey(int key) => _ordinals.ContainsKey(key);
+        public bool ContainsKey(int key) => Run(key) >= 0;
 
         public bool TryGetValue(
             int key,
             out ImmutableArray<DirectCall> value)
         {
-            if (!_ordinals.TryGetValue(key, out int run))
+            int run = Run(key);
+            if (run < 0)
             {
                 value = default;
                 return false;
@@ -150,8 +167,20 @@ internal static class DirectCallIncidence
         public IEnumerator<KeyValuePair<int, ImmutableArray<DirectCall>>>
             GetEnumerator()
         {
-            foreach ((int token, int run) in _ordinals)
-                yield return new(token, Group(run));
+            for (int run = 0; run < _tokens.Length; run++)
+                yield return new(_tokens[run], Group(run));
+        }
+
+        int Run(int key)
+        {
+            if (_ordinals is null)
+            {
+                int run = _tokens.BinarySearch(key);
+                return run < 0 ? -1 : run;
+            }
+            return _ordinals.TryGetValue(key, out int ordinal)
+                ? ordinal
+                : -1;
         }
 
         System.Collections.IEnumerator
