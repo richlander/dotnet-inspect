@@ -173,6 +173,7 @@ public partial class DiffCommand
             && only == DiffSections.Changes.Name
             && selection.Analyses is [var single]
             && IsApi(single)
+            && options.Analysis is null
             && !options.EnvelopeOutput
             && !options.JsonOutput)
         {

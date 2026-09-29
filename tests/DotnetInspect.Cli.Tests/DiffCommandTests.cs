@@ -2982,6 +2982,31 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void TryPlanAnalysisSet_ExplicitApiChangesUsesSharedDocument()
+    {
+        Assert.True(DiffCommand.TryPlanAnalysisSet(
+            new DiffOptions
+            {
+                Analysis = ["api"],
+                IncludeSections = new HashSet<string>(
+                    [DiffSections.Changes.Name],
+                    StringComparer.OrdinalIgnoreCase),
+            },
+            out DiffCommand.DiffAnalysisPlan? plan));
+        Assert.NotNull(plan);
+
+        Assert.True(DiffCommand.TryPlanAnalysisSet(
+            new DiffOptions
+            {
+                IncludeSections = new HashSet<string>(
+                    [DiffSections.Changes.Name],
+                    StringComparer.OrdinalIgnoreCase),
+            },
+            out plan));
+        Assert.Null(plan);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_JsonAllocationRegressions_SelectsAnalysisDiff()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
