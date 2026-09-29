@@ -100,36 +100,44 @@ hosts as malformed, including bodies unrelated to state machines. This breadth i
 cannot tell which of the host's generated bodies it would have attributed, so
 none is published as if the host were readable.
 
-Attribution changes only which Type a body's uses belong to. It does not narrow
-the visible-failure surface. These still make the body malformed or limited,
-or the operand unavailable, with a typed diagnostic:
+Attribution changes only which Type a body's uses belong to. Body use owns the
+facts it consumes, and failures of those facts remain visible. These make the
+body malformed or limited, or the operand unavailable, with a typed diagnostic:
 
 - an unreadable or over-limit IL body, and an instruction or occurrence limit;
 - an operand token that does not resolve, or resolves to the wrong kind;
-- a malformed or truncated method signature, whether the body's own or an
-  operand's;
-- any other metadata read that full member resolution performs for a method
-  operand, such as an unreadable callee name, generic parameter, or
-  parameter row, and exhaustion of its method-reference work budgets;
+- a malformed or structurally over-limit method signature, whether the body's
+  own or an operand's;
+- an unreadable method operand's declaring Type;
 - a malformed TypeSpec, and a MethodSpec invalid for its target or its
   caller's generic scope; and
 - a current-image reference that cannot be bound.
 
-Owner-only resolution of a method operand performs every metadata read, work
-charge, and validation that full member resolution performs for the same
-handle, in the same order. It skips only building the parameter and return
-Types, which body use never reads. An operand is therefore unavailable exactly
-when full member resolution would fail it.
+For a method operand, body use reads only the declaring Type, the method
+signature's structural validity and generic arity, and any MethodSpec
+instantiation and its validity for the target and caller. It does not read the
+callee name, generic-parameter names, parameter rows, parameter Types, or
+return Type. Those unconsumed facts and full member resolution's identity and
+decode accounting do not affect body-use availability.
 
-What a non-Roslyn input can change without a diagnostic is only the logical
-owner, as [Fidelity and security](#fidelity-and-security) allows.
+This is a deliberate fidelity boundary. Roslyn-produced output has exact
+answers. On other output, an unconsumed malformed callee fact may make full
+member resolution fail while body use remains available; the body-use answer
+may therefore be wrong but remains bounded and inert, as
+[Fidelity and security](#fidelity-and-security) allows.
 
-Each signature blob's decode outcome, each MethodSpec instantiation's decode
-(per blob) and validation (per blob, target arity, and caller generic
-arities), and each operand's binding, is retained
-per execution, a recoverable failure included as its diagnostic description.
-A malformed blob or operand therefore fails every use visibly, with the same
-detail, without repeating its decode or rethrowing a shared exception.
+Each method signature's structural outcome, each MethodSpec instantiation's
+decode (per blob) and validation (per blob, target generic arity, and caller
+generic arities), and each operand's binding is retained per execution, a
+recoverable failure included as its diagnostic description. A malformed blob
+or operand therefore fails every use visibly, with the same detail, without
+repeating its decode or rethrowing a shared exception.
+
+The producer charges each uniquely inspected method-signature or MethodSpec
+blob once against its method-signature byte budget. Exhausting that
+producer-global budget aborts the whole execution and publishes no body-use
+result; it never turns the remaining operands into a partial success-shaped
+population.
 
 Attribution never requires the owner's body to reference the lifted body. A
 local function whose calls Roslyn elided, such as a `[Conditional("DEBUG")]`

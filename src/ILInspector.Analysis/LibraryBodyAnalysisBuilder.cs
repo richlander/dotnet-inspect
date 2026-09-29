@@ -282,14 +282,24 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
         ILibraryMethodAnalysisInfrastructure.ResolveMethodOwner(
             int token,
-            GenericScope scope) =>
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken) =>
         _methodReferenceResolver.ResolveMethodOwner(
             MetadataTokens.EntityHandle(token),
-            scope);
+            scope,
+            maximumMethodSignatureBytes,
+            unitToken);
 
     MethodSignatureOutcome ILibraryMethodAnalysisInfrastructure
-        .MethodSignature(BlobHandle signature) =>
-        _methodReferenceResolver.MethodSignature(signature);
+        .MethodSignature(
+            BlobHandle signature,
+            int maximumMethodSignatureBytes,
+            int unitToken) =>
+        _methodReferenceResolver.MethodSignature(
+            signature,
+            maximumMethodSignatureBytes,
+            unitToken);
 
     CallerUnsafeMode?
         ILibraryMethodAnalysisInfrastructure

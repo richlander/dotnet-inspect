@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -941,7 +942,7 @@ public sealed class AnalysisLibraryBodyUseTests
     }
 
     [Fact]
-    public void ExecuteImage_ReportsUnreadableCalleeName()
+    public void ExecuteImage_IgnoresUnreadableCalleeName()
     {
         AnalysisLibraryBodyUseResult result =
             Available(
@@ -958,26 +959,41 @@ public sealed class AnalysisLibraryBodyUseTests
                     TestContext.Current.CancellationToken)).Result;
 
         Assert.Equal(
-            AnalysisLibraryBodyUseDisposition.Partial,
+            AnalysisLibraryBodyUseDisposition.Complete,
             result.Disposition);
-        Assert.Empty(result.Occurrences);
-        Assert.Equal(1, result.Coverage.OperandsUnavailable);
-        Assert.Single(
-            result.Diagnostics,
-            static diagnostic =>
-                diagnostic.Kind
-                    == AnalysisLibraryBodyUseDiagnosticKind
-                        .UnresolvedOperand);
+        Assert.Single(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsExamined);
+        Assert.Equal(0, result.Coverage.OperandsUnavailable);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
-    public void ExecuteImage_ChargesSharedMethodSpecAcrossTargetArities()
+    public void ExecuteImage_IgnoresUnreadableCalleeParameterRange()
+    {
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "MethodDefinitionParameterRange.dll",
+                    BuildMethodDefinitionParameterRangeImage(),
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Single(result.Occurrences);
+        Assert.Equal(1, result.Coverage.OperandsExamined);
+        Assert.Equal(0, result.Coverage.OperandsUnavailable);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void ExecuteImage_ValidatesSharedMethodSpecAcrossTargetArities()
     {
         // 768 MethodSpec rows share one 8 KiB instantiation, each targeting a
         // MemberRef of a different generic arity. The instantiation is
-        // decoded once; each distinct validation charges the method-reference
-        // decode budget, whose exhaustion is visible, as full member
-        // resolution reports it.
+        // decoded and charged once; each distinct target arity is still
+        // rejected visibly.
         const int specifications = 768;
         ImmutableArray<byte> image =
             BuildSharedMethodSpecImage(
@@ -996,12 +1012,73 @@ public sealed class AnalysisLibraryBodyUseTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(specifications, result.Coverage.OperandsUnavailable);
-        Assert.Contains(
+        Assert.DoesNotContain(
             result.Diagnostics,
             static diagnostic => diagnostic.Detail.Contains(
                 "Method-reference decoding work exceeds the assembly budget.",
                 StringComparison.Ordinal));
         Assert.InRange(allocated, 0, 64 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ExecuteImage_IgnoresMethodSpecTargetNamesAndResolverBudget()
+    {
+        // Full member resolution charges each differently named target
+        // identity. Body use reads no target name, so one shared valid
+        // instantiation remains complete and bounded.
+        const int specifications = 600;
+        ImmutableArray<byte> image =
+            BuildSharedMethodSpecImage(
+                specifications,
+                arguments: 1,
+                distinctTargetNames: true);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        AnalysisLibraryBodyUseResult result =
+            Available(
+                AnalysisLibraryBodyUseService.ExecuteImage(
+                    "SharedMethodSpec.dll",
+                    image,
+                    new(),
+                    TestContext.Current.CancellationToken)).Result;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            AnalysisLibraryBodyUseDisposition.Complete,
+            result.Disposition);
+        Assert.Equal(specifications, result.Coverage.OperandsExamined);
+        Assert.Equal(specifications, result.Occurrences.Length);
+        Assert.Empty(result.Diagnostics);
+        Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ExecuteImage_RejectsMethodSignatureBudgetExhaustion()
+    {
+        AnalysisLibraryBodyUseOutcome outcome =
+            AnalysisLibraryBodyUseService.ExecuteImage(
+                "IndependentEcma335.dll",
+                BuildIndependentImage(
+                    [
+                        (byte)ILOpCode.Call,
+                        0x01, 0x00, 0x00, 0x0A,
+                        (byte)ILOpCode.Ret,
+                    ],
+                    largeTruncatedParameters: 4096),
+                new(
+                    new(
+                        MaximumMethodSignatureBytes: 1024)),
+                TestContext.Current.CancellationToken);
+
+        AnalysisLibraryBodyUseOutcome.Rejected rejected =
+            Assert.IsType<AnalysisLibraryBodyUseOutcome.Rejected>(outcome);
+        Assert.Equal(
+            AnalysisLibraryBodyUseRejectionKind.Limit,
+            rejected.Kind);
+        Assert.Contains(
+            "method-signature byte budget",
+            rejected.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1736,7 +1813,8 @@ public sealed class AnalysisLibraryBodyUseTests
     static ImmutableArray<byte> BuildSharedMethodSpecImage(
         int specifications,
         int arguments,
-        bool distinctTargetArities = false)
+        bool distinctTargetArities = false,
+        bool distinctTargetNames = false)
     {
         MetadataBuilder metadata = CreateMetadata(
             "SharedMethodSpec",
@@ -1794,19 +1872,22 @@ public sealed class AnalysisLibraryBodyUseTests
         for (int i = 0; i < specifications; i++)
         {
             EntityHandle target = generic;
-            if (distinctTargetArities)
+            if (distinctTargetArities || distinctTargetNames)
             {
-                // A MemberRef to a method of generic arity i + 1.
+                int targetArity = distinctTargetArities ? i + 1 : 1;
                 var targetSignature = new BlobBuilder();
                 new BlobEncoder(targetSignature)
-                    .MethodSignature(genericParameterCount: i + 1)
+                    .MethodSignature(genericParameterCount: targetArity)
                     .Parameters(
                         0,
                         static returnType => returnType.Void(),
                         static _ => { });
                 target = metadata.AddMemberReference(
                     sharedType,
-                    metadata.GetOrAddString("G"),
+                    metadata.GetOrAddString(
+                        distinctTargetNames
+                            ? $"G{i}"
+                            : "G"),
                     metadata.GetOrAddBlob(targetSignature));
             }
             metadata.AddMethodSpecification(target, shared);
@@ -1843,6 +1924,106 @@ public sealed class AnalysisLibraryBodyUseTests
             builder.WriteBytes(code);
             return encoder.AddMethodBody(
                 new InstructionEncoder(builder),
+                maxStack: 1);
+        }
+    }
+
+    static ImmutableArray<byte> BuildMethodDefinitionParameterRangeImage()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "MethodDefinitionParameterRange",
+            new Guid("98c50c85-ad86-4c5a-b5cc-93898b513c8d"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("ParameterRange"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        int targetBody = Body([(byte)ILOpCode.Ret]);
+        var targetSignature = new BlobBuilder();
+        new BlobEncoder(targetSignature)
+            .MethodSignature()
+            .Parameters(
+                1,
+                static returnType => returnType.Void(),
+                parameters => parameters
+                    .AddParameter()
+                    .Type()
+                    .Int32());
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            metadata.GetOrAddBlob(targetSignature),
+            targetBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+
+        int callerBody = Body(
+            [
+                (byte)ILOpCode.Ldc_i4_0,
+                (byte)ILOpCode.Call,
+                0x01, 0x00, 0x00, 0x06,
+                (byte)ILOpCode.Ret,
+            ]);
+        var callerSignature = new BlobBuilder();
+        new BlobEncoder(callerSignature)
+            .MethodSignature()
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(callerSignature),
+            callerBody,
+            MetadataTokens.ParameterHandle(2));
+
+        byte[] image = Serialize(metadata, bodies).ToArray();
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            MethodDefinitionHandle caller =
+                MetadataTokens.MethodDefinitionHandle(2);
+            int rowSize =
+                reader.GetTableRowSize(TableIndex.MethodDef);
+            int rowOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.MethodDef)
+                + (MetadataTokens.GetRowNumber(caller) - 1) * rowSize;
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    rowOffset + rowSize - sizeof(ushort),
+                    sizeof(ushort)),
+                ushort.MaxValue);
+        }
+        return ImmutableArray.Create(image);
+
+        int Body(byte[] code)
+        {
+            var body = new BlobBuilder();
+            body.WriteBytes(code);
+            return encoder.AddMethodBody(
+                new InstructionEncoder(body),
                 maxStack: 1);
         }
     }

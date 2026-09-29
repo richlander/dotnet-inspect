@@ -63,9 +63,16 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinitionHandle caller);
 
     (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
-        ResolveMethodOwner(int token, GenericScope scope);
+        ResolveMethodOwner(
+            int token,
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken);
 
-    MethodSignatureOutcome MethodSignature(BlobHandle signature);
+    MethodSignatureOutcome MethodSignature(
+        BlobHandle signature,
+        int maximumMethodSignatureBytes,
+        int unitToken);
 
     CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
         int operandToken,

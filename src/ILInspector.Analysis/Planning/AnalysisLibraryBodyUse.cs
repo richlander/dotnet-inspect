@@ -20,13 +20,15 @@ internal sealed class AnalysisLibraryBodyUseProducer
         CancellationToken cancellationToken)
         : base(
             "AnalysisLibraryBodyUse",
-            version: 3,
+            version: 4,
             tier: 0,
             MethodDefinitionLayers.Body
                 | MethodDefinitionLayers.ModuleLookup,
             parameters:
                 $"instructions={limits.MaximumInstructionsPerBody};"
-                + $"occurrences={limits.MaximumOccurrences}")
+                + $"occurrences={limits.MaximumOccurrences};"
+                + $"methodSignatureBytes="
+                + limits.MaximumMethodSignatureBytes)
     {
         _limits = limits;
         _cancellationToken = cancellationToken;
@@ -64,6 +66,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                     view.GetBody(),
                     _limits.MaximumInstructionsPerBody,
                     _limits.MaximumOccurrences,
+                    _limits.MaximumMethodSignatureBytes,
                     _cancellationToken);
             return new(fact);
         }

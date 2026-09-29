@@ -250,6 +250,7 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                             method.RelativeVirtualAddress),
                         int.MaxValue,
                         int.MaxValue,
+                        int.MaxValue,
                         cancellationToken);
                 operands += fact.OperandsConsidered;
                 if (fact.Fidelity

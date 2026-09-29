@@ -20,6 +20,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
         MethodBodyBlock body,
         int maximumInstructions,
         int maximumOccurrences,
+        int maximumMethodSignatureBytes,
         CancellationToken cancellationToken)
     {
         int methodToken = MetadataTokens.GetToken(methodHandle);
@@ -40,12 +41,13 @@ internal sealed partial class LibraryMethodAnalysisRunner
                     maximumInstructions);
             }
 
-            GenericScope scope = _infrastructure.CreateScope(
-                typeDefinition,
-                methodDefinition);
-            // The body's own signature is decoded as the full method identity
-            // decodes it, so a malformed one still fails the body visibly.
-            if (_infrastructure.MethodSignature(methodDefinition.Signature)
+            GenericScope scope = GenericScope.FromArities(
+                typeDefinition.GetGenericParameters().Count,
+                methodDefinition.GetGenericParameters().Count);
+            if (_infrastructure.MethodSignature(
+                    methodDefinition.Signature,
+                    maximumMethodSignatureBytes,
+                    methodToken)
                     .Failure is { } signatureFailure)
             {
                 return BodyTypeUseMethodFact.Unavailable(
@@ -97,7 +99,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
                             resolver,
                             scope,
                             OperandPathOf(instruction, kind),
-                            token);
+                            token,
+                            maximumMethodSignatureBytes,
+                            methodToken);
                     if (binding.Failure is { } failure)
                     {
                         operandsUnavailable++;
@@ -375,12 +379,10 @@ internal sealed partial class LibraryMethodAnalysisRunner
         }
     }
 
-    // Operand resolution and same-image binding depend only on the token,
-    // its resolution path, and, for a MethodSpec, the caller's generic
-    // arities, which validate its instantiation. Otherwise the caller's
-    // generic scope only names generic parameters, which never bind or make
-    // an operand unavailable. Each distinct operand is therefore resolved and
-    // bound once per execution.
+    // Operand resolution and same-image binding depend only on the token, its
+    // resolution path, and the caller's generic arities. Generic parameter
+    // names never bind. Each distinct operand is therefore resolved and bound
+    // once per execution.
     Dictionary<BodyTypeUseOperandKey, BodyTypeUseOperandBinding>?
         _bodyUseOperandBindings;
 
@@ -388,16 +390,16 @@ internal sealed partial class LibraryMethodAnalysisRunner
         IMethodCallResolver resolver,
         GenericScope scope,
         BodyTypeUseOperandPath path,
-        int token)
+        int token,
+        int maximumMethodSignatureBytes,
+        int unitToken)
     {
         _bodyUseOperandBindings ??= [];
-        var key = (token & unchecked((int)0xFF000000)) == 0x2B000000
-            ? new BodyTypeUseOperandKey(
-                token,
-                path,
-                scope.TypeParameters.Length,
-                scope.MethodParameters.Length)
-            : new BodyTypeUseOperandKey(token, path, 0, 0);
+        var key = new BodyTypeUseOperandKey(
+            token,
+            path,
+            scope.TypeParameters.Length,
+            scope.MethodParameters.Length);
         if (_bodyUseOperandBindings.TryGetValue(
                 key,
                 out BodyTypeUseOperandBinding? binding))
@@ -411,7 +413,13 @@ internal sealed partial class LibraryMethodAnalysisRunner
         try
         {
             ImmutableArray<TypeRef> roots =
-                ResolveOperandTypes(resolver, scope, path, token);
+                ResolveOperandTypes(
+                    resolver,
+                    scope,
+                    path,
+                    token,
+                    maximumMethodSignatureBytes,
+                    unitToken);
             string? unavailable = roots.IsDefaultOrEmpty
                 ? "no typed root"
                 : FirstUnavailableTypeReason(roots);
@@ -461,13 +469,19 @@ internal sealed partial class LibraryMethodAnalysisRunner
         IMethodCallResolver resolver,
         GenericScope scope,
         BodyTypeUseOperandPath path,
-        int token)
+        int token,
+        int maximumMethodSignatureBytes,
+        int unitToken)
     {
         switch (path)
         {
             case BodyTypeUseOperandPath.Member:
                 (TypeRef declaringType, ImmutableArray<TypeRef> arguments) =
-                    _infrastructure.ResolveMethodOwner(token, scope);
+                    _infrastructure.ResolveMethodOwner(
+                        token,
+                        scope,
+                        maximumMethodSignatureBytes,
+                        unitToken);
                 return [declaringType, .. arguments];
             case BodyTypeUseOperandPath.Field:
                 (TypeRef? fieldOwner, _) =

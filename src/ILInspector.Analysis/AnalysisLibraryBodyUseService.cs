@@ -128,7 +128,9 @@ public static class AnalysisLibraryBodyUseService
                     ?? result.Critical?.Message
                     ?? "The Analysis body-use producer did not complete.";
                 return new AnalysisLibraryBodyUseOutcome.Rejected(
-                    AnalysisLibraryBodyUseRejectionKind.Execution,
+                    result.Critical is null
+                        ? AnalysisLibraryBodyUseRejectionKind.Execution
+                        : AnalysisLibraryBodyUseRejectionKind.Limit,
                     detail);
             }
 
