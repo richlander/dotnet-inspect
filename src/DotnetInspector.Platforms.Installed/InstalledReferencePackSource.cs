@@ -379,7 +379,7 @@ public sealed class InstalledReferencePackSource
             cancellationToken.ThrowIfCancellationRequested();
             return Unavailable<InstalledReferenceRealization>(
                 generation,
-                InstalledPlatformSourceUnavailabilityKind.Absent,
+                InstalledPlatformSourceUnavailabilityKind.Unavailable,
                 InstalledPlatformSourceDiagnosticKind.InvalidLayout,
                 "The exact installed reference-pack coordinate is absent.");
         }

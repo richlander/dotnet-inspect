@@ -653,8 +653,7 @@ public sealed class PackagePlatformHouseAdapter
         {
             PackagePlatformSourceOutcome<T>.Unavailable unavailable =>
                 new PlatformSourceContribution.Unavailable(facet, capability, request.Snapshot, generation, target,
-                    unavailable.Diagnostic.Kind is PackagePlatformSourceDiagnosticKind.PackageUnavailable
-                        or PackagePlatformSourceDiagnosticKind.MemberUnavailable
+                    unavailable.Diagnostic.Kind is PackagePlatformSourceDiagnosticKind.MemberUnavailable
                         ? PlatformSourceUnavailabilityKind.Absent : PlatformSourceUnavailabilityKind.Unavailable),
             PackagePlatformSourceOutcome<T>.Rejected =>
                 new PlatformSourceContribution.Rejected(facet, capability, request.Snapshot, generation, target),

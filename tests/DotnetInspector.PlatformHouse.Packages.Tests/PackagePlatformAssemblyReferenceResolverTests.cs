@@ -224,7 +224,8 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             PackagePlatformTestEnvironment.Create(
                 [
                     TestSourceBehavior.Create(
-                        PackagePlatformTestEnvironment.RuntimePackageId),
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        entries: []),
                 ]);
         PackagePlatformHouseAdapter adapter = Adapter(environment);
         PlatformHouseRequest request = Request(
@@ -267,6 +268,58 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             Assert.IsType<PlatformHouseCompletion.AssemblyReference>(
                     completed.Receipt.Completion)
                 .Kind);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_UnavailablePackageRemainsUnavailable()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+                [
+                    TestSourceBehavior.Create(
+                        PackagePlatformTestEnvironment.RuntimePackageId),
+                ]);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = Request(
+            adapter,
+            PackagePlatformTestData.Identity(image),
+            cancellationToken);
+        var terminal = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        await environment.AssertSettledAsync();
+        var unavailable =
+            Assert.IsType<PlatformSourceContribution.Unavailable>(
+                terminal.Contribution);
+
+        var outcome = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Unavailable>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        terminal,
+                        TerminalConsumed(
+                            PackageSourceTerminalCase.Unavailable)));
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.PackageUnavailable,
+            terminal.Diagnostic.Kind);
+        Assert.Equal(
+            PlatformSourceUnavailabilityKind.Unavailable,
+            unavailable.Reason);
+        Assert.Equal(
+            PlatformHouseSettlementKind.Unavailable,
+            outcome.Receipt.SettlementKind);
     }
 
     [Fact]

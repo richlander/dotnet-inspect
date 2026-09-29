@@ -304,14 +304,14 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
         switch (terminalCase)
         {
             case InstalledSourceTerminalCase.Unavailable:
-                var absent = Assert.IsType<
+                var unavailable = Assert.IsType<
                     PlatformHouseOutcome<
-                        AssemblyBindingDecision>.Completed>(outcome);
+                        AssemblyBindingDecision>.Unavailable>(outcome);
                 Assert.Equal(
-                    AssemblyBindingMissDisposition.NoNameOwner,
-                    Assert.IsType<AssemblyBindingDecision.Missing>(
-                            absent.Value)
-                        .Disposition);
+                    PlatformSourceUnavailabilityKind.Unavailable,
+                    Assert.IsType<PlatformSourceContribution.Unavailable>(
+                            terminal.Contribution)
+                        .Reason);
                 break;
             case InstalledSourceTerminalCase.Rejected:
                 var rejected = Assert.IsType<
@@ -587,7 +587,7 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
         terminalCase switch
         {
             InstalledSourceTerminalCase.Unavailable =>
-                PlatformHouseSettlementKind.Completed,
+                PlatformHouseSettlementKind.Unavailable,
             InstalledSourceTerminalCase.Rejected =>
                 PlatformHouseSettlementKind.Rejected,
             InstalledSourceTerminalCase.Incomplete =>
