@@ -485,8 +485,6 @@ public partial class CommandExecutionTests
         string tempDir = Directory.CreateTempSubdirectory(
             "library-address-package-non-compile-").FullName;
         string content = Path.Combine(tempDir, "content");
-        string relativeLibraryPath =
-            "tools/net11.0/Coordinate.Package.dll";
         string libraryPath = Path.Combine(
             content,
             "tools",
