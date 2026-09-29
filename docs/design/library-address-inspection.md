@@ -68,7 +68,10 @@ Population intent carries already-admitted records rather than a file path.
 Each record is either one valid IL point or one retained malformed-input
 observation. Construction snapshots the records, requires at least one, and
 rejects more than 1,024. Execution preserves order and emits one row per
-record. It does not apply CLI row selection.
+record. Population intent may allow absent boundary-only instruction,
+callsite, and return-address facets for otherwise valid in-body offsets so a
+host can aggregate effective evidence without turning those observations into
+resolution failures. It does not apply CLI row selection.
 
 File reading, lexical parsing, structural/effective discovery, section
 selection, row windows, rendering, and browser-URL preference remain host
