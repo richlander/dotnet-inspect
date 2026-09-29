@@ -1835,6 +1835,9 @@ test("history restores population intent before validating saved Member identity
     applyView,
     /async function restoreOrdinaryMemberHistory\([\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*const member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
   assert.match(
+    applyView,
+    /state\.selectedMemberKey && member\) \{\s*loadCurrentSelectionData\("Restoring a Member from navigation history"\)/);
+  assert.match(
     appSource,
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
   assert.match(

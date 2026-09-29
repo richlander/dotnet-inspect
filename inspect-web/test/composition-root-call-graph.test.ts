@@ -862,6 +862,9 @@ test("Type transitions load the current lens selection after rendering", () => {
     /onNamespaceJump:[\s\S]*?render\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
+    /onNamespaceSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+  assert.match(
+    appSource,
     /onKindSelect:[\s\S]*?renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
   assert.match(
     appSource,
@@ -883,6 +886,24 @@ test("Type transitions load the current lens selection after rendering", () => {
   assert.match(
     libraryScope,
     /normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\);\s*loadCurrentSelectionData\("Loading the selected Library Type"\)/);
+});
+
+test("same-key Type population consumers join one current operation", () => {
+  const populationLoad =
+    appSource.match(/interface TypeMemberPopulationLoad[\s\S]*?\n}\n\nfunction setTypeMemberPopulationIntent/)?.[0]
+    ?? "";
+  assert.match(
+    populationLoad,
+    /state\.typeMemberPopulationLoading[\s\S]*state\.typeMemberPopulationKey === key[\s\S]*typeMemberPopulationLoad\?\.key === key[\s\S]*return typeMemberPopulationLoad\.promise/);
+  assert.match(
+    populationLoad,
+    /const load: TypeMemberPopulationLoad = \{[\s\S]*typeMemberPopulationLoad = load;[\s\S]*load\.promise = \(async \(\) => \{/);
+  assert.match(
+    populationLoad,
+    /if \(typeMemberPopulationLoad !== load[\s\S]*state\.typeMemberPopulationKey !== key\)[\s\S]*return;/);
+  assert.match(
+    populationLoad,
+    /if \(typeMemberPopulationLoad === load[\s\S]*state\.typeMemberPopulationKey === key\) \{[\s\S]*typeMemberPopulationLoad = null;[\s\S]*normalizeMemberSelection\(\)/);
 });
 
 test("runtime lookup refuses ambiguous or unresolved exact targets", () => {

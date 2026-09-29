@@ -3924,12 +3924,13 @@ function applyView(view: WorkspaceView) {
         view,
         pkg,
         type,
-        navigationSequence.current()),
+        navigationSequence.current(),
+        typeMemberPopulationKey(type)),
       "Restoring a Member from navigation history");
     return true;
   }
   if (!state.atPackageRoot && !state.atLibraryRoot && state.lens === "api" && state.selectedMemberKey && member) {
-    loadMemberSectionContent(state.memberSection);
+    loadCurrentSelectionData("Restoring a Member from navigation history");
   } else {
     render();
   }
@@ -3941,11 +3942,13 @@ async function restoreOrdinaryMemberHistory(
   pkg: AppPackage,
   type: AppTypeSurface,
   navigationSeq: number,
+  populationKey: string,
 ) {
   await loadSelectedTypeMemberPopulation();
   if (!navigationSequence.isCurrent(navigationSeq)
     || state.package !== pkg
-    || selectedType()?.id !== type.id) {
+    || selectedType()?.id !== type.id
+    || typeMemberPopulationKey(type) !== populationKey) {
     return;
   }
   const member = memberGroups(type)
@@ -11169,6 +11172,7 @@ function bindTypePanelEvents() {
       state.memberBrowseTypeId = "";
       resetMemberFilters();
       renderPreservingMemberFocus();
+      loadCurrentSelectionData("Loading the selected Type");
     },
     onOverloadSelect: index => {
       const group = selectedMember(selectedType());
@@ -18057,20 +18061,37 @@ function memberGroupDocumentRequestKey(
   ]);
 }
 
-async function loadSelectedTypeMemberPopulation() {
+interface TypeMemberPopulationLoad {
+  key: string;
+  promise: Promise<void>;
+}
+
+let typeMemberPopulationLoad: TypeMemberPopulationLoad | null = null;
+
+function loadSelectedTypeMemberPopulation(): Promise<void> {
   const type = selectedType();
   if (!type) {
     renderPreservingMemberFocus();
-    return;
+    return Promise.resolve();
   }
   const key = typeMemberPopulationKey(type);
-  if (!key
-    || state.typeMemberPopulationLoading
-      && state.typeMemberPopulationKey === key
-    || state.typeMemberPopulation
-      && state.typeMemberPopulationKey === key) {
+  if (!key) {
     renderPreservingMemberFocus();
-    return;
+    return Promise.resolve();
+  }
+  if (state.typeMemberPopulationLoading
+    && state.typeMemberPopulationKey === key) {
+    renderPreservingMemberFocus();
+    if (typeMemberPopulationLoad?.key === key) {
+      return typeMemberPopulationLoad.promise;
+    }
+    return Promise.reject(new Error(
+      "The current Type Member population request has no joinable operation."));
+  }
+  if (state.typeMemberPopulation
+    && state.typeMemberPopulationKey === key) {
+    renderPreservingMemberFocus();
+    return Promise.resolve();
   }
 
   state.typeMemberPopulation = null;
@@ -18079,51 +18100,67 @@ async function loadSelectedTypeMemberPopulation() {
   state.typeMemberPopulationKey = key;
   renderPreservingMemberFocus();
   const pkg = currentPackage();
-  try {
-    const result = state.rootKind === "library"
-      ? inspectUploadedLibraryTypeMemberPopulation(
-          type.assemblyId,
-          type.definitionId ?? type.id,
-          state.memberSpelling,
-          state.memberAccessibilityFilter)
-      : pkg.isRuntimePack
-      ? (() => {
-          const row = platformLibraryForRequest(pkg, type.assemblyId);
-          return inspectPlatformTypeMemberPopulation(
-            pkg.activeFramework,
+  const load: TypeMemberPopulationLoad = {
+    key,
+    promise: Promise.resolve(),
+  };
+  typeMemberPopulationLoad = load;
+  load.promise = (async () => {
+    try {
+      const result = state.rootKind === "library"
+        ? inspectUploadedLibraryTypeMemberPopulation(
+            type.assemblyId,
+            type.definitionId ?? type.id,
+            state.memberSpelling,
+            state.memberAccessibilityFilter)
+        : pkg.isRuntimePack
+        ? (() => {
+            const row = platformLibraryForRequest(pkg, type.assemblyId);
+            return inspectPlatformTypeMemberPopulation(
+              pkg.activeFramework,
+              pkg.version,
+              platformAssemblyRequest(row),
+              row.pack,
+              type.definitionId ?? type.id,
+              state.memberSpelling,
+              state.memberAccessibilityFilter);
+          })()
+        : inspectTypeMemberPopulation(
+            pkg.id,
             pkg.version,
-            platformAssemblyRequest(row),
-            row.pack,
+            pkg.activeFramework,
+            type.assembly,
             type.definitionId ?? type.id,
             state.memberSpelling,
             state.memberAccessibilityFilter);
-        })()
-      : inspectTypeMemberPopulation(
-          pkg.id,
-          pkg.version,
-          pkg.activeFramework,
-          type.assembly,
-          type.definitionId ?? type.id,
-          state.memberSpelling,
-          state.memberAccessibilityFilter);
-    const inspection = await result;
-    if (state.typeMemberPopulationKey !== key) return;
-    state.typeMemberPopulation = inspection;
-    state.typeMemberPopulationError =
-      inspection.outcome === "Available"
-        ? ""
-        : inspection.detail
-          ?? `Type Member population returned ${inspection.outcome}.`;
-  } catch (error) {
-    if (state.typeMemberPopulationKey !== key) return;
-    state.typeMemberPopulationError = errorMessage(error);
-  } finally {
-    if (state.typeMemberPopulationKey === key) {
-      state.typeMemberPopulationLoading = false;
-      normalizeMemberSelection();
-      renderPreservingMemberFocus();
+      const inspection = await result;
+      if (typeMemberPopulationLoad !== load
+        || state.typeMemberPopulationKey !== key) {
+        return;
+      }
+      state.typeMemberPopulation = inspection;
+      state.typeMemberPopulationError =
+        inspection.outcome === "Available"
+          ? ""
+          : inspection.detail
+            ?? `Type Member population returned ${inspection.outcome}.`;
+    } catch (error) {
+      if (typeMemberPopulationLoad !== load
+        || state.typeMemberPopulationKey !== key) {
+        return;
+      }
+      state.typeMemberPopulationError = errorMessage(error);
+    } finally {
+      if (typeMemberPopulationLoad === load
+        && state.typeMemberPopulationKey === key) {
+        typeMemberPopulationLoad = null;
+        state.typeMemberPopulationLoading = false;
+        normalizeMemberSelection();
+        renderPreservingMemberFocus();
+      }
     }
-  }
+  })();
+  return load.promise;
 }
 
 function setTypeMemberPopulationIntent(
@@ -18132,7 +18169,9 @@ function setTypeMemberPopulationIntent(
 ) {
   state.memberAccessibilityFilter = accessibility;
   state.memberSpelling = spelling;
+  typeMemberPopulationLoad = null;
   state.typeMemberPopulation = null;
+  state.typeMemberPopulationLoading = false;
   state.typeMemberPopulationError = "";
   state.typeMemberPopulationKey = "";
 }
