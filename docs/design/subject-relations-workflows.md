@@ -332,6 +332,42 @@ selection likewise probes matching TypeDefs without first retaining the whole
 declaration-name inventory; richer selection gestures retain the general
 inventory path.
 
+The targeted Metadata producer and its NLinq performance oracle execute the
+same hierarchy analysis: enumerate externally visible, non-hidden Type
+definitions; inspect the selected base-Type or interface edges; compare the
+outer definition of direct and constructed targets; and project the matching
+source definition identity. Count performs that analysis without materializing
+source rows. Full relation evidence adds constructed target decoding and graph
+projection only after this shared analysis has selected an occurrence. The
+LINQ, NLinq, and Planner call the same product-owned analysis pass for this
+scope, matching, guarded decoding, budget charging, and row projection, as
+required by the
+[performance-oracle rule](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+The scorecard answer gate includes the producer's malformed generic-TypeSpec
+fixture and compares diagnostics and operation counters as well as benign rows.
+The scorecard measures the shipping analysis stage; exact NativeAOT base/head
+measurements cover its production composition and host lowering. Measurements
+from any lighter oracle loop remain labeled frontier evidence until that
+algorithm is ported into the product pass and therefore shared by all standard
+columns.
+
+Terminal work elimination is a separate hypothesis from analysis throughput.
+Count, complete Rows, and Tail exhaust the selected source, while Exists,
+Head(N), and a supported forward window may stop after their semantic answer is
+established. Any such bound comes from the resolved QuerySpace plan and remains
+above exact Workspace assembly correspondence: a Metadata name match alone
+cannot establish that an identically named target belongs to the focused
+assembly. An unsupported plan shape retains visible fallback rather than
+acquiring ad hoc source semantics.
+
+The fast definition matcher is fidelity-bearing for canonical TypeDef, TypeRef,
+and generic TypeSpec shapes emitted by Roslyn. Untrusted and malformed metadata
+remains subject to bounded image admission, relationship/name traversal, and
+blob reads; it must not create unbounded work, unsafe memory behavior, assembly
+loading, or another containment failure. A malformed or non-canonical target
+may be rejected as incomplete and is not promised an exact semantic answer.
+Its failure remains visible in producer disposition and diagnostics.
+
 The canonical row unit is one logical relation. Each row preserves:
 
 - exact source and target identities;

@@ -1,0 +1,665 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
+namespace ILInspector.Metadata;
+
+/// <summary>
+/// One incoming hierarchy occurrence selected by exact definition name.
+/// The target is the request's definition; the row preserves the source and
+/// physical declaration needed by later correspondence and projection.
+/// </summary>
+public readonly record struct MetadataHierarchyRelationAnalysisRow(
+    MetadataTypeDefinitionAddress Source,
+    MetadataTypeDefinitionName SourceType,
+    MetadataHierarchyRelationKind Kind,
+    ImmutableArray<int> MetadataTokens);
+
+public sealed record MetadataHierarchyRelationAnalysisRequest
+{
+    public MetadataHierarchyRelationAnalysisRequest(
+        MetadataHierarchyTargetSelection target,
+        MetadataOperationPolicy policy,
+        bool includeNonPublic = false,
+        bool includeHidden = false,
+        bool materializeRows = true)
+    {
+        Target = target ?? throw new ArgumentNullException(nameof(target));
+        Policy = policy ?? throw new ArgumentNullException(nameof(policy));
+        IncludeNonPublic = includeNonPublic;
+        IncludeHidden = includeHidden;
+        MaterializeRows = materializeRows;
+    }
+
+    public MetadataHierarchyTargetSelection Target { get; }
+
+    public MetadataOperationPolicy Policy { get; }
+
+    public bool IncludeNonPublic { get; }
+
+    public bool IncludeHidden { get; }
+
+    public bool MaterializeRows { get; }
+}
+
+public sealed record MetadataHierarchyRelationAnalysisResult(
+    MetadataRelationInspectionReceipt Receipt,
+    int CandidateCount,
+    MetadataRelationFamilyResult<MetadataHierarchyRelationAnalysisRow>
+        Relations);
+
+public abstract record MetadataHierarchyRelationAnalysisOutcome
+{
+    private protected MetadataHierarchyRelationAnalysisOutcome()
+    {
+    }
+
+    public sealed record Available(
+        MetadataHierarchyRelationAnalysisResult Result)
+        : MetadataHierarchyRelationAnalysisOutcome;
+
+    public sealed record Rejected(
+        MetadataImageFormatResult Format,
+        string Detail)
+        : MetadataHierarchyRelationAnalysisOutcome;
+}
+
+/// <summary>
+/// Product-owned result of applying hierarchy scope, target matching, budgets,
+/// and optional row projection to one Type definition.
+/// </summary>
+public readonly record struct MetadataHierarchyRelationAnalysisUnit(
+    bool IsExcluded,
+    bool BaseMatched,
+    bool InterfaceMatched,
+    MetadataHierarchyRelationAnalysisRow? BaseRelation,
+    MetadataHierarchyRelationAnalysisRow? InterfaceRelation,
+    MetadataRelationDiagnostic? Diagnostic)
+{
+    public int CandidateCount =>
+        (BaseMatched ? 1 : 0)
+        + (InterfaceMatched ? 1 : 0);
+
+    public bool IsUnavailable => Diagnostic is not null;
+}
+
+/// <summary>
+/// One product-owned hierarchy-analysis pass. LINQ, NLinq, and Planner readers
+/// use this pass so only their iteration and closing machinery differs.
+/// </summary>
+public sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
+{
+    readonly MetadataHierarchyRelationAnalysisRequest _request;
+    readonly MetadataOperationContext _operation;
+    readonly bool _ownsOperation;
+
+    public MetadataHierarchyRelationAnalysisPass(
+        MetadataReader reader,
+        MetadataHierarchyRelationAnalysisRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        _request = request
+            ?? throw new ArgumentNullException(nameof(request));
+        _operation = new(request.Policy);
+        _ownsOperation = true;
+        if (_operation.AdmitImage(reader)
+            is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            _operation.Dispose();
+            throw new InvalidOperationException(
+                "The metadata image exceeds the hierarchy-analysis row "
+                    + $"budget ({rejected.Failure.ImageMetadataRows} > "
+                    + $"{rejected.Failure.MaxMetadataRows}).");
+        }
+    }
+
+    internal MetadataHierarchyRelationAnalysisPass(
+        MetadataHierarchyRelationAnalysisRequest request,
+        MetadataOperationContext operation)
+    {
+        _request = request
+            ?? throw new ArgumentNullException(nameof(request));
+        _operation = operation
+            ?? throw new ArgumentNullException(nameof(operation));
+    }
+
+    public MetadataOperationCounters Counters => _operation.Counters;
+
+    public MetadataHierarchyRelationAnalysisUnit Analyze(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        _operation.Charge(
+            MetadataOperationDimension.DeclarationCandidates);
+
+        try
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(handle);
+            if ((!_request.IncludeNonPublic
+                    && !MetadataVisibility.IsExternallyVisible(
+                        reader,
+                        handle))
+                || (!_request.IncludeHidden
+                    && AttributeReader.HasHiddenAttribute(
+                        reader,
+                        definition.GetCustomAttributes())))
+            {
+                return new(
+                    IsExcluded: true,
+                    BaseMatched: false,
+                    InterfaceMatched: false,
+                    BaseRelation: null,
+                    InterfaceRelation: null,
+                    Diagnostic: null);
+            }
+
+            bool baseMatched = false;
+            bool interfaceMatched = false;
+            int baseToken = 0;
+            ImmutableArray<int>.Builder? interfaceTokens = null;
+            MetadataHierarchyTargetSelection target =
+                _request.Target;
+
+            if (target.Kind
+                    is not MetadataHierarchyRelationKind.Interface
+                && !definition.BaseType.IsNil)
+            {
+                baseToken = MetadataTokens.GetToken(handle);
+                MetadataRelationDiagnostic? diagnostic =
+                    Match(
+                        reader,
+                        definition.BaseType,
+                        baseToken,
+                        out baseMatched);
+                if (diagnostic is not null)
+                    return Unavailable(diagnostic);
+            }
+
+            if (target.Kind
+                is not MetadataHierarchyRelationKind.BaseType)
+            {
+                foreach (InterfaceImplementationHandle implementationHandle
+                    in definition.GetInterfaceImplementations())
+                {
+                    _operation.Charge(
+                        MetadataOperationDimension
+                            .InterfaceImplementationRows);
+                    InterfaceImplementation implementation =
+                        reader.GetInterfaceImplementation(
+                            implementationHandle);
+                    int token =
+                        MetadataTokens.GetToken(implementationHandle);
+                    MetadataRelationDiagnostic? diagnostic =
+                        Match(
+                            reader,
+                            implementation.Interface,
+                            token,
+                            out bool matches);
+                    if (diagnostic is not null)
+                        return Unavailable(diagnostic);
+                    if (!matches)
+                        continue;
+
+                    interfaceMatched = true;
+                    if (_request.MaterializeRows)
+                    {
+                        (interfaceTokens ??=
+                            ImmutableArray.CreateBuilder<int>())
+                            .Add(token);
+                    }
+                }
+            }
+
+            if (!baseMatched && !interfaceMatched)
+            {
+                return new(
+                    IsExcluded: false,
+                    BaseMatched: false,
+                    InterfaceMatched: false,
+                    BaseRelation: null,
+                    InterfaceRelation: null,
+                    Diagnostic: null);
+            }
+
+            if (!_request.MaterializeRows)
+            {
+                return new(
+                    IsExcluded: false,
+                    baseMatched,
+                    interfaceMatched,
+                    BaseRelation: null,
+                    InterfaceRelation: null,
+                    Diagnostic: null);
+            }
+
+            MetadataTypeDefinitionNameReadResult read =
+                MetadataTypeDefinitionName.Read(
+                    reader,
+                    handle);
+            if (read
+                is MetadataTypeDefinitionNameReadResult.Rejected rejected)
+            {
+                return Unavailable(
+                    new(
+                        MetadataRelationFamily.Hierarchy,
+                        MetadataRelationDiagnosticKind.MalformedMetadata,
+                        MetadataTokens.GetToken(handle),
+                        rejected.Failure.Detail));
+            }
+            if (read
+                is not MetadataTypeDefinitionNameReadResult.Read source)
+            {
+                throw new InvalidOperationException(
+                    "Unknown metadata Type-name result.");
+            }
+
+            MetadataTypeDefinitionAddress address =
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    handle);
+            return new(
+                IsExcluded: false,
+                baseMatched,
+                interfaceMatched,
+                baseMatched
+                    ? new(
+                        address,
+                        source.Name,
+                        MetadataHierarchyRelationKind.BaseType,
+                        [baseToken])
+                    : null,
+                interfaceMatched
+                    ? new(
+                        address,
+                        source.Name,
+                        MetadataHierarchyRelationKind.Interface,
+                        interfaceTokens!.ToImmutable())
+                    : null,
+                Diagnostic: null);
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            return Unavailable(
+                new(
+                    MetadataRelationFamily.Hierarchy,
+                    MetadataRelationDiagnosticKind.MalformedMetadata,
+                    MetadataTokens.GetToken(handle),
+                    exception.Message));
+        }
+    }
+
+    MetadataRelationDiagnostic? Match(
+        MetadataReader reader,
+        EntityHandle candidateTarget,
+        int occurrenceToken,
+        out bool matched)
+    {
+        _operation.Charge(
+            MetadataOperationDimension.RelationshipEdges);
+        MetadataTypeDefinitionNameMatchResult match =
+            MetadataHierarchyRelationAnalysis.MatchTarget(
+                reader,
+                candidateTarget,
+                _request.Target.Type,
+                out string? failure);
+        matched =
+            match == MetadataTypeDefinitionNameMatchResult.Match;
+        return match
+                == MetadataTypeDefinitionNameMatchResult.Rejected
+            ? new(
+                MetadataRelationFamily.Hierarchy,
+                MetadataRelationDiagnosticKind.UnsupportedShape,
+                occurrenceToken,
+                failure
+                    ?? "The hierarchy target definition could not be "
+                        + "analyzed safely.")
+            : null;
+    }
+
+    static MetadataHierarchyRelationAnalysisUnit Unavailable(
+        MetadataRelationDiagnostic diagnostic) =>
+        new(
+            IsExcluded: false,
+            BaseMatched: false,
+            InterfaceMatched: false,
+            BaseRelation: null,
+            InterfaceRelation: null,
+            diagnostic);
+
+    public void Dispose()
+    {
+        if (_ownsOperation)
+            _operation.Dispose();
+    }
+}
+
+/// <summary>
+/// Fast definition-level hierarchy analysis. It is exact for the canonical
+/// TypeDef, TypeRef, and generic TypeSpec shapes emitted by Roslyn and remains
+/// bounded for malformed metadata.
+/// </summary>
+public static class MetadataHierarchyRelationAnalysis
+{
+    public static MetadataTypeDefinitionNameMatchResult MatchTarget(
+        MetadataReader reader,
+        EntityHandle target,
+        MetadataTypeDefinitionName expected) =>
+        MatchTarget(reader, target, expected, out _);
+
+    internal static MetadataTypeDefinitionNameMatchResult MatchTarget(
+        MetadataReader reader,
+        EntityHandle target,
+        MetadataTypeDefinitionName expected,
+        out string? failure)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(expected);
+        failure = null;
+
+        try
+        {
+            EntityHandle definition = target;
+            if (target.Kind == HandleKind.TypeSpecification)
+            {
+                BlobReader signature = reader.GetBlobReader(
+                    reader.GetTypeSpecification(
+                        (TypeSpecificationHandle)target).Signature);
+                if (signature.ReadSignatureTypeCode()
+                        != SignatureTypeCode.GenericTypeInstance
+                    || signature.ReadSignatureTypeCode()
+                        != SignatureTypeCode.TypeHandle)
+                {
+                    failure =
+                        "The hierarchy TypeSpec is not a canonical generic instance.";
+                    return MetadataTypeDefinitionNameMatchResult.Rejected;
+                }
+
+                definition = signature.ReadTypeHandle();
+            }
+
+            MetadataTypeNameFailure? nameFailure;
+            MetadataTypeDefinitionNameMatchResult result =
+                definition.Kind switch
+                {
+                    HandleKind.TypeDefinition =>
+                        MetadataTypeDefinitionName.Matches(
+                            reader,
+                            (TypeDefinitionHandle)definition,
+                            expected,
+                            out nameFailure),
+                    HandleKind.TypeReference =>
+                        MetadataTypeDefinitionName.Matches(
+                            reader,
+                            (TypeReferenceHandle)definition,
+                            expected,
+                            out nameFailure),
+                    _ => RejectUnsupported(out nameFailure),
+                };
+            failure = nameFailure?.Detail;
+            return result;
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            failure = exception.Message;
+            return MetadataTypeDefinitionNameMatchResult.Rejected;
+        }
+
+        static MetadataTypeDefinitionNameMatchResult RejectUnsupported(
+            out MetadataTypeNameFailure? nameFailure)
+        {
+            nameFailure = null;
+            return MetadataTypeDefinitionNameMatchResult.Rejected;
+        }
+    }
+}
+
+internal static partial class MetadataRelationInspection
+{
+    internal static MetadataHierarchyRelationAnalysisOutcome
+        ExecuteHierarchyAnalysis(
+            PEReader image,
+            MetadataHierarchyRelationAnalysisRequest request,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        MetadataImageFormatResult format =
+            MetadataImageFormatClassifier.Classify(image);
+        if (format is not MetadataImageFormatResult.SupportedEcma335)
+        {
+            return new MetadataHierarchyRelationAnalysisOutcome.Rejected(
+                format,
+                format switch
+                {
+                    MetadataImageFormatResult.NoMetadata =>
+                        "The selected image contains no managed metadata.",
+                    MetadataImageFormatResult.UnsupportedWindowsMetadata =>
+                        "Windows Metadata is not a supported relation input.",
+                    MetadataImageFormatResult.MalformedRoot =>
+                        "The selected image has a malformed metadata root.",
+                    _ => "The selected image format is unavailable.",
+                });
+        }
+
+        MetadataReader reader;
+        try
+        {
+            reader = image.GetMetadataReader(MetadataReaderOptions.None);
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or OverflowException)
+        {
+            return new MetadataHierarchyRelationAnalysisOutcome.Rejected(
+                new MetadataImageFormatResult.MalformedRoot(
+                    MetadataRootMalformedReason.UnmappableMetadataDirectory),
+                exception.Message);
+        }
+
+        var relationRequest = new MetadataRelationInspectionRequest(
+            [MetadataRelationFamily.Hierarchy],
+            request.Policy,
+            request.IncludeNonPublic,
+            hierarchyTarget: request.Target)
+        {
+            IncludeHidden = request.IncludeHidden,
+        };
+        using var operation = new MetadataOperationContext(request.Policy);
+        MetadataRelationReceiptIdentity receiptIdentity =
+            ReadReceiptIdentity(reader, out string? receiptFailure);
+        if (receiptIdentity.ModuleVersionId is not Guid)
+        {
+            var diagnostic = MalformedDiagnostic(
+                MetadataRelationFamily.Hierarchy,
+                null,
+                receiptFailure
+                    ?? "The metadata image has no usable module identity.");
+            return Available(
+                receiptIdentity,
+                relationRequest,
+                operation,
+                0,
+                new(
+                    true,
+                    MetadataRelationFamilyDisposition.Failed,
+                    new(1, 0, 0, 1, 0),
+                    [],
+                    [diagnostic]));
+        }
+
+        MetadataImageAdmissionResult admission =
+            operation.AdmitImage(reader);
+        if (admission is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            var diagnostic = new MetadataRelationDiagnostic(
+                MetadataRelationFamily.Hierarchy,
+                MetadataRelationDiagnosticKind.Limit,
+                null,
+                "The metadata image exceeds the operation row budget.",
+                MetadataOperationDimension.MetadataRows,
+                rejected.Failure.MaxMetadataRows,
+                rejected.Failure.ImageMetadataRows);
+            return Available(
+                receiptIdentity,
+                relationRequest,
+                operation,
+                0,
+                new(
+                    true,
+                    MetadataRelationFamilyDisposition.Partial,
+                    new(1, 0, 0, 0, 1),
+                    [],
+                    [diagnostic]));
+        }
+
+        MetadataRelationFamilyResult<MetadataHierarchyRelationAnalysisRow>
+            relations = ScanHierarchyAnalysis(
+                reader,
+                relationRequest,
+                operation,
+                cancellationToken,
+                request.MaterializeRows,
+                out int candidateCount);
+        return Available(
+            receiptIdentity,
+            relationRequest,
+            operation,
+            candidateCount,
+            relations);
+    }
+
+    private static MetadataHierarchyRelationAnalysisOutcome Available(
+        MetadataRelationReceiptIdentity receiptIdentity,
+        MetadataRelationInspectionRequest request,
+        MetadataOperationContext operation,
+        int candidateCount,
+        MetadataRelationFamilyResult<MetadataHierarchyRelationAnalysisRow>
+            relations) =>
+        new MetadataHierarchyRelationAnalysisOutcome.Available(
+            new(
+                Receipt(receiptIdentity, request, operation),
+                candidateCount,
+                relations));
+
+    private static MetadataRelationFamilyResult<
+        MetadataHierarchyRelationAnalysisRow> ScanHierarchyAnalysis(
+            MetadataReader reader,
+            MetadataRelationInspectionRequest request,
+            MetadataOperationContext operation,
+            CancellationToken cancellationToken,
+            bool materializeRows,
+            out int candidateCount)
+    {
+        var rows =
+            ImmutableArray.CreateBuilder<
+                MetadataHierarchyRelationAnalysisRow>();
+        var diagnostics =
+            ImmutableArray.CreateBuilder<MetadataRelationDiagnostic>();
+        MetadataHierarchyTargetSelection target = request.HierarchyTarget
+            ?? throw new ArgumentException(
+                "Hierarchy analysis requires an exact target.",
+                nameof(request));
+        var analysisRequest =
+            new MetadataHierarchyRelationAnalysisRequest(
+                target,
+                request.Policy,
+                request.IncludeNonPublic,
+                request.IncludeHidden,
+                materializeRows);
+        using var pass =
+            new MetadataHierarchyRelationAnalysisPass(
+                analysisRequest,
+                operation);
+        int matched = 0;
+        int considered = 0;
+        int excluded = 0;
+        int examined = 0;
+        int unavailable = 0;
+        bool limited = false;
+
+        try
+        {
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                considered++;
+                MetadataHierarchyRelationAnalysisUnit unit =
+                    pass.Analyze(reader, handle);
+                if (unit.IsExcluded)
+                {
+                    excluded++;
+                    continue;
+                }
+                if (unit.IsUnavailable)
+                {
+                    unavailable++;
+                    diagnostics.Add(
+                        unit.Diagnostic
+                        ?? throw new InvalidOperationException(
+                            "Unavailable hierarchy analysis requires a "
+                                + "diagnostic."));
+                    continue;
+                }
+
+                examined++;
+                matched = checked(matched + unit.CandidateCount);
+                if (unit.BaseRelation is { } baseRelation)
+                    rows.Add(baseRelation);
+                if (unit.InterfaceRelation is { } interfaceRelation)
+                    rows.Add(interfaceRelation);
+            }
+        }
+        catch (MetadataOperationBudgetExceededException exception)
+        {
+            limited = true;
+            diagnostics.Add(
+                LimitDiagnostic(
+                    MetadataRelationFamily.Hierarchy,
+                    exception));
+        }
+        catch (BadImageFormatException exception)
+        {
+            diagnostics.Add(
+                MalformedDiagnostic(
+                    MetadataRelationFamily.Hierarchy,
+                    null,
+                    exception.Message));
+        }
+
+        int remaining =
+            considered - examined - excluded - unavailable;
+        if (considered == 0 && diagnostics.Count != 0)
+        {
+            candidateCount = matched;
+            return CompleteOrPartial(
+                rows,
+                diagnostics,
+                new(1, 0, 0, 1, 0));
+        }
+        if (!limited)
+            unavailable += remaining;
+        candidateCount = matched;
+        return CompleteOrPartial(
+            rows,
+            diagnostics,
+            new(
+                considered,
+                examined,
+                excluded,
+                unavailable,
+                limited ? remaining : 0));
+    }
+}

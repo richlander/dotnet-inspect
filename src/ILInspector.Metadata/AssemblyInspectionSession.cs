@@ -216,6 +216,23 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Selects incoming hierarchy occurrences by exact definition name without
+    /// decoding unrelated constructed target shapes.
+    /// </summary>
+    public MetadataHierarchyRelationAnalysisOutcome
+        AnalyzeHierarchyRelations(
+            MetadataHierarchyRelationAnalysisRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection.ExecuteHierarchyAnalysis(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Finds exact TypeDef names by one simple ASCII leaf name without
     /// materializing unrelated declaration names.
     /// </summary>
