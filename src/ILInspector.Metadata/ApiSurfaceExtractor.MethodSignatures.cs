@@ -1175,7 +1175,7 @@ public static partial class ApiSurfaceExtractor
     /// Maps MethodAttributes access level to a C# keyword.
     /// Returns null for public or unrepresentable access.
     /// </summary>
-    private static string? GetAccessibility(MethodAttributes access) => access switch
+    internal static string? GetAccessibility(MethodAttributes access) => access switch
     {
         MethodAttributes.Private => "private",
         MethodAttributes.FamANDAssem => "private protected",

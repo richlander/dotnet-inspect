@@ -141,12 +141,18 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDeclaration"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
+    queryTypeMemberPopulation: () =>
+      unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
       unexpected("queryPlatformMemberDeclaration"),
     queryPlatformMemberGroupDocument: () =>
       unexpected("queryPlatformMemberGroupDocument"),
+    queryPlatformTypeMemberPopulation: () =>
+      unexpected("queryPlatformTypeMemberPopulation"),
     queryUploadedLibraryMemberGroupDocument: () =>
       unexpected("queryUploadedLibraryMemberGroupDocument"),
+    queryUploadedLibraryTypeMemberPopulation: () =>
+      unexpected("queryUploadedLibraryTypeMemberPopulation"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -457,6 +463,8 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
     [string, number[], string, string] | undefined;
+  let receivedPopulation:
+    [string, number[], string, string, string] | undefined;
   const state = fixture({
     library: {
       async openUploadedLibrary(declaredName, bytes) {
@@ -516,6 +524,27 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
           diagnostics: [],
         };
       },
+      async queryUploadedLibraryTypeMemberPopulation(
+        declaredName,
+        bytes,
+        typeIdentity,
+        spelling,
+        accessibility,
+      ) {
+        receivedPopulation = [
+          declaredName,
+          bytes,
+          typeIdentity,
+          spelling,
+          accessibility,
+        ];
+        return {
+          outcome: "Failed",
+          detail: "probe",
+          population: null,
+          diagnostics: [],
+        };
+      },
     },
   });
 
@@ -538,6 +567,22 @@ test("uploaded Library MemberGroup queries use the retained exact image", async 
     content,
     "Example.Widget",
     "Run",
+  ]);
+  const population =
+    state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
+      identity,
+      "Example.Widget",
+      "metadata",
+      "private",
+    );
+  await state.environment.flushAsync();
+  assert.equal((await population).detail, "probe");
+  assert.deepEqual(receivedPopulation, [
+    "Uploaded.dll",
+    content,
+    "Example.Widget",
+    "metadata",
+    "private",
   ]);
 
   const mismatched =
@@ -2092,8 +2137,10 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryMemberGroupDocument",
+      "queryTypeMemberPopulation",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberGroupDocument",
+      "queryPlatformTypeMemberPopulation",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2102,6 +2149,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadataTable",
       "queryTypeProjection",
       "queryUploadedLibraryMemberGroupDocument",
+      "queryUploadedLibraryTypeMemberPopulation",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2173,7 +2221,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 93);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 96);
 
   const state = fixture();
   const groups = [

@@ -1356,6 +1356,7 @@ kbd {
 .api-row:hover { background: var(--panel-raised); }
 .api-row code { overflow: hidden; color: var(--text); font: 12px/1.5 var(--mono); white-space: nowrap; text-overflow: ellipsis; }
 .api-row small { color: var(--dim); font: 10px var(--mono); }
+.family-outside-count { color: var(--accent); font-weight: 600; }
 .api-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) 34px; background: var(--bg); }
 .api-surface-head,
 .metadata-surface-head { min-width: 0; min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }

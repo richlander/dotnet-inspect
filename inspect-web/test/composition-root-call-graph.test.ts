@@ -489,7 +489,7 @@ test("projected members remain distinct from the public API surface", () => {
     /partitionGraphMembers\(item\.api\)/);
   assert.match(
     appSource,
-    /\$\{member\.graphOnly \? "graph:" : ""\}\$\{member\.kind\}:\$\{member\.name\}/);
+    /\$\{graphOnly \|\| member\.graphOnly \? "graph:" : ""\}\$\{member\.kind\}:\$\{member\.name\}/);
   assert.match(
     appSource,
     /memberSectionIdsFor\(\s*member,\s*state\.package\?\.isRuntimePack,\s*memberHasSelectedBody\(member\)\)/);
@@ -1002,7 +1002,7 @@ test("restored ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     loadSelection,
-    /if \(state\.memberSection === "overview"\) \{\s*return loadSelectedMemberOverview\(\);\s*}[\s\S]*member\.overloads\.length > 1/);
+    /await loadSelectedTypeMemberPopulation\(\);[\s\S]*if \(state\.memberSection === "overview"\) \{\s*await loadSelectedMemberOverview\(\);\s*return;\s*}[\s\S]*member\.overloads\.length > 1/);
 });
 
 test("member navigation excludes graph-only projections from ordinary filters", () => {
@@ -1011,13 +1011,16 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     ?? "";
   assert.match(
     filters,
-    /filterMemberGroups\(publicMemberGroups\(type\), memberFilterState\(\)\)/);
+    /filterMemberGroups\(selectedMemberGroups\(type\), memberFilterState\(\)\)/);
   assert.match(
     filters,
-    /function publicMemberGroups\([\s\S]*?searchableMemberGroups\(memberGroups\(type\)\)/);
+    /function selectedMemberGroups\([\s\S]*?return declaredMemberGroups\(type\)/);
   assert.match(
     filters,
-    /publicMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
+    /selectedMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
+  assert.match(
+    appSource,
+    /function declaredMemberGroups\([\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
 
   const entries =
     appSource.match(/function memberNavEntries\([\s\S]*?\n}\n\nfunction memberNavCursor/)?.[0]
@@ -1029,7 +1032,9 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   const pane =
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
     ?? "";
-  assert.match(pane, /memberCount: publicMemberGroups\(type\)\.length/);
+  assert.match(
+    pane,
+    /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
 });
 
 test("type API reports the filtered member count once in its header", () => {
@@ -1041,7 +1046,7 @@ test("type API reports the filtered member count once in its header", () => {
     /<h1 id="api-surface-title">Members<\/h1>/);
   assert.match(
     renderApi,
-    /<p>\$\{visibleGroups\.length} of \$\{publicGroups\.length} member groups/);
+    /<p>\$\{visibleMemberCount} of \$\{memberCount} members/);
   assert.doesNotMatch(renderApi, /member-filter-result/);
   assert.doesNotMatch(renderApi, /member groups visible/);
 });
@@ -1390,7 +1395,6 @@ test("member filters retain an exact selected graph target", () => {
   const typePanelCall = onlyCallExpressionNamed(appSyntax, "bindTypePanel");
   const actions = objectArgument(typePanelCall, 1, "bindTypePanel");
   for (const name of [
-    "onMemberAccessibilityFilterSelect",
     "onMemberFilterChange",
     "onMemberFilterClear",
     "onMemberFilterKeyDown",
@@ -1401,6 +1405,11 @@ test("member filters retain an exact selected graph target", () => {
       sourceText(callbackProperty(actions, name)),
       /normalizeMemberSelection\(\)/);
   }
+  assert.match(
+    sourceText(callbackProperty(
+      actions,
+      "onMemberAccessibilityFilterSelect")),
+    /selectTypeMemberPopulation\(value \?\? "public"\)/);
 });
 
 test("pending graph restoration replaces its current history entry", () => {

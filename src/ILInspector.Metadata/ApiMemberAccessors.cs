@@ -106,10 +106,27 @@ public static class ApiMemberAccessors
                 });
         }
 
+        string? physicalAccessibility = accessorKind switch
+        {
+            "get" => owner.GetterAccessibility,
+            "set" or "init" => owner.SetterAccessibility,
+            "add" => owner.AdderAccessibility,
+            "remove" => owner.RemoverAccessibility,
+            _ => null,
+        };
         string? accessibility =
-            string.IsNullOrEmpty(accessorEntry?.Accessibility)
+            physicalAccessibility
+            ?? (string.IsNullOrEmpty(accessorEntry?.Accessibility)
                 ? owner.Accessibility
-                : accessorEntry.Accessibility;
+                : accessorEntry.Accessibility);
+        bool isHidden = accessorKind switch
+        {
+            "get" => owner.GetterIsHidden,
+            "set" or "init" => owner.SetterIsHidden,
+            "add" => owner.AdderIsHidden,
+            "remove" => owner.RemoverIsHidden,
+            _ => false,
+        };
         string renderedParameters = string.Join(
             ", ",
             parameters.Select(
@@ -139,6 +156,7 @@ public static class ApiMemberAccessors
             Kind = isExplicitImplementation
                 ? "explicit-interface-implementation"
                 : "method",
+            IsHidden = isHidden,
             MethodSemantics = accessorKind switch
             {
                 "get" => ApiMethodSemanticsKind.PropertyGetter,

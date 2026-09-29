@@ -110,14 +110,17 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberGroupDocument",
             "QueryPlatformMemberDeclaration",
             "QueryPlatformMemberGroupDocument",
+            "QueryPlatformTypeMemberPopulation",
             "QueryPackageHeapEntries",
             "QueryPackageMetadata",
             "QueryPackageMetadataTable",
             "QueryPlatformHeapEntries",
             "QueryPlatformMetadata",
             "QueryPlatformMetadataTable",
+            "QueryTypeMemberPopulation",
             "QueryTypeProjection",
             "QueryUploadedLibraryMemberGroupDocument",
+            "QueryUploadedLibraryTypeMemberPopulation",
         ],
         [AnalysisAssembly] =
         [
@@ -234,7 +237,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(116, everyExport.Length);
+        Assert.Equal(119, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

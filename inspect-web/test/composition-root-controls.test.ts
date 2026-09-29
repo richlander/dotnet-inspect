@@ -1203,7 +1203,6 @@ test("typed type panel owns its rendered control bindings", () => {
       new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
       ?? "";
   for (const [name, stateField] of [
-    ["onMemberCompositionAccessibilitySelect", "memberAccessibilityFilter"],
     ["onMemberCompositionKindSelect", "memberKindFilter"],
     ["onMemberCompositionTraitSelect", "memberTraitFilter"],
   ] as const) {
@@ -1216,6 +1215,11 @@ test("typed type panel owns its rendered control bindings", () => {
         + "[\\s\\S]*enterMemberScope\\(\\);[\\s\\S]*render\\(\\)"));
     assert.equal(source.match(/\brender\(\)/g)?.length, 1);
   }
+  const accessibilitySource =
+    callbackSource("onMemberCompositionAccessibilitySelect");
+  assert.match(
+    accessibilitySource,
+    /enterMemberNavigation\(\(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*enterMemberScope\(\);[\s\S]*selectTypeMemberPopulation\(value\)/);
   assert.match(
     binding,
     /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
@@ -1976,7 +1980,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
   assert.match(typeLensLoader, /return loadSelectedTypeMetadata\(\)/);
   assert.match(
     selectionLoader,
-    /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
+    /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) \{\s*await typeLensLoad;\s*return;\s*}[\s\S]*await loadSelectedTypeMemberPopulation\(\)/);
   assert.match(
     appSource,
     /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded\) \{[\s\S]*destination = \(await buildStateUrl\(\)\)\.toString\(\);[\s\S]*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\);\s*render\(\{ synchronizeUrl: false \}\);\s*focusTypeList\(navigationGeneration, focusGeneration\)/);

@@ -186,6 +186,7 @@ export interface MemberGroup {
   name: string;
   kind: string;
   overloads: readonly MemberOverloadSummary[];
+  completeCount?: number;
 }
 
 export type MemberNavEntry =
@@ -282,6 +283,7 @@ export interface TypePanelBindingActions {
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberSpellingSelect: (spelling: string | undefined) => void;
   onMemberBack: () => void;
   onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
   onMemberCompositionKindSelect: (kind: string) => void;
@@ -370,6 +372,12 @@ export function bindTypePanel(
         "click",
         () => actions.onMemberAccessibilityFilterSelect(
           button.dataset.memberAccessFilter)));
+  root.querySelectorAll<HTMLElement>("[data-member-spelling]")
+    .forEach(button =>
+      button.addEventListener(
+        "click",
+        () => actions.onMemberSpellingSelect(
+          button.dataset.memberSpelling)));
   root.querySelectorAll<HTMLElement>("[data-member-trait-filter]")
     .forEach(button =>
       button.addEventListener(
@@ -632,6 +640,7 @@ export interface MemberNavOptions {
   filterControlsHtml: string;
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
+  selectedAccessibility?: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
@@ -644,6 +653,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
   const {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
+    selectedAccessibility = "public",
     escapeHtml, typeDisplayName, shortKind, highlight,
     overloadHeat, familyHeatCue,
   } = options;
@@ -674,6 +684,15 @@ export function renderMemberNav(options: MemberNavOptions): string {
             const isMulti = group.overloads.length > 1;
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
+            const outsideCount = graphOnly
+              ? 0
+              : Math.max(
+                0,
+                (group.completeCount ?? group.overloads.length)
+                  - group.overloads.length);
+            const outsideMarker = outsideCount > 0
+              ? ` <span class="family-outside-count" aria-label="${outsideCount} more overloads are outside the ${escapeHtml(selectedAccessibility)} view." title="${outsideCount} more overloads are outside the ${escapeHtml(selectedAccessibility)} view.">+${outsideCount}</span>`
+              : "";
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
             const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;
@@ -683,7 +702,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
             return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.overloads.length}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.overloads.length}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;

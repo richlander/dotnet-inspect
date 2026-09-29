@@ -1802,7 +1802,7 @@ test("call graph request coordination stays outside the composition root", () =>
 test("typeless member lookup and request guards stay empty", () => {
   assert.match(
     appSource,
-    /function memberGroups\([\s\S]*type: AppTypeSurface \| null \| undefined,[\s\S]*for \(const member of type\?\.api \?\? \[\]\)/);
+    /function memberGroups\([\s\S]*type: AppTypeSurface \| null \| undefined,[\s\S]*if \(!type\) return \[\];[\s\S]*partitionGraphMembers\(type\.api\)/);
   assert.match(
     appSource,
     /function memberRequestIsCurrent\([\s\S]*const type = selectedType\(\);\s*if \(!type\) return false;\s*const member = selectedMember\(type\)/);
@@ -1824,7 +1824,7 @@ test("history validates saved type and member identity before restoring Member s
     /const memberHistory = restoreMemberHistoryState\(\s*view,\s*type,\s*member/);
   assert.match(
     applyView,
-    /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*state\.memberAccessibilityFilter = memberHistory\.memberAccessibilityFilter;[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
+    /state\.selectedTypeId = type\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.selectedMemberKey = memberHistory\.selectedMemberKey;[\s\S]*state\.memberBrowseTypeId = memberHistory\.memberBrowseTypeId;[\s\S]*state\.memberKindFilter = memberHistory\.memberKindFilter;[\s\S]*\["public", "protected", "internal", "private"\]\.includes\([\s\S]*memberHistory\.memberAccessibilityFilter[\s\S]*\? memberHistory\.memberAccessibilityFilter[\s\S]*: "public";[\s\S]*state\.memberTraitFilter = memberHistory\.memberTraitFilter;[\s\S]*state\.memberTextFilter = memberHistory\.memberTextFilter/);
   assert.match(
     applyView,
     /state\.selectedOverloadIndex = memberHistory\.selectedOverloadIndex;[\s\S]*state\.memberSection = memberHistory\.memberSection;[\s\S]*state\.selectedBodyTarget = memberHistory\.selectedBodyTarget/);
@@ -1901,16 +1901,10 @@ test("Metadata composition excludes graph-projected implementation members", () 
     ?? "";
   assert.match(
     composition,
-    /const \{ publicMembers \} = partitionGraphMembers\(type\.api\);/);
-  assert.match(
-    composition,
-    /memberKinds\(publicSurface\)/);
-  assert.match(
-    composition,
-    /memberAccessibilities\(publicSurface\)/);
-  assert.match(
-    composition,
-    /availableMemberTraits\(publicSurface\)/);
+    /const groups = selectedMemberGroups\(type\);[\s\S]*groups\.flatMap\(group => group\.overloads\)/);
+  assert.match(composition, /memberKinds\(type\)/);
+  assert.match(composition, /memberAccessibilities\(type\)/);
+  assert.match(composition, /availableMemberTraits\(type\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

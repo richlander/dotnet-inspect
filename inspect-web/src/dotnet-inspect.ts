@@ -732,6 +732,7 @@ import type {
 import type {
   BrowserMemberDeclaration,
   BrowserMemberGroupDocumentInspection,
+  BrowserTypeMemberPopulationInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
 import type {
@@ -813,12 +814,18 @@ let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
 let inspectMemberGroupDocument:
   EngineClient["metadata"]["queryMemberGroupDocument"];
+let inspectTypeMemberPopulation:
+  EngineClient["metadata"]["queryTypeMemberPopulation"];
 let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
 let inspectPlatformMemberGroupDocument:
   EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
+let inspectPlatformTypeMemberPopulation:
+  EngineClient["metadata"]["queryPlatformTypeMemberPopulation"];
 let inspectUploadedLibraryMemberGroupDocument:
   EngineClient["metadata"]["queryUploadedLibraryMemberGroupDocument"];
+let inspectUploadedLibraryTypeMemberPopulation:
+  EngineClient["metadata"]["queryUploadedLibraryTypeMemberPopulation"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -1000,11 +1007,16 @@ async function loadEngineModule() {
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
       queryMemberGroupDocument: inspectMemberGroupDocument,
+      queryTypeMemberPopulation: inspectTypeMemberPopulation,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPlatformMemberGroupDocument:
         inspectPlatformMemberGroupDocument,
+      queryPlatformTypeMemberPopulation:
+        inspectPlatformTypeMemberPopulation,
       queryUploadedLibraryMemberGroupDocument:
         inspectUploadedLibraryMemberGroupDocument,
+      queryUploadedLibraryTypeMemberPopulation:
+        inspectUploadedLibraryTypeMemberPopulation,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -1081,6 +1093,7 @@ interface AppMemberGroup {
   name: string;
   kind: string;
   overloads: AppMemberSurface[];
+  completeCount: number;
 }
 
 function loadStoredTaste() {
@@ -1265,9 +1278,15 @@ const initialState = {
   selectedOverloadIndex: null,
   memberSection: "overview" as const,
   memberKindFilter: "all",
-  memberAccessibilityFilter: "all",
+  memberAccessibilityFilter: "public",
+  memberSpelling: "csharp" as "csharp" | "metadata",
   memberTraitFilter: "",
   memberTextFilter: "",
+  typeMemberPopulation:
+    null as BrowserTypeMemberPopulationInspection | null,
+  typeMemberPopulationLoading: false,
+  typeMemberPopulationError: "",
+  typeMemberPopulationKey: "",
   typeHeat: { status: "idle" } as TypeHeatState,
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
@@ -3767,7 +3786,11 @@ function applyView(view: WorkspaceView) {
   state.selectedMemberKey = memberHistory.selectedMemberKey;
   state.memberBrowseTypeId = memberHistory.memberBrowseTypeId;
   state.memberKindFilter = memberHistory.memberKindFilter;
-  state.memberAccessibilityFilter = memberHistory.memberAccessibilityFilter;
+  state.memberAccessibilityFilter =
+    ["public", "protected", "internal", "private"].includes(
+      memberHistory.memberAccessibilityFilter)
+      ? memberHistory.memberAccessibilityFilter
+      : "public";
   state.memberTraitFilter = memberHistory.memberTraitFilter;
   state.memberTextFilter = memberHistory.memberTextFilter;
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
@@ -5642,49 +5665,111 @@ function typeGroups() {
   return groups;
 }
 
-function memberGroups(
-  type: AppTypeSurface | null | undefined,
+function groupMembers(
+  members: readonly AppMemberSurface[],
+  graphOnly = false,
 ): AppMemberGroup[] {
   const groups = new Map<string, AppMemberGroup>();
-  for (const member of type?.api ?? []) {
+  for (const member of members) {
     const key =
-      `${member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
+      `${graphOnly || member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
     let group = groups.get(key);
     if (!group) {
-      group = { key, name: member.name, kind: member.kind, overloads: [] };
+      group = {
+        key,
+        name: member.name,
+        kind: member.kind,
+        overloads: [],
+        completeCount: 0,
+      };
       groups.set(key, group);
     }
     group.overloads.push(member);
+    group.completeCount++;
   }
   return [...groups.values()];
+}
+
+function typeMemberPopulationKey(type: AppTypeSurface) {
+  const pkg = state.package;
+  return memberRequestKey([
+    state.rootKind,
+    pkg?.id ?? "",
+    pkg?.version ?? "",
+    pkg?.activeFramework ?? "",
+    platformDemoContextIdFor(pkg ?? null) ?? "",
+    type.assemblyId,
+    type.definitionId ?? type.id,
+    state.memberSpelling,
+    state.memberAccessibilityFilter,
+  ]);
+}
+
+function currentTypeMemberPopulation(type: AppTypeSurface) {
+  const inspection = state.typeMemberPopulationKey
+      === typeMemberPopulationKey(type)
+    ? state.typeMemberPopulation
+    : null;
+  return inspection?.outcome === "Available"
+    ? inspection.population
+    : null;
+}
+
+function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
+  const population = currentTypeMemberPopulation(type);
+  if (population) {
+    return population.groups.map(group => ({
+      key: group.key,
+      name: group.name,
+      kind: group.kind,
+      completeCount: group.completeCount,
+      overloads: group.members.map(createAppMemberSurface),
+    }));
+  }
+  if (state.memberSpelling !== "csharp"
+    || state.memberAccessibilityFilter !== "public") {
+    return [];
+  }
+  const { publicMembers } = partitionGraphMembers(type.api);
+  return searchableMemberGroups(groupMembers(publicMembers));
+}
+
+function memberGroups(
+  type: AppTypeSurface | null | undefined,
+): AppMemberGroup[] {
+  if (!type) return [];
+  const { graphMembers } = partitionGraphMembers(type.api);
+  return [
+    ...declaredMemberGroups(type),
+    ...groupMembers(graphMembers, true),
+  ];
 }
 
 function memberFilterState() {
   return {
     query: state.memberTextFilter,
     kind: state.memberKindFilter,
-    accessibility: state.memberAccessibilityFilter,
     trait: state.memberTraitFilter
   };
 }
 
 function resetMemberFilters() {
   state.memberKindFilter = "all";
-  state.memberAccessibilityFilter = "all";
   state.memberTraitFilter = "";
   state.memberTextFilter = "";
 }
 
 function visibleMemberGroups(type: AppTypeSurface) {
-  return filterMemberGroups(publicMemberGroups(type), memberFilterState());
+  return filterMemberGroups(selectedMemberGroups(type), memberFilterState());
 }
 
-function publicMemberGroups(type: AppTypeSurface) {
-  return searchableMemberGroups(memberGroups(type));
+function selectedMemberGroups(type: AppTypeSurface) {
+  return declaredMemberGroups(type);
 }
 
 function selectedGraphMemberGroup(type: AppTypeSurface) {
-  return memberGroups(type).find(group =>
+  const { graphMembers } = partitionGraphMembers(type.api);
+  return groupMembers(graphMembers, true).find(group =>
     group.key === state.selectedMemberKey
     && group.overloads.some(overload => overload.graphOnly));
 }
@@ -5698,24 +5783,17 @@ function memberSelectionIsAvailable(
 }
 
 function memberKinds(type: AppTypeSurface) {
-  return [...new Set(publicMemberGroups(type).map(group => group.kind))];
+  return [...new Set(selectedMemberGroups(type).map(group => group.kind))];
 }
 
 function memberAccessibilities(type: AppTypeSurface) {
-  const values = new Set(
-    publicMemberGroups(type)
-      .flatMap(group => group.overloads)
-      .map(member => member.accessibility));
-  return ["public", "protected", "internal", "private", "protected internal", "private protected"]
-    .filter(value => values.has(value))
-    .concat([...values].filter(value => value && ![
-      "public", "protected", "internal", "private", "protected internal", "private protected"
-    ].includes(value)).sort());
+  void type;
+  return ["public", "protected", "internal", "private"];
 }
 
 function availableMemberTraits(type: AppTypeSurface) {
   const publicMembers =
-    publicMemberGroups(type).flatMap(group => group.overloads);
+    selectedMemberGroups(type).flatMap(group => group.overloads);
   return MEMBER_TRAITS.filter(([property]) =>
     publicMembers.some(member => member[property]));
 }
@@ -5724,6 +5802,17 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
+  const composition = currentTypeMemberPopulation(type)?.composition;
+  const accessibilityCount = (accessibility: string) => {
+    if (!composition) return null;
+    switch (accessibility) {
+      case "public": return composition.public;
+      case "protected": return composition.protected;
+      case "internal": return composition.internal;
+      case "private": return composition.private;
+      default: return null;
+    }
+  };
   const activeTrait = traits.find(
     ([property]) => property === state.memberTraitFilter)?.[1];
   const filterSummary = [
@@ -5731,11 +5820,17 @@ function renderMemberFilterControls(type: AppTypeSurface) {
     state.memberKindFilter === "all"
       ? ""
       : state.memberKindFilter.replaceAll("-", " "),
-    state.memberAccessibilityFilter === "all"
-      ? ""
-      : state.memberAccessibilityFilter,
+    state.memberAccessibilityFilter,
+    state.memberSpelling === "metadata" ? "metadata spelling" : "",
     activeTrait ?? "",
-  ].filter(Boolean).join(" · ") || "All members";
+  ].filter(Boolean).join(" · ");
+  const populationStatus = state.typeMemberPopulationLoading
+      && state.typeMemberPopulationKey === typeMemberPopulationKey(type)
+    ? '<p class="inspection-note" role="status">Loading member population…</p>'
+    : state.typeMemberPopulationError
+        && state.typeMemberPopulationKey === typeMemberPopulationKey(type)
+      ? `<p class="inspection-error" role="alert">${escapeHtml(state.typeMemberPopulationError)}</p>`
+      : "";
   return `
     <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
       <summary id="member-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
@@ -5750,14 +5845,21 @@ function renderMemberFilterControls(type: AppTypeSurface) {
           ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
         </div>
         ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
-          <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
-          ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
+          ${accessibilities.map(accessibility => {
+            const count = accessibilityCount(accessibility);
+            return `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}${count === null ? "" : ` <span aria-hidden="true">| ${count}</span>`}</button>`;
+          }).join("")}
         </div>` : ""}
+        <div class="namespace-chips spelling-chips" aria-label="Member spelling">
+          <button class="${state.memberSpelling === "csharp" ? "active" : ""}" data-member-spelling="csharp" aria-pressed="${state.memberSpelling === "csharp"}">C#</button>
+          <button class="${state.memberSpelling === "metadata" ? "active" : ""}" data-member-spelling="metadata" aria-pressed="${state.memberSpelling === "metadata"}">metadata</button>
+        </div>
         ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
           <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
           ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
         </div>` : ""}
       </div>
+      ${populationStatus}
     </details>`;
 }
 
@@ -5772,25 +5874,37 @@ function compositionFilterButton(
 }
 
 function renderMemberComposition(type: AppTypeSurface) {
-  const { publicMembers } = partitionGraphMembers(type.api);
-  const publicSurface = { ...type, api: publicMembers };
-  const kinds = memberKinds(publicSurface)
+  const groups = selectedMemberGroups(type);
+  const members = groups.flatMap(group => group.overloads);
+  const kinds = memberKinds(type)
     .map(kind => compositionFilterButton(
-      publicMembers.filter(member => member.kind === kind).length,
+      members.filter(member => member.kind === kind).length,
       kind.replaceAll("-", " "),
       "data-member-jump-kind",
       kind))
     .join("");
-  const accessibilities = memberAccessibilities(publicSurface)
-    .map(accessibility => compositionFilterButton(
-      publicMembers.filter(member => member.accessibility === accessibility).length,
-      accessibility,
-      "data-member-jump-access",
-      accessibility))
-    .join("");
-  const traits = availableMemberTraits(publicSurface)
+  const composition = currentTypeMemberPopulation(type)?.composition;
+  const counts = composition
+    ? {
+        public: composition.public,
+        protected: composition.protected,
+        internal: composition.internal,
+        private: composition.private,
+      }
+    : null;
+  const accessibilities = counts
+    ? memberAccessibilities(type)
+      .map(accessibility => compositionFilterButton(
+        counts[accessibility as keyof typeof counts],
+        accessibility,
+        "data-member-jump-access",
+        accessibility,
+        state.memberAccessibilityFilter === accessibility ? "active" : ""))
+      .join("")
+    : "";
+  const traits = availableMemberTraits(type)
     .map(([property, label]) => compositionFilterButton(
-      publicMembers.filter(member => member[property]).length,
+      members.filter(member => member[property]).length,
       label,
       "data-member-jump-trait",
       property,
@@ -6282,7 +6396,7 @@ function activateCompareMember(memberFingerprint: string) {
   const type = subject.type;
   let match: { group: AppMemberGroup; overloadIndex: number } | null = null;
   let ambiguous = false;
-  for (const group of publicMemberGroups(type)) {
+  for (const group of selectedMemberGroups(type)) {
     for (const [overloadIndex, overload] of group.overloads.entries()) {
       if (overload.anchorDigest !== memberFingerprint) continue;
       if (match) ambiguous = true;
@@ -7937,14 +8051,20 @@ function renderTypeNavPane(
 
 function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
+  const groups = selectedMemberGroups(type);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
-    memberCount: publicMemberGroups(type).length,
-    visibleMemberCount: visibleGroups.length,
+    memberCount: groups.reduce(
+      (count, group) => count + group.overloads.length,
+      0),
+    visibleMemberCount: visibleGroups.reduce(
+      (count, group) => count + group.overloads.length,
+      0),
     filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
+    selectedAccessibility: state.memberAccessibilityFilter,
     escapeHtml,
     typeDisplayName,
     shortKind,
@@ -9876,14 +9996,16 @@ function renderApiLens(item: AppTypeSurface) {
   }
   const member = selectedMember(item);
   if (member) return renderMember(item, member);
-  const { publicMembers, graphMembers } =
+  const { graphMembers } =
     partitionGraphMembers(item.api);
-  const publicSurface = {
-    ...item,
-    api: publicMembers
-  };
-  const publicGroups = memberGroups(publicSurface);
-  const visibleGroups = visibleMemberGroups(publicSurface);
+  const selectedGroups = selectedMemberGroups(item);
+  const visibleGroups = visibleMemberGroups(item);
+  const memberCount = selectedGroups.reduce(
+    (count, group) => count + group.overloads.length,
+    0);
+  const visibleMemberCount = visibleGroups.reduce(
+    (count, group) => count + group.overloads.length,
+    0);
   const definingLibrary = typeQualifiedLibraryLabel(item);
   const definingLibraryHtml = definingLibrary
     ? `<span data-type-library>· ${escapeHtml(definingLibrary)}</span>`
@@ -9893,7 +10015,7 @@ function renderApiLens(item: AppTypeSurface) {
       <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">Members</h1>
-          <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· no member selected</span>${definingLibraryHtml}</p>
+          <p>${visibleMemberCount} of ${memberCount} members <span>· no member selected</span>${definingLibraryHtml}</p>
         </header>
         <div class="member-surface-scroll">
           <section class="empty-member-section">
@@ -9912,21 +10034,28 @@ function renderApiLens(item: AppTypeSurface) {
     <section class="api-surface" aria-labelledby="api-surface-title">
       <header class="api-surface-head">
         <h1 id="api-surface-title">Members</h1>
-        <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· ${item.members} overloads</span>${definingLibraryHtml}</p>
+        <p>${visibleMemberCount} of ${memberCount} members${definingLibraryHtml}</p>
       </header>
-      <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
+      <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(item)}</div>
       <div class="api-surface-scroll">
         <div class="api-list api-surface-list">${visibleGroups.map(group => {
         const overload = group.overloads[0];
         if (!overload)
           throw new Error(`Member group '${group.key}' did not contain an overload.`);
+        const outsideCount = Math.max(
+          0,
+          (group.completeCount ?? group.overloads.length)
+            - group.overloads.length);
+        const outsideMarker = outsideCount > 0
+          ? ` <span class="family-outside-count" aria-label="${outsideCount} more overloads are outside the ${escapeHtml(state.memberAccessibilityFilter)} view." title="${outsideCount} more overloads are outside the ${escapeHtml(state.memberAccessibilityFilter)} view.">+${outsideCount}</span>`
+          : "";
         return `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(overload.signature)}</code>
-          <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
+          <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}${outsideMarker}</small>
         </button>`;
-        }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
+        }).join("") || `<div class="empty-list">No declared ${escapeHtml(state.memberAccessibilityFilter)} members match these filters.</div>`}</div>
         ${graphGroups.length
           ? `<section class="api-surface-secondary">
               <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
@@ -10771,17 +10900,25 @@ function bindTypePanelEvents() {
     },
     onListKeyDown: handleTypeKeys,
     onMemberAccessibilityFilterSelect: value => {
-      state.memberAccessibilityFilter = value ?? "all";
-      normalizeMemberSelection();
-      renderMemberFilterAndRestoreFocus();
+      observeAsync(
+        selectTypeMemberPopulation(value ?? "public"),
+        "Selecting the member accessibility population");
+    },
+    onMemberSpellingSelect: value => {
+      observeAsync(
+        selectTypeMemberPopulation(
+          state.memberAccessibilityFilter,
+          value === "metadata" ? "metadata" : "csharp"),
+        "Selecting the member spelling");
     },
     onMemberBack: drillOut,
     onMemberCompositionAccessibilitySelect: value => {
       enterMemberNavigation(() => {
         resetMemberFilters();
-        state.memberAccessibilityFilter = value;
         enterMemberScope();
-        render();
+        observeAsync(
+          selectTypeMemberPopulation(value),
+          "Selecting the member accessibility population");
       });
     },
     onMemberCompositionKindSelect: value => {
@@ -14313,7 +14450,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     state.memberAccessibilityFilter = deep.memberAccessibilityFilter
       && memberAccessibilities(type).includes(deep.memberAccessibilityFilter)
       ? deep.memberAccessibilityFilter
-      : "all";
+      : "public";
     state.memberTraitFilter = deep.memberTraitFilter
       && MEMBER_TRAITS.some(([property]) =>
         property === deep.memberTraitFilter)
@@ -14470,7 +14607,7 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
   return assertNever(state.lens, "type lens");
 }
 
-function loadSelectionData() {
+async function loadSelectionData() {
   if (state.pendingGraphMemberDeepLink
     && !graphMemberPendingMatchesView(
       state.pendingGraphMemberDeepLink,
@@ -14479,27 +14616,32 @@ function loadSelectionData() {
     invalidateGraphMemberNavigation();
   }
   if (state.pendingGraphMemberDeepLink) {
-    return restorePendingGraphMember();
+    return await restorePendingGraphMember();
   }
-  if (state.atPackageRoot || state.atLibraryRoot) return undefined;
+  if (state.atPackageRoot || state.atLibraryRoot) return;
   const typeLensLoad = loadSelectedTypeLensData();
-  if (typeLensLoad !== "member") return typeLensLoad;
-  if (!state.selectedMemberKey) return undefined;
+  if (typeLensLoad !== "member") {
+    await typeLensLoad;
+    return;
+  }
+  await loadSelectedTypeMemberPopulation();
+  if (!state.selectedMemberKey) return;
   const member = selectedMember(selectedType());
-  if (!member) return undefined;
+  if (!member) return;
   if (state.memberSection === "overview") {
-    return loadSelectedMemberOverview();
+    await loadSelectedMemberOverview();
+    return;
   }
   if (member.overloads.length > 1
     && state.selectedOverloadIndex == null) {
-    return undefined;
+    return;
   }
   switch (state.memberSection) {
-    case "source": return loadSelectedMemberSource();
-    case "annotated": return loadSelectedMemberAnnotatedSource();
-    case "call-graph": return loadSelectedMemberCallGraph();
-    case "facts": return loadSelectedMemberFactsSurface();
-    case "compare": return undefined;
+    case "source": await loadSelectedMemberSource(); return;
+    case "annotated": await loadSelectedMemberAnnotatedSource(); return;
+    case "call-graph": await loadSelectedMemberCallGraph(); return;
+    case "facts": await loadSelectedMemberFactsSurface(); return;
+    case "compare": return;
     default: return assertNever(state.memberSection, "member section");
   }
 }
@@ -17740,6 +17882,94 @@ function memberGroupDocumentRequestKey(
     type.definitionId ?? type.id,
     member.key,
   ]);
+}
+
+async function loadSelectedTypeMemberPopulation() {
+  const type = selectedType();
+  if (!type) {
+    renderPreservingMemberFocus();
+    return;
+  }
+  const key = typeMemberPopulationKey(type);
+  if (!key
+    || state.typeMemberPopulationLoading
+      && state.typeMemberPopulationKey === key
+    || state.typeMemberPopulation
+      && state.typeMemberPopulationKey === key) {
+    renderPreservingMemberFocus();
+    return;
+  }
+
+  state.typeMemberPopulation = null;
+  state.typeMemberPopulationLoading = true;
+  state.typeMemberPopulationError = "";
+  state.typeMemberPopulationKey = key;
+  renderPreservingMemberFocus();
+  const pkg = currentPackage();
+  try {
+    const result = state.rootKind === "library"
+      ? inspectUploadedLibraryTypeMemberPopulation(
+          type.assemblyId,
+          type.definitionId ?? type.id,
+          state.memberSpelling,
+          state.memberAccessibilityFilter)
+      : pkg.isRuntimePack
+      ? (() => {
+          const row = platformLibraryForRequest(pkg, type.assemblyId);
+          return inspectPlatformTypeMemberPopulation(
+            pkg.activeFramework,
+            pkg.version,
+            platformAssemblyRequest(row),
+            row.pack,
+            type.definitionId ?? type.id,
+            state.memberSpelling,
+            state.memberAccessibilityFilter);
+        })()
+      : inspectTypeMemberPopulation(
+          pkg.id,
+          pkg.version,
+          pkg.activeFramework,
+          type.assembly,
+          type.definitionId ?? type.id,
+          state.memberSpelling,
+          state.memberAccessibilityFilter);
+    const inspection = await result;
+    if (state.typeMemberPopulationKey !== key) return;
+    state.typeMemberPopulation = inspection;
+    state.typeMemberPopulationError =
+      inspection.outcome === "Available"
+        ? ""
+        : inspection.detail
+          ?? `Type Member population returned ${inspection.outcome}.`;
+  } catch (error) {
+    if (state.typeMemberPopulationKey !== key) return;
+    state.typeMemberPopulationError = errorMessage(error);
+  } finally {
+    if (state.typeMemberPopulationKey === key) {
+      state.typeMemberPopulationLoading = false;
+      normalizeMemberSelection();
+      renderPreservingMemberFocus();
+    }
+  }
+}
+
+async function selectTypeMemberPopulation(
+  accessibility: string,
+  spelling = state.memberSpelling,
+) {
+  if (!["public", "protected", "internal", "private"]
+      .includes(accessibility)
+    || (spelling !== "csharp" && spelling !== "metadata")) {
+    return;
+  }
+  state.memberAccessibilityFilter = accessibility;
+  state.memberSpelling = spelling;
+  state.typeMemberPopulation = null;
+  state.typeMemberPopulationError = "";
+  state.typeMemberPopulationKey = "";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  await loadSelectedTypeMemberPopulation();
 }
 
 async function loadSelectedMemberGroupDocument() {
