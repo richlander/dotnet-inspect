@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Immutable;
 
 namespace ILInspector.Analysis;
@@ -21,31 +22,60 @@ internal static class DirectCallIncidence
         ByEvidenceMethod(ImmutableArray<DirectCall> directCalls)
     {
         ReadOnlySpan<DirectCall> calls = directCalls.AsSpan();
-        var incidence = new Dictionary<int, ImmutableArray<DirectCall>>();
-        int start = 0;
-        while (start < calls.Length)
+        if (calls.IsEmpty)
+            return new Dictionary<int, ImmutableArray<DirectCall>>();
+
+        // Record run tokens and ends first so the dictionary is built once
+        // at its exact size instead of rehashing as groups arrive.
+        int[] tokens = ArrayPool<int>.Shared.Rent(calls.Length);
+        int[] ends = ArrayPool<int>.Shared.Rent(calls.Length);
+        try
         {
-            int methodToken = calls[start].EvidenceMethod.MetadataToken;
-            int end = start + 1;
-            while (end < calls.Length
-                && calls[end].EvidenceMethod.MetadataToken == methodToken)
+            int runs = 0;
+            int current = calls[0].EvidenceMethod.MetadataToken;
+            for (int i = 1; i < calls.Length; i++)
             {
-                end++;
+                int methodToken = calls[i].EvidenceMethod.MetadataToken;
+                if (methodToken == current)
+                    continue;
+                tokens[runs] = current;
+                ends[runs++] = i;
+                current = methodToken;
+            }
+            tokens[runs] = current;
+            ends[runs++] = calls.Length;
+
+            var incidence =
+                new Dictionary<int, ImmutableArray<DirectCall>>(runs);
+            if (runs == 1)
+            {
+                incidence.Add(tokens[0], directCalls);
+                return incidence;
             }
 
-            ImmutableArray<DirectCall> group =
-                start == 0 && end == calls.Length
-                    ? directCalls
-                    : ImmutableArray.Create(
-                        directCalls,
-                        start,
-                        end - start);
-            if (!incidence.TryAdd(methodToken, group))
-                return Interleaved(directCalls);
-            start = end;
-        }
+            int start = 0;
+            for (int run = 0; run < runs; run++)
+            {
+                int end = ends[run];
+                if (!incidence.TryAdd(
+                        tokens[run],
+                        ImmutableArray.Create(
+                            directCalls,
+                            start,
+                            end - start)))
+                {
+                    return Interleaved(directCalls);
+                }
+                start = end;
+            }
 
-        return incidence;
+            return incidence;
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(tokens);
+            ArrayPool<int>.Shared.Return(ends);
+        }
     }
 
     static Dictionary<int, ImmutableArray<DirectCall>> Interleaved(
