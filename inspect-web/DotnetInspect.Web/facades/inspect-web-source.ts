@@ -800,6 +800,7 @@ type $ManagedExports = {
             readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
             readonly "QueryPlatformMemberSource.1304044607": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, contextId: string | null) => Promise<string>;
+            readonly "QueryPlatformTypeSource.65947390": (operationId: string, targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, styleOptionsJson: string, view: string, contextId: string | null) => Promise<string>;
             readonly "QueryTypeExplorer.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: string) => Promise<string>;
             readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
             readonly "QueryTypeSource.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, view: string) => Promise<string>;
@@ -1003,6 +1004,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryPlatformTypeSource.65947390");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryPlatformTypeSource.65947390\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Source");
+    value = $ownDataProperty(value, "SourceExports");
     value = $ownDataProperty(value, "QueryTypeExplorer.335255791");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.335255791\u0027 is not callable.");
@@ -1150,6 +1163,12 @@ export async function queryPlatformMemberSource(targetFramework: string, platfor
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryPlatformMemberSource.1304044607"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, contextId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberSource;
+}
+
+export async function queryPlatformTypeSource(operationId: string, targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, styleOptionsJson: string, view: string, contextId: string | null): Promise<BrowserTypeSourceResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryPlatformTypeSource.65947390"](operationId, targetFramework, platformVersion, assemblyName, pack, typeIdentity, styleOptionsJson, view, contextId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeSourceResult;
 }
 
 export async function queryTypeExplorer(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: BrowserTypeExplorerRequest): Promise<BrowserTypeExplorerResult> {

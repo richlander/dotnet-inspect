@@ -1317,6 +1317,40 @@ friend only its test assemblies. The current
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
 friend set rather than checking selected production assembly names.
 
+### Session-owned format admission
+
+Assembly Inspection owns general assembly-format admission for operations
+reached through `AssemblyInspectionSession`. The image owner classifies one
+immutable image and, for supported ECMA-335 metadata, establishes the retained
+`MetadataReader` before publishing the session. Unsupported Windows Metadata
+and malformed reader construction settle at that owner boundary before a
+Metadata producer runs. An image without managed metadata may still publish a
+session, but a metadata request settles as no metadata without invoking its
+producer.
+
+The admitted reader is a lifetime-bound precondition issued by the session.
+Metadata producers reached through that session consume the retained reader;
+they do not own general image-format classification or reader construction.
+Raw `PEReader` entry points that remain during incremental scanner migration
+are compatibility admission boundaries, not the producer contract. New
+session-backed producers consume the owner-issued precondition rather than
+copying those compatibility checks.
+
+Format admission does not make metadata rows trustworthy. Each producer
+remains responsible for high-fidelity answers on Roslyn-produced assemblies
+and for secure, bounded behavior on every admitted assembly. Guarded decoding,
+work budgets, recursion bounds, and visible partial or failed outcomes enforce
+that producer-local containment. General format admission and producer-local
+containment are separate boundaries; neither substitutes for the other.
+
+Implementation adoption must positively gate the supported ECMA-335,
+no-metadata, unsupported Windows Metadata, malformed-reader, lifetime, and
+visible producer-failure outcomes in Release. This design selects **no
+automated composition-absence gate** for the negative claim that no
+session-backed producer repeats admission. The absence remains unverified by
+automation and is enforced by owner review; implementation evidence must not
+describe positive session-path gates as repository-wide absence proof.
+
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
 {
