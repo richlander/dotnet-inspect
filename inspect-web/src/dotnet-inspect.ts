@@ -271,6 +271,7 @@ import {
   createTypeHeatCoordinator,
   familyHeatCue,
   familyHeatFor,
+  implementationHeatFamilyIsEligible,
   type TypeHeatRequest,
   type TypeHeatState,
 } from "./implementation-heat.ts";
@@ -6647,8 +6648,7 @@ function implementationProfileTarget(): {
     || !type
     || !member
     || state.rootKind === "library"
-    || member.kind !== "method"
-    || member.overloads.length < 2) {
+    || !familyIsEligible(type, member)) {
     return null;
   }
 
@@ -6775,17 +6775,23 @@ function typeHeatTarget(): {
   };
 }
 
-// The producer's eligibility: at least two public overloads, and every public
-// member sharing the name is an ordinary method (an attached extension group
-// of the same name makes the family ineligible).
+// The Browser mirrors the producer's ordinary/attached-extension family
+// predicate before scheduling heat or exposing family detail.
 function familyIsEligible(
   type: AppTypeSurface,
-  group: { name: string; kind: string; overloads: readonly unknown[] },
+  group: {
+    name: string;
+    kind: string;
+    overloads: readonly {
+      readonly accessibility: string;
+      readonly declaringTypeDefinitionId?: string | null;
+    }[];
+  },
 ) {
-  return group.kind === "method"
-    && group.overloads.length > 1
-    && memberGroups(type).every(candidate =>
-      candidate.name !== group.name || candidate.kind === "method");
+  return implementationHeatFamilyIsEligible(
+    type.accessibility,
+    memberGroups(type),
+    group);
 }
 
 function typeHasEligibleFamily(type: AppTypeSurface) {

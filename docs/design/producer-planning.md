@@ -404,14 +404,24 @@ The gate offers two tiers of access:
 A row the gate cannot read is a recoverable failure, handled as in
 [Outcomes are per producer and typed](#outcomes-are-per-producer-and-typed).
 
+The gate's classifications are cached per execution and per classifier, so
+producers sharing a classifier share its answer for each type and row. Each
+producer resolves its classifier's cache once per execution, not per row
+(`GateCache_TypedKernelTestsInlineAndInterpretedPassResolvesOnce`). A
+classifier may be a struct classification (`MethodRowClassifier<T>`). A
+kernel pass has a single producer, so nothing shares its classifier's
+answers: the kernel is specialized to the struct and tests the gate inline,
+with no cache, through the same views and the same containment. The planner's
+own classifiers are struct classifications, so each of their closed queries
+runs as one loop specialized to gate, predicate, and projection.
+
 **Field demand is declared before work.** A producer declares the fields it
 reads, in the same vocabulary as its data layers, `MethodDefinitionLayers`:
-`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`,
+`Flags`, `NameComparison`, `AttributeTypeMatch`, `SignatureShape`, and
 `StateMachineRelationship`, and `IdentityText`, beside `Body` and
-`ModuleLookup`. Reading an undeclared field
-throws `ProducerContractException`, exactly as reading an undeclared layer
-does. That runtime contract is the enforcement gate. From the declarations,
-the planner:
+`ModuleLookup`. Reading an undeclared field throws
+`ProducerContractException`, exactly as reading an undeclared layer does. That
+runtime contract is the enforcement gate. From the declarations, the planner:
 
 - arms the gate's identity budget only when some requested producer declares
   `IdentityText`, so a plan of Count, Exists, and classification spends no

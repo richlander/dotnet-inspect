@@ -6,14 +6,32 @@ using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
+using Analyzer = ILInspector.Analysis.Planning.ProducerDeclaration<
+    ILInspector.Analysis.Planning.ClosedQueryResult<ILInspector.Analysis.Classification.ClassifiedMethodRow>>;
+using Result = ILInspector.Analysis.Planning.ProducerResult<
+    ILInspector.Analysis.Planning.ClosedQueryResult<ILInspector.Analysis.Classification.ClassifiedMethodRow>>;
+
 namespace DotnetInspector.Queries;
 
-/// <summary>One of the three method classification analyzers.</summary>
+/// <summary>What a question asks about: one method classification analyzer.</summary>
 public enum MethodClassificationAnalyzer
 {
     PInvoke,
+
+    /// <summary>
+    /// Runtime async or compiler async, in one pass: the union of
+    /// <see cref="RuntimeAsync"/> and <see cref="CompilerAsync"/>, which are
+    /// disjoint.
+    /// </summary>
     Async,
+
     PointerSignature,
+
+    /// <summary>The runtime-async analyzer: the <c>MethodImplAttributes.Async</c> flag.</summary>
+    RuntimeAsync,
+
+    /// <summary>The compiler-async analyzer: a compiler async state-machine attribute, without the runtime flag.</summary>
+    CompilerAsync,
 }
 
 /// <summary>What a consumer asks of one analyzer.</summary>
@@ -170,7 +188,7 @@ public static class MethodClassificationQuery
             var requests = new List<ProducerRequest>();
             foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
             {
-                bool requested = finding && closing == ClassificationClosing.Rows;
+                bool requested = finding && closing == ClassificationClosing.Rows && MergedAnalyzers.Contains(analyzer);
                 foreach (ClassificationQuestion question in questions)
                     requested |= question.Analyzer == analyzer && question.Closing == closing;
                 if (requested)
@@ -259,19 +277,25 @@ public static class MethodClassificationQuery
             ImmutableDictionary<ClassificationClosing, WorkReceipt>.Empty);
     }
 
-    static MethodDefinitionQueryProducer<TTest, TProjection, ClassifiedMethodRow> Typed<TTest, TProjection>(
-        MethodDefinitionQueryProducer<TTest, TProjection, ClassifiedMethodRow> producer)
-        where TTest : struct, IMethodDefinitionPredicate
-        where TProjection : struct, IMethodDefinitionProjection<ClassifiedMethodRow> =>
-        producer;
+    /// <summary>
+    /// The analyzers the Finding merges, in the legacy within-method order:
+    /// P/Invoke, async, pointer signature. Async covers runtime and compiler async.
+    /// </summary>
+    static readonly MethodClassificationAnalyzer[] MergedAnalyzers =
+    [
+        MethodClassificationAnalyzer.PInvoke,
+        MethodClassificationAnalyzer.Async,
+        MethodClassificationAnalyzer.PointerSignature,
+    ];
 
-    static ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>> ProducerFor(
-        MethodClassificationAnalyzer analyzer) =>
+    static Analyzer ProducerFor(MethodClassificationAnalyzer analyzer) =>
         analyzer switch
         {
             MethodClassificationAnalyzer.PInvoke => PInvokeAnalyzer.Instance,
             MethodClassificationAnalyzer.Async => AsyncAnalyzer.Instance,
             MethodClassificationAnalyzer.PointerSignature => PointerSignatureAnalyzer.Instance,
+            MethodClassificationAnalyzer.RuntimeAsync => RuntimeAsyncAnalyzer.Instance,
+            MethodClassificationAnalyzer.CompilerAsync => CompilerAsyncAnalyzer.Instance,
             _ => throw new ArgumentOutOfRangeException(nameof(analyzer)),
         };
 
@@ -283,9 +307,7 @@ public static class MethodClassificationQuery
             _ => ProducerTerminal.Exists,
         };
 
-    static ClassificationAnswer Answer(
-        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result,
-        ClassificationQuestion question)
+    static ClassificationAnswer Answer(Result result, ClassificationQuestion question)
     {
         if (result.Outcome == ProducerOutcome.Aborted)
             return new ClassificationAnswer.Aborted(result.Critical!);
@@ -320,10 +342,10 @@ public static class MethodClassificationQuery
     {
         failure = null;
         var rows = new List<ClassifiedMethodRow>();
-        foreach (MethodClassificationAnalyzer analyzer in Enum.GetValues<MethodClassificationAnalyzer>())
+        foreach (MethodClassificationAnalyzer analyzer in MergedAnalyzers)
         {
-            ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>> producer = ProducerFor(analyzer);
-            ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result = execution.ResultOf(producer);
+            Analyzer producer = ProducerFor(analyzer);
+            Result result = execution.ResultOf(producer);
             if (result.Outcome == ProducerOutcome.Aborted)
             {
                 CriticalFailure critical = result.Critical!;
@@ -353,9 +375,13 @@ public static class MethodClassificationQuery
         string key = (order, analyzer) switch
         {
             (ClassifiedRowOrder.Metadata, _) => ClassifiedMethodRowOrders.Metadata,
-            (ClassifiedRowOrder.Model, MethodClassificationAnalyzer.Async) => ClassifiedMethodRowOrders.AsyncModel,
+            (ClassifiedRowOrder.Model, MethodClassificationAnalyzer.Async
+                or MethodClassificationAnalyzer.RuntimeAsync
+                or MethodClassificationAnalyzer.CompilerAsync) => ClassifiedMethodRowOrders.AsyncModel,
             (ClassifiedRowOrder.Model, _) => ClassifiedMethodRowOrders.Model,
-            (ClassifiedRowOrder.Display, MethodClassificationAnalyzer.Async) => ClassifiedMethodRowOrders.AsyncDisplay,
+            (ClassifiedRowOrder.Display, MethodClassificationAnalyzer.Async
+                or MethodClassificationAnalyzer.RuntimeAsync
+                or MethodClassificationAnalyzer.CompilerAsync) => ClassifiedMethodRowOrders.AsyncDisplay,
             (ClassifiedRowOrder.Display, MethodClassificationAnalyzer.PInvoke) => ClassifiedMethodRowOrders.PInvokeDisplay,
             _ => ClassifiedMethodRowOrders.Display,
         };

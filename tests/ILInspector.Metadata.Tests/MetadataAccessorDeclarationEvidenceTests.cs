@@ -529,7 +529,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
     }
 
     [Fact]
-    public void Mdp007_MalformedPropertyRootSignatureRejectsAggregate()
+    public void Mdp007_VoidPropertyRootReachesAccessorCorrespondence()
     {
             using var fixture = new Fixture(
                 BuildPropertyRootShapeImage(
@@ -545,10 +545,11 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                 MetadataAccessorDeclarationFailureReason.MalformedMetadata,
                 rejected.Failure.Reason);
             Assert.Equal(
-                MetadataAccessorDeclarationStage.RootDeclaration,
+                MetadataAccessorDeclarationStage.ConsistencyValidation,
                 rejected.Failure.Stage);
             Assert.Equal(
-                MetadataAccessorDeclarationMechanism.SignatureDecode,
+                MetadataAccessorDeclarationMechanism
+                    .SignatureCorrespondence,
                 rejected.Failure.Mechanism);
     }
 
@@ -588,6 +589,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
 
     [Theory]
     [InlineData(new byte[] { 0x08, 0x00, 0x08 })]
+    [InlineData(new byte[] { 0x28, 0x00, 0x01 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x16 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x10, 0x08 })]
     [InlineData(new byte[] { 0x28, 0x00, 0x0F, 0x01 })]

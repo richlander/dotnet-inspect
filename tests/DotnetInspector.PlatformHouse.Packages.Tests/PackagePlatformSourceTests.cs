@@ -949,6 +949,8 @@ public sealed class PackagePlatformSourceTests
         var outcome = await environment.CreateSource()
             .RealizeImplementationAsync(
                 coordinate,
+                new PackageImplementationPopulationDemand
+                    .CompletePopulation(),
                 work,
                 environment.IssueOperation(
                     TestContext.Current.CancellationToken));

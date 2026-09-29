@@ -82,8 +82,8 @@ concern acceptance.
 ## Publication validation
 
 `eng/validate-release-candidate.sh` downloads the selected run, latest-attempt
-jobs, retained artifact metadata, and exact-SHA `ci-required` check. Its
-file-based validator requires:
+jobs, retained artifact metadata, and exact-SHA `ci / ci-required` main-push
+check. Its file-based validator requires:
 
 - workflow path `.github/workflows/release-candidate.yml`;
 - event `schedule` or `workflow_dispatch`, branch `main`, and this repository
@@ -92,7 +92,7 @@ file-based validator requires:
 - completed successful source, five native package, portable package,
   production-site, and assembly jobs from that same attempt;
 - one same-attempt copy of every required Deep Inspect candidate job;
-- successful exact-SHA `ci-required`;
+- successful exact-SHA `ci / ci-required`;
 - a coherent green or explicitly accepted concern outcome;
 - exactly one unexpired, nonempty
   `dotnet-inspect-release-candidate` artifact for the run; and

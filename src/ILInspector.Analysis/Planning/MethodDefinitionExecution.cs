@@ -445,7 +445,7 @@ public sealed class MethodDefinitionExecution
     {
         try
         {
-            return gate.TypeInScope(guard.Classifier, typeHandle, typeDefinition);
+            return gate.TypeInScope(state.GateCache ??= gate.Resolve(guard.Classifier), typeHandle, typeDefinition);
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
@@ -472,24 +472,30 @@ public sealed class MethodDefinitionExecution
         int unitClass;
         try
         {
-            unitClass = unit.Gate.ClassOf(guard.Classifier, ref unit);
+            unitClass = unit.Gate.ClassOf(state.GateCache ??= unit.Gate.Resolve(guard.Classifier), ref unit);
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
         {
-            state.UnitsAttempted++;
-            state.UnitsFailed++;
-            state.Outcome = ProducerOutcome.Failed;
-            state.Failure = new ProducerFailure(
-                MetadataTokens.GetToken(unit.MethodHandle),
-                unit.Label,
-                ProducerFailure.Describe(ex));
-            state.IsActive = false;
+            FailGate(ref unit, state, ex);
             return null;
         }
 
         return unitClass is >= 0 and < 64
             && ((guard.AcceptedClasses >> unitClass) & 1) != 0;
+    }
+
+    /// <summary>The gate could not read the unit: the producer fails there.</summary>
+    internal static void FailGate(ref MethodDefinitionUnit unit, ProducerState state, Exception ex)
+    {
+        state.UnitsAttempted++;
+        state.UnitsFailed++;
+        state.Outcome = ProducerOutcome.Failed;
+        state.Failure = new ProducerFailure(
+            MetadataTokens.GetToken(unit.MethodHandle),
+            unit.Label,
+            ProducerFailure.Describe(ex));
+        state.IsActive = false;
     }
 
     static bool InScope(ProducerState state, int unitToken)
@@ -636,8 +642,12 @@ public sealed class MethodDefinitionExecution
         Receipt = CreateReceipt(0, gate: null);
     }
 
+    /// <summary>How many times the execution's gate looked up a classifier's cache.</summary>
+    internal int GateCacheLookups { get; private set; }
+
     WorkReceipt CreateReceipt(int unitsVisited, MethodRowGate? gate)
     {
+        GateCacheLookups = gate?.CacheLookups ?? 0;
         var producers = ImmutableArray.CreateBuilder<ProducerParticipation>(
             _states.Length);
         foreach (ProducerState state in _states)
@@ -739,6 +749,12 @@ public sealed class MethodDefinitionExecution
         public ulong[] GuardClasses { get; set; } = [];
 
         public ProducerState[] GuardStates { get; set; } = [];
+
+        /// <summary>
+        /// The source gate classifier's cache, resolved on this producer's
+        /// first gate test and reused for every later unit of the execution.
+        /// </summary>
+        internal MethodRowGate.ClassifierCache? GateCache;
 
         /// <summary>Whether the type being visited is in this producer's scope.</summary>
         public bool TypeInScopeNow = true;

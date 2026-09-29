@@ -88,6 +88,51 @@ public class MetricSectionTests
 
     [Fact]
     public async Task
+        LibraryMetrics_RendersResearchIssuedTypeLeverageOrders()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                IncludeSections =
+                    [SectionNames.LibraryMetrics],
+                Markdown = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Sea-Level Types", result.Output);
+        Assert.Contains("Mountain-Peak Types", result.Output);
+        Assert.Contains("Signature incoming", result.Output);
+        Assert.Contains("Body outgoing", result.Output);
+        Assert.Contains("| Degree |", result.Output);
+        Assert.Contains("| Role |", result.Output);
+        Assert.True(
+            result.Output.IndexOf(
+                "Target.CustomAwaitable",
+                StringComparison.Ordinal)
+            < result.Output.IndexOf(
+                "Target.CustomAwaiter",
+                StringComparison.Ordinal));
+        int mountainPeak =
+            result.Output.IndexOf(
+                "| Mountain-Peak Types |",
+                StringComparison.Ordinal);
+        Assert.True(mountainPeak >= 0);
+        Assert.True(
+            result.Output.IndexOf(
+                "Target.RelationshipRankingHub",
+                mountainPeak,
+                StringComparison.Ordinal)
+            < result.Output.IndexOf(
+                "Target.AwaitCompletionPathApi",
+                mountainPeak,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
         TypeImplementationProfiles_OrdersByBodySizeAndShowsOverloadEdges()
     {
         var result = await ConsoleCapture.RunAsync(
@@ -791,7 +836,7 @@ public class MetricSectionTests
 
         JsonElement root = content.RootElement;
         Assert.Equal(
-            LibraryStructuralReport.CurrentMethodologyVersion,
+            "library-metrics.v2",
             root.GetProperty("methodologyVersion").GetString());
         Assert.NotEmpty(
             root.GetProperty("population")
@@ -857,6 +902,67 @@ public class MetricSectionTests
                     relationship
                         .GetProperty("callSiteCount")
                         .ValueKind);
+            });
+
+        JsonElement leverage =
+            root.GetProperty("typeLeverage");
+        JsonElement[] leverageRows =
+        [
+            .. leverage.GetProperty("rows").EnumerateArray(),
+        ];
+        Assert.NotEmpty(leverageRows);
+        Assert.All(
+            leverageRows,
+            row =>
+            {
+                Assert.Equal(
+                    JsonValueKind.Object,
+                    row.GetProperty("type").ValueKind);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    row.GetProperty("combinedIncomingDegree")
+                        .ValueKind);
+                Assert.Equal(
+                    JsonValueKind.Number,
+                    row.GetProperty("combinedOutgoingDegree")
+                        .ValueKind);
+            });
+        Assert.NotEmpty(
+            leverage.GetProperty("seaLevel")
+                .GetProperty("types")
+                .EnumerateArray());
+        Assert.NotEmpty(
+            leverage.GetProperty("mountainPeak")
+                .GetProperty("types")
+                .EnumerateArray());
+        Assert.Equal(
+            JsonValueKind.Object,
+            leverage.GetProperty("signatureUse")
+                .GetProperty("receipt")
+                .ValueKind);
+        Assert.Equal(
+            JsonValueKind.Object,
+            leverage.GetProperty("bodyUse")
+                .GetProperty("receipt")
+                .ValueKind);
+        JsonElement graphWork = leverage.GetProperty("graphWork");
+        string[] graphQueries =
+        [
+            "signatureIncomingDegree",
+            "bodyOutgoingDegree",
+            "combinedIncomingDegree",
+            "combinedOutgoingDegree",
+        ];
+        Assert.All(
+            graphQueries,
+            query =>
+            {
+                JsonElement receipt = graphWork.GetProperty(query);
+                Assert.Equal(
+                    "graph-document-1",
+                    receipt.GetProperty("sourceDocument").GetString());
+                Assert.True(
+                    receipt.GetProperty("terminalSettled").GetBoolean());
             });
     }
 

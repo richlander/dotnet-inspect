@@ -1465,12 +1465,12 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.PInvokeMethods,
                 TopLeverageQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Detailed, include));
         Assert.Equal(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.PInvokeMethods],
             pipeline.GetRequiredQueries(
                 Verbosity.Detailed,
                 include,
@@ -1485,7 +1485,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.PInvokeMethods,
                 UnsafeEvidenceQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include));
@@ -1763,7 +1763,13 @@ public partial class SectionPipelineTests
 
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Equal([ClassifiedMethodsQuery.Definition], queries);
+        Assert.Equal(
+            [
+                section == SectionNames.AsyncMethods
+                    ? MethodClassificationDemand.AsyncMethods
+                    : MethodClassificationDemand.PInvokeMethods,
+            ],
+            queries);
     }
 
     [Fact]
@@ -1776,7 +1782,7 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.Signals,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include)
                 .OrderBy(query => query.Name, StringComparer.Ordinal));
@@ -1801,6 +1807,7 @@ public partial class SectionPipelineTests
         [
             .. LibraryCommand.DiscoveryQueries.Select(demand => demand.Query),
             .. LibraryCommand.BareDiscoveryQueries.Select(demand => demand.Query),
+            LibraryCommand.ModelDumpCountsDemand.Query,
         ];
         perAssemblyQueries.UnionWith(commandQueries);
         HashSet<InspectionQueryDefinition> closure =
@@ -1833,12 +1840,15 @@ public partial class SectionPipelineTests
                 AssemblyReferencesQuery.Definition,
                 AuditMetadataQuery.Definition,
                 BodyShapesQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 ImplementationProfilesQuery.Definition,
                 LibraryMetricsQuery.Definition,
                 MetadataImageQuery.Definition,
+                MethodClassificationDemand.AsyncMethods,
+                MethodClassificationDemand.LibraryInfo,
+                MethodClassificationDemand.PInvokeMethods,
+                MethodClassificationDemand.Signals,
                 OptimizationOpportunitiesQuery.Definition,
                 ReadyToRunImageQuery.Definition,
                 ResourceTriageQuery.Definition,
