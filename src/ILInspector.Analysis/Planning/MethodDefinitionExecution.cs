@@ -477,19 +477,25 @@ public sealed class MethodDefinitionExecution
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
         {
-            state.UnitsAttempted++;
-            state.UnitsFailed++;
-            state.Outcome = ProducerOutcome.Failed;
-            state.Failure = new ProducerFailure(
-                MetadataTokens.GetToken(unit.MethodHandle),
-                unit.Label,
-                ProducerFailure.Describe(ex));
-            state.IsActive = false;
+            FailGate(ref unit, state, ex);
             return null;
         }
 
         return unitClass is >= 0 and < 64
             && ((guard.AcceptedClasses >> unitClass) & 1) != 0;
+    }
+
+    /// <summary>The gate could not read the unit: the producer fails there.</summary>
+    internal static void FailGate(ref MethodDefinitionUnit unit, ProducerState state, Exception ex)
+    {
+        state.UnitsAttempted++;
+        state.UnitsFailed++;
+        state.Outcome = ProducerOutcome.Failed;
+        state.Failure = new ProducerFailure(
+            MetadataTokens.GetToken(unit.MethodHandle),
+            unit.Label,
+            ProducerFailure.Describe(ex));
+        state.IsActive = false;
     }
 
     static bool InScope(ProducerState state, int unitToken)
