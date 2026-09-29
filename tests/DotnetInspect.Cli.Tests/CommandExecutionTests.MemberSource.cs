@@ -1311,7 +1311,7 @@ public partial class CommandExecutionTests
     [InlineData("Value", "set_Value", 2)]
     [InlineData("Changed", "add_Changed", 1)]
     [InlineData("Changed", "remove_Changed", 2)]
-    public async Task Member_SourceDiff_RenamedAccessorOrdinalSelectsPhysicalBody(
+    public async Task Member_SourceDiff_RenamedAccessorOrdinalMatchesRawSelection(
         string memberName,
         string accessorName,
         int accessorOrdinal)
@@ -1345,11 +1345,20 @@ public partial class CommandExecutionTests
                 "member", typeName, $"{interfaceName}.{memberName}:{accessorOrdinal}",
                 "--library", library, "--all",
                 "-S", "Source Diff", "-v:d", "--tips", "q");
+            var (rawExit, rawOutput, rawError) = await RunAppAsync(
+                "member", typeName, $"explicit:{renamed}",
+                "--library", library, "--all",
+                "-S", "Source Diff", "-v:d", "--tips", "q");
+
             Assert.True(ordinalExit == 0, ordinalError);
+            Assert.True(rawExit == 0, rawError);
             Assert.Empty(ordinalError);
+            Assert.Empty(rawError);
             string ordinalDiff = Assert.IsType<string>(
                 TryExtractSectionBody(ordinalOutput, SectionNames.SourceDiff));
-            Assert.NotEmpty(ordinalDiff);
+            string rawDiff = Assert.IsType<string>(
+                TryExtractSectionBody(rawOutput, SectionNames.SourceDiff));
+            Assert.Equal(rawDiff, ordinalDiff);
         }
         finally
         {
