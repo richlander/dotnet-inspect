@@ -110,7 +110,7 @@ test("implementation evidence follows the expanded family after paint across pac
   const target = sourceText(functionDeclaration("implementationProfileTarget"));
   assert.match(
     target,
-    /state\.rootKind === "library"[\s\S]*member\.kind !== "method"[\s\S]*member\.overloads\.length < 2/);
+    /state\.rootKind === "library"[\s\S]*!familyIsEligible\(type, member\)/);
   assert.match(
     target,
     /const stableSelectors = member\.overloads\.map[\s\S]*overload => overload\.stableSelector[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformVersion: pkg\.version[\s\S]*pack: row\.pack[\s\S]*assemblyFileName: platformAssemblyRequest\(row\)[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
@@ -151,12 +151,12 @@ test("implementation evidence follows the expanded family after paint across pac
   assert.match(
     evidenceOpen,
     /state\.implementationEvidenceKey[\s\S]*implementationEvidenceKey\(stableSelector\)[\s\S]*published\.selection\.isCurrent\(\)/);
-  // Heat eligibility follows the producer: an attached extension group of the
-  // same name makes the family ineligible.
+  // Heat eligibility follows the producer: a pure single-declarer extension
+  // group is eligible, while mixed or multi-declarer groups remain excluded.
   const eligible = sourceText(functionDeclaration("familyIsEligible"));
   assert.match(
     eligible,
-    /group\.kind === "method"[\s\S]*group\.overloads\.length > 1[\s\S]*candidate\.name !== group\.name \|\| candidate\.kind === "method"/);
+    /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*memberGroups\(type\),\s*group\)/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));
   assert.match(
