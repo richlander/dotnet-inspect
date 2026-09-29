@@ -6,6 +6,7 @@ namespace ILInspector.Decompiler.Tests;
 public class CfgSampleClass
 {
     internal static bool s_finalized;
+    int _localFunctionState;
 
     // A C# destructor lowers to a Finalize override whose body is
     // try { s_finalized = true; } finally { base.Finalize(); }. DestructorRecoveryPass
@@ -2379,6 +2380,22 @@ public class CfgSampleClass
         return Add(5);
 
         int Add(int v) => v + n;
+    }
+
+    // The local function captures both the containing instance and a local. Roslyn
+    // lowers it to an instance synthesized method whose final explicit parameter is
+    // the by-ref display-class environment, matching the published
+    // ControlFlowGraphBuilder.VisitConditionalAccess shape.
+    public void InstanceAndEnvironmentCapturingLocalFunction(int next)
+    {
+        int previous = _localFunctionState;
+        _localFunctionState = next;
+        Restore();
+
+        void Restore()
+        {
+            _localFunctionState = previous;
+        }
     }
 
     // Adversarial breadth: one capturing local function called twice. Both calls
