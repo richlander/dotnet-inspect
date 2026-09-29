@@ -834,6 +834,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   operation-scoped binding from one exact finite universe description and
   validated plan to owner-issued executable capabilities, deterministic
   population and context access, retained lifetimes, and visible failure.
+- [Evidence and metric coordination](design/evidence-metric-coordination.md):
+  prerequisite normalization, compatible acquisition and derivation sharing,
+  typed fact or edge handoff, metric and roll-up execution, and exact
+  population-bound work receipts without redefining producer or metric
+  semantics.
 - [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
   type views, compiler handoff, related generator categories, and migration from
   direct JavaScript plus declaration emission.
