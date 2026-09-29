@@ -92,11 +92,7 @@ internal static class MetadataStructuralTypeValidator
                 != methodParameterCount
             || signature.RequiredParameterCount < 0
             || signature.RequiredParameterCount
-                > signature.ParameterTypes.Length
-            || signature.RequiredParameterCount
-                    != signature.ParameterTypes.Length
-                && header.CallingConvention
-                    != SignatureCallingConvention.VarArgs)
+                != signature.ParameterTypes.Length)
         {
             return $"{subject} does not carry a valid MethodDefSig.";
         }
