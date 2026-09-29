@@ -1,7 +1,23 @@
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
   BrowserHomeDemoCatalog,
-  BrowserVocabularyDocument,
+  BrowserVocabularyCatalogIdentity,
+  BrowserVocabularyDefinition,
+  BrowserVocabularyDefinitionIdentity,
+  BrowserVocabularyDiagnosticSeverity,
+  BrowserVocabularyIdentity,
+  BrowserVocabularyInspection,
+  BrowserVocabularyInspectionShare,
+  BrowserVocabularyMapCardinality,
+  BrowserVocabularyMapCoverage,
+  BrowserVocabularyMapDefinitionIdentity,
+  BrowserVocabularyMapTarget,
+  BrowserVocabularyMapValue,
+  BrowserVocabularySnapshotIdentity,
+  BrowserVocabularyScalarKind,
+  BrowserVocabularyTermDefinitionIdentity,
+  BrowserVocabularyTermIdentity,
+  BrowserVocabularyTermSetReference,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
   BrowserPackageChangesEcosystemCatalog,
@@ -63,6 +79,223 @@ function executionClass(value: unknown): BrowserPackageQueryExecutionClass {
   return number(value);
 }
 
+function vocabularyMapCardinality(
+  value: unknown,
+): BrowserVocabularyMapCardinality {
+  if (value === "ExactlyOne"
+    || value === "OptionalOne"
+    || value === "OneOrMore"
+    || value === "ZeroOrMore") return value;
+  return number(value);
+}
+
+function vocabularyMapCoverage(value: unknown): BrowserVocabularyMapCoverage {
+  if (value === "Complete" || value === "Partial") return value;
+  return number(value);
+}
+
+function vocabularyDiagnosticSeverity(
+  value: unknown,
+): BrowserVocabularyDiagnosticSeverity {
+  if (value === "Information" || value === "Warning" || value === "Error")
+    return value;
+  return number(value);
+}
+
+function vocabularyScalarKind(value: unknown): BrowserVocabularyScalarKind {
+  if (value === "Text" || value === "Integer" || value === "Boolean")
+    return value;
+  return number(value);
+}
+
+function vocabularyCatalogIdentity(
+  value: unknown,
+): BrowserVocabularyCatalogIdentity {
+  const data = record(value);
+  return { value: text(data.value) };
+}
+
+function vocabularyIdentity(value: unknown): BrowserVocabularyIdentity {
+  const data = record(value);
+  return {
+    catalog: vocabularyCatalogIdentity(data.catalog),
+    value: text(data.value),
+  };
+}
+
+function vocabularyTermIdentity(value: unknown): BrowserVocabularyTermIdentity {
+  const data = record(value);
+  return {
+    vocabulary: vocabularyIdentity(data.vocabulary),
+    value: text(data.value),
+  };
+}
+
+function vocabularyDefinitionIdentity(
+  value: unknown,
+): BrowserVocabularyDefinitionIdentity {
+  const data = record(value);
+  return { value: text(data.value) };
+}
+
+function vocabularyTermDefinitionIdentity(
+  value: unknown,
+): BrowserVocabularyTermDefinitionIdentity {
+  const data = record(value);
+  return { value: text(data.value) };
+}
+
+function vocabularyMapDefinitionIdentity(
+  value: unknown,
+): BrowserVocabularyMapDefinitionIdentity {
+  const data = record(value);
+  return { value: text(data.value) };
+}
+
+function vocabularySnapshotIdentity(
+  value: unknown,
+): BrowserVocabularySnapshotIdentity {
+  const data = record(value);
+  return { value: text(data.value) };
+}
+
+function vocabularyTermSetReference(
+  value: unknown,
+): BrowserVocabularyTermSetReference {
+  const data = record(value);
+  const kind = text(data.kind);
+  if (kind === "local") {
+    return {
+      kind,
+      vocabulary: vocabularyDefinitionIdentity(data.vocabulary),
+    };
+  }
+  if (kind === "external") {
+    return {
+      kind,
+      snapshot: vocabularySnapshotIdentity(data.snapshot),
+      vocabulary: vocabularyIdentity(data.vocabulary),
+    };
+  }
+  throw new StartupPayloadError(
+    `Unknown vocabulary term-set reference kind '${kind}'.`);
+}
+
+function vocabularyMapTarget(value: unknown): BrowserVocabularyMapTarget {
+  const data = record(value);
+  const kind = text(data.kind);
+  if (kind === "scalar") {
+    return {
+      kind,
+      scalarKind: vocabularyScalarKind(data.scalarKind),
+    };
+  }
+  if (kind === "terms") {
+    return {
+      kind,
+      reference: vocabularyTermSetReference(data.reference),
+    };
+  }
+  throw new StartupPayloadError(
+    `Unknown vocabulary map target kind '${kind}'.`);
+}
+
+function vocabularyMapValue(value: unknown): BrowserVocabularyMapValue {
+  const data = record(value);
+  const kind = text(data.kind);
+  if (kind === "text") return { kind, value: text(data.value) };
+  if (kind === "integer") return { kind, value: number(data.value) };
+  if (kind === "boolean") return { kind, value: boolean(data.value) };
+  if (kind === "term") {
+    return {
+      kind,
+      identity: vocabularyTermIdentity(data.identity),
+    };
+  }
+  throw new StartupPayloadError(
+    `Unknown vocabulary map value kind '${kind}'.`);
+}
+
+function vocabularyDefinition(value: unknown): BrowserVocabularyDefinition {
+  const data = record(value);
+  return {
+    identity: vocabularyDefinitionIdentity(data.identity),
+    displayLabel: text(data.displayLabel),
+    summary: nullableText(data.summary),
+    maps: array(data.maps, rawMap => {
+      const map = record(rawMap);
+      return {
+        identity: vocabularyMapDefinitionIdentity(map.identity),
+        displayLabel: text(map.displayLabel),
+        summary: text(map.summary),
+        target: vocabularyMapTarget(map.target),
+        cardinality: vocabularyMapCardinality(map.cardinality),
+        coverage: vocabularyMapCoverage(map.coverage),
+      };
+    }),
+    terms: array(data.terms, rawTerm => {
+      const term = record(rawTerm);
+      return {
+        identity: vocabularyTermDefinitionIdentity(term.identity),
+        displayLabel: text(term.displayLabel),
+        summary: nullableText(term.summary),
+        mapEntries: array(term.mapEntries, rawEntry => {
+          const entry = record(rawEntry);
+          return {
+            map: vocabularyMapDefinitionIdentity(entry.map),
+            values: array(entry.values, vocabularyMapValue),
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function vocabularyShare(value: unknown): BrowserVocabularyInspectionShare {
+  const data = record(value);
+  const kind = text(data.kind);
+  if (kind === "available") {
+    return {
+      kind,
+      fullUrl: text(data.fullUrl),
+      packet: text(data.packet),
+    };
+  }
+  if (kind === "nonProjectable") {
+    return {
+      kind,
+      path: text(data.path),
+      reason: text(data.reason),
+    };
+  }
+  throw new StartupPayloadError(
+    `Unknown vocabulary Share kind '${kind}'.`);
+}
+
+function vocabularyInspection(value: unknown): BrowserVocabularyInspection {
+  const data = record(value);
+  const content = record(data.content);
+  return {
+    ...data,
+    content: {
+      formatVersion: number(content.formatVersion),
+      catalog: vocabularyCatalogIdentity(content.catalog),
+      identity: vocabularySnapshotIdentity(content.identity),
+      vocabularies: array(content.vocabularies, vocabularyDefinition),
+    },
+    share: vocabularyShare(data.share),
+    diagnostics: array(data.diagnostics, rawDiagnostic => {
+      const diagnostic = record(rawDiagnostic);
+      return {
+        code: text(diagnostic.code),
+        severity: vocabularyDiagnosticSeverity(diagnostic.severity),
+        summary: text(diagnostic.summary),
+        correspondence: nullableText(diagnostic.correspondence),
+      };
+    }),
+  };
+}
+
 function json<T>(parse: (value: unknown) => T): BoundedPayloadDecoder<T> {
   return {
     decode(value) {
@@ -113,32 +346,9 @@ export const engineStartupOperations = {
       };
     }),
   },
-  listVocabulary: {
-    kind: "catalog-list-vocabulary",
-    value: json<BrowserVocabularyDocument>(value => {
-      const data = record(value);
-      return {
-        ...data,
-        schema_version: number(data.schema_version),
-        sections: array(data.sections, rawSection => {
-          const section = record(rawSection);
-          return {
-            ...section,
-            id: text(section.id), name: text(section.name), summary: text(section.summary),
-            accepted_by: array(section.accepted_by, text),
-            fields: array(section.fields, rawField => {
-              const field = record(rawField);
-              return {
-                ...field,
-                id: text(field.id), label: text(field.label), summary: text(field.summary),
-                type: text(field.type), operators: array(field.operators, text),
-              };
-            }),
-            values: array(section.values, entry => entry),
-          };
-        }),
-      };
-    }),
+  inspectVocabulary: {
+    kind: "catalog-inspect-vocabulary",
+    value: json<BrowserVocabularyInspection>(vocabularyInspection),
   },
   listHomeDemos: {
     kind: "catalog-list-home-demos",
