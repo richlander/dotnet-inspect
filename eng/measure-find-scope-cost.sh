@@ -8,7 +8,7 @@
 # TERMINALS="markdown json jsonl tsv table count rows" to measure every
 # supported Find output terminal; the default remains "tsv".
 # Scenarios (each with a direct hit, a miss that forces the census and
-# similarity path, and a member search):
+# similarity path, a zero-result miss, and a member search):
 #   platform-installed  default scope, installed shared frameworks; cold is a
 #                       new user with an empty cache
 #   platform-remote     default scope, empty DOTNET_ROOT (Browser/Wasm-like):
@@ -32,6 +32,7 @@ work=${2:?work dir}
 warm=${3:-5}
 cold=${4:-3}
 avalonia=Avalonia@12.1.3
+zero_query=Definitely.No.Such.Type.Qzxv
 terminals=${TERMINALS:-tsv}
 
 mkdir -p "$work"
@@ -76,7 +77,7 @@ with open(sys.argv[1], "wb") as o, open(sys.argv[2], "wb") as e:
       rows=$(jq 'length' "$out")
       ;;
     jsonl)
-      rows=$(wc -l <"$out")
+      rows=$(($(wc -l <"$out")))
       ;;
     tsv|rows)
       rows=$(($(wc -l <"$out") > 0 ? $(wc -l <"$out") - 1 : 0))
@@ -110,7 +111,7 @@ scenario() {
   case " ${ONLY:-$name} " in *" $name "*) ;; *) return 0 ;; esac
   local q terminal
   for ((i = 1; i <= cold; i++)); do
-    for q in "$hit" "$miss" "$member"; do
+    for q in "$hit" "$miss" "$zero_query" "$member"; do
       for terminal in $terminals; do
         local home="$work/$name-cold-$i-${q//[^A-Za-z]/}-$terminal"
         rm -rf "$home"; mkdir -p "$home"
@@ -123,7 +124,7 @@ scenario() {
   rm -rf "$warm_home"; mkdir -p "$warm_home"
   run "$name" prime "$hit" tsv 0 "$warm_home" "$dotnet_root" "$@" >/dev/null
   for ((i = 1; i <= warm; i++)); do
-    for q in "$hit" "$miss" "$member"; do
+    for q in "$hit" "$miss" "$zero_query" "$member"; do
       for terminal in $terminals; do
         run "$name" warm "$q" "$terminal" "$i" "$warm_home" "$dotnet_root" "$@"
       done
