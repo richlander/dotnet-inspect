@@ -35,7 +35,7 @@ namespace Target
     // instantiation, which must match the open Box<T>.Store(T) target.
     public sealed class Box<T>
     {
-        public InstanceRecursionApi? Surface { get; }
+        public InstanceRecursionApi? Surface;
 
         public void Store(T value)
         {
@@ -54,7 +54,7 @@ namespace Target
     // key must preserve generic arity so Box`1.Store and Box`2.Store stay distinct.
     public sealed class Box<T1, T2>
     {
-        public InstanceRecursionApi? Surface { get; }
+        public InstanceRecursionApi? Surface;
 
         public void Store(T1 value)
         {
