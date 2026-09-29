@@ -1271,7 +1271,12 @@ Address envelope and lowers it through its existing Address section, terminal,
 row-selection, text, and diagnostic presentation. JSON retains the existing
 complete Library inspection path until the shared Address result owns the
 Library metadata required by that established schema; the CLI does not emit a
-success-shaped partial replacement.
+success-shaped partial replacement. The adopter admits only a bare compile
+Library name or a direct `ref/<tfm>/`, `lib/<tfm>/`, or
+`runtimes/<rid>/lib/<tfm>/` Library path, and only when every selected section
+is owned by the Address result. Other exact package paths and mixed selections
+that require complete Library facts retain the legacy path rather than
+returning a selection failure or silently omitting requested sections.
 
 Other package-backed Library modes and Workspace-backed Address requests still
 use their existing paths. Browser/Wasm adoption and final removal of the

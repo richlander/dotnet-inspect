@@ -212,10 +212,63 @@ public partial class LibraryCommand
         && !options.JsonOutput
         && !options.NamesakeLibrary
         && !string.IsNullOrWhiteSpace(options.AssemblyName)
+        && IsPackageCompileLibrarySelection(options.AssemblyName)
+        && HasOnlyPackageAddressSections(options)
         && !string.Equals(
             options.Tfm,
             "all",
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPackageCompileLibrarySelection(
+        string assemblyName)
+    {
+        string path = assemblyName.Replace('\\', '/');
+        if (!path.Contains('/'))
+            return true;
+        if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            path += ".dll";
+
+        string[] segments = path.Split('/');
+        bool directCompileAsset =
+            segments.Length == 3
+                && (segments[0].Equals(
+                        "lib",
+                        StringComparison.OrdinalIgnoreCase)
+                    || segments[0].Equals(
+                        "ref",
+                        StringComparison.OrdinalIgnoreCase))
+                && TfmResolver.IsTfmLike(segments[1]);
+        bool runtimeImplementationAsset =
+            segments.Length == 5
+                && segments[0].Equals(
+                    "runtimes",
+                    StringComparison.OrdinalIgnoreCase)
+                && segments[1].Length > 0
+                && segments[2].Equals(
+                    "lib",
+                    StringComparison.OrdinalIgnoreCase)
+                && TfmResolver.IsTfmLike(segments[3]);
+        return (directCompileAsset || runtimeImplementationAsset)
+            && Path.GetFileNameWithoutExtension(segments[^1]).Length > 0;
+    }
+
+    private static bool HasOnlyPackageAddressSections(
+        LibraryOptions options)
+    {
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return true;
+
+        return options.AddressRequest
+            is LibraryAddressRequest.HeapPoint
+                ? sections.All(section =>
+                    section.Equals(
+                        MetadataSectionNames.Heap,
+                        StringComparison.OrdinalIgnoreCase))
+                : sections.All(section =>
+                    ILCoordinateSections.Contains(
+                        section,
+                        StringComparer.OrdinalIgnoreCase));
+    }
 
     internal static async Task<int> ExecuteResolvedPackageAsync(
         LibraryOptions options,

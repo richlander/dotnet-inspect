@@ -419,6 +419,113 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        LibraryAddressCommand_PackageMixedSectionsPreserveLibraryInfo()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-mixed-sections-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string relativeLibraryPath =
+            "lib/net11.0/Coordinate.Package.dll";
+        string libraryPath = Path.Combine(
+            content,
+            "lib",
+            "net11.0",
+            "Coordinate.Package.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(libraryPath)!);
+        File.Copy(TestAssemblyPath, libraryPath);
+        WriteAddressPackageManifest(content, "Coordinate.Package");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                $"0x{token:X8}+0x{callOffset:X}",
+                "--package",
+                packagePath,
+                "--library",
+                relativeLibraryPath,
+                "-S",
+                "Context: Member,Library Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## Context: Member", output);
+            Assert.Contains("## Library Info", output);
+            Assert.Contains(
+                nameof(SemanticFactsFixture.AllSignals),
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryAddressCommand_PackageNonCompilePathPreservesLegacySelection()
+    {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-address-package-non-compile-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string relativeLibraryPath =
+            "tools/net11.0/Coordinate.Package.dll";
+        string libraryPath = Path.Combine(
+            content,
+            "tools",
+            "net11.0",
+            "Coordinate.Package.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(libraryPath)!);
+        File.Copy(TestAssemblyPath, libraryPath);
+        WriteAddressPackageManifest(content, "Coordinate.Package");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Coordinate.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "address",
+                $"0x{token:X8}+0x{callOffset:X}",
+                "--package",
+                packagePath,
+                "--library",
+                relativeLibraryPath,
+                "-S",
+                "Context: Member",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## Context: Member", output);
+            Assert.Contains(
+                nameof(SemanticFactsFixture.AllSignals),
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         LibraryAddressCommand_PackageSourceLocationUsesAdjacentPortablePdb()
     {
         var (token, callOffset) = FindIlCoordinate(
