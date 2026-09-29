@@ -24,10 +24,14 @@ public sealed class DotnetHostRootTests : IDisposable
 
     private static string CreateHost(
         string directory,
-        bool executable = true)
+        bool executable = true,
+        bool installation = true)
     {
         string host = Path.Combine(directory, HostName);
         File.WriteAllText(host, "");
+        if (installation)
+            Directory.CreateDirectory(Path.Combine(directory, "host", "fxr"));
+
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             UnixFileMode mode = File.GetUnixFileMode(host);
@@ -60,6 +64,22 @@ public sealed class DotnetHostRootTests : IDisposable
         Assert.Equal(
             Path.GetFullPath(first),
             DotnetHostRoot.FindOnPath(path));
+    }
+
+    [Fact]
+    public void SkipsAnExecutableShimBeforeTheHost()
+    {
+        string shim = Directory.CreateDirectory(
+            Path.Combine(_root, "shim")).FullName;
+        string install = Directory.CreateDirectory(
+            Path.Combine(_root, "install")).FullName;
+        CreateHost(shim, installation: false);
+        CreateHost(install);
+
+        Assert.Equal(
+            Path.GetFullPath(install),
+            DotnetHostRoot.FindOnPath(
+                string.Join(Path.PathSeparator, [shim, install])));
     }
 
     [Fact]

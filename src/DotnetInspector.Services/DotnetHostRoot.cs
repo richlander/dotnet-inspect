@@ -14,9 +14,10 @@ public static class DotnetHostRoot
     private const int ExecuteAccess = 1;
 
     /// <summary>
-    /// Returns the directory of the first <c>dotnet</c> host found on
-    /// <c>PATH</c>, following a symbolic link to the host's real location,
-    /// or <see langword="null"/> when none is found.
+    /// Returns the first dotnet installation found on <c>PATH</c>, following
+    /// a symbolic link to the host's real location and recognizing the
+    /// installation by its <c>host/fxr</c> layout, or
+    /// <see langword="null"/> when none is found.
     /// </summary>
     public static string? FindOnPath() =>
         FindOnPath(
@@ -52,7 +53,12 @@ public static class DotnetHostRoot
                     File.ResolveLinkTarget(candidate, returnFinalTarget: true)
                         ?.FullName
                     ?? Path.GetFullPath(candidate);
-                return Path.GetDirectoryName(host);
+                string? root = Path.GetDirectoryName(host);
+                if (root is null
+                    || !Directory.Exists(Path.Combine(root, "host", "fxr")))
+                    continue;
+
+                return root;
             }
             catch (Exception exception) when (
                 exception is IOException

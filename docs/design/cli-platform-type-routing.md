@@ -82,7 +82,8 @@ that contains a `packs` directory:
 
 1. `DOTNET_ROOT`;
 2. the installation that owns the first `dotnet` host on `PATH`, following a
-   symbolic link to the host's real location
+   symbolic link to the host's real location and recognizing the installation
+   by its `host/fxr` layout
    (`DotnetHostRoot.FindOnPath`); and
 3. the hive containing the current CoreCLR runtime.
 
