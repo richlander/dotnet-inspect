@@ -941,13 +941,31 @@ activation contracts. The existing Library/Type UI is the rendering convention:
 typed Browser models lower to escaped HTML and native buttons at the frontend,
 rather than adding a multi-format document renderer for these controls.
 
-The user-approved delivery stages #8290 through a focused backend slice for
+The user-approved delivery stages #8290 through the backend slice #8683 for
 package-backed activation, exact destination realization, and generated
 facade/ordinary Worker transport, followed by the website presentation slice.
-The latter retires the unexplained empty facade Type list. Focused managed,
-transport, rendering, and built-browser gates must cover the real two-hop
-scenario, definition behavior, and visible non-success before this experience
-is claimed as supported.
+The latter retires the unexplained empty facade Type list. Its gates are:
+
+- `platform-forwarders.test.ts` covers the mixed inventory's declaration
+  semantics, filtering, escaped presentation, and forwarder-only lens.
+- `workspace-navigation.test.ts` distinguishes Type Overview from Package
+  Overview in canonical packets.
+- `browser/platform-forwarders.spec.ts` exercises the production UI over
+  deterministic XML-route responses: immediate destinations, ordinary
+  defining-Type inspectors, Back and refresh with renewed actions, visible
+  non-success, destination focus, forwarded-only namespace selection,
+  displayed and copied qualified Type names, and superseded completion.
+- `browser/package-adoption.spec.ts`, `renders the real XML facade and
+  navigates two immediate Type destinations`, exercises the published Wasm
+  application with the immutable runtime version above, including the
+  source-issued facade label, normal Type inventory, and qualified Type path.
+
+These rendering and browser gates complement, rather than replace, the
+activation owner's Release managed and ordinary-Worker gates. Existing
+Platform navigation gates retain coverage of physical asset names, same-named
+Libraries in different families, cached navigation, and ordinary definitions.
+`browser/library-hierarchy.demos.spec.ts` also preserves demo-issued definition
+surfaces and their exact Type/member selection while forwarded declarations load.
 
 ## Non-claims
 
