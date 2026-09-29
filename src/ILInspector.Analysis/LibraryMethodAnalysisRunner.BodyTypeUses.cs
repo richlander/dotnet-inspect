@@ -384,7 +384,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
         }
 
         ImmutableArray<TypeRef> roots =
-            ResolveOperandTypes(resolver, path, token);
+            ResolveOperandTypes(resolver, scope, path, token);
         string? unavailable = roots.IsDefaultOrEmpty
             ? "no typed root"
             : FirstUnavailableTypeReason(roots);
@@ -417,24 +417,24 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 ? BodyTypeUseOperandPath.Field
                 : BodyTypeUseOperandPath.Type;
 
-    static ImmutableArray<TypeRef> ResolveOperandTypes(
+    // A method operand contributes its declaring type and instantiation
+    // only, so its parameter and return types are never decoded.
+    ImmutableArray<TypeRef> ResolveOperandTypes(
         IMethodCallResolver resolver,
+        GenericScope scope,
         BodyTypeUseOperandPath path,
         int token)
     {
         switch (path)
         {
             case BodyTypeUseOperandPath.Member:
-                MemberRef member = resolver.ResolveMember(token);
-                var types = ImmutableArray.CreateBuilder<TypeRef>(
-                    1 + member.TypeArguments.Length);
-                types.Add(member.DeclaringType);
-                types.AddRange(member.TypeArguments);
-                return types.MoveToImmutable();
+                (TypeRef declaringType, ImmutableArray<TypeRef> arguments) =
+                    _infrastructure.ResolveMethodOwner(token, scope);
+                return [declaringType, .. arguments];
             case BodyTypeUseOperandPath.Field:
-                (TypeRef? declaringType, _) =
+                (TypeRef? fieldOwner, _) =
                     resolver.ResolveFieldOwner(token);
-                return declaringType is null ? [] : [declaringType];
+                return fieldOwner is null ? [] : [fieldOwner];
             default:
                 return [resolver.ResolveType(token)];
         }

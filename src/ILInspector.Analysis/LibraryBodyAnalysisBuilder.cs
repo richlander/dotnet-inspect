@@ -279,6 +279,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             scope,
             caller);
 
+    (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ILibraryMethodAnalysisInfrastructure.ResolveMethodOwner(
+            int token,
+            GenericScope scope) =>
+        _methodReferenceResolver.ResolveMethodOwner(
+            MetadataTokens.EntityHandle(token),
+            scope);
+
     CallerUnsafeMode?
         ILibraryMethodAnalysisInfrastructure
             .ResolveSameImageCallerUnsafeMode(

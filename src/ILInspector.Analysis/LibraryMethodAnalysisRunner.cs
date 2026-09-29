@@ -62,6 +62,9 @@ internal interface ILibraryMethodAnalysisInfrastructure
         GenericScope scope,
         MethodDefinitionHandle caller);
 
+    (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ResolveMethodOwner(int token, GenericScope scope);
+
     CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
         int operandToken,
         MemberRef member,

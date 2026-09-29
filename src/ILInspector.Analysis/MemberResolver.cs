@@ -88,9 +88,39 @@ internal static class MemberResolver
         }
     }
 
+    /// <summary>
+    /// A method definition's declaring type and generic arity, as
+    /// <see cref="ResolveMethod"/> reports them, without decoding the
+    /// parameter and return types. The same structural guard rejects an
+    /// unsafe signature with the same reason.
+    /// </summary>
+    internal static MethodOwner ResolveMethodDefinitionOwner(
+        MetadataReader reader,
+        MethodDefinitionHandle handle)
+    {
+        var method = reader.GetMethodDefinition(handle);
+        if (!SignatureBlobGuard.IsSafeToDecode(reader, method.Signature, SignatureBlobGuard.Kind.Method))
+            return MethodOwner.Unsupported("method signature nesting depth exceeded");
+        return new(
+            TypeRefDecoder.Instance.GetTypeFromDefinition(reader, method.GetDeclaringType(), 0),
+            MethodGenericArity(reader, method.Signature),
+            Supported: true);
+    }
+
+    // A method signature's generic parameter count, read from its header as
+    // the signature decoder reads it; a non-method header is malformed.
+    internal static int MethodGenericArity(MetadataReader reader, BlobHandle signature)
+    {
+        BlobReader blob = reader.GetBlobReader(signature);
+        SignatureHeader header = blob.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.Method && header.Kind != SignatureKind.Property)
+            throw new BadImageFormatException($"Unexpected signature header {header.RawValue:X2}.");
+        return header.IsGeneric ? blob.ReadCompressedInteger() : 0;
+    }
+
     static MemberKind KindFor(string name) => name is ".ctor" or ".cctor" ? MemberKind.Constructor : MemberKind.Method;
 
-    static TypeRef ResolveParentType(MetadataReader reader, EntityHandle parent, GenericScope callerScope) => parent.Kind switch
+    internal static TypeRef ResolveParentType(MetadataReader reader, EntityHandle parent, GenericScope callerScope) => parent.Kind switch
     {
         HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)parent, 0),
         HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)parent, 0),
@@ -237,4 +267,14 @@ internal static class MemberResolver
         }
         return directions.MoveToImmutable();
     }
+}
+
+/// <summary>A method operand's declaring type and generic arity.</summary>
+internal readonly record struct MethodOwner(
+    TypeRef DeclaringType,
+    int GenericArity,
+    bool Supported)
+{
+    internal static MethodOwner Unsupported(string reason) =>
+        new(TypeRef.Unsupported(reason), 0, Supported: false);
 }

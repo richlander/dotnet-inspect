@@ -751,9 +751,90 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
-    MemberRef DecodeMethodSpecification(
+    /// <summary>
+    /// A method operand's declaring type and method instantiation, as
+    /// <see cref="ResolveMethod"/> reports them, without decoding parameter
+    /// and return types. A MethodSpec is validated exactly as it is there.
+    /// </summary>
+    internal (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ResolveMethodOwner(
+            EntityHandle handle,
+            GenericScope scope)
+    {
+        if (handle.Kind != HandleKind.MethodSpecification)
+            return (MethodOwnerOf(handle, scope).DeclaringType, []);
+
+        MethodSpecification specification =
+            _reader.GetMethodSpecification(
+                (MethodSpecificationHandle)handle);
+        MethodOwner target = MethodOwnerOf(
+            specification.Method,
+            scope);
+        if (specification.Method.Kind
+            is not (HandleKind.MethodDefinition
+                or HandleKind.MemberReference))
+        {
+            throw new BadImageFormatException(
+                "The MethodSpec target is not a method definition or reference.");
+        }
+        return (
+            target.DeclaringType,
+            DecodeMethodSpecificationArguments(
+                specification,
+                target.Supported,
+                target.GenericArity,
+                scope));
+    }
+
+    MethodOwner MethodOwnerOf(
+        EntityHandle handle,
+        GenericScope scope)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                return MemberResolver.ResolveMethodDefinitionOwner(
+                    _reader,
+                    (MethodDefinitionHandle)handle);
+            case HandleKind.MemberReference:
+                MemberReference member =
+                    _reader.GetMemberReference(
+                        (MemberReferenceHandle)handle);
+                // A vararg call site's MethodDef parent names its declaring
+                // type; every other parent is decoded once per execution.
+                TypeRef declaring =
+                    member.Parent.Kind == HandleKind.MethodDefinition
+                        ? MemberResolver.ResolveParentType(
+                            _reader,
+                            member.Parent,
+                            scope)
+                        : ResolveMemberReferenceDeclaringType(
+                            member.Parent,
+                            scope);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        _reader,
+                        member.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                {
+                    return MethodOwner.Unsupported(
+                        "member-reference signature nesting depth exceeded");
+                }
+                return new(
+                    declaring,
+                    MemberResolver.MethodGenericArity(
+                        _reader,
+                        member.Signature),
+                    Supported: true);
+            default:
+                return MethodOwner.Unsupported(
+                    $"callee handle kind {handle.Kind}");
+        }
+    }
+
+    ImmutableArray<TypeRef> DecodeMethodSpecificationArguments(
         MethodSpecification specification,
-        MemberRef target,
+        bool targetSupported,
+        int targetGenericArity,
         GenericScope scope)
     {
         if (!SignatureBlobGuard.IsSafeToDecode(
@@ -769,9 +850,9 @@ internal sealed class LibraryBodyMethodReferenceResolver
             specification.DecodeSignature(
                 TypeRefDecoder.Instance,
                 scope);
-        if (target.Kind == MemberKind.Unsupported
-            || target.GenericArity == 0
-            || arguments.Length != target.GenericArity
+        if (!targetSupported
+            || targetGenericArity == 0
+            || arguments.Length != targetGenericArity
             || !MethodSignatureTypeShape
                 .InspectMethodSpecificationArguments(
                     arguments,
@@ -782,6 +863,20 @@ internal sealed class LibraryBodyMethodReferenceResolver
             throw new BadImageFormatException(
                 "The MethodSpec signature is invalid for its target and caller scope.");
         }
+        return arguments;
+    }
+
+    MemberRef DecodeMethodSpecification(
+        MethodSpecification specification,
+        MemberRef target,
+        GenericScope scope)
+    {
+        ImmutableArray<TypeRef> arguments =
+            DecodeMethodSpecificationArguments(
+                specification,
+                target.Kind != MemberKind.Unsupported,
+                target.GenericArity,
+                scope);
 
         return target with
         {
