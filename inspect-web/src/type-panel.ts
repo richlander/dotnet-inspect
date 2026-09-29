@@ -281,6 +281,7 @@ export interface TypePanelBindingActions {
   onKindSelect: (kind: string) => void;
   onTypeLeverageActivate?: () => void;
   onTypeLeverageFilterSelect?: (filter: string) => void;
+  onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
@@ -326,6 +327,9 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-activate]")?.addEventListener(
     "click",
     () => actions.onTypeLeverageActivate?.());
+  root.querySelector("[data-type-leverage-retry]")?.addEventListener(
+    "click",
+    actions.onTypeLeverageRetry);
   root.querySelectorAll<HTMLElement>("[data-type-leverage-filter]")
     .forEach(button =>
       button.addEventListener(

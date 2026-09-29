@@ -114,6 +114,31 @@ test("zero-degree orders do not create presentation categories", () => {
   assert.equal(projection.mountainPeakCount, 0);
 });
 
+test("presentation categories include ranking-ineligible canonical rows", () => {
+  const ineligible = {
+    ...result.types[0]!,
+    typeDefinitionId: "Example.Attribute",
+    typeDisplay: "Example.Attribute",
+    rankingEligible: false,
+    signatureIncomingDegree: 20,
+    signatureOutgoingDegree: 0,
+  };
+  const projection = projectTypeLeverage({
+    ...result,
+    types: [
+      ...result.types,
+      ineligible,
+    ],
+  });
+
+  assert.equal(projection.seaLevelCount, 1);
+  assert.equal(
+    projection.byType.get(ineligible.typeDefinitionId)?.seaLevel,
+    true,
+  );
+  assert.equal(projection.byType.has("Example.Sea"), false);
+});
+
 test("malformed exact-identity orders fail visibly", () => {
   assert.throws(
     () => projectTypeLeverage({
@@ -187,4 +212,37 @@ test("operation authority suppresses stale publication and retains its cache", a
   coordinator.request({ key: "A" });
   assert.equal(published.at(-1)?.status, "ready");
   assert.equal(published.at(-1)?.key, "A");
+});
+
+test("retry bypasses a cached qualified result", async () => {
+  interface Request {
+    readonly key: string;
+  }
+  let queryCount = 0;
+  const published: TypeLeverageLoadState[] = [];
+  const coordinator = createTypeLeverageCoordinator<Request>({
+    operationAuthority: createOperationAuthorityPage(),
+    key: request => request.key,
+    query: async () => {
+      queryCount++;
+      return {
+        ...result,
+        disposition: "Qualified",
+      };
+    },
+    isCurrent: () => true,
+    describeError: error => String(error),
+    reportOperationDiagnostic: () => undefined,
+    publish: state => published.push(state),
+  });
+
+  coordinator.request({ key: "A" });
+  await Promise.resolve();
+  coordinator.request({ key: "A" });
+  assert.equal(queryCount, 1);
+
+  coordinator.retry({ key: "A" });
+  await Promise.resolve();
+  assert.equal(queryCount, 2);
+  assert.equal(published.at(-1)?.status, "ready");
 });

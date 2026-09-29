@@ -65,6 +65,23 @@ import {
   spotlightSource,
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
+
+test("qualified Type leverage exposes a cache-bypassing retry", () => {
+  const control = sourceText(functionDeclaration("typeLeverageControl"));
+  assert.match(
+    control,
+    /qualified[\s\S]*data-type-leverage-retry>Retry/,
+  );
+  assert.match(
+    appSource,
+    /onTypeLeverageRetry:\s*\(\) => loadTypeLeverage\(true\)/,
+  );
+  assert.match(
+    typePanelSource,
+    /data-type-leverage-retry[\s\S]*onTypeLeverageRetry/,
+  );
+});
+
 test("shared HTML escaping covers text and attribute delimiters", () => {
   const helper = sourceText(functionDeclaration("escapeHtml"));
   assert.deepEqual(

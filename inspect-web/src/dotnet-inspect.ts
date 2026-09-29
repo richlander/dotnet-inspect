@@ -5771,6 +5771,9 @@ function typeLeverageControl() {
           : ""}
       </details>`
     : "";
+  const retry = qualified
+    ? '<button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>'
+    : "";
   return `<div class="type-leverage-control">
     <div class="namespace-chips leverage-chips" aria-label="Type leverage filters">
       <button class="${!state.typeLeverageFilter ? "active" : ""}" data-type-leverage-filter="">all types</button>
@@ -5778,6 +5781,7 @@ function typeLeverageControl() {
       <button class="${state.typeLeverageFilter === "mountain-peak" ? "active" : ""}" data-type-leverage-filter="mountain-peak">mountain peaks · ${presentation.mountainPeakCount}</button>
     </div>
     ${qualification}
+    ${retry}
     <button type="button" class="tiny-button" data-type-leverage-activate>Hide colors</button>
   </div>`;
 }
@@ -10988,6 +10992,7 @@ function bindTypePanelEvents() {
       }
       loadTypeLeverage(Boolean(state.typeLeverageError));
     },
+    onTypeLeverageRetry: () => loadTypeLeverage(true),
     onTypeLeverageFilterSelect: filter => {
       if (filter !== ""
         && filter !== "sea-level"

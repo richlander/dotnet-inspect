@@ -80,12 +80,13 @@ function category(
     const row = rows.get(id);
     if (!row || !row.rankingEligible)
       throw new Error(`Type leverage order contains ineligible Type '${id}'.`);
-    maximum = Math.max(maximum, degree(row));
   }
+  for (const row of rows.values())
+    maximum = Math.max(maximum, degree(row));
   const categoryDegrees = new Map<string, number>();
   if (maximum === 0) return categoryDegrees;
-  for (const id of order) {
-    const value = degree(rows.get(id)!);
+  for (const [id, row] of rows) {
+    const value = degree(row);
     if (value >= maximum * categoryThreshold) {
       categoryDegrees.set(id, Math.sqrt(value / maximum));
     }
