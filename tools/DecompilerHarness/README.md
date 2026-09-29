@@ -1713,9 +1713,15 @@ remains a candidate next axis.
 
 Validity renders through the same metadata-backed first product projection:
 sibling-method import is available to cross-method raises, and the assembly's
-type-disjointness oracle is available to guarded pattern raises. The lowered
-selector keeps its intentionally reduced pass set while retaining sibling
-import; it does not broaden lowered raising with a separate disjointness seam.
+type-disjointness oracle is available to guarded pattern raises. The semantic
+lane compiles the product printer's fully qualified type artifact before
+host-owned collision-aware shortening. A fully qualified target-assembly
+namespace unavailable to the isolated shell is classified as shell-visibility
+noise (`CS0400`); the harness does not reference the inspected assembly because
+its runtime closure may already contain a different version of that product
+assembly. The lowered selector keeps its intentionally reduced pass set while
+retaining sibling import; it does not broaden lowered raising with a separate
+disjointness seam.
 
 Shell-noise classification uses diagnostic IDs, source spans, syntax, and
 semantic symbols rather than localized diagnostic prose. If a supported
