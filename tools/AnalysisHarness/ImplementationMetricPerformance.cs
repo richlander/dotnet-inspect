@@ -73,11 +73,11 @@ public static class ImplementationMetricPerformance
         [
             new(
                 "body-size",
-                ImplementationMetricEvidenceKind.BodySize),
+                ImplementationMetricKind.BodySize),
             new(
                 "body-size-plus-relationships",
-                ImplementationMetricEvidenceKind.BodySize
-                    | ImplementationMetricEvidenceKind
+                ImplementationMetricKind.BodySize
+                    | ImplementationMetricKind
                         .SiblingOverloadRelationships),
             new(
                 "complete-profile-v1",
@@ -95,7 +95,7 @@ public static class ImplementationMetricPerformance
                     image,
                     scope,
                     limits,
-                    scenario.Evidence);
+                    scenario.Metrics);
             }
         }
 
@@ -130,7 +130,7 @@ public static class ImplementationMetricPerformance
                         image,
                         scope,
                         limits,
-                        scenario.Evidence);
+                        scenario.Metrics);
                 TimeSpan elapsed =
                     Stopwatch.GetElapsedTime(started);
                 TimeSpan cpu =
@@ -186,13 +186,13 @@ public static class ImplementationMetricPerformance
         ImmutableArray<byte> image,
         ImmutableHashSet<int> scope,
         ImplementationMetricWorkLimits limits,
-        ImplementationMetricEvidenceKind evidence) =>
+        ImplementationMetricKind metrics) =>
         LibraryBodyAnalysisService.ExecuteImage(
             "System.Private.CoreLib.dll",
             image,
             LibraryBodyAnalysisRequest
                 .CreateImplementationMetrics(
-                    evidence,
+                    metrics,
                     limits,
                     scope));
 
@@ -210,8 +210,8 @@ public static class ImplementationMetricPerformance
             ?? throw new InvalidOperationException(
                 "Finite implementation metric work was not published.");
         int relationshipCount =
-            scenario.Evidence.HasFlag(
-                ImplementationMetricEvidenceKind
+            scenario.Metrics.HasFlag(
+                ImplementationMetricKind
                     .SiblingOverloadRelationships)
                 ? MethodImplementationProfileAnalysis
                     .CollectOverloadRelationships(
@@ -384,7 +384,7 @@ public static class ImplementationMetricPerformance
 
     sealed record Scenario(
         string Name,
-        ImplementationMetricEvidenceKind Evidence);
+        ImplementationMetricKind Metrics);
 
     readonly record struct Sample(
         double ElapsedMilliseconds,
