@@ -20,8 +20,8 @@ public partial class PlatformLibraryRealizationTests
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("runtime-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("runtime-catalog")
                 .Issue("System.Text.Json");
         var request = Request(
             library,
@@ -65,11 +65,19 @@ public partial class PlatformLibraryRealizationTests
                         correspondence,
                         Consumed(assemblies: 2)));
 
-        LibraryReference realized = completed.Value.Reference;
+        LibraryReference realized = completed.Value.Library;
         Assert.Same(realized, completed.Owner.Reference);
+        Assert.Same(completed.Value, completed.Receipt.RealizedLibrary);
         Assert.Same(
             realized,
-            completed.Receipt.RealizedLibrary);
+            completed.Receipt.RealizedLibrary!.Library);
+        Assert.Same(referenceContribution.Target, completed.Value.Target);
+        Assert.Equal(
+            [referenceContribution, implementationContribution],
+            completed.Value.Contributions);
+        Assert.Same(
+            correspondence.Identity,
+            completed.Value.ViewCorrespondenceIdentity);
         Assert.Same(artifacts[0], realized.ApiAssembly.ArtifactReference);
         Assert.Same(
             artifacts[1],
@@ -115,8 +123,8 @@ public partial class PlatformLibraryRealizationTests
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("reference-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("reference-catalog")
                 .Issue("System.Collections");
         var request = Request(
             library,
@@ -139,8 +147,11 @@ public partial class PlatformLibraryRealizationTests
                     artifacts.IssueContentLease(0),
                     Consumed(assemblies: 1)));
 
-        Assert.Null(completed.Value.Reference.ImplementationAssembly);
-        Assert.Single(completed.Value.Reference.Contents);
+        Assert.Null(completed.Value.Library.ImplementationAssembly);
+        Assert.Single(completed.Value.Library.Contents);
+        Assert.Same(contribution.Target, completed.Value.Target);
+        Assert.Equal([contribution], completed.Value.Contributions);
+        Assert.Null(completed.Value.ViewCorrespondenceIdentity);
         await completed.Owner.DisposeAsync();
     }
 
@@ -150,8 +161,8 @@ public partial class PlatformLibraryRealizationTests
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("runtime-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("runtime-catalog")
                 .Issue("System.Memory");
         var request = Request(
             library,
@@ -178,7 +189,7 @@ public partial class PlatformLibraryRealizationTests
                     Consumed(assemblies: 1)));
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Unavailable>(
+                PlatformLibraryReference>.Unavailable>(
                     result.Outcome);
 
         Assert.Equal(
@@ -194,8 +205,8 @@ public partial class PlatformLibraryRealizationTests
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("runtime-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("runtime-catalog")
                 .Issue("System.Memory");
         var request = Request(
             library,
@@ -226,14 +237,18 @@ public partial class PlatformLibraryRealizationTests
                     Consumed(assemblies: 1)));
 
         Assert.Same(
-            completed.Value.Reference.ApiAssembly,
-            completed.Value.Reference.ImplementationAssembly);
+            completed.Value.Library.ApiAssembly,
+            completed.Value.Library.ImplementationAssembly);
         Assert.Equal(
             [
                 LibraryContentRole.ApiAssembly,
                 LibraryContentRole.ImplementationAssembly,
             ],
-            completed.Value.Reference.ApiAssembly.Roles);
+            completed.Value.Library.ApiAssembly.Roles);
+        Assert.Equal([contribution], completed.Value.Contributions);
+        Assert.Same(
+            declaration.Identity,
+            completed.Value.ViewCorrespondenceIdentity);
         await completed.Owner.DisposeAsync();
     }
 
@@ -243,8 +258,8 @@ public partial class PlatformLibraryRealizationTests
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("reference-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("reference-catalog")
                 .Issue("System.Runtime");
         var request = Request(
             library,
@@ -272,10 +287,10 @@ public partial class PlatformLibraryRealizationTests
                     foreignLease,
                     Consumed(assemblies: 1)));
         PlatformHouseOutcome<
-            PlatformLibraryRealizationValue>.Rejected rejected =
+            PlatformLibraryReference>.Rejected rejected =
                 Assert.IsType<
                     PlatformHouseOutcome<
-                        PlatformLibraryRealizationValue>.Rejected>(
+                        PlatformLibraryReference>.Rejected>(
                             result.Outcome);
 
         Assert.Equal(
@@ -291,8 +306,8 @@ public partial class PlatformLibraryRealizationTests
     public async Task
         ContentSelection_RejectsForeignMetadataProjection()
     {
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("reference-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("reference-catalog")
                 .Issue("System.Runtime");
         var request = Request(
             library,
@@ -323,12 +338,48 @@ public partial class PlatformLibraryRealizationTests
 
     [Fact]
     public async Task
+        PopulationContentSelection_RejectsForeignMetadataProjection()
+    {
+        var request = PopulationRequest(
+            TestContext.Current.CancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location),
+                (
+                    contribution,
+                    typeof(PlatformHousePopulationRealizer)
+                        .Assembly.Location));
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformPopulationLibraryContentSelection(
+                artifacts[0],
+                artifacts.Projection(1),
+                new PlatformPopulationMemberAttribution(
+                    Target(),
+                    PlatformPopulationMemberRole.Focus)));
+
+        PlatformPopulationLibraryContentSelection selected =
+            artifacts.PopulationSelection(0);
+        Assert.Same(contribution, selected.Contribution);
+        Assert.Equal(
+            typeof(JsonSerializer).Assembly.GetName().Name,
+            selected.AssemblyIdentity.Identity.Name);
+    }
+
+    [Fact]
+    public async Task
         ExactLibraryRealizer_RejectsUnauthorizedSourceWithoutAcceptingLease()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("reference-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("reference-catalog")
                 .Issue("System.Runtime");
         var request = Request(
             library,
@@ -355,7 +406,7 @@ public partial class PlatformLibraryRealizationTests
 
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Rejected>(
+                PlatformLibraryReference>.Rejected>(
                     result.Outcome);
         Assert.Equal(0x4d, ReadByte(lease, cancellationToken));
         lease.Dispose();
@@ -365,8 +416,8 @@ public partial class PlatformLibraryRealizationTests
     public async Task
         ExactLibraryRealizer_CancellationPrecedesOwnershipAcceptance()
     {
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("reference-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("reference-catalog")
                 .Issue("System.Runtime");
         var baseline = Request(
             library,
@@ -406,8 +457,8 @@ public partial class PlatformLibraryRealizationTests
     [Fact]
     public void PlatformHouseFailedOutcome_RetainsTypedResourceFreeEvidence()
     {
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("reference-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("reference-catalog")
                 .Issue("System.Runtime");
         var request = Request(
             library,
@@ -450,8 +501,8 @@ public partial class PlatformLibraryRealizationTests
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("runtime-catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("runtime-catalog")
                 .Issue("System.Text.Json");
         var request = Request(
             library,
@@ -504,7 +555,7 @@ public partial class PlatformLibraryRealizationTests
 
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryRealizationValue>.Rejected>(
+                PlatformLibraryReference>.Rejected>(
                     terminal.TerminalRealization.Outcome);
         Assert.Equal(0, opens);
     }
@@ -765,7 +816,7 @@ public partial class PlatformLibraryRealizationTests
                             sourceOperations: 1,
                             assemblies: 2)));
 
-        Assert.Equal(2, completed.Value.Libraries.Count);
+        Assert.Equal(2, completed.Value.Members.Count);
         Assert.Equal(2, completed.Owners.Count);
         Assert.Same(
             contribution,
@@ -774,9 +825,19 @@ public partial class PlatformLibraryRealizationTests
                 .Contribution);
         for (int index = 0; index < completed.Owners.Count; index++)
         {
+            PlatformPopulationMember member =
+                completed.Value.Members[index];
             LibraryReference library =
-                completed.Value.Libraries[index];
+                member.PlatformLibrary.Library;
             Assert.Same(library, completed.Owners[index].Reference);
+            Assert.Same(
+                selections[index].Attribution.Target,
+                member.PlatformLibrary.Target);
+            Assert.Equal(
+                [contribution],
+                member.PlatformLibrary.Contributions);
+            Assert.Null(
+                member.PlatformLibrary.ViewCorrespondenceIdentity);
             Assert.True(
                 AssemblyReferenceIdentity.EquivalentComparer.Equals(
                     selections[index].AssemblyIdentity.Identity,
@@ -843,10 +904,10 @@ public partial class PlatformLibraryRealizationTests
                             sourceOperations: 1,
                             assemblies: 2)));
 
-        Assert.NotNull(
+        PlatformViewCorrespondenceIdentity correspondenceIdentity =
             Assert.IsType<PlatformHouseCompletion.Realization>(
                     completed.Receipt.HouseReceipt.Completion)
-                .ViewCorrespondence);
+                .ViewCorrespondence!;
         Assert.Same(
             contribution,
             Assert.Single(
@@ -854,9 +915,20 @@ public partial class PlatformLibraryRealizationTests
                 .Contribution);
         for (int index = 0; index < completed.Owners.Count; index++)
         {
+            PlatformPopulationMember member =
+                completed.Value.Members[index];
             LibraryReference library =
-                completed.Value.Libraries[index];
+                member.PlatformLibrary.Library;
             Assert.Same(library, completed.Owners[index].Reference);
+            Assert.Same(
+                selections[index].Attribution.Target,
+                member.PlatformLibrary.Target);
+            Assert.Equal(
+                [contribution],
+                member.PlatformLibrary.Contributions);
+            Assert.Same(
+                correspondenceIdentity,
+                member.PlatformLibrary.ViewCorrespondenceIdentity);
             Assert.Same(
                 library.ApiAssembly,
                 library.ImplementationAssembly);
@@ -945,15 +1017,28 @@ public partial class PlatformLibraryRealizationTests
             completed.Value.Members.Select(
                 static member => member.Target));
         Assert.Equal(
+            [aspNetTarget, support.Target],
+            completed.Value.Members.Select(
+                static member => member.PlatformLibrary.Target));
+        PlatformViewCorrespondenceIdentity correspondenceIdentity =
+            Assert.IsType<PlatformHouseCompletion.Realization>(
+                    completed.Receipt.HouseReceipt.Completion)
+                .ViewCorrespondence!;
+        Assert.All(
+            completed.Value.Members,
+            member => Assert.Same(
+                correspondenceIdentity,
+                member.PlatformLibrary.ViewCorrespondenceIdentity));
+        Assert.Equal(
             [
                 PlatformFamily.AspNetCore,
                 PlatformFamily.DotNetRuntime,
             ],
-            completed.Value.Libraries.Select(
-                static library =>
+            completed.Value.Members.Select(
+                static member =>
                     Assert.IsType<
                             ExactLibrarySourceCoordinate.Platform>(
-                            library.SourceCoordinate)
+                            member.PlatformLibrary.Library.SourceCoordinate)
                         .Population.Family));
         Assert.Same(
             completed.Value.Members[0],
@@ -1027,25 +1112,42 @@ public partial class PlatformLibraryRealizationTests
                             sourceOperations: 2,
                             assemblies: 4)));
 
-        Assert.Equal(3, completed.Value.Libraries.Count);
+        Assert.Equal(3, completed.Value.Members.Count);
         Assert.Equal(3, completed.Owners.Count);
         Assert.Equal(
             [referenceContribution, implementationContribution],
             completed.Receipt.HouseReceipt.SourceSettlements
                 .Select(static settlement => settlement.Contribution));
-        Assert.NotNull(
+        PlatformViewCorrespondenceIdentity correspondenceIdentity =
             Assert.IsType<PlatformHouseCompletion.Realization>(
                     completed.Receipt.HouseReceipt.Completion)
-                .ViewCorrespondence);
+                .ViewCorrespondence!;
 
-        LibraryReference paired = completed.Value.Libraries[0];
+        LibraryReference paired =
+            completed.Value.Members[0].PlatformLibrary.Library;
+        Assert.Equal(
+            [referenceContribution, implementationContribution],
+            completed.Value.Members[0]
+                .PlatformLibrary.Contributions);
+        Assert.Same(
+            correspondenceIdentity,
+            completed.Value.Members[0]
+                .PlatformLibrary.ViewCorrespondenceIdentity);
         Assert.Same(artifacts[0], paired.ApiAssembly.ArtifactReference);
         Assert.Same(
             artifacts[2],
             paired.ImplementationAssembly!.ArtifactReference);
         Assert.Equal(2, paired.Contents.Count);
 
-        LibraryReference referenceOnly = completed.Value.Libraries[1];
+        LibraryReference referenceOnly =
+            completed.Value.Members[1].PlatformLibrary.Library;
+        Assert.Equal(
+            [referenceContribution],
+            completed.Value.Members[1]
+                .PlatformLibrary.Contributions);
+        Assert.Null(
+            completed.Value.Members[1]
+                .PlatformLibrary.ViewCorrespondenceIdentity);
         Assert.Same(
             artifacts[1],
             referenceOnly.ApiAssembly.ArtifactReference);
@@ -1053,7 +1155,15 @@ public partial class PlatformLibraryRealizationTests
         Assert.Single(referenceOnly.Contents);
 
         LibraryReference implementationOnly =
-            completed.Value.Libraries[2];
+            completed.Value.Members[2].PlatformLibrary.Library;
+        Assert.Equal(
+            [implementationContribution],
+            completed.Value.Members[2]
+                .PlatformLibrary.Contributions);
+        Assert.Same(
+            correspondenceIdentity,
+            completed.Value.Members[2]
+                .PlatformLibrary.ViewCorrespondenceIdentity);
         Assert.Same(
             artifacts[3],
             implementationOnly.ApiAssembly.ArtifactReference);
@@ -1067,7 +1177,7 @@ public partial class PlatformLibraryRealizationTests
         for (int index = 0; index < completed.Owners.Count; index++)
         {
             Assert.Same(
-                completed.Value.Libraries[index],
+                completed.Value.Members[index].PlatformLibrary.Library,
                 completed.Owners[index].Reference);
             await completed.Owners[index].DisposeAsync();
         }
@@ -1176,11 +1286,11 @@ public partial class PlatformLibraryRealizationTests
                             sourceOperations: 2,
                             assemblies: 2)));
 
-        Assert.Equal(2, completed.Value.Libraries.Count);
+        Assert.Equal(2, completed.Value.Members.Count);
         LibraryReference referenceOnly =
-            completed.Value.Libraries[0];
+            completed.Value.Members[0].PlatformLibrary.Library;
         LibraryReference implementationOnly =
-            completed.Value.Libraries[1];
+            completed.Value.Members[1].PlatformLibrary.Library;
         Assert.Equal(
             referenceOnly.ApiAssembly.AssemblyIdentity!.Name,
             implementationOnly.ApiAssembly.AssemblyIdentity!.Name);
@@ -1460,7 +1570,7 @@ public partial class PlatformLibraryRealizationTests
             typeof(PlatformLibraryArtifactProvenance),
             typeof(PlatformLibraryContentSelection),
             typeof(PlatformLibraryViewCorrespondence),
-            typeof(PlatformLibraryRealizationValue),
+            typeof(PlatformLibraryReference),
             typeof(PlatformLibraryRealizationReceipt),
             typeof(PlatformPopulationLibraryContentSelection),
             typeof(PlatformPopulationMemberAttribution),
@@ -1499,11 +1609,38 @@ public partial class PlatformLibraryRealizationTests
         }
     }
 
+    [Fact]
+    public void RetiredPlatformLibraryProjections_AreAbsent()
+    {
+        Assert.Null(
+            typeof(PlatformLibraryReference).Assembly.GetType(
+                "DotnetInspector.PlatformHouse."
+                    + "PlatformLibraryRealizationValue"));
+        Assert.Null(
+            typeof(PlatformLibraryDemandIdentity).Assembly.GetType(
+                "DotnetInspector.PlatformHouse."
+                    + "PlatformLibraryIdentity"));
+        Assert.Null(
+            typeof(PlatformLibraryDemandIdentityAuthority).Assembly.GetType(
+                "DotnetInspector.PlatformHouse."
+                    + "PlatformLibraryIdentityAuthority"));
+        Assert.Null(
+            typeof(PlatformPopulationRealizationValue)
+                .GetProperty("Libraries"));
+        Assert.Null(
+            typeof(PlatformPopulationRealizationReceipt)
+                .GetProperty("RealizedLibraries"));
+        Assert.Null(
+            typeof(PlatformPopulationMember).GetProperty("Library"));
+        Assert.Null(
+            typeof(PlatformPopulationMember).GetProperty("Attribution"));
+    }
+
     static (
         PlatformHouseRequest Request,
         PlatformSourceCapabilityIdentity Reference,
         PlatformSourceCapabilityIdentity Implementation) Request(
-            PlatformLibraryIdentity library,
+            PlatformLibraryDemandIdentity library,
             PlatformViewDemand view,
             CancellationToken cancellationToken = default)
     {
