@@ -157,11 +157,12 @@ than an inspected artifact:
 - `tests/NLinq.Oracle` is the pinned NLinq copy, with its provenance in
   `PROVENANCE.md`.
 - `tests/DotnetInspector.PerformanceOracles` adds the operators NLinq lacks
-  (`Take`, `Skip`, `TryTakeExactly` for a strict window, and `TakeLast`), the
-  method-definition source, and the `Scorecard` harness that checks answers
-  and times rotated rounds. `MethodPopulation<TSelection>` supplies the LINQ
-  and NLinq columns for any method selection; an enablement registers its Old
-  and Planner columns beside them.
+  (`Take`, `Skip`, `TryTakeExactly` for a strict window, `TakeLast`, and
+  ordered immutable lookup), the method-definition source, and the `Scorecard`
+  harness that checks answers and times rotated rounds.
+  `MethodPopulation<TSelection>` supplies the LINQ and NLinq columns for any
+  method selection; an enablement registers its Old and Planner columns beside
+  them.
 - `tools/QuerySpaceScorecard` runs a scorecard over the public-methods
   population. `queryspace-scorecard check <assembly>...` compares answers, and
   `queryspace-scorecard time [--rounds N] [--budget-ms N] [--tsv <path>]
@@ -193,6 +194,47 @@ scorecard](https://github.com/richlander/dotnet-inspect/pull/8736) as the
 reporting precedent. It showed the Planner at 0.47–1.02× of NLinq and a
 build-every-row baseline at up to 7,000× on the same questions, while the
 end-to-end command stayed at parity because presence is a small part of it.
+
+## NLinq oracle for finite incidence
+
+A producer-owned finite-incidence optimization may reuse the pinned NLinq
+fixture without pretending to be a QuerySpace enablement. The scorecard times
+one complete batch: product code first constructs the real detached population
+outside the timed region, then each column builds the incidence and issues
+every population member's slice. Compare exact ordered values, including empty
+slices, before timing. Use a generic fixture-owned NLinq terminal rather than a
+question-specific hand-written loop.
+
+The ownership direct-call scorecard follows that contract. Analysis produces
+the method and `DirectCall` populations from each real assembly. LINQ, NLinq,
+and the product `DirectCallIncidence` mechanism each build
+physical-method-token incidence; the answer check compares every complete
+ordered call slice. The quadratic legacy scan is retired and therefore remains
+in its preserved fixed-input before/after evidence rather than making every
+multi-round oracle run repeat that cost.
+
+Run the answer check against one or more product binaries:
+
+```bash
+dotnet run --project tools/OwnershipIncidenceScorecard -c Release -- \
+  check <assembly>...
+```
+
+For timing, publish `tools/OwnershipIncidenceScorecard` as NativeAOT and run
+the resulting apphost:
+
+```bash
+dotnet publish tools/OwnershipIncidenceScorecard -c Release -r <rid> \
+  -p:PublishAot=true -p:IsPublishable=true -o <output>
+
+ownership-incidence-scorecard time \
+  [--rounds N] [--budget-ms N] [--tsv <path>] <assembly>...
+```
+
+Report Product/NLinq ratios and absolute medians alongside the end-to-end
+service measurement. The kernel oracle tracks incidence regressions; it does
+not replace profiling or allocation evidence for reaching definitions or other
+Analysis dataflow.
 
 ## Use evidence envelopes during command development
 

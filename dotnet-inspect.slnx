@@ -297,6 +297,7 @@
     <Project Path="tools/AotProbe/AotProbe.csproj" />
     <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
+    <Project Path="tools/OwnershipIncidenceScorecard/OwnershipIncidenceScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />

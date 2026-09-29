@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using NLinq;
 
@@ -28,6 +29,42 @@ namespace DotnetInspector.PerformanceOracles;
 /// </remarks>
 public static class OracleOperators
 {
+    /// <summary>
+    /// Groups the remaining source elements by key in source order.
+    /// </summary>
+    public static IReadOnlyDictionary<TKey, ImmutableArray<T>>
+        ToImmutableLookup<TEnum, T, TKey, TKeySelector>(
+            this TEnum source,
+            TKeySelector keySelector)
+        where TEnum : IEnumerator<TEnum, T>, allows ref struct
+        where TKey : notnull
+        where TKeySelector : IFunc<T, TKey>, allows ref struct
+    {
+        var groups =
+            new Dictionary<TKey, ImmutableArray<T>.Builder>();
+        while (true)
+        {
+            T item = source.TryGetNext(out bool hasMore);
+            if (!hasMore)
+                break;
+
+            TKey key = keySelector.Invoke(item);
+            if (!groups.TryGetValue(
+                    key,
+                    out ImmutableArray<T>.Builder? group))
+            {
+                groups.Add(
+                    key,
+                    group = ImmutableArray.CreateBuilder<T>());
+            }
+            group.Add(item);
+        }
+
+        return groups.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value.ToImmutable());
+    }
+
     public static TakeEnumerator<TEnum, T> Take<TEnum, T>(this TEnum source, int count)
         where TEnum : IEnumerator<TEnum, T>, allows ref struct
     {
