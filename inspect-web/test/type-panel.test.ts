@@ -2024,7 +2024,6 @@ test("member rows say what a member is rather than which kind it is", () => {
       heatStrength: index === 1 ? 1 : null,
       hub: false,
       description: index === 1 ? "33 instructions" : "8 instructions",
-      size: index === 1 ? 33 : 8,
     }),
   });
 
@@ -2032,10 +2031,11 @@ test("member rows say what a member is rather than which kind it is", () => {
   assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
   assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
   assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
-  // Nested overloads have no branch glyph, color keyword types, and show each
-  // available size with an explicit IL suffix.
+  // Nested overloads have no branch glyph, color keyword types, and retain
+  // accessible heat descriptions without rendering raw metric labels.
   assert.doesNotMatch(html, /↳|overload-branch/);
   assert.match(html, /<span class="sig-keyword">string<\/span>/);
-  assert.match(html, /<small class="overload-size" title="8 IL instructions">8IL<\/small>/);
-  assert.match(html, /<small class="overload-size" title="33 IL instructions">33IL<\/small>/);
+  assert.match(html, /aria-description="8 instructions"/);
+  assert.match(html, /aria-description="33 instructions"/);
+  assert.doesNotMatch(html, /overload-size|>8IL<|>33IL</);
 });

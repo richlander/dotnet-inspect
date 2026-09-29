@@ -37,20 +37,16 @@ import {
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
 
-test("retained Workspace clones drop live implementation callbacks", () => {
+test("retained Workspace clones drop live Type heat callbacks", () => {
   const clone = sourceText(
     functionDeclaration("cloneCanonicalWorkspaceSnapshotForRetention"),
   );
   assert.match(
     clone,
-    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*implementationProfiles:\s*\{\s*status:\s*"idle" as const\s*\},\s*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
+    /structuredClone\(\{\s*\.\.\.snapshot\.state,[\s\S]*typeHeat:\s*\{\s*status:\s*"idle" as const\s*\},\s*\}\)/,
   );
 
   const liveState = {
-    implementationProfiles: {
-      status: "ready",
-      selection: { isCurrent: () => true },
-    },
     typeHeat: {
       status: "ready",
       isCurrent: () => true,
@@ -63,11 +59,9 @@ test("retained Workspace clones drop live implementation callbacks", () => {
   assert.deepEqual(
     structuredClone({
       ...liveState,
-      implementationProfiles: { status: "idle" },
       typeHeat: { status: "idle" },
     }),
     {
-      implementationProfiles: { status: "idle" },
       typeHeat: { status: "idle" },
     },
   );
@@ -457,7 +451,7 @@ test("package call graph traversal policy is independent of saved workspace memb
     /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
 });
 
-test("source-bearing Workspace URLs use page-session retained activation", () => {
+test("complete Workspace URLs use page-session retained activation", () => {
   const initialRestore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}/)?.[0] ?? "";
   const inAppNavigation = appSource.match(
@@ -524,6 +518,9 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     workspaceFeedActivationSource,
     /describeWorkspacePackageSources[\s\S]*AuthenticationRequired[\s\S]*workspaceCredentialPromptHtml/);
+  assert.doesNotMatch(
+    workspaceFeedActivationSource,
+    /description\.sources\.length/);
   assert.match(
     workspaceFeedActivationSource,
     /patInput\.value = ""[\s\S]*credential\.pat = ""[\s\S]*secretValues\.fill\(""\)/);

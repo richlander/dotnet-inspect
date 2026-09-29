@@ -1660,7 +1660,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "source", "annotated", "compare"]);
+  new Set<MemberSection>(["facts", "annotated", "compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,

@@ -84,13 +84,13 @@ test("platform type and member navigation hides package-only operations", () => 
     ["api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph"]);
+    ["overview", "call-graph", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
-    ["overview", "call-graph"]);
+    ["overview", "call-graph", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
     [
@@ -106,36 +106,9 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph", "facts", "annotated", "compare"]);
 });
 
-test("implementation evidence follows the expanded family after paint across package and platform routes", () => {
-  const target = sourceText(functionDeclaration("implementationProfileTarget"));
-  assert.match(
-    target,
-    /state\.rootKind === "library"[\s\S]*!familyIsEligible\(type, member\)/);
-  assert.match(
-    target,
-    /const stableSelectors = member\.overloads\.map[\s\S]*overload => overload\.stableSelector[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformVersion: pkg\.version[\s\S]*pack: row\.pack[\s\S]*assemblyFileName: platformAssemblyRequest\(row\)[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
-  assert.match(
-    target,
-    /kind: "package"[\s\S]*packageId: pkg\.id[\s\S]*version: pkg\.version[\s\S]*targetFramework: pkg\.activeFramework[\s\S]*assemblyName: type\.assemblyId[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
-  // The expanded family, not a member section or overload, owns publication.
-  assert.doesNotMatch(target, /state\.memberSection/);
-  assert.match(
-    target,
-    /isCurrent: \(\) =>[\s\S]*selectedMember\(selectedType\(\)\)\?\.key === member\.key,/);
-
-  // Loading a member section never requests implementation evidence.
-  assert.equal(
-    callExpressionsNamed(
-      functionDeclaration("loadMemberSectionContent"),
-      "loadSelectedImplementationProfiles").length,
-    0);
-
-  // Every render schedules one Type heat request after paint; family detail
-  // follows only an open evidence disclosure.
+test("implementation evidence remains subtle member-list heat", () => {
   const render = sourceText(functionDeclaration("render"));
   assert.match(render, /finally[\s\S]*scheduleTypeHeat\(\);/);
-  // Rendering never requests family detail; only the disclosure does.
-  assert.doesNotMatch(render, /implementationProfiles\.activate|loadSelectedImplementationProfiles/);
   const schedule = sourceText(functionDeclaration("scheduleTypeHeat"));
   assert.match(
     schedule,
@@ -145,12 +118,6 @@ test("implementation evidence follows the expanded family after paint across pac
     heatTarget,
     /state\.rootKind === "library"[\s\S]*navMode\(\) !== "member"/);
   assert.doesNotMatch(heatTarget, /stableSelectors/);
-  // The disclosure renders open only for the overload it was opened on, while
-  // the published family detail still serves the current selection.
-  const evidenceOpen = sourceText(functionDeclaration("implementationEvidenceIsOpen"));
-  assert.match(
-    evidenceOpen,
-    /state\.implementationEvidenceKey[\s\S]*implementationEvidenceKey\(stableSelector\)[\s\S]*published\.selection\.isCurrent\(\)/);
   // Heat eligibility follows the producer: a pure single-declarer extension
   // group is eligible, while mixed or multi-declarer groups remain excluded.
   const eligible = sourceText(functionDeclaration("familyIsEligible"));
@@ -159,9 +126,7 @@ test("implementation evidence follows the expanded family after paint across pac
     /implementationHeatFamilyIsEligible\(\s*type\.accessibility,\s*memberGroups\(type\),\s*group\)/);
 
   const renderMember = sourceText(functionDeclaration("renderMember"));
-  assert.match(
-    renderMember,
-    /renderOverloadImplementationEvidence\(overload\.stableSelector\)/);
+  assert.doesNotMatch(renderMember, /Implementation evidence|>Implementation</);
   const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
   assert.match(
     memberNav,
@@ -1118,7 +1083,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 9);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 7);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {

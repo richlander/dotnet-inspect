@@ -275,7 +275,7 @@ public sealed class BodyShapeSummaryApiTests
     }
 
     [Fact]
-    public async Task EffectiveDiscovery_KeepsPresentationFilteringForUnrelatedSections()
+    public async Task EffectiveDiscovery_UsesTheMetadataOwnedPopulationForEverySection()
     {
         var result = await Run(
             ["type", typeof(BodyShapeFilterFixture).FullName!,
@@ -285,8 +285,11 @@ public sealed class BodyShapeSummaryApiTests
                 "--where", "Kind=ObjectCreationExpression"]);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("| Count |", result.Output);
-        Assert.Contains($"section '{SectionNames.Methods}' has no data", result.Error);
+        Assert.Contains($"├─ {SectionNames.BodyShapeSummary}", result.Output);
+        Assert.Contains("Count (column)", result.Output);
+        Assert.Contains($"└─ {SectionNames.Methods}", result.Output);
+        Assert.Contains("Signature (column)", result.Output);
+        Assert.DoesNotContain("has no data", result.Error);
         Assert.DoesNotContain("Error:", result.Error);
     }
 
