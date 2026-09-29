@@ -373,7 +373,9 @@ internal sealed record ImplementationMetricAnalysisPlan(
         HeaderEvidence
         | ImplementationMetricEvidenceKind.Locals
         | FocusedContextEvidence
-        | ImplementationMetricEvidenceKind.DirectCalls;
+        | ImplementationMetricEvidenceKind.DirectCalls
+        | ImplementationMetricEvidenceKind
+            .SiblingOverloadRelationships;
 
     const ImplementationMetricEvidenceKind FocusedContextEvidence =
         ImplementationMetricEvidenceKind.InstructionShape

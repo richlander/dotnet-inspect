@@ -10,7 +10,7 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
 {
     [Fact]
     public async Task
-        AdapterProducesExactBindingContributionAfterPackageSettlement()
+        AdapterProducesNamesakeBindingContributionAfterPackageSettlement()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
@@ -18,10 +18,12 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         await using PackagePlatformTestEnvironment environment =
             Environment(image);
         PackagePlatformHouseAdapter adapter = Adapter(environment);
-        AssemblyReferenceIdentity identity =
+        AssemblyReferenceIdentity targetIdentity =
             PackagePlatformTestData.Identity(image);
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
         PlatformHouseRequest request =
-            Request(adapter, identity, cancellationToken);
+            Request(adapter, sourceIdentity, cancellationToken);
 
         var reference = Assert.IsType<
             PackagePlatformHouseResult<
@@ -40,12 +42,17 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         var population =
             Assert.IsType<PlatformPopulationDemand.Library>(
                 contribution.Population);
-        var assembly = Assert.IsType<PlatformLibraryDemand.Assembly>(
-            population.Value);
+        var binding = Assert.IsType<
+            PlatformLibraryDemand.AssemblyReferenceBinding>(
+                population.Value);
+        var sourceBinding = Assert.IsType<
+            PackageReferencePopulationDemand.AssemblyReferenceBinding>(
+                reference.Value.Population);
         PackageReferenceLibrary library =
             Assert.Single(reference.Value.Libraries);
-        Assert.True(identity.IsEquivalentTo(assembly.Identity));
-        Assert.True(identity.IsEquivalentTo(library.Identity));
+        Assert.Equal(sourceIdentity, binding.Identity);
+        Assert.Equal(sourceIdentity, sourceBinding.Identity);
+        Assert.True(targetIdentity.IsEquivalentTo(library.Identity));
         Assert.Same(request.Snapshot, contribution.Request);
         Assert.Same(((PlatformTargetDemand.Exact)request.Target).Target,
             contribution.Target);
@@ -70,10 +77,12 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         await using PackagePlatformTestEnvironment environment =
             Environment(image);
         PackagePlatformHouseAdapter adapter = Adapter(environment);
-        PlatformHouseRequest request = Request(
-            adapter,
-            PackagePlatformTestData.Identity(image),
-            cancellationToken);
+        AssemblyReferenceIdentity targetIdentity =
+            PackagePlatformTestData.Identity(image);
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
+        PlatformHouseRequest request =
+            Request(adapter, sourceIdentity, cancellationToken);
         var reference = Assert.IsType<
             PackagePlatformHouseResult<
                 PackageReferenceRealization>.Succeeded>(
@@ -107,6 +116,7 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
 
         var decision = Assert.IsType<AssemblyBindingDecision.Resolved>(
             completed.Value);
+        Assert.Equal(targetIdentity, decision.Candidate.Identity);
         var platformProvenance =
             Assert.IsType<PlatformLibraryArtifactProvenance>(
                 decision.Candidate.Registration
@@ -152,6 +162,164 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             PlatformHouseSettlementKind.Completed,
             completed.Receipt.SettlementKind);
         Assert.Equal(consumed, completed.Receipt.ConsumedWork);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_IncompatibleNamesakeReportsNameOwnedNoMatch()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            Environment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        AssemblyReferenceIdentity sourceIdentity =
+            PackagePlatformTestData.Identity(image) with
+            {
+                Version = new Version(8, 0, 0, 0),
+                PublicKeyToken = "0000000000000000",
+            };
+        PlatformHouseRequest request =
+            Request(adapter, sourceIdentity, cancellationToken);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        await environment.AssertSettledAsync();
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+        var missing = Assert.IsType<AssemblyBindingDecision.Missing>(
+            completed.Value);
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            missing.Disposition);
+        Assert.Equal(
+            PlatformAssemblyReferenceCompletionKind.NameOwnedNoMatch,
+            Assert.IsType<PlatformHouseCompletion.AssemblyReference>(
+                    completed.Receipt.Completion)
+                .Kind);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_AbsentNamesakeReportsNoNameOwner()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+                [
+                    TestSourceBehavior.Create(
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        entries: []),
+                ]);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = Request(
+            adapter,
+            PackagePlatformTestData.Identity(image),
+            cancellationToken);
+        var terminal = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        await environment.AssertSettledAsync();
+        var unavailable =
+            Assert.IsType<PlatformSourceContribution.Unavailable>(
+                terminal.Contribution);
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        terminal,
+                        TerminalConsumed(
+                            PackageSourceTerminalCase.Unavailable)));
+        var missing = Assert.IsType<AssemblyBindingDecision.Missing>(
+            completed.Value);
+
+        Assert.Equal(
+            PlatformSourceUnavailabilityKind.Absent,
+            unavailable.Reason);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+        Assert.Equal(
+            PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+            Assert.IsType<PlatformHouseCompletion.AssemblyReference>(
+                    completed.Receipt.Completion)
+                .Kind);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_UnavailablePackageRemainsUnavailable()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = Image();
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+                [
+                    TestSourceBehavior.Create(
+                        PackagePlatformTestEnvironment.RuntimePackageId),
+                ]);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = Request(
+            adapter,
+            PackagePlatformTestData.Identity(image),
+            cancellationToken);
+        var terminal = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        await environment.AssertSettledAsync();
+        var unavailable =
+            Assert.IsType<PlatformSourceContribution.Unavailable>(
+                terminal.Contribution);
+
+        var outcome = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Unavailable>(
+                await PackagePlatformAssemblyReferenceResolver
+                    .ResolveAsync(
+                        request,
+                        terminal,
+                        TerminalConsumed(
+                            PackageSourceTerminalCase.Unavailable)));
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.PackageUnavailable,
+            terminal.Diagnostic.Kind);
+        Assert.Equal(
+            PlatformSourceUnavailabilityKind.Unavailable,
+            unavailable.Reason);
+        Assert.Equal(
+            PlatformHouseSettlementKind.Unavailable,
+            outcome.Receipt.SettlementKind);
     }
 
     [Fact]
@@ -427,6 +595,9 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
                         PackagePlatformTestData.Entry(
                             "ref/net11.0/System.Text.Json.dll",
                             image),
+                        PackagePlatformTestData.Entry(
+                            "ref/net11.0/Unrelated.dll",
+                            [0, 1, 2, 3]),
                     ]),
             ]);
 

@@ -149,6 +149,105 @@ public sealed class PlatformAssemblyReferenceResolverTests
 
     [Fact]
     public async Task
+        ResolveAsync_BindingDemandReportsNameOwnedNoMatch()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity targetIdentity =
+            Descriptor(image).Identity;
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with
+            {
+                Version = new Version(8, 0, 0, 0),
+                PublicKeyToken = "0000000000000000",
+            };
+        var input = Input(
+            sourceIdentity,
+            image,
+            static () => true,
+            static () => { },
+            cancellationToken,
+            materializedIdentity: targetIdentity,
+            bindingDemand: true);
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    input.Request,
+                    input.Item,
+                    input.Consumed));
+        var missing = Assert.IsType<AssemblyBindingDecision.Missing>(
+            completed.Value);
+        var completion =
+            Assert.IsType<PlatformHouseCompletion.AssemblyReference>(
+                completed.Receipt.Completion);
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            missing.Disposition);
+        Assert.Equal(
+            PlatformAssemblyReferenceCompletionKind.NameOwnedNoMatch,
+            completion.Kind);
+        Assert.Same(
+            input.Contribution,
+            Assert.Single(completion.SourceSettlements).Contribution);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_AuthoritativeAbsenceReportsNoNameOwner()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [capability],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 1,
+            maxAssemblies: 0,
+            maxBytes: 0);
+        var absent = TerminalAttempt(
+            request,
+            capability,
+            PlatformSourceContributionKind.Unavailable,
+            PlatformSourceUnavailabilityKind.Absent);
+
+        var completed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [absent],
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 0,
+                        bytes: 0)));
+        var missing = Assert.IsType<AssemblyBindingDecision.Missing>(
+            completed.Value);
+        var completion =
+            Assert.IsType<PlatformHouseCompletion.AssemblyReference>(
+                completed.Receipt.Completion);
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+        Assert.Equal(
+            PlatformAssemblyReferenceCompletionKind.NoNameOwner,
+            completion.Kind);
+        Assert.Same(
+            absent.Contribution,
+            Assert.Single(completion.SourceSettlements).Contribution);
+    }
+
+    [Fact]
+    public async Task
         ResolveAsync_RejectsNonGlobalInputBeforeSourceAccess()
     {
         CancellationToken cancellationToken =
