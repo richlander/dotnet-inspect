@@ -39,6 +39,13 @@ internal sealed record ImplementationMetricDirectCalls(
     internal bool IsComplete => IncompleteReason is null;
 }
 
+internal sealed record ImplementationMetricSiblingRelationships(
+    ImmutableArray<OverloadCallRelationship> Relationships,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    internal bool IsComplete => Diagnostics.IsEmpty;
+}
+
 internal sealed record MethodImplementationMetricEvidence(
     MethodIdentity Method,
     MethodIdentity EvidenceMethod,
@@ -78,6 +85,7 @@ internal sealed record LibraryImplementationMetricAnalysisResult(
     ImmutableArray<MethodIdentity> DeclaredMethods,
     ImmutableArray<MethodIdentity> ManagedMethodBodies,
     ImmutableArray<MethodImplementationMetricEvidence> Bodies,
+    ImplementationMetricSiblingRelationships? SiblingRelationships,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 internal sealed record ImplementationMetricStageParticipationSnapshot(

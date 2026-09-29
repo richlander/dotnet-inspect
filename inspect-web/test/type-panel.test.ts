@@ -1074,12 +1074,50 @@ test("type source signature routes through the shared decompiler-taste-aware key
       "System.Text.Json",
       "9.0.0",
       "net9.0",
+      "",
+      "",
       "System.Text.Json.dll",
       "T:System.Text.Json.JsonSerializer",
       "source",
     ],
     taste: ["identifier-casing"],
   }]);
+});
+
+test("platform type source identity includes pack and retained context", () => {
+  const item = {
+    ...jsonSerializer,
+    platformPack: "netcore.app",
+  };
+  const packageContext = {
+    id: ":Platform",
+    version: "11.0.0",
+    activeFramework: "net11.0",
+    platformContextId: "demo-context",
+  };
+  const requestKey = (parts: readonly string[], taste: readonly string[]) =>
+    JSON.stringify([parts, taste]);
+
+  const signature = typeSourceSignature(
+    item,
+    packageContext,
+    [],
+    requestKey);
+
+  assert.notEqual(
+    signature,
+    typeSourceSignature(
+      { ...item, platformPack: "aspnetcore.app" },
+      packageContext,
+      [],
+      requestKey));
+  assert.notEqual(
+    signature,
+    typeSourceSignature(
+      item,
+      { ...packageContext, platformContextId: null },
+      [],
+      requestKey));
 });
 
 test("type code view identity applies decompiler taste only to implementation source", () => {

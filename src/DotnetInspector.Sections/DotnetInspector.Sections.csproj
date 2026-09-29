@@ -30,6 +30,7 @@
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="../DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
     <ProjectReference Include="../ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />

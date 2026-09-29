@@ -344,9 +344,10 @@ code-sharing rationale, current slice and residual work, and the demo with a
 neighboring case. Use `Not applicable — <reason>` only when the reason names
 the relevant change classification and exact-head evidence; cite the owning
 design's exact section when it defines the boundary.
-Agents that prefer a structured composition aid may instead fill the optional
+Agents that prefer a structured composition aid may fill the append-only
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
-which includes the same fixed prompt followed by candidate placeholders.
+then append it after the complete canonical prompt. The checklist contains only
+candidate placeholders; it never duplicates or replaces the fixed prompt.
 
 Do not dispatch with a generic or incoherent frame. The prompt must name one
 normative owner and exact claim, the supported actor or caller, the controlled

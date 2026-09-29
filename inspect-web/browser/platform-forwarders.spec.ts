@@ -30,6 +30,7 @@ async function openXml(
   await expect(page.locator('[data-inspector-tab][data-lens="overview"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-lens="metadata"]')).toHaveCount(0);
   await expect(page.locator('[data-lens="api"]')).toHaveCount(0);
+  await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
 }
 
 // PR-fast: production UI over deterministic responses for the real XML route.
@@ -39,8 +40,10 @@ test("XML forwarders open each immediate Library and restore fresh history actio
   await page.locator("[data-platform-forwarder]").click();
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
   await expect(page.locator("#forwarded-type-title")).toBeFocused();
+  await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
   await page.locator("[data-platform-forwarder]").click();
   await expect(page.locator('[data-inspector-tab][data-lens="api"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toBeVisible();
   await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
   await expect(page.locator('[data-type="System.Private.Xml:System.Xml.XmlReader"]')).toBeVisible();
   await page.locator("#nav-back").click();

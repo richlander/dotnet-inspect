@@ -1687,7 +1687,10 @@ export function typeLensesFor(
   forwarded = false,
 ): readonly (readonly [TypeLens, string])[] {
   if (forwarded) return [["overview", "Overview"]];
-  if (pkg?.isRuntimePack) return lenses.filter(([id]) => id === "api");
+  if (pkg?.source?.kind === "file")
+    return lenses.filter(([id]) => id === "api");
+  if (pkg?.isRuntimePack)
+    return lenses.filter(([id]) => id === "api" || id === "source");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"

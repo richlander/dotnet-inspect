@@ -4,8 +4,12 @@
 
 This document is the normative owner for the host-neutral Vocabulary Mappings
 pattern tracked by [#8593](https://github.com/richlander/dotnet-inspect/issues/8593).
-The pattern and its Product Vocabulary first adoption are designed but not yet
-implemented.
+The pattern is designed. Core construction and Product Vocabulary CLI adoption
+are implemented by
+[#8754](https://github.com/richlander/dotnet-inspect/issues/8754); Inspect Web
+adoption and retirement of its superseded local shape are tracked by
+[#8755](https://github.com/richlander/dotnet-inspect/issues/8755) and implemented
+by [#8861](https://github.com/richlander/dotnet-inspect/pull/8861).
 
 [Product Vocabulary](vocabulary.md) is the first adopter. Its existing CLI
 output and Browser catalog prove the need and supply the first production data.
@@ -195,6 +199,8 @@ choice vocabulary: csharp.style-choices
 tier vocabulary:   csharp.style-tiers
 tier map:           tier
 conflict map:       conflict_group
+choice badge map:   oracle_endorsed
+tier badge map:     byte_divergent
 ```
 
 This knowledge is part of the Settings feature contract. The Browser does not
@@ -450,6 +456,10 @@ The snapshot is data, not rendered output.
   projection.
 - Browser/Wasm receives generated JSON-wire declarations and owns interaction
   and HTML presentation.
+- The Browser wire scopes vocabulary, term-definition, and map-definition
+  identities to their containing snapshot or vocabulary. Cross-vocabulary
+  values retain their full typed identity, so the compact encoding is
+  lossless rather than a second semantic model.
 - Hosts may select, search, group, or omit terms for a specific experience.
   They do not rename identities, restate labels, invent mappings, or infer
   relationships from scalar equality.
@@ -512,16 +522,16 @@ Inspect Web test/build gates own the Browser adoption.
 
 This shared substrate has a counted three-step path to both production hosts:
 
-1. **Focused design — current.** Lock this pattern and the bounded Product
-   Vocabulary adoption.
-2. **Core and CLI adoption.** Implement the typed snapshot, validation, exact
-   identity, completed inspection envelope, Product Vocabulary projection, and
-   unchanged CLI compatibility output. The CLI then consumes the snapshot as
-   its one term-and-map source while its Product Vocabulary adapter retains
-   query-operator behavior.
-3. **Browser adoption and retirement.** Export the same snapshot through the
-   generated facade, migrate Settings to typed map resolution under its
-   explicit feature binding, and remove the Browser-local semantic row
+1. **Focused design — complete.** The merged design locks this pattern and the
+   bounded Product Vocabulary adoption.
+2. **Core and CLI adoption — #8754.** Implement the typed snapshot, validation,
+   exact identity, completed inspection envelope, Product Vocabulary
+   projection, and unchanged CLI compatibility output. The CLI consumes the
+   snapshot as its one term-and-map source while its Product Vocabulary adapter
+   retains query-operator behavior.
+3. **Browser adoption and retirement — #8755.** Export the same snapshot
+   through the generated facade, migrate Settings to typed map resolution under
+   its explicit feature binding, and remove the Browser-local semantic row
    interfaces, guards, double-materialized `JsonElement` path, and any
    superseded internal `ListVocabulary` shape.
 

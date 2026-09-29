@@ -16,7 +16,10 @@ public static class VocabularyCommand
 
     public static int Execute(VocabularyOptions options)
     {
-        VocabularyDocument document = VocabularyCatalog.Document;
+        InspectionEnvelope<VocabularySnapshot> inspection =
+            ProductVocabularyInspection.Execute();
+        VocabularyDocument document =
+            VocabularyCatalog.ProjectDocument(inspection.Content);
         SectionCatalog<VocabularyDocument> catalog = VocabularySections.Catalog;
         DocumentSchema schema = CreateSchema(document);
         string[]? projectedColumns = ResolveProjectedColumns(options);

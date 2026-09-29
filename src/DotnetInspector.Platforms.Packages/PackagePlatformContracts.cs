@@ -70,6 +70,18 @@ public abstract class PackageReferencePopulationDemand
         public AssemblyReferenceIdentity Identity { get; }
     }
 
+    public sealed class AssemblyReferenceBinding :
+        PackageReferencePopulationDemand
+    {
+        public AssemblyReferenceBinding(AssemblyReferenceIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
+        }
+
+        public AssemblyReferenceIdentity Identity { get; }
+    }
+
     public sealed class CompletePopulation : PackageReferencePopulationDemand;
 }
 

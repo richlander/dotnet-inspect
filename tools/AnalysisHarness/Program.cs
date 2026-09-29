@@ -27,6 +27,11 @@ const string Usage =
           reference and verify their member+shape counts. This explicit mode uses the network
           when packages are not cached. Defaults to corpus/historical-performance-reference.json.
 
+      --implementation-metrics <System.Private.CoreLib.dll> [--iterations N] [--json]
+          Measure body-size-only, body-size-plus-sibling-relationships, and CompleteProfileV1
+          over the public System.Text.StringBuilder.AppendFormat family in one immutable image.
+          Reports elapsed time, allocated bytes, work receipts, and participating stages.
+
       --precision-sample <assembly> [--top N] [--json]
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
@@ -124,6 +129,7 @@ bool keep = false;
 bool list = false;
 string? recallAssembly = null;
 string? historicalPerformanceReference = null;
+string? implementationMetricAssembly = null;
 string? referenceFile = null;
 bool referenceFileSpecified = false;
 string? precisionAssembly = null;
@@ -168,6 +174,8 @@ bool topSpecified = false;
 bool topArgumentValid = true;
 int maxDepth = 4;
 bool maxDepthSpecified = false;
+int iterations = 20;
+bool iterationsSpecified = false;
 HashSet<string> selectedModes = [];
 List<string> missingValueOptions = [];
 string? numericArgumentError = null;
@@ -222,6 +230,14 @@ for (int i = 0; i < args.Length; i++)
                     AppContext.BaseDirectory,
                     "corpus",
                     "historical-performance-reference.json");
+            break;
+        case "--implementation-metrics":
+            selectedModes.Add("--implementation-metrics");
+            implementationMetricAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--implementation-metrics",
+                missingValueOptions);
             break;
         case "--precision-sample":
             selectedModes.Add("--precision-sample");
@@ -450,6 +466,16 @@ for (int i = 0; i < args.Length; i++)
                     "--max-depth requires a positive integer.";
             }
             break;
+        case "--iterations":
+            iterationsSpecified = true;
+            if (NextPathValue(args, ref i) is not { } iterationCount
+                || !int.TryParse(iterationCount, out iterations)
+                || iterations < 1)
+            {
+                numericArgumentError ??=
+                    "--iterations requires a positive integer.";
+            }
+            break;
         case "list":
             selectedModes.Add("--generated-fixtures");
             list = true;
@@ -564,6 +590,13 @@ if (maxDepthSpecified
             + "--recursive-traversal-census.");
     return 2;
 }
+if (iterationsSpecified
+    && !selectedModes.Contains("--implementation-metrics"))
+{
+    Console.Error.WriteLine(
+        "--iterations requires --implementation-metrics.");
+    return 2;
+}
 if (topSpecified
     && !selectedModes.Contains("--precision-sample")
     && !selectedModes.Contains("--clone-census")
@@ -607,6 +640,14 @@ if (recallAssembly is not null)
 if (historicalPerformanceReference is not null)
     return await HistoricalPerformanceRecall.RunAsync(
         historicalPerformanceReference);
+
+if (implementationMetricAssembly is not null)
+{
+    return ImplementationMetricPerformance.Run(
+        implementationMetricAssembly,
+        iterations,
+        json);
+}
 
 if (precisionAssembly is not null)
     return RunPrecision(precisionAssembly, top);

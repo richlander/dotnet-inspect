@@ -45,6 +45,7 @@ export interface TypeSummary {
   accessibility?: string;
   assembly: string;
   definitionId?: string;
+  platformPack?: string | null;
 }
 
 export interface MemberOverloadSummary {
@@ -197,6 +198,7 @@ export interface TypePanelPackageContext {
   id: string;
   version: string;
   activeFramework: string;
+  platformContextId?: string | null;
 }
 
 export interface TypeParameterSummary {
@@ -978,6 +980,8 @@ export function typeSourceSignature(
     packageContext.id,
     packageContext.version,
     packageContext.activeFramework,
+    packageContext.platformContextId ?? "",
+    item.platformPack ?? "",
     item.assembly,
     item.definitionId ?? item.id,
     view,
