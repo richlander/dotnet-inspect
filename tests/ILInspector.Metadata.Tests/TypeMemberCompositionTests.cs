@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -76,6 +77,66 @@ public sealed class TypeMemberCompositionTests
         Assert.Equal(
             all.Public + all.Protected + all.Internal + all.Private,
             all.Static + all.This + all.Extension);
+    }
+
+    [Fact]
+    public void JsonSerializer_ExtensionCountAgreesWithMethodGroupFilter()
+    {
+        MetadataTypeDefinitionName serializer =
+            Name("System.Text.Json", "JsonSerializer");
+        using var assembly = AssemblyInspectionSession.Open(PackageJsonPath);
+        using var declaration = assembly.CreateDeclarationSession(
+            new MetadataOperationContext(MetadataOperationPolicy.Unbounded));
+        MetadataTypeMemberComposition composition = Assert.IsType<
+                MetadataTypeMemberCompositionOutcome.Counted>(
+                declaration.InspectTypeMemberComposition(
+                    serializer,
+                    MetadataMemberSpelling.CSharp,
+                    includeHidden: false,
+                    MetadataMethodAccessibilityFilter.Public))
+            .Composition;
+
+        using var stream = File.OpenRead(PackageJsonPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(reader);
+        Assert.True(index.TryGetDefinitions(
+            serializer,
+            out ImmutableArray<TypeDefinitionHandle> definitions,
+            out bool ambiguous));
+        Assert.False(ambiguous);
+        TypeDefinition type = reader.GetTypeDefinition(Assert.Single(definitions));
+        string[] methodNames = type.GetMethods()
+            .Select(handle => reader.GetString(
+                reader.GetMethodDefinition(handle).Name))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        int filteredCount = 0;
+        foreach (string methodName in methodNames)
+        {
+            MetadataMethodGroupInspectionOutcome outcome =
+                declaration.InspectMethodGroup(
+                    serializer,
+                    methodName,
+                    startOrdinal: 0,
+                    maximumRows: 1,
+                    materializeRows: false,
+                    MetadataMethodAccessibilityFilter.Public,
+                    MetadataMethodReceiverFilter.Extension,
+                    includeHidden: false,
+                    maximumMembers: int.MaxValue,
+                    maximumRetainedTextCharacters: int.MaxValue);
+            if (outcome is MetadataMethodGroupInspectionOutcome.Read read)
+                filteredCount = checked(filteredCount + read.Count);
+            else
+                Assert.IsType<
+                    MetadataMethodGroupInspectionOutcome.MemberGroupNotFound>(
+                    outcome);
+        }
+
+        Assert.Equal(composition.Extension, filteredCount);
     }
 
     [Fact]
