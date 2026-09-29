@@ -872,6 +872,8 @@ let inspectPlatformMemberSource:
 let inspectTypeMemberSource:
   EngineClient["source"]["queryTypeMemberSource"];
 let inspectTypeSource: EngineClient["source"]["queryTypeSource"];
+let inspectPlatformTypeSource:
+  EngineClient["source"]["queryPlatformTypeSource"];
 let inspectTypeExplorer: EngineClient["source"]["queryTypeExplorer"];
 let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
@@ -1036,6 +1038,7 @@ async function loadEngineModule() {
       queryPlatformMemberSource: inspectPlatformMemberSource,
       queryTypeMemberSource: inspectTypeMemberSource,
       queryTypeSource: inspectTypeSource,
+      queryPlatformTypeSource: inspectPlatformTypeSource,
       queryTypeExplorer: inspectTypeExplorer,
     } = engineClient.source);
     ({
@@ -3309,15 +3312,26 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.metadataToken,
         request.taste,
         request.contextId),
-  queryTypeSource: (operationId, request) => inspectTypeSource(
-    operationId,
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.type,
-    request.taste,
-    request.view),
+  queryTypeSource: (operationId, request) => request.kind === "platform"
+    ? inspectPlatformTypeSource(
+        operationId,
+        request.framework,
+        request.version,
+        request.assembly,
+        request.pack,
+        request.type,
+        request.taste,
+        request.view,
+        request.contextId)
+    : inspectTypeSource(
+        operationId,
+        request.packageId,
+        request.version,
+        request.framework,
+        request.assembly,
+        request.type,
+        request.taste,
+        request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
     request.version,
@@ -17949,18 +17963,34 @@ async function loadSelectedTypeSource() {
   const pkg = currentPackage();
   const signature =
     typeSourceSignature(type, pkg, state.taste, memberRequestKey, state.typeSourceView);
-  return sourceInspection.loadTypeSource({
+  const selection = {
     signature,
-    packageId: pkg.id,
-    version: pkg.version,
-    framework: pkg.activeFramework,
-    assembly: type.assembly,
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
     view: state.typeSourceView,
     isVisible: () =>
       currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),
+  };
+  if (pkg.isRuntimePack) {
+    const row = platformLibraryForRequest(pkg, type.assemblyId);
+    return sourceInspection.loadTypeSource({
+      ...selection,
+      kind: "platform",
+      framework: pkg.activeFramework,
+      version: pkg.version,
+      assembly: platformAssemblyRequest(row),
+      pack: row.pack,
+      contextId: platformDemoContextIdFor(pkg),
+    });
+  }
+  return sourceInspection.loadTypeSource({
+    ...selection,
+    kind: "package",
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
   });
 }
 
