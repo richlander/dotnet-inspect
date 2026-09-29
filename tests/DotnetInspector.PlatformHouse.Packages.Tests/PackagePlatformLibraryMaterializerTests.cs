@@ -273,7 +273,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
 
     [Fact]
     public async Task
-        PackageImplementationManifestBytesConsumeAllowanceBeforeFallback()
+        PackageImplementationExactAbsenceChargesManifestsAndAllowsFallback()
     {
         const string version = "10.0.12";
         CancellationToken cancellationToken =
@@ -383,13 +383,16 @@ public sealed class PackagePlatformLibraryMaterializerTests
 
         Assert.IsType<
             PlatformHouseOutcome<
-                PlatformLibraryReference>.Incomplete>(
+                PlatformLibraryReference>.Unavailable>(
                     terminal.TerminalRealization.Outcome);
-        Assert.Equal(0, fallbackInvocations);
+        Assert.Equal(1, fallbackInvocations);
         PlatformHouseConsumedWork consumed =
             terminal.TerminalRealization.Outcome.Receipt.ConsumedWork;
-        Assert.Equal(1, consumed.Assemblies);
-        Assert.Equal(maximumBytes, consumed.Bytes);
+        Assert.Equal(0, consumed.Assemblies);
+        Assert.Equal(
+            runtimeConfiguration.LongLength
+                + dependencyManifest.LongLength,
+            consumed.Bytes);
         await environment.AssertSettledAsync();
     }
 

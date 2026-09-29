@@ -181,6 +181,18 @@ public sealed class PackagePlatformRealPackageTests
                             cancellationToken,
                             operationTimeout:
                                 request.Work.MaxDuration)));
+        Assert.Equal(
+            PackagePayloadOrigin.Ranged,
+            Assert.Single(implementation.Value.Frameworks).Origin);
+        Assert.Equal(
+            "System.Text.Json",
+            Assert.Single(implementation.Value.Libraries).Identity.Name);
+        Assert.Null(
+            store.TryGetCached(
+                PackagePlatformTestEnvironment
+                    .RuntimeImplementationPackageId,
+                PackagePlatformTestEnvironment.Version,
+                null));
         var consumed = new PlatformHouseConsumedWork(
             sourceOperations: implementation.Value.Frameworks.Length,
             targetCandidates: 0,

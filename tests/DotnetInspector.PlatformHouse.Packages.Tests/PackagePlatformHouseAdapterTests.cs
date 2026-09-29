@@ -790,7 +790,9 @@ public sealed class PackagePlatformHouseAdapterTests
         PackagePlatformHouseAdapter adapter = CreateAdapter(environment);
         PlatformHouseRequest request = ExactImplementationRequest(
             adapter,
-            new PlatformPopulationDemand.CompletePopulation(),
+            new PlatformPopulationDemand.Library(
+                new PlatformLibraryDemand.Assembly(
+                    PackagePlatformTestData.Identity(image))),
             TestContext.Current.CancellationToken);
 
         var result = Assert.IsType<
@@ -887,10 +889,9 @@ public sealed class PackagePlatformHouseAdapterTests
             PlatformSourceContributionKind.Unavailable,
             result.Contribution.Kind);
         Assert.NotNull(result.SourceWork);
-        Assert.Equal(1, result.SourceWork.Assemblies);
+        Assert.Equal(0, result.SourceWork.Assemblies);
         Assert.Equal(
-            image.LongLength
-            + runtimeConfiguration.LongLength
+            runtimeConfiguration.LongLength
             + dependencyManifest.LongLength,
             result.SourceWork.Bytes);
         await environment.AssertSettledAsync();
