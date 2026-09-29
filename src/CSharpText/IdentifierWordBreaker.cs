@@ -232,60 +232,115 @@ public static class IdentifierWordBreaker
         List<IdentifierWordSpan> destination)
     {
         List<RunUnit> units = CreateUnits(source, start, end);
-        var exactMatches = SelectExactMatches(source, units, oracle);
-        var exactCovered = new bool[units.Count];
-        foreach ((int matchStart, ExactMatch match) in exactMatches)
+        ImmutableArray<OracleSegment> selections =
+            SelectOracleMatches(source, units, oracle, out bool[] unitBoundaries);
+        var local = new List<IdentifierWordSpan>();
+        int unitIndex = 0;
+        int selectionIndex = 0;
+        while (unitIndex < units.Count)
         {
-            for (int covered = matchStart; covered < match.EndUnitExclusive; covered++)
-                exactCovered[covered] = true;
+            if (selectionIndex < selections.Length
+                && selections[selectionIndex].Start == units[unitIndex].Start)
+            {
+                int chainEnd = selections[selectionIndex].Start;
+                do
+                {
+                    OracleSegment selection = selections[selectionIndex];
+                    int selectionEnd = selection.Start + selection.Length;
+                    IdentifierWordRuleEvidence evidence =
+                        unitBoundaries[selection.Start]
+                        && unitBoundaries[selectionEnd]
+                            ? ExactOracleEvidence(selection.Entry)
+                            : new(
+                                IdentifierWordRuleKind.OracleSegmentation,
+                                selection.Entry.Text,
+                                selection.Entry.Kind);
+                    AddSpan(
+                        local,
+                        source,
+                        selection.Start,
+                        selection.Length,
+                        IdentifierWordSpanClassification.Word,
+                        evidence);
+                    chainEnd = selectionEnd;
+                    selectionIndex++;
+                }
+                while (selectionIndex < selections.Length
+                    && selections[selectionIndex].Start == chainEnd);
+
+                while (unitIndex < units.Count && units[unitIndex].End <= chainEnd)
+                    unitIndex++;
+                if (unitIndex > 0 && units[unitIndex - 1].End != chainEnd)
+                {
+                    throw new InvalidOperationException(
+                        "Oracle selection must end on a word-unit boundary.");
+                }
+                continue;
+            }
+
+            int nextSelectionStart = selectionIndex < selections.Length
+                ? selections[selectionIndex].Start
+                : end;
+            int unmatchedEnd = unitIndex;
+            while (unmatchedEnd < units.Count
+                && units[unmatchedEnd].Start < nextSelectionStart)
+            {
+                unmatchedEnd++;
+            }
+            ClassifyUnmatchedUnits(
+                source,
+                start,
+                end,
+                units,
+                unitIndex,
+                unmatchedEnd,
+                context,
+                local);
+            unitIndex = unmatchedEnd;
         }
 
-        for (int index = 0; index < units.Count; index++)
+        foreach (IdentifierWordSpan span in local)
+            AddSpan(destination, span);
+    }
+
+    static void ClassifyUnmatchedUnits(
+        string source,
+        int runStart,
+        int runEnd,
+        List<RunUnit> units,
+        int startUnit,
+        int endUnit,
+        IdentifierNumberedFamilyContext? context,
+        List<IdentifierWordSpan> destination)
+    {
+        if (startUnit == endUnit)
+            return;
+
+        for (int index = startUnit; index < endUnit; index++)
         {
-            if (units[index].Kind != RunUnitKind.Digits || exactCovered[index])
-                continue;
-            if (index != units.Count - 1
-                && !IsCoveredByOpaqueOracleSegmentation(
-                    source,
-                    units,
-                    index,
-                    exactCovered,
-                    oracle))
+            if (units[index].Kind == RunUnitKind.Digits
+                && index != units.Count - 1)
             {
                 AddSpan(
                     destination,
                     source,
-                    start,
-                    end - start,
+                    units[startUnit].Start,
+                    units[endUnit - 1].End - units[startUnit].Start,
                     IdentifierWordSpanClassification.Unresolved,
                     new(IdentifierWordRuleKind.UnsupportedLetterDigitShape));
                 return;
             }
         }
 
-        var local = new List<IdentifierWordSpan>();
-        int unitIndex = 0;
-        while (unitIndex < units.Count)
+        int unitIndex = startUnit;
+        while (unitIndex < endUnit)
         {
-            if (exactMatches.TryGetValue(unitIndex, out ExactMatch match))
-            {
-                AddSpan(
-                    local,
-                    source,
-                    units[unitIndex].Start,
-                    units[match.EndUnitExclusive - 1].End - units[unitIndex].Start,
-                    IdentifierWordSpanClassification.Word,
-                    ExactOracleEvidence(match.Entry));
-                unitIndex = match.EndUnitExclusive;
-                continue;
-            }
-
             RunUnit unit = units[unitIndex];
             switch (unit.Kind)
             {
                 case RunUnitKind.Ordinary:
                     AddSpan(
-                        local,
+                        destination,
                         source,
                         unit.Start,
                         unit.Length,
@@ -296,7 +351,7 @@ public static class IdentifierWordBreaker
 
                 case RunUnitKind.SingleUppercase:
                     AddSpan(
-                        local,
+                        destination,
                         source,
                         unit.Start,
                         unit.Length,
@@ -306,95 +361,63 @@ public static class IdentifierWordBreaker
                     break;
 
                 case RunUnitKind.OpaqueUppercase:
-                    int clusterEndUnit = unitIndex + 1;
-                    ImmutableArray<OracleSegment> segmentation;
-                    if (clusterEndUnit < units.Count
-                        && units[clusterEndUnit].Kind == RunUnitKind.Digits)
-                    {
-                        RunUnit digits = units[clusterEndUnit];
-                        segmentation = FindOracleSegmentation(
-                            source.AsSpan(unit.Start, digits.End - unit.Start),
-                            oracle);
-                        if (!segmentation.IsDefaultOrEmpty)
-                        {
-                            clusterEndUnit++;
-                        }
-                        else if (!IsNumberedFamilyOrdinal(
+                    if (unitIndex + 1 < endUnit
+                        && unitIndex + 1 == units.Count - 1
+                        && units[unitIndex + 1].Kind == RunUnitKind.Digits
+                        && !IsNumberedFamilyOrdinal(
                             source,
-                            start,
-                            end,
-                            digits,
+                            runStart,
+                            runEnd,
+                            units[unitIndex + 1],
                             context))
-                        {
-                            clusterEndUnit++;
-                        }
-                        else
-                        {
-                            segmentation = FindOracleSegmentation(
-                                source.AsSpan(unit.Start, unit.Length),
-                                oracle);
-                        }
-                    }
-                    else
                     {
-                        segmentation = FindOracleSegmentation(
-                            source.AsSpan(unit.Start, unit.Length),
-                            oracle);
-                    }
-
-                    int clusterEnd = units[clusterEndUnit - 1].End;
-                    if (segmentation.IsDefaultOrEmpty)
-                    {
+                        RunUnit digits = units[unitIndex + 1];
                         AddSpan(
-                            local,
+                            destination,
                             source,
                             unit.Start,
-                            clusterEnd - unit.Start,
+                            digits.End - unit.Start,
                             IdentifierWordSpanClassification.Unresolved,
                             new(IdentifierWordRuleKind.UnknownUppercaseRun));
+                        unitIndex += 2;
                     }
                     else
                     {
-                        foreach (OracleSegment segment in segmentation)
-                        {
-                            AddSpan(
-                                local,
-                                source,
-                                unit.Start + segment.Start,
-                                segment.Length,
-                                IdentifierWordSpanClassification.Word,
-                                new(
-                                    IdentifierWordRuleKind.OracleSegmentation,
-                                    segment.Entry.Text,
-                                    segment.Entry.Kind));
-                        }
+                        AddSpan(
+                            destination,
+                            source,
+                            unit.Start,
+                            unit.Length,
+                            IdentifierWordSpanClassification.Unresolved,
+                            new(IdentifierWordRuleKind.UnknownUppercaseRun));
+                        unitIndex++;
                     }
-                    unitIndex = clusterEndUnit;
                     break;
 
                 case RunUnitKind.Digits:
                     bool numberedFamily = IsNumberedFamilyOrdinal(
                         source,
-                        start,
-                        end,
+                        runStart,
+                        runEnd,
                         unit,
                         context);
                     if (numberedFamily)
                     {
                         AddSpan(
-                            local,
+                            destination,
                             source,
                             unit.Start,
                             unit.Length,
                             IdentifierWordSpanClassification.Ordinal,
                             new(IdentifierWordRuleKind.NumberedFamilyOrdinal));
                     }
-                    else if (local.Count > 0
-                        && local[^1].Classification == IdentifierWordSpanClassification.Word
-                        && local[^1].Start + local[^1].Length == unit.Start)
+                    else if (destination.Count > 0
+                        && destination[^1].Classification
+                            == IdentifierWordSpanClassification.Word
+                        && destination[^1].Start + destination[^1].Length == unit.Start)
                     {
-                        IdentifierWordSpan word = local[^1];
-                        local[^1] = new IdentifierWordSpan(
+                        IdentifierWordSpan word = destination[^1];
+                        destination[^1] = new IdentifierWordSpan(
                             word.Start,
                             unit.End - word.Start,
                             source[word.Start..unit.End],
@@ -404,7 +427,7 @@ public static class IdentifierWordBreaker
                     else
                     {
                         AddSpan(
-                            local,
+                            destination,
                             source,
                             unit.Start,
                             unit.Length,
@@ -415,31 +438,6 @@ public static class IdentifierWordBreaker
                     break;
             }
         }
-
-        foreach (IdentifierWordSpan span in local)
-            AddSpan(destination, span);
-    }
-
-    static bool IsCoveredByOpaqueOracleSegmentation(
-        string source,
-        List<RunUnit> units,
-        int digitIndex,
-        bool[] exactCovered,
-        IdentifierWordOracle oracle)
-    {
-        if (digitIndex == 0
-            || units[digitIndex - 1].Kind != RunUnitKind.OpaqueUppercase
-            || exactCovered[digitIndex - 1])
-        {
-            return false;
-        }
-
-        RunUnit opaque = units[digitIndex - 1];
-        RunUnit digits = units[digitIndex];
-        return !FindOracleSegmentation(
-                source.AsSpan(opaque.Start, digits.End - opaque.Start),
-                oracle)
-            .IsDefaultOrEmpty;
     }
 
     static bool IsNumberedFamilyOrdinal(
@@ -584,41 +582,42 @@ public static class IdentifierWordBreaker
             kind));
     }
 
-    static Dictionary<int, ExactMatch> SelectExactMatches(
+    static ImmutableArray<OracleSegment> SelectOracleMatches(
         string source,
         List<RunUnit> units,
-        IdentifierWordOracle oracle)
+        IdentifierWordOracle oracle,
+        out bool[] unitBoundaries)
     {
-        var paths = new ExactMatchPath?[units.Count + 1];
-        paths[units.Count] = new ExactMatchPath(0, []);
+        bool[] allowedBoundaries = CreateOracleBoundaries(
+            source,
+            units,
+            out unitBoundaries);
+        var paths = new OracleSelectionPath?[units.Count + 1];
+        paths[units.Count] = new OracleSelectionPath(0, []);
         for (int index = units.Count - 1; index >= 0; index--)
         {
-            ExactMatchPath best = paths[index + 1]!;
-            foreach (IdentifierWordOracleEntry entry in oracle.Entries)
+            OracleSelectionPath best = paths[index + 1]!;
+            int selectionStart = units[index].Start;
+            SegmentationPath?[] segmentations = FindOracleSegmentations(
+                source,
+                selectionStart,
+                units[^1].End,
+                allowedBoundaries,
+                oracle);
+            for (int endUnit = index + 1; endUnit <= units.Count; endUnit++)
             {
-                int endOffset = units[index].Start + entry.Text.Length;
-                if (endOffset > units[^1].End
-                    || !source.AsSpan(units[index].Start, entry.Text.Length)
-                        .SequenceEqual(entry.Text))
-                {
-                    continue;
-                }
-
-                int endUnit = index;
-                while (endUnit < units.Count && units[endUnit].End < endOffset)
-                    endUnit++;
-                if (endUnit == units.Count || units[endUnit].End != endOffset)
+                int selectionEnd = units[endUnit - 1].End;
+                if (segmentations[selectionEnd - selectionStart]
+                    is not { } segmentation)
                     continue;
 
-                int endExclusive = endUnit + 1;
-                var match = new ExactMatch(endExclusive, entry.Text.Length, entry);
-                ExactMatchPath tail = paths[endExclusive]!;
-                var selections = ImmutableArray.CreateBuilder<ExactMatchSelection>(
-                    tail.Selections.Length + 1);
-                selections.Add(new ExactMatchSelection(index, match));
+                OracleSelectionPath tail = paths[endUnit]!;
+                var selections = ImmutableArray.CreateBuilder<OracleSegment>(
+                    segmentation.Segments.Length + tail.Selections.Length);
+                selections.AddRange(segmentation.Segments);
                 selections.AddRange(tail.Selections);
-                var candidate = new ExactMatchPath(
-                    entry.Text.Length + tail.CoveredLength,
+                var candidate = new OracleSelectionPath(
+                    selectionEnd - selectionStart + tail.CoveredLength,
                     selections.MoveToImmutable());
                 if (IsBetter(candidate, best))
                     best = candidate;
@@ -626,12 +625,89 @@ public static class IdentifierWordBreaker
             paths[index] = best;
         }
 
-        return paths[0]!.Selections.ToDictionary(
-            static selection => selection.StartUnit,
-            static selection => selection.Match);
+        return paths[0]!.Selections;
     }
 
-    static bool IsBetter(ExactMatchPath candidate, ExactMatchPath current)
+    static bool[] CreateOracleBoundaries(
+        string source,
+        List<RunUnit> units,
+        out bool[] unitBoundaries)
+    {
+        var allowed = new bool[source.Length + 1];
+        unitBoundaries = new bool[source.Length + 1];
+        foreach (RunUnit unit in units)
+        {
+            allowed[unit.Start] = true;
+            allowed[unit.End] = true;
+            unitBoundaries[unit.Start] = true;
+            unitBoundaries[unit.End] = true;
+            if (unit.Kind != RunUnitKind.OpaqueUppercase)
+                continue;
+
+            int offset = unit.Start;
+            while (offset < unit.End)
+            {
+                allowed[offset] = true;
+                Rune.DecodeFromUtf16(
+                    source.AsSpan(offset),
+                    out _,
+                    out int consumed);
+                offset += consumed;
+                while (offset < unit.End)
+                {
+                    Rune.DecodeFromUtf16(
+                        source.AsSpan(offset),
+                        out Rune mark,
+                        out int markLength);
+                    if (!IsCombiningMark(Rune.GetUnicodeCategory(mark)))
+                        break;
+                    offset += markLength;
+                }
+                allowed[offset] = true;
+            }
+        }
+        return allowed;
+    }
+
+    static SegmentationPath?[] FindOracleSegmentations(
+        string source,
+        int start,
+        int end,
+        bool[] allowedBoundaries,
+        IdentifierWordOracle oracle)
+    {
+        var paths = new SegmentationPath?[end - start + 1];
+        paths[0] = new SegmentationPath([]);
+        for (int offset = start; offset < end; offset++)
+        {
+            if (paths[offset - start] is not { } current)
+                continue;
+
+            foreach (IdentifierWordOracleEntry entry in oracle.Entries)
+            {
+                int next = offset + entry.Text.Length;
+                if (next > end
+                    || !allowedBoundaries[next]
+                    || !source.AsSpan(offset, entry.Text.Length)
+                        .SequenceEqual(entry.Text))
+                {
+                    continue;
+                }
+
+                var segments = ImmutableArray.CreateBuilder<OracleSegment>(
+                    current.Segments.Length + 1);
+                segments.AddRange(current.Segments);
+                segments.Add(new OracleSegment(offset, entry.Text.Length, entry));
+                var candidate = new SegmentationPath(segments.MoveToImmutable());
+                ref SegmentationPath? best = ref paths[next - start];
+                if (best is null || IsBetter(candidate, best))
+                    best = candidate;
+            }
+        }
+        return paths;
+    }
+
+    static bool IsBetter(OracleSelectionPath candidate, OracleSelectionPath current)
     {
         if (candidate.CoveredLength != current.CoveredLength)
             return candidate.CoveredLength > current.CoveredLength;
@@ -640,50 +716,20 @@ public static class IdentifierWordBreaker
 
         for (int i = 0; i < candidate.Selections.Length; i++)
         {
-            ExactMatchSelection selection = candidate.Selections[i];
-            ExactMatchSelection currentSelection = current.Selections[i];
-            if (selection.StartUnit != currentSelection.StartUnit)
-                return selection.StartUnit < currentSelection.StartUnit;
-            if (selection.Match.Length != currentSelection.Match.Length)
-                return selection.Match.Length > currentSelection.Match.Length;
+            OracleSegment selection = candidate.Selections[i];
+            OracleSegment currentSelection = current.Selections[i];
+            if (selection.Start != currentSelection.Start)
+                return selection.Start < currentSelection.Start;
+            if (selection.Length != currentSelection.Length)
+                return selection.Length > currentSelection.Length;
 
             int spelling = string.CompareOrdinal(
-                selection.Match.Entry.Text,
-                currentSelection.Match.Entry.Text);
+                selection.Entry.Text,
+                currentSelection.Entry.Text);
             if (spelling != 0)
                 return spelling < 0;
         }
         return false;
-    }
-
-    static ImmutableArray<OracleSegment> FindOracleSegmentation(
-        ReadOnlySpan<char> text,
-        IdentifierWordOracle oracle)
-    {
-        SegmentationPath?[] paths = new SegmentationPath?[text.Length + 1];
-        paths[text.Length] = new SegmentationPath([]);
-        for (int offset = text.Length - 1; offset >= 0; offset--)
-        {
-            SegmentationPath? best = null;
-            foreach (IdentifierWordOracleEntry entry in oracle.Entries)
-            {
-                if (!text[offset..].StartsWith(entry.Text, StringComparison.Ordinal))
-                    continue;
-                int next = offset + entry.Text.Length;
-                if (next > text.Length || paths[next] is not { } tail)
-                    continue;
-
-                var segments = ImmutableArray.CreateBuilder<OracleSegment>(
-                    tail.Segments.Length + 1);
-                segments.Add(new OracleSegment(offset, entry.Text.Length, entry));
-                segments.AddRange(tail.Segments);
-                var candidate = new SegmentationPath(segments.MoveToImmutable());
-                if (best is null || IsBetter(candidate, best))
-                    best = candidate;
-            }
-            paths[offset] = best;
-        }
-        return paths[0]?.Segments ?? [];
     }
 
     static bool IsBetter(SegmentationPath candidate, SegmentationPath current)
@@ -835,18 +881,9 @@ public static class IdentifierWordBreaker
         public int Length => End - Start;
     }
 
-    readonly record struct ExactMatch(
-        int EndUnitExclusive,
-        int Length,
-        IdentifierWordOracleEntry Entry);
-
-    readonly record struct ExactMatchSelection(
-        int StartUnit,
-        ExactMatch Match);
-
-    sealed record ExactMatchPath(
+    sealed record OracleSelectionPath(
         int CoveredLength,
-        ImmutableArray<ExactMatchSelection> Selections);
+        ImmutableArray<OracleSegment> Selections);
 
     readonly record struct OracleSegment(
         int Start,

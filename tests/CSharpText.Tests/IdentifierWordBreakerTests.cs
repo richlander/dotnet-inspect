@@ -83,6 +83,28 @@ public sealed class IdentifierWordBreakerTests
                 span.Evidence.Kind));
     }
 
+    [Fact]
+    public void Break_CompleteSegmentationPrecedesUnitAlignedAtomAndOrdinal()
+    {
+        IdentifierWordOracle oracle = NewOracle(
+            Atom("AB"),
+            Atom("ABC"),
+            Compound("C1"));
+        IdentifierNumberedFamilyContext context = NewContext(
+            "ABC1",
+            "ABC2",
+            "ABC3");
+
+        IdentifierWordBreakResult result = Break("ABC1", oracle, context);
+
+        Assert.Equal(["AB", "C1"], result.Spans.Select(static span => span.Text));
+        Assert.All(
+            result.Spans,
+            static span => Assert.Equal(
+                IdentifierWordRuleKind.OracleSegmentation,
+                span.Evidence.Kind));
+    }
+
     [Theory]
     [InlineData("RSAPKCS1SignatureFormatter", "RSA|PKCS1|Signature|Formatter")]
     [InlineData("HMACSHA256Provider", "HMAC|SHA256|Provider")]
@@ -176,6 +198,26 @@ public sealed class IdentifierWordBreakerTests
         IdentifierWordBreakResult result = Break("AB1CD2EF3GH4", oracle);
 
         Assert.Equal(["AB1", "CD2EF3GH4"], result.Spans.Select(static span => span.Text));
+    }
+
+    [Fact]
+    public void Break_OracleRankingIncludesOpaqueInternalBoundariesAcrossUnits()
+    {
+        IdentifierWordOracle oracle = NewOracle(
+            Atom("AB"),
+            Compound("C1D2E3"),
+            Compound("ABC1"),
+            Compound("D2"),
+            Compound("E3"));
+
+        IdentifierWordBreakResult result = Break("ABC1D2E3", oracle);
+
+        Assert.Equal(["AB", "C1D2E3"], result.Spans.Select(static span => span.Text));
+        Assert.All(
+            result.Spans,
+            static span => Assert.Equal(
+                IdentifierWordRuleKind.OracleSegmentation,
+                span.Evidence.Kind));
     }
 
     [Fact]
@@ -294,6 +336,31 @@ public sealed class IdentifierWordBreakerTests
 
         Assert.Equal(expectedText, span.Text);
         Assert.Equal(expectedRule, span.Evidence.Kind);
+    }
+
+    [Theory]
+    [InlineData("IPv6Log4Net", "IPv6", "Log4Net")]
+    [InlineData("Log4NetIPv6", "Log4Net", "IPv6")]
+    public void Break_UnsupportedDigitShapeDoesNotEraseProtectedCompound(
+        string text,
+        string first,
+        string second)
+    {
+        IdentifierWordBreakResult result = Break(text);
+
+        Assert.Equal([first, second], result.Spans.Select(static span => span.Text));
+        IdentifierWordSpan protectedSpan = Assert.Single(
+            result.Spans,
+            static span => span.Text == "IPv6");
+        Assert.Equal(
+            IdentifierWordRuleKind.ExactOracleCompound,
+            protectedSpan.Evidence.Kind);
+        IdentifierWordSpan unresolvedSpan = Assert.Single(
+            result.Spans,
+            static span => span.Text == "Log4Net");
+        Assert.Equal(
+            IdentifierWordRuleKind.UnsupportedLetterDigitShape,
+            unresolvedSpan.Evidence.Kind);
     }
 
     [Fact]
