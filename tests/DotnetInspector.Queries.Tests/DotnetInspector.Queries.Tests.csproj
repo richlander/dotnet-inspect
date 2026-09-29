@@ -45,6 +45,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Metadata.LegacyOracles\ILInspector.Metadata.LegacyOracles.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Source\DotnetInspector.DocumentationHouse.Source.csproj" />

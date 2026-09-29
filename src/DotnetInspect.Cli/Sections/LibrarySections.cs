@@ -76,7 +76,7 @@ public static class LibrarySections
             .Add<LibraryInfo>(
                 [
                     AssemblyReferencesQuery.Definition,
-                    ClassifiedMethodsQuery.Definition,
+                    MethodClassificationDemand.LibraryInfo,
                     CustomAttributesQuery.Definition,
                     ExtensionMethodsQuery.Definition,
                     ResourcesQuery.Definition,
@@ -108,7 +108,7 @@ public static class LibrarySections
                 [
                     AssemblyReferencesQuery.Definition,
                     AuditMetadataQuery.Definition,
-                    ClassifiedMethodsQuery.Definition,
+                    MethodClassificationDemand.Signals,
                 ],
                 HasAssemblyInfo)
             .Add<IdentifierConfusion>(AssemblyReferencesQuery.Definition)
@@ -170,8 +170,8 @@ public static class LibrarySections
             .Add<ArrayPoolEscapes>(
                 ResourceTriageQuery.Definition,
                 HasMethodBodies)
-            .Add<PInvokeMethods>(ClassifiedMethodsQuery.Definition)
-            .Add<AsyncMethods>(ClassifiedMethodsQuery.Definition)
+            .Add<PInvokeMethods>(MethodClassificationDemand.PInvokeMethods)
+            .Add<AsyncMethods>(MethodClassificationDemand.AsyncMethods)
             .Add<Resources>(ResourcesQuery.Definition)
             .Add<CustomAttributes>(CustomAttributesQuery.Definition)
             .Add<UnionTypes>(UnionTypesQuery.Definition)
@@ -292,10 +292,16 @@ public static class LibrarySections
                 ctx.Query(
                     AuditMetadataQuery.Execute,
                     ex => new AuditMetadataResult.Failed(ex)))
-            .Add(ClassifiedMethodsQuery.Definition, ctx =>
-                ctx.Query(
-                    ClassifiedMethodsQuery.Execute,
-                    ex => new ClassifiedMethodsResult.Failed(ex)))
+            .Add(MethodClassificationDemand.LibraryInfo, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.LibraryInfo))
+            .Add(MethodClassificationDemand.Signals, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.Signals))
+            .Add(MethodClassificationDemand.AsyncMethods, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.AsyncMethods))
+            .Add(MethodClassificationDemand.PInvokeMethods, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.PInvokeMethods))
+            .Add(MethodClassificationDemand.ModelCounts, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.ModelCounts))
             .Add(CustomAttributesQuery.Definition, ctx =>
                 ctx.Scan(
                     CustomAttributesQuery.Execute,
@@ -1156,8 +1162,8 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
-            => model.ClassifiedMethodInspection.Failure() is null
-               && (model.PInvokeMethodCount > 0 || model.HasPInvokeImports);
+            => model.MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null
+               && (model.HasPInvokeMethods || model.HasPInvokeImports);
     }
 
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
@@ -1166,8 +1172,8 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
-            => model.ClassifiedMethodInspection.Failure() is null
-               && (model.AsyncMethodCount > 0
+            => model.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null
+               && (model.HasAsyncMethods
                    || model.HasRuntimeAsync || model.HasStateMachineAsync);
     }
 
